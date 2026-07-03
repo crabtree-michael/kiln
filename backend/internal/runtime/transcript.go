@@ -34,7 +34,7 @@ type MessageStore interface {
 	// human.message event {text} in one transaction (07 §3 — user decision:
 	// the transcript and the event queue cannot disagree). Backs the
 	// runtime's PostMessage and, through it, POST /api/message (07 §4).
-	AppendUserMessageAndEnqueueEvent(ctx context.Context, text string) (messageID int64, eventID int64, err error)
+	AppendUserMessageAndEnqueueEvent(ctx context.Context, text string) (messageID, eventID int64, err error)
 
 	// AppendKilnMessage appends one kiln-authored row (07 §3): the first
 	// half of the Say port, called by Service.Say before the SSE push.

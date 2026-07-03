@@ -6,33 +6,26 @@ package main
 // brain.Service, agent.Service, and runtime.Service meet. Two kinds of seam
 // show up below:
 //
-//   - Direct satisfaction: some ports match a service's method set exactly
-//     (same param/return types, only primitives or shared named types
-//     involved), so the concrete *xxx.Service is injected with no adapter at
-//     all. Already asserted at the producing end: *board.Service satisfies
-//     brain.BoardAPI/BoardReader (internal/brain/ports.go) and
-//     runtime.Puller (RunPull); *agent.Service satisfies runtime.AgentRuntime
-//     (Send/Release); *api.Hub satisfies runtime.SnapshotPusher/SayPusher;
-//     *runtime.Service satisfies api.MessagePoster/MessagesReader and
-//     brain.Say.
+//   - Direct satisfaction: some ports match a service's method set exactly, so
+//     the concrete *xxx.Service is injected with no adapter at all —
+//     *board.Service satisfies brain.BoardAPI/BoardReader and runtime.Puller;
+//     *agent.Service satisfies runtime.AgentRuntime; *api.Hub satisfies
+//     runtime.SnapshotPusher/SayPusher; *runtime.Service satisfies
+//     api.MessagePoster/MessagesReader and brain.Say.
 //   - Adapted satisfaction: the port and the service disagree on a type even
 //     though the operation is the same — an outer module's own named Event
 //     type vs. runtime's, board's typed (Ticket, error) return vs. runtime's
 //     bare error, a plain string vs. a named EventType. Each such pair gets a
-//     one-method wrapper below. Bodies are scaffold stubs (errNotImplemented)
-//     — the real conversions are the solution phase's job — but every
-//     wrapper's signature is asserted at compile time against the port it
-//     fills, so the wiring shape itself is already checked by `go build`.
+//     one-method wrapper below.
 //
-// See the package doc (main.go) for the one open composition problem these
-// adapters don't solve yet: runtime.Service needs a Brain (backed by
-// brain.Service) and brain.Service needs a Say + ConversationReader (backed
-// by runtime.Service) — a genuine construction cycle, left for the solution
-// phase.
+// Two of these adapters also break the construction cycles (main.go's package
+// doc): brainAdapter.inner and agentEventAdapter.rt are filled *after* the
+// service they point at is built, so neither service needs to exist before the
+// other — late binding through the adapter, no setter on any Service.
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -42,91 +35,110 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
 
-// errNotImplemented marks scaffold stubs in this package; see
-// docs/specs/04-runtime-and-api.md §8 (the composition root).
-var errNotImplemented = errors.New("kiln: not implemented (scaffold)")
-
 // brainAdapter satisfies runtime.Brain over *brain.Service (04 §2 Brain
-// port). The only mismatch is Event: runtime's own type vs. brain's own type
-// (both mirror the same two 01 event kinds by value — neither module imports
-// the other, brain/doc.go's no-runtime-import rule). The real body maps
-// field-for-field (ID, Type, Payload, CreatedAt) and calls inner.HandleEvent.
+// port), mapping runtime.Event → brain.Event field-for-field. inner is set
+// after brain.Service is constructed, resolving the runtime↔brain cycle.
 type brainAdapter struct{ inner *brain.Service }
 
 func (a *brainAdapter) HandleEvent(ctx context.Context, ev runtime.Event) error {
-	return errNotImplemented
+	if err := a.inner.HandleEvent(ctx, brain.Event{
+		ID:        ev.ID,
+		Type:      brain.EventType(ev.Type),
+		Payload:   ev.Payload,
+		CreatedAt: ev.CreatedAt,
+	}); err != nil {
+		return fmt.Errorf("kiln: brain handle event: %w", err)
+	}
+	return nil
 }
 
 var _ runtime.Brain = (*brainAdapter)(nil)
 
 // blockerAdapter satisfies runtime.Blocker over *board.Service (04 §2
-// Blocker port; 03 §7.3's mechanical failure path). Board's MarkBlocked
-// takes a board.TicketID and returns (Ticket, error); the port wants a
-// plain-string id and a bare error. The real body converts the id and
-// discards the returned Ticket.
+// Blocker port; 03 §7.3's mechanical failure path): convert the id and drop
+// the returned Ticket.
 type blockerAdapter struct{ inner *board.Service }
 
 func (a *blockerAdapter) MarkBlocked(ctx context.Context, ticketID, reason string) error {
-	return errNotImplemented
+	if _, err := a.inner.MarkBlocked(ctx, board.TicketID(ticketID), reason); err != nil {
+		return fmt.Errorf("kiln: mark blocked: %w", err)
+	}
+	return nil
 }
 
 var _ runtime.Blocker = (*blockerAdapter)(nil)
 
 // agentEventAdapter satisfies agent.EventEnqueuer over *runtime.Service
-// (05 §2.2's inbound seam). The agent module's port takes a plain string
-// eventType (so it need not import runtime — mirroring brain's rule); the
-// real body wraps it as runtime.EventType and calls EnqueueEvent.
+// (05 §2.2's inbound seam): wrap the plain-string event type as
+// runtime.EventType. rt is set after runtime.Service is constructed,
+// resolving the runtime↔agent cycle.
 type agentEventAdapter struct{ rt *runtime.Service }
 
 func (a *agentEventAdapter) EnqueueEvent(ctx context.Context, eventType string, payload []byte) (int64, error) {
-	return 0, errNotImplemented
+	id, err := a.rt.EnqueueEvent(ctx, runtime.EventType(eventType), payload)
+	if err != nil {
+		return 0, fmt.Errorf("kiln: enqueue event: %w", err)
+	}
+	return id, nil
 }
 
 var _ agent.EventEnqueuer = (*agentEventAdapter)(nil)
 
 // convoAdapter satisfies brain.ConversationReader over *runtime.Service
-// (06 §3.2, 07 §3). runtime.Message and brain.Message are structurally
-// identical but distinct named types (same no-cross-import rule); the real
-// body calls rt.Recent and maps Role/Text/CreatedAt -> Role/Text/At.
+// (06 §3.2, 07 §3): call rt.Recent and map runtime.Message → brain.Message.
 type convoAdapter struct{ rt *runtime.Service }
 
 func (a *convoAdapter) Recent(ctx context.Context, n int) ([]brain.Message, error) {
-	return nil, errNotImplemented
+	msgs, err := a.rt.Recent(ctx, n)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: read transcript: %w", err)
+	}
+	out := make([]brain.Message, len(msgs))
+	for i, m := range msgs {
+		out[i] = brain.Message{Role: brain.MessageRole(m.Role), Text: m.Text, At: m.CreatedAt}
+	}
+	return out, nil
 }
 
 var _ brain.ConversationReader = (*convoAdapter)(nil)
 
-// slotsAdapter satisfies agent.Slots (05 §4's reconciler read of board
-// capacity slot ids). Flagged, not just stubbed: board.Service (03 §4)
-// currently exposes only the aggregate WorkerTotal/WorkerFree via GetBoard,
-// no per-slot id listing — closing that gap (a board API addition, out of
-// this module's scaffold scope) is an open question for the solution phase.
-type slotsAdapter struct{ board *board.Service }
+// workerLister is the concrete board capacity-slot read the composition root
+// backs agent.Slots with (05 §4). Satisfied by *board/postgres.Store's
+// WorkerIDs — a concrete adapter helper like ReconcileWorkers, not part of
+// board.Store, so the workers table stays board-owned (03 I8).
+type workerLister interface {
+	WorkerIDs(ctx context.Context) ([]string, error)
+}
+
+// slotsAdapter satisfies agent.Slots over the board store's WorkerIDs read.
+type slotsAdapter struct{ store workerLister }
 
 func (a *slotsAdapter) WorkerIDs(ctx context.Context) ([]string, error) {
-	return nil, errNotImplemented
+	ids, err := a.store.WorkerIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list worker ids: %w", err)
+	}
+	return ids, nil
 }
 
 var _ agent.Slots = (*slotsAdapter)(nil)
 
 // logNotifier satisfies runtime.Notifier (02 §10 executor for notify.send).
 // v1 descope (07 §6): a structured log line, no real push — the outbox
-// contract is unchanged, so 10 swaps this adapter for a real one and
-// nothing else. The real body logs the payload (topic/ticket/reason) and
-// returns nil unconditionally — a log line cannot fail, and "a rare
-// duplicate notification is accepted as benign" (04 §3) applies trivially.
+// contract is unchanged, so 10 swaps this adapter for a real one and nothing
+// else. A log line cannot fail, and "a rare duplicate notification is accepted
+// as benign" (04 §3) applies trivially.
 type logNotifier struct{ log *slog.Logger }
 
-func (n *logNotifier) Send(ctx context.Context, payload []byte) error {
-	return errNotImplemented
+func (n *logNotifier) Send(_ context.Context, payload []byte) error {
+	n.log.Info("notify.send", "payload", string(payload))
+	return nil
 }
 
 var _ runtime.Notifier = (*logNotifier)(nil)
 
 // realClock is the wall-clock Clock both runtime (04 §9) and agent (05 §10)
-// want, satisfying both ports with the same value — mechanical, so
-// implemented for real rather than stubbed, the same call the skill makes
-// for Worker.Nudge.
+// want, satisfying both ports with the same value.
 type realClock struct{}
 
 func (realClock) Now() time.Time                         { return time.Now() }

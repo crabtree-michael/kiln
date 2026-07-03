@@ -8,14 +8,23 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
 
-// errNotImplemented marks scaffold stubs; see docs/specs/04-runtime-and-api.md.
-var errNotImplemented = errors.New("runtime/postgres: not implemented (scaffold)")
+// errUnknownQueue guards the table/query lookups against a queue name outside
+// the two the runtime knows (04 §2) — a programming error, surfaced loudly.
+var errUnknownQueue = errors.New("runtime/postgres: unknown queue")
+
+// humanMessagePayload is the human.message event payload {text} (07 §4),
+// written alongside the user transcript row in one transaction.
+type humanMessagePayload struct {
+	Text string `json:"text"`
+}
 
 // Store implements runtime.Store and runtime.MessageStore over Postgres.
 type Store struct {
@@ -31,26 +40,143 @@ var (
 // startup.
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
+// queueSQL holds the four delivery-state statements for one queue. The claim
+// statement atomically selects the next due row (FOR UPDATE SKIP LOCKED),
+// increments its attempts, and pushes next_attempt_at forward by the backoff
+// (04 §3 step 1 + D8's schema, min(1s×2^(attempts−1),60s)) in a single
+// UPDATE … RETURNING — no separate claim transaction is needed. Pushing the
+// due time acts as the visibility timeout: a claimed-but-unmarked row (a
+// crash between claim and mark, 04 §5) is not re-claimed until its backoff
+// elapses, and the serial worker always marks it well before then. On success
+// MarkDone flips status; on failure MarkRetry re-sets the exact due time. The
+// kind column differs per queue (events.type vs outbox.topic) but is aliased
+// so ClaimNextDue scans uniformly.
+//
+// power(2, attempts) reads the pre-update attempts (0 for a fresh row), which
+// equals 2^(new_attempts−1) — the D8 schedule — capped at 60s by least().
+type queueSQL struct {
+	claim     string
+	markDone  string
+	markRetry string
+	markDead  string
+}
+
+var queueSQLByName = map[runtime.QueueName]queueSQL{
+	runtime.QueueEvents: {
+		claim: `UPDATE events SET
+				attempts = attempts + 1,
+				next_attempt_at = now() + least(power(2, attempts)::bigint, 60) * interval '1 second'
+			WHERE id = (
+				SELECT id FROM events
+				WHERE status = 'pending' AND next_attempt_at <= now()
+				ORDER BY id
+				FOR UPDATE SKIP LOCKED
+				LIMIT 1
+			)
+			RETURNING id, type, payload, attempts, created_at`,
+		markDone:  `UPDATE events SET status = 'done', processed_at = now() WHERE id = $1`,
+		markRetry: `UPDATE events SET last_error = $2, next_attempt_at = $3 WHERE id = $1`,
+		markDead:  `UPDATE events SET status = 'dead', last_error = $2 WHERE id = $1`,
+	},
+	runtime.QueueOutbox: {
+		claim: `UPDATE outbox SET
+				attempts = attempts + 1,
+				next_attempt_at = now() + least(power(2, attempts)::bigint, 60) * interval '1 second'
+			WHERE id = (
+				SELECT id FROM outbox
+				WHERE status = 'pending' AND next_attempt_at <= now()
+				ORDER BY id
+				FOR UPDATE SKIP LOCKED
+				LIMIT 1
+			)
+			RETURNING id, topic, payload, attempts, created_at`,
+		markDone:  `UPDATE outbox SET status = 'done', processed_at = now() WHERE id = $1`,
+		markRetry: `UPDATE outbox SET last_error = $2, next_attempt_at = $3 WHERE id = $1`,
+		markDead:  `UPDATE outbox SET status = 'dead', last_error = $2 WHERE id = $1`,
+	},
+}
+
+func sqlFor(q runtime.QueueName) (queueSQL, error) {
+	qs, ok := queueSQLByName[q]
+	if !ok {
+		return queueSQL{}, fmt.Errorf("%w: %q", errUnknownQueue, q)
+	}
+	return qs, nil
+}
+
+// InsertEvent appends one row to the events queue (04 §6 EnqueueEvent) and
+// returns its id. The outbox is never written here — the board appends it
+// transactionally (03 §7).
 func (s *Store) InsertEvent(ctx context.Context, t runtime.EventType, payload []byte) (int64, error) {
-	return 0, errNotImplemented
+	var id int64
+	if err := s.db.QueryRowContext(ctx,
+		`INSERT INTO events (type, payload) VALUES ($1, $2) RETURNING id`,
+		string(t), payload).Scan(&id); err != nil {
+		return 0, fmt.Errorf("runtime/postgres: insert event: %w", err)
+	}
+	return id, nil
 }
 
+// ClaimNextDue claims the next due entry in id order, incrementing attempts,
+// with FOR UPDATE SKIP LOCKED (04 §3 step 1). ok is false when nothing is due.
 func (s *Store) ClaimNextDue(ctx context.Context, q runtime.QueueName) (runtime.Entry, bool, error) {
-	return runtime.Entry{}, false, errNotImplemented
+	qs, err := sqlFor(q)
+	if err != nil {
+		return runtime.Entry{}, false, err
+	}
+	var (
+		e       runtime.Entry
+		payload []byte
+	)
+	err = s.db.QueryRowContext(ctx, qs.claim).Scan(&e.ID, &e.Kind, &payload, &e.Attempts, &e.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return runtime.Entry{}, false, nil
+	}
+	if err != nil {
+		return runtime.Entry{}, false, fmt.Errorf("runtime/postgres: claim next due: %w", err)
+	}
+	e.Payload = append([]byte(nil), payload...)
+	return e, true, nil
 }
 
+// MarkDone records success: status done, processed_at now (04 §3).
 func (s *Store) MarkDone(ctx context.Context, q runtime.QueueName, id int64) error {
-	return errNotImplemented
+	qs, err := sqlFor(q)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, qs.markDone, id); err != nil {
+		return fmt.Errorf("runtime/postgres: mark done: %w", err)
+	}
+	return nil
 }
 
+// MarkRetry records a failed attempt: last_error and the backoff'd
+// next_attempt_at; the row stays pending (04 §3).
 func (s *Store) MarkRetry(
 	ctx context.Context, q runtime.QueueName, id int64, lastError string, nextAttemptAt time.Time,
 ) error {
-	return errNotImplemented
+	qs, err := sqlFor(q)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, qs.markRetry, id, lastError, nextAttemptAt); err != nil {
+		return fmt.Errorf("runtime/postgres: mark retry: %w", err)
+	}
+	return nil
 }
 
+// MarkDead retires the entry after MaxAttempts (04 §3); the caller runs the
+// per-topic dead-letter action.
 func (s *Store) MarkDead(ctx context.Context, q runtime.QueueName, id int64, lastError string) error {
-	return errNotImplemented
+	qs, err := sqlFor(q)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, qs.markDead, id, lastError); err != nil {
+		return fmt.Errorf("runtime/postgres: mark dead: %w", err)
+	}
+	return nil
 }
 
 // AppendUserMessageAndEnqueueEvent implements runtime.MessageStore (07 §3):
@@ -58,17 +184,92 @@ func (s *Store) MarkDead(ctx context.Context, q runtime.QueueName, id int64, las
 // events (type='human.message', payload={text}) — the transcript and the
 // event queue commit together or not at all.
 func (s *Store) AppendUserMessageAndEnqueueEvent(ctx context.Context, text string) (int64, int64, error) {
-	return 0, 0, errNotImplemented
+	payload, err := json.Marshal(humanMessagePayload{Text: text})
+	if err != nil {
+		return 0, 0, fmt.Errorf("runtime/postgres: marshal human message payload: %w", err)
+	}
+	var messageID, eventID int64
+	txErr := s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx,
+			`INSERT INTO messages (role, text) VALUES ('user', $1) RETURNING id`, text).
+			Scan(&messageID); err != nil {
+			return fmt.Errorf("runtime/postgres: insert user message: %w", err)
+		}
+		if err := tx.QueryRowContext(ctx,
+			`INSERT INTO events (type, payload) VALUES ($1, $2) RETURNING id`,
+			string(runtime.EventHumanMessage), payload).Scan(&eventID); err != nil {
+			return fmt.Errorf("runtime/postgres: enqueue human message event: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		return 0, 0, txErr
+	}
+	return messageID, eventID, nil
 }
 
 // AppendKilnMessage implements runtime.MessageStore (07 §3): INSERT into
 // messages (role='kiln'), the first half of the Say port.
 func (s *Store) AppendKilnMessage(ctx context.Context, text string) (runtime.Message, error) {
-	return runtime.Message{}, errNotImplemented
+	m := runtime.Message{Role: runtime.RoleKiln, Text: text}
+	if err := s.db.QueryRowContext(ctx,
+		`INSERT INTO messages (role, text) VALUES ('kiln', $1) RETURNING id, created_at`, text).
+		Scan(&m.ID, &m.CreatedAt); err != nil {
+		return runtime.Message{}, fmt.Errorf("runtime/postgres: append kiln message: %w", err)
+	}
+	return m, nil
 }
 
 // Recent implements runtime.MessageStore (07 §3): the last n rows by id
 // DESC, returned oldest first.
-func (s *Store) Recent(ctx context.Context, n int) ([]runtime.Message, error) {
-	return nil, errNotImplemented
+func (s *Store) Recent(ctx context.Context, n int) (_ []runtime.Message, err error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, role, text, created_at FROM (
+			SELECT id, role, text, created_at FROM messages ORDER BY id DESC LIMIT $1
+		) recent ORDER BY id ASC`, n)
+	if err != nil {
+		return nil, fmt.Errorf("runtime/postgres: query recent messages: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("runtime/postgres: close recent messages: %w", cerr)
+		}
+	}()
+
+	var out []runtime.Message
+	for rows.Next() {
+		var (
+			m    runtime.Message
+			role string
+		)
+		if serr := rows.Scan(&m.ID, &role, &m.Text, &m.CreatedAt); serr != nil {
+			return nil, fmt.Errorf("runtime/postgres: scan message: %w", serr)
+		}
+		m.Role = runtime.MessageRole(role)
+		out = append(out, m)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return nil, fmt.Errorf("runtime/postgres: iterate messages: %w", rerr)
+	}
+	return out, nil
+}
+
+// inTx runs fn inside one transaction, rolling back on error (mirroring the
+// board store's pattern, 03 §6). A rollback failure is joined to the causing
+// error so neither is lost.
+func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("runtime/postgres: begin: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			return fmt.Errorf("runtime/postgres: rollback (after %w): %w", err, rbErr)
+		}
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("runtime/postgres: commit: %w", err)
+	}
+	return nil
 }

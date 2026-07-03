@@ -1,6 +1,12 @@
 package runtime
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+)
 
 // Brain is the runtime's port onto the decision step (02 §6): one call per
 // event, invoked serially by the events worker (04 §4). A replayed pass
@@ -46,6 +52,29 @@ type SnapshotPusher interface {
 	PushBoard(ctx context.Context) error
 }
 
+// Outbox topic names (04 §2) as the runtime routes them — carried in
+// Entry.Kind on the outbox queue. They mirror board's Topic values by value;
+// this module never imports internal/board (the same layering rule the board
+// and brain modules state in the other direction).
+const (
+	topicAgentSend    = "agent.send"
+	topicAgentRelease = "agent.release"
+	topicNotifySend   = "notify.send"
+	topicPullEvaluate = "pull.evaluate"
+	topicBoardUpdated = "board.updated"
+)
+
+// systemErrorMessage is the user-visible reply when a brain pass exhausts its
+// retries (04 §3's last dead-letter row): the ticket keeps its state and the
+// user is pulled in rather than left waiting (07 §8 — the chat panel is the
+// v1 notification surface).
+const systemErrorMessage = "Kiln hit a system error handling that. I've left the board unchanged; please try again."
+
+// errUnknownTopic is returned by the outbox handler for a topic outside the
+// five it routes — a contract violation by whoever appended it, surfaced as a
+// retryable handler error rather than a silent drop.
+var errUnknownTopic = errors.New("runtime: unknown outbox topic")
+
 // Service is the runtime's core: EnqueueEvent for the two ingestion callers
 // (04 §6), the transcript operations of 07 §3 (PostMessage, Say, Recent),
 // and the wiring that routes claimed entries to the ports above. Constructed
@@ -60,6 +89,11 @@ type Service struct {
 	notifier Notifier
 	pusher   SnapshotPusher
 	sayer    SayPusher
+
+	// The two workers Workers() builds, retained so anything that commits a
+	// queue row can nudge the matching worker (04 §5). nil until Workers runs.
+	eventsWorker *Worker
+	outboxWorker *Worker
 }
 
 // NewService assembles the runtime over its ports.
@@ -81,30 +115,49 @@ func NewService(
 }
 
 // EnqueueEvent ingests one of the two 01 event types (04 §6): INSERT into
-// events + nudge the events worker. Callers: the Amika inbound handler
-// (agent.turn_completed) and the message route (human.message). Payloads
-// are opaque snapshots; shape contracts are the emitting surface's spec.
+// events + nudge the events worker. Callers: the agent-runtime inbound
+// handler (agent.turn_completed) and the message route (human.message).
+// Payloads are opaque snapshots; shape contracts are the emitting surface's
+// spec.
 func (s *Service) EnqueueEvent(ctx context.Context, t EventType, payload []byte) (int64, error) {
-	return 0, errNotImplemented
+	id, err := s.store.InsertEvent(ctx, t, payload)
+	if err != nil {
+		return 0, fmt.Errorf("runtime: enqueue event: %w", err)
+	}
+	s.nudgeEvents()
+	return id, nil
 }
 
 // PostMessage is the runtime's port for POST /api/message (07 §3–§4, api's
 // MessagePoster): append the user transcript row and enqueue the
 // human.message event {text} in one transaction (MessageStore's job), then
 // nudge the events worker. Returns both ids for the 202 response
-// ({event_id, message_id}).
-func (s *Service) PostMessage(ctx context.Context, text string) (messageID int64, eventID int64, err error) {
-	return 0, 0, errNotImplemented
+// ({event_id, message_id}); a failed append surfaces as an error with no
+// invented, partial ids (07 §3 — the transcript and the queue cannot disagree).
+func (s *Service) PostMessage(ctx context.Context, text string) (int64, int64, error) {
+	messageID, eventID, err := s.messages.AppendUserMessageAndEnqueueEvent(ctx, text)
+	if err != nil {
+		return 0, 0, fmt.Errorf("runtime: post message: %w", err)
+	}
+	s.nudgeEvents()
+	return messageID, eventID, nil
 }
 
 // Say is the runtime's Say port (07 §3, §6; also brain.Say, matched
 // structurally with no adapter): append the kiln transcript row, then push
 // a say SSE event ({message_id, text, at}) via SayPusher. Append-then-push —
-// a crash between them costs a live push, not history (07 §3). Every
-// user-visible reply goes through this, including the dead-letter
-// system-error message (04 §3's last row).
+// a crash between them costs a live push, not history (07 §3), so the push
+// only ever fires once the row is durable. Every user-visible reply goes
+// through this, including the dead-letter system-error message.
 func (s *Service) Say(ctx context.Context, text string) error {
-	return errNotImplemented
+	m, err := s.messages.AppendKilnMessage(ctx, text)
+	if err != nil {
+		return fmt.Errorf("runtime: say append: %w", err)
+	}
+	if err := s.sayer.PushSay(ctx, m); err != nil {
+		return fmt.Errorf("runtime: say push: %w", err)
+	}
+	return nil
 }
 
 // Recent is the runtime's ConversationReader-shaped read (07 §3): the last
@@ -112,13 +165,113 @@ func (s *Service) Say(ctx context.Context, text string) error {
 // MessagesReader) directly, and the brain's ConversationReader port through
 // a composition-root adapter (brain.Message is a distinct type — 06 §3.2).
 func (s *Service) Recent(ctx context.Context, n int) ([]Message, error) {
-	return nil, errNotImplemented
+	msgs, err := s.messages.Recent(ctx, n)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: recent: %w", err)
+	}
+	return msgs, nil
 }
 
 // Workers builds the two serial workers (04 §3–§4): the events worker over
 // the Brain port, and the outbox worker routing per-topic to the executor
-// ports, each with its dead-letter action.
+// ports, each with its dead-letter action. The returned pair is
+// (eventsWorker, outboxWorker); both are also retained on the Service so
+// EnqueueEvent/PostMessage can nudge the events worker (04 §5).
 func (s *Service) Workers(clock Clock) (*Worker, *Worker) {
-	// Wiring is implementation; see 04 §2 (executors) and §3 (dead-letter table).
-	return nil, nil
+	events := NewWorker(s.store, QueueEvents, s.handleEvent, s.deadLetterEvent, clock)
+	outbox := NewWorker(s.store, QueueOutbox, s.handleOutbox, s.deadLetterOutbox, clock)
+	s.eventsWorker = events
+	s.outboxWorker = outbox
+	return events, outbox
+}
+
+// nudgeEvents wakes the events worker if it has been built (04 §5). No-op
+// before Workers runs, so ingestion still works (the poll fallback catches
+// the row) during startup.
+func (s *Service) nudgeEvents() {
+	if s.eventsWorker != nil {
+		s.eventsWorker.Nudge()
+	}
+}
+
+// handleEvent is the events worker's handler: one brain pass per queued event
+// (04 §4, §6), typed from the raw Entry.
+func (s *Service) handleEvent(ctx context.Context, e Entry) error {
+	ev := Event{ID: e.ID, Type: EventType(e.Kind), Payload: e.Payload, CreatedAt: e.CreatedAt}
+	if err := s.brain.HandleEvent(ctx, ev); err != nil {
+		return fmt.Errorf("runtime: brain pass for event %d: %w", e.ID, err)
+	}
+	return nil
+}
+
+// deadLetterEvent handles an exhausted event (04 §3's last row): log at error
+// level and surface a system-error reply to the user, so the ticket keeps its
+// state and nobody is left waiting silently.
+func (s *Service) deadLetterEvent(ctx context.Context, e Entry, cause error) error {
+	slog.Error("runtime: event dead-lettered", "id", e.ID, "type", e.Kind, "err", cause)
+	if err := s.Say(ctx, systemErrorMessage); err != nil {
+		return fmt.Errorf("runtime: dead-letter say: %w", err)
+	}
+	return nil
+}
+
+// handleOutbox is the outbox worker's handler: route the topic (Entry.Kind)
+// to its executor (04 §2). The outbox id travels as the idempotency key for
+// agent.send/agent.release (04 §3, 05 §7).
+func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
+	switch e.Kind {
+	case topicAgentSend:
+		return wrapOutbox("agent send", s.agents.Send(ctx, e.ID, e.Payload))
+	case topicAgentRelease:
+		return wrapOutbox("agent release", s.agents.Release(ctx, e.ID, e.Payload))
+	case topicPullEvaluate:
+		return wrapOutbox("run pull", s.puller.RunPull(ctx))
+	case topicNotifySend:
+		return wrapOutbox("notify send", s.notifier.Send(ctx, e.Payload))
+	case topicBoardUpdated:
+		return wrapOutbox("push board", s.pusher.PushBoard(ctx))
+	default:
+		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
+	}
+}
+
+// deadLetterOutbox handles an exhausted outbox entry per the 04 §3 table:
+// agent.send blocks the ticket; every other topic logs and drops (it either
+// self-heals or is benign) — only agent.send touches the Blocker port.
+func (s *Service) deadLetterOutbox(ctx context.Context, e Entry, cause error) error {
+	if e.Kind == topicAgentSend {
+		return s.blockOnDeliveryFailure(ctx, e, cause)
+	}
+	slog.Error("runtime: outbox entry dead-lettered", "id", e.ID, "topic", e.Kind, "err", cause)
+	return nil
+}
+
+// blockOnDeliveryFailure realizes the agent.send dead-letter row (04 §3, 03
+// §7.3): unmarshal the ticket id out of the otherwise-opaque outbox payload
+// and mark it Blocked with the delivery failure as the reason, so the failure
+// surfaces on the ticket and pulls the user in.
+func (s *Service) blockOnDeliveryFailure(ctx context.Context, e Entry, cause error) error {
+	var p struct {
+		TicketID string `json:"ticket_id"`
+	}
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		return fmt.Errorf("runtime: dead-letter agent.send: decode ticket id: %w", err)
+	}
+	reason := fmt.Sprintf("delivery failure: %v", cause)
+	if err := s.blocker.MarkBlocked(ctx, p.TicketID, reason); err != nil {
+		return fmt.Errorf("runtime: dead-letter agent.send: mark blocked: %w", err)
+	}
+	slog.Error("runtime: agent.send dead-lettered, ticket blocked",
+		"id", e.ID, "ticket", p.TicketID, "err", cause)
+	return nil
+}
+
+// wrapOutbox annotates an executor error with the operation name, satisfying
+// the wrap-external-errors rule while keeping each route in handleOutbox a
+// single line.
+func wrapOutbox(op string, err error) error {
+	if err != nil {
+		return fmt.Errorf("runtime: outbox %s: %w", op, err)
+	}
+	return nil
 }

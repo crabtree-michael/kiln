@@ -2,16 +2,25 @@ package api
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+	"github.com/crabtree-michael/kiln/backend/internal/wire"
 )
 
-// errNotImplemented marks scaffold stubs. Implementations follow
-// docs/specs/04-runtime-and-api.md; remove this once the last stub is gone.
-var errNotImplemented = errors.New("api: not implemented (scaffold)")
+// Message length and pagination bounds, mirroring schema/openapi.yaml's
+// MessageRequest (1–4000 chars) and GetMessages limit (1–500, default 50).
+const (
+	minMessageLen = 1
+	maxMessageLen = 4000
+	defaultLimit  = 50
+	minLimit      = 1
+	maxLimit      = 500
+)
 
 // BoardReader is the api's port onto the board's read path (03 §4 GetBoard).
 type BoardReader interface {
@@ -24,7 +33,7 @@ type BoardReader interface {
 // transaction — the transcript and the event queue cannot disagree.
 // Satisfied directly by *runtime.Service's PostMessage.
 type MessagePoster interface {
-	PostMessage(ctx context.Context, text string) (messageID int64, eventID int64, err error)
+	PostMessage(ctx context.Context, text string) (messageID, eventID int64, err error)
 }
 
 // MessagesReader is the api's port onto the persisted transcript (07 §4 GET
@@ -70,18 +79,125 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// handleStream serves the SSE connection (04 §7): the hub owns the client
+// registry, the snapshot-on-connect, fan-out, and keepalive.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+	s.hub.ServeStream(w, r)
 }
 
+// handleBoard returns the full board snapshot (04 §7), the same shape the
+// stream's board event carries.
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+	snap, err := s.boards.GetBoard(r.Context())
+	if err != nil {
+		slog.Error("api: get board", "err", err)
+		http.Error(w, "read board", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, boardToWire(snap))
 }
 
+// handleMessage decodes {text}, validates its bounds (schema MessageRequest),
+// delegates to the runtime's transactional PostMessage, and returns 202 with
+// both ids (07 §3–§4).
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+	var req wire.MessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(req.Text) < minMessageLen || len(req.Text) > maxMessageLen {
+		http.Error(w, "text must be 1-4000 characters", http.StatusBadRequest)
+		return
+	}
+	messageID, eventID, err := s.poster.PostMessage(r.Context(), req.Text)
+	if err != nil {
+		slog.Error("api: post message", "err", err)
+		http.Error(w, "post message", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
 }
 
+// handleMessages returns the most-recent transcript rows oldest-first (07 §4),
+// honouring the limit query param (default 50, bounds 1–500).
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+	limit := defaultLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < minLimit || n > maxLimit {
+			http.Error(w, "limit must be 1-500", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	msgs, err := s.messages.Recent(r.Context(), limit)
+	if err != nil {
+		slog.Error("api: read messages", "err", err)
+		http.Error(w, "read messages", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, messagesToWire(msgs))
+}
+
+// writeJSON encodes v as the response body with the given status. An encode
+// failure is logged, not returned — the header is already committed.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("api: encode response", "err", err)
+	}
+}
+
+// boardToWire maps a board.Snapshot onto the generated wire.Board (04 D7): the
+// identical shape backs GET /api/board and the board SSE event.
+func boardToWire(s board.Snapshot) wire.Board {
+	return wire.Board{
+		Shaping:     ticketsToWire(s.Shaping),
+		Ready:       ticketsToWire(s.Ready),
+		Blocked:     ticketsToWire(s.Blocked),
+		Working:     ticketsToWire(s.Working),
+		Done:        ticketsToWire(s.Done),
+		WorkerTotal: s.WorkerTotal,
+		WorkerFree:  s.WorkerFree,
+	}
+}
+
+// ticketsToWire maps a ticket group, always returning a non-nil slice so the
+// JSON is an array (never null) — the client renders columns of arrays.
+func ticketsToWire(ts []board.Ticket) []wire.Ticket {
+	out := make([]wire.Ticket, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, ticketToWire(t))
+	}
+	return out
+}
+
+func ticketToWire(t board.Ticket) wire.Ticket {
+	return wire.Ticket{
+		Id:            string(t.ID),
+		Title:         t.Title,
+		Body:          t.Body,
+		State:         wire.TicketState(t.State),
+		Priority:      t.Priority,
+		BlockedReason: t.BlockedReason,
+		ReadyAt:       t.ReadyAt,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
+	}
+}
+
+// messagesToWire maps transcript rows onto wire.Message, always non-nil.
+func messagesToWire(ms []runtime.Message) []wire.Message {
+	out := make([]wire.Message, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, wire.Message{
+			MessageId: m.ID,
+			Role:      wire.MessageRole(m.Role),
+			Text:      m.Text,
+			Timestamp: m.CreatedAt,
+		})
+	}
+	return out
 }

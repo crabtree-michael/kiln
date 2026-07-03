@@ -101,6 +101,38 @@ func (s *Store) ReconcileWorkers(ctx context.Context, n int) error {
 	return nil
 }
 
+// WorkerIDs lists every capacity-slot id (03 §2.3), oldest first. Like
+// ReconcileWorkers it is a concrete composition-root helper, not part of
+// board.Store: no Board API operation needs it, but the agent-runtime
+// reconciler reads the slot ids through its own Slots port (05 §4), which the
+// composition root backs with this method (04 §8). Keeping the SQL inside the
+// board adapter preserves the module's sole ownership of the workers table
+// (03 I8) — nothing outside board issues queries against it.
+func (s *Store) WorkerIDs(ctx context.Context) (_ []string, err error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM workers ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("board/postgres: query worker ids: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("board/postgres: close worker ids: %w", cerr)
+		}
+	}()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if serr := rows.Scan(&id); serr != nil {
+			return nil, fmt.Errorf("board/postgres: scan worker id: %w", serr)
+		}
+		ids = append(ids, id)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return nil, fmt.Errorf("board/postgres: iterate worker ids: %w", rerr)
+	}
+	return ids, nil
+}
+
 // readTickets loads every ticket into snap, grouped by state alone (03 D1).
 // Only the error return is named, so it can carry a deferred rows.Close
 // failure (satisfying errcheck's check-blank without a non-error named return).

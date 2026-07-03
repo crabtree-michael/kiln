@@ -10,9 +10,13 @@ info:
     GENERATED from it (see schema/README.md). Never hand-edit the generated types
     — change this file and regenerate both sides atomically (AGENTS.md).
 
-    Endpoints and message shapes are filled in as surface areas are built
-    (api/runtime §7, board §5). This starter defines only /healthz so the
-    generators have a valid document and the harness has a contract to gate on.
+    Endpoint set and payload shapes realize docs/specs/04-runtime-and-api.md §7
+    (transport, /api/board, /api/stream) as amended by
+    docs/specs/07-v1-text-client.md §4 (the text-neutral renames: human.message,
+    POST /api/message, SSE `say`, and the new GET /api/messages). Board/Ticket
+    field names mirror internal/board's Snapshot/Ticket (03 §2, §4) so the
+    client can render Backlog[Shaping/Ready], Developing[Blocked>Working], Done,
+    capacity, and Ready in pull order directly off the wire shape (07 §7).
 servers:
   - url: http://localhost:8080
     description: Local backend (Docker Compose)
@@ -28,6 +32,95 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+  /api/board:
+    get:
+      operationId: getBoard
+      summary: Full board snapshot (03 §4 GetBoard; 04 §7).
+      description: >
+        The same absolute snapshot the `board` SSE event carries — for
+        initial render before /api/stream attaches, or a manual resync
+        (04 §7). Never a delta (03 D7).
+      responses:
+        '200':
+          description: Current board snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+  /api/message:
+    post:
+      operationId: postMessage
+      summary: Send a user chat message (07 §3–§4, amending 04 §7).
+      description: >
+        Transactional transcript append (role=user) + EnqueueEvent
+        (human.message, payload {text}) in one transaction — the transcript
+        and the event queue cannot disagree (07 §3). `09` puts STT in front
+        of this same seam without changing it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '202':
+          description: >
+            Accepted — the user row is durably appended and the
+            human.message event is enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePostResponse'
+  /api/messages:
+    get:
+      operationId: getMessages
+      summary: Recent transcript rows, oldest-first (07 §4).
+      description: >
+        New in 07: initial chat-panel render and the post-reconnect
+        reconciliation fetch (07 §5, §8).
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of most-recent rows to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        '200':
+          description: The most-recent `limit` transcript rows, oldest-first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+  /api/stream:
+    get:
+      operationId: getStream
+      summary: SSE stream of `board` and `say` events (04 §7, 07 §4).
+      description: >
+        Server-sent events; not a JSON response. Two named SSE event types
+        ride this one connection: `board` (payload: Board — the full
+        snapshot, sent immediately on connect and again per board.updated
+        outbox entry, absolute and never a delta — 03 D7/04 D7) and `say`
+        (payload: SayEvent — one per brain say, renamed from `speak`, 07 A1).
+        Comment-line keepalive every 25s. `Last-Event-ID` is unused —
+        reconnect's resync is simply the next `board` event (04 §7, D6/D7).
+        This operation is declared for documentation and so the Board/SayEvent
+        payload schemas below generate into both sides' types; the actual
+        response content type is `text/event-stream`.
+      responses:
+        '200':
+          description: >
+            text/event-stream carrying `board` (Board) and `say` (SayEvent)
+            named SSE events.
+          content:
+            text/event-stream:
+              schema:
+                type: string
 components:
   schemas:
     Health:
@@ -39,4 +132,145 @@ components:
           enum: [ok]
         version:
           type: string
+      additionalProperties: false
+
+    Ticket:
+      type: object
+      description: >
+        One ticket as rendered on the board (03 §2.2). Column/zone placement
+        is derived from `state`, never carried as a separate field (03 D1).
+      required: [id, title, body, state, priority, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        state:
+          type: string
+          description: >
+            One of the five board states (03 §2.1). Render mapping: shaping/
+            ready -> Backlog; working/blocked -> Developing (blocked stacked
+            above working); done -> Done.
+          enum: [shaping, ready, working, blocked, done]
+        priority:
+          type: integer
+          description: Backlog ordering for the pull; higher pulls first.
+        blocked_reason:
+          type: string
+          nullable: true
+          description: Set iff state is blocked (03 I4); full text, shown on the card (07 §7).
+        ready_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set by mark_ready; the pull's tie-breaker (03 §5).
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    Board:
+      type: object
+      description: >
+        GetBoard's full snapshot (03 §4), grouped in render order — the
+        `board` SSE event payload and GET /api/board's response body are the
+        identical shape (04 D7): absolute, never a delta, so a reconnect's
+        resync is just "render the next board event" (07 §7–§8). `ready` is
+        in exact pull order, top-to-bottom, so the user sees what gets
+        pulled next (03 §5, 07 §7).
+      required: [shaping, ready, blocked, working, done, worker_total, worker_free]
+      properties:
+        shaping:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        ready:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        blocked:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        working:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        done:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        worker_total:
+          type: integer
+          description: Total worker capacity slots (03 §2.3).
+        worker_free:
+          type: integer
+          description: Free (non-busy) worker slots — the capacity chip (07 §7).
+      additionalProperties: false
+
+    Message:
+      type: object
+      description: >
+        One persisted transcript row (07 §3), as returned oldest-first by
+        GET /api/messages.
+      required: [message_id, role, text, timestamp]
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        role:
+          type: string
+          enum: [user, kiln]
+        text:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    MessageRequest:
+      type: object
+      description: POST /api/message body (07 §4). Text only in v1; 09 adds STT in front of this seam.
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      additionalProperties: false
+
+    MessagePostResponse:
+      type: object
+      description: POST /api/message's 202 body (07 §4) — both ids the client needs to reconcile its optimistic send.
+      required: [event_id, message_id]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        message_id:
+          type: integer
+          format: int64
+      additionalProperties: false
+
+    SayEvent:
+      type: object
+      description: >
+        The `say` SSE event payload (07 §4) — one event per brain say
+        (renamed from `speak`, 07 A1). message_id matches the corresponding
+        Message row from GET /api/messages/the transcript.
+      required: [message_id, text, at]
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        text:
+          type: string
+        at:
+          type: string
+          format: date-time
       additionalProperties: false

@@ -21,6 +21,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Full board snapshot (03 §4 GetBoard; 04 §7).
+         * @description The same absolute snapshot the `board` SSE event carries — for initial render before /api/stream attaches, or a manual resync (04 §7). Never a delta (03 D7).
+         */
+        get: operations["getBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a user chat message (07 §3–§4, amending 04 §7).
+         * @description Transactional transcript append (role=user) + EnqueueEvent (human.message, payload {text}) in one transaction — the transcript and the event queue cannot disagree (07 §3). `09` puts STT in front of this same seam without changing it.
+         */
+        post: operations["postMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recent transcript rows, oldest-first (07 §4).
+         * @description New in 07: initial chat-panel render and the post-reconnect reconciliation fetch (07 §5, §8).
+         */
+        get: operations["getMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE stream of `board` and `say` events (04 §7, 07 §4).
+         * @description Server-sent events; not a JSON response. Two named SSE event types ride this one connection: `board` (payload: Board — the full snapshot, sent immediately on connect and again per board.updated outbox entry, absolute and never a delta — 03 D7/04 D7) and `say` (payload: SayEvent — one per brain say, renamed from `speak`, 07 A1). Comment-line keepalive every 25s. `Last-Event-ID` is unused — reconnect's resync is simply the next `board` event (04 §7, D6/D7). This operation is declared for documentation and so the Board/SayEvent payload schemas below generate into both sides' types; the actual response content type is `text/event-stream`.
+         */
+        get: operations["getStream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -29,6 +109,71 @@ export interface components {
             /** @enum {string} */
             status: "ok";
             version: string;
+        };
+        /** @description One ticket as rendered on the board (03 §2.2). Column/zone placement is derived from `state`, never carried as a separate field (03 D1). */
+        Ticket: {
+            id: string;
+            title: string;
+            body: string;
+            /**
+             * @description One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.
+             * @enum {string}
+             */
+            state: "shaping" | "ready" | "working" | "blocked" | "done";
+            /** @description Backlog ordering for the pull; higher pulls first. */
+            priority: number;
+            /** @description Set iff state is blocked (03 I4); full text, shown on the card (07 §7). */
+            blocked_reason?: string | null;
+            /**
+             * Format: date-time
+             * @description Set by mark_ready; the pull's tie-breaker (03 §5).
+             */
+            ready_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description GetBoard's full snapshot (03 §4), grouped in render order — the `board` SSE event payload and GET /api/board's response body are the identical shape (04 D7): absolute, never a delta, so a reconnect's resync is just "render the next board event" (07 §7–§8). `ready` is in exact pull order, top-to-bottom, so the user sees what gets pulled next (03 §5, 07 §7). */
+        Board: {
+            shaping: components["schemas"]["Ticket"][];
+            ready: components["schemas"]["Ticket"][];
+            blocked: components["schemas"]["Ticket"][];
+            working: components["schemas"]["Ticket"][];
+            done: components["schemas"]["Ticket"][];
+            /** @description Total worker capacity slots (03 §2.3). */
+            worker_total: number;
+            /** @description Free (non-busy) worker slots — the capacity chip (07 §7). */
+            worker_free: number;
+        };
+        /** @description One persisted transcript row (07 §3), as returned oldest-first by GET /api/messages. */
+        Message: {
+            /** Format: int64 */
+            message_id: number;
+            /** @enum {string} */
+            role: "user" | "kiln";
+            text: string;
+            /** Format: date-time */
+            timestamp: string;
+        };
+        /** @description POST /api/message body (07 §4). Text only in v1; 09 adds STT in front of this seam. */
+        MessageRequest: {
+            text: string;
+        };
+        /** @description POST /api/message's 202 body (07 §4) — both ids the client needs to reconcile its optimistic send. */
+        MessagePostResponse: {
+            /** Format: int64 */
+            event_id: number;
+            /** Format: int64 */
+            message_id: number;
+        };
+        /** @description The `say` SSE event payload (07 §4) — one event per brain say (renamed from `speak`, 07 A1). message_id matches the corresponding Message row from GET /api/messages/the transcript. */
+        SayEvent: {
+            /** Format: int64 */
+            message_id: number;
+            text: string;
+            /** Format: date-time */
+            at: string;
         };
     };
     responses: never;
@@ -55,6 +200,93 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current board snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+        };
+    };
+    postMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted — the user row is durably appended and the human.message event is enqueued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePostResponse"];
+                };
+            };
+        };
+    };
+    getMessages: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of most-recent rows to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The most-recent `limit` transcript rows, oldest-first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Message"][];
+                };
+            };
+        };
+    };
+    getStream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description text/event-stream carrying `board` (Board) and `say` (SayEvent) named SSE events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
                 };
             };
         };

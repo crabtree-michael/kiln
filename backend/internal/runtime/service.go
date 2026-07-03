@@ -47,31 +47,36 @@ type SnapshotPusher interface {
 }
 
 // Service is the runtime's core: EnqueueEvent for the two ingestion callers
-// (04 §6) and the wiring that routes claimed entries to the ports above.
-// Constructed at the composition root (04 §8).
+// (04 §6), the transcript operations of 07 §3 (PostMessage, Say, Recent),
+// and the wiring that routes claimed entries to the ports above. Constructed
+// at the composition root (04 §8).
 type Service struct {
 	store    Store
+	messages MessageStore
 	brain    Brain
 	puller   Puller
 	blocker  Blocker
 	agents   AgentRuntime
 	notifier Notifier
 	pusher   SnapshotPusher
+	sayer    SayPusher
 }
 
 // NewService assembles the runtime over its ports.
 func NewService(
-	store Store, brain Brain, puller Puller, blocker Blocker,
-	agents AgentRuntime, notifier Notifier, pusher SnapshotPusher,
+	store Store, messages MessageStore, brain Brain, puller Puller, blocker Blocker,
+	agents AgentRuntime, notifier Notifier, pusher SnapshotPusher, sayer SayPusher,
 ) *Service {
 	return &Service{
 		store:    store,
+		messages: messages,
 		brain:    brain,
 		puller:   puller,
 		blocker:  blocker,
 		agents:   agents,
 		notifier: notifier,
 		pusher:   pusher,
+		sayer:    sayer,
 	}
 }
 
@@ -81,6 +86,33 @@ func NewService(
 // are opaque snapshots; shape contracts are the emitting surface's spec.
 func (s *Service) EnqueueEvent(ctx context.Context, t EventType, payload []byte) (int64, error) {
 	return 0, errNotImplemented
+}
+
+// PostMessage is the runtime's port for POST /api/message (07 §3–§4, api's
+// MessagePoster): append the user transcript row and enqueue the
+// human.message event {text} in one transaction (MessageStore's job), then
+// nudge the events worker. Returns both ids for the 202 response
+// ({event_id, message_id}).
+func (s *Service) PostMessage(ctx context.Context, text string) (messageID int64, eventID int64, err error) {
+	return 0, 0, errNotImplemented
+}
+
+// Say is the runtime's Say port (07 §3, §6; also brain.Say, matched
+// structurally with no adapter): append the kiln transcript row, then push
+// a say SSE event ({message_id, text, at}) via SayPusher. Append-then-push —
+// a crash between them costs a live push, not history (07 §3). Every
+// user-visible reply goes through this, including the dead-letter
+// system-error message (04 §3's last row).
+func (s *Service) Say(ctx context.Context, text string) error {
+	return errNotImplemented
+}
+
+// Recent is the runtime's ConversationReader-shaped read (07 §3): the last
+// n transcript rows, oldest first. Backs GET /api/messages (api's
+// MessagesReader) directly, and the brain's ConversationReader port through
+// a composition-root adapter (brain.Message is a distinct type — 06 §3.2).
+func (s *Service) Recent(ctx context.Context, n int) ([]Message, error) {
+	return nil, errNotImplemented
 }
 
 // Workers builds the two serial workers (04 §3–§4): the events worker over

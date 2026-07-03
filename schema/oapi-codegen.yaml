@@ -1,0 +1,12 @@
+# oapi-codegen config: generate Go types + a std-net/http server interface from
+# the wire contract into backend/internal/wire (02 §3). Output is generated —
+# never hand-edit; change schema/openapi.yaml and regenerate.
+package: wire
+output: ../backend/internal/wire/generated.go
+# Types only for now — the std-http server interface + strict wrappers are added
+# with the api surface area (02 §7). Keeping to models means the generated wire
+# package has zero external dependencies.
+generate:
+  models: true
+output-options:
+  skip-prune: true

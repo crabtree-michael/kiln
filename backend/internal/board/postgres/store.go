@@ -40,6 +40,7 @@ func (s *Store) Snapshot(ctx context.Context) (board.Snapshot, error) {
 
 // tx is the transaction-scoped adapter behind board.Tx.
 type tx struct {
+	//nolint:unused // set by Tx() once the transaction adapter is implemented (03 §6)
 	sqltx *sql.Tx
 }
 

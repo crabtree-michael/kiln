@@ -3,6 +3,13 @@
 This repo is built largely by coding agents. See `docs/specs/01-initial.md` (product) and
 `docs/specs/02-initial-technical-architecture.md` (how it's built).
 
+## Start here
+
+1. Read the `end-to-end-development` skill (the gate + how to land a change), then your area's skill.
+2. Install the gate hooks once: `make hooks` (pre-commit = lint+typecheck, pre-push = full gate).
+3. Run the gate before you commit: `make check` (lint → type-check/build → unit + integration).
+4. Bring the stack up locally: `make up` (see the `local-environment` skill).
+
 ## Ground rules
 
 - **The hard gate is a wall.** Linters + type-check + tests must be green before you commit or

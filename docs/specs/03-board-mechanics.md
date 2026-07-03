@@ -92,8 +92,10 @@ class of dual-write drift (§10, D2).
 
 Side effects and pull triggers are rows the board appends **in the same transaction** as the
 state change (`02` §3 decided this engine-level; §7 here specifies the mechanics). The outbox
-table is shared infrastructure with the runtime's durable queue (`02` §7 owns the drain loop
-and delivery semantics); the board owns only the emission contract:
+is one of the runtime's **two durable queues** (`02` §2) and is distinct from the event queue
+that wakes the brain: the board writes only the outbox, and outbox entries are executed
+mechanically by adapters — no LLM involved. The runtime owns the drain loop and delivery
+semantics (`02` §7); the board owns only the emission contract:
 
 | Field        | Type      | Notes                                              |
 | ------------ | --------- | --------------------------------------------------- |

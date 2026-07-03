@@ -62,8 +62,8 @@ func (t *tx) NextReadyTicket() (board.Ticket, bool, error) {
 	return board.Ticket{}, false, errNotImplemented
 }
 
-func (t *tx) FreeSandbox() (board.Sandbox, bool, error) {
-	return board.Sandbox{}, false, errNotImplemented
+func (t *tx) FreeWorker() (board.Worker, bool, error) {
+	return board.Worker{}, false, errNotImplemented
 }
 
 func (t *tx) AppendOutbox(e board.Emission) error {

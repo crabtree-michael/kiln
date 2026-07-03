@@ -1,6 +1,7 @@
 # Kiln — Technical Architecture (v1)
 
 ## **Date:** 2026-07-03
+
 **Status:** Template — to be filled in
 **Scope:** v1, single project, single user
 **Relationship to** `01`**:** `01-initial.md` is the approved product & architecture design. This
@@ -105,10 +106,10 @@ flowchart LR
 durable queues** in the same database, both drained by the runtime but doing different jobs:
 
 - the **event queue** — the two `01` event types (agent-turn-completed, human-voice-input);
-  each entry wakes the brain for one LLM pass. This queue *drives the brain*.
+each entry wakes the brain for one LLM pass. This queue *drives the brain*.
 - the **outbox** — mechanical work emitted transactionally by board state changes: agent
-  dispatch/instruct, the pull trigger, notifications, client board updates (`03` §7). Entries
-  are executed by adapters with no LLM involved. This queue *drives the machinery*.
+dispatch/instruct, the pull trigger, notifications, client board updates (`03` §7). Entries
+are executed by adapters with no LLM involved. This queue *drives the machinery*.
 
 The `/backend` process holds no authoritative state between events; it reads and writes Postgres
 and drains both queue tables, so a restart or deploy recovers by re-reading durable state (`01`
@@ -238,8 +239,8 @@ agent brings the whole thing up with a single `docker compose up`.
 - ***Responsibility** — the one thing this surface owns.*
 - ***Interface** — the API / contract others use to reach it; what it emits.*
 - ***Topology** — where this surface lives in the repo and how it decomposes internally into the §2
-  layering (routes/handlers → services over entities → ports → infra adapters), across one or both
-  deployables.*
+layering (routes/handlers → services over entities → ports → infra adapters), across one or both
+deployables.*
 - ***Dependencies** — what it relies on.*
 - ***What to decide** — the open technical questions to resolve here.*
 
@@ -277,23 +278,20 @@ with the state change or fire after commit.*
 **Responsibility.** *The* `(board state + event) → actions` *decision step (*`01` *§6): wake on one
 event, load state, reason once, emit actions from the fixed tool set.*
 
-**Interface.** *The tool schema exposed to the LLM, mapped onto the Board API (§4) plus
-notify/speak. Input contract: how board state and the event are serialized into the prompt.
-Output contract: the emitted actions and how they are applied.*
+**Interface.** 
 
-**Topology.** *Lives in* `/backend/internal/brain`*; stateless. A single entry invoked by the
-runtime (§7) over a brain service that builds the prompt, calls the LLM, and parses the emitted
-actions; the LLM is an injected **port** with a provider adapter, and actions are applied through
-the Board-API **port** (§5) plus notify/speak ports. No infrastructure of its own beyond the LLM
-adapter.*
+*The tool schema exposed to the LLM, mapped onto the Board API (§4) plus notify/speak. Input contract: how board state and the event are serialized into the prompt. Output contract: the emitted actions and how they are applied.* 
 
-**Dependencies.** *Board API (§4) for state and mutations; runtime (§6) to be invoked and to
-deliver notify/speak; LLM provider.*
+*T*
 
-**What to decide.** *LLM provider and model. Prompt structure and how much board state to include.
-The exact tool definitions. Idempotency — replaying the same event must not double-apply actions.
-How destructive/ambiguous actions get the* `01` *§7 voice confirmation. Failure handling when the
-LLM errors or returns an invalid action.*
+**Topology.** 
+
+*Lives in* `/backend/internal/brain`*; stateless. A single entry invoked by the runtime (§7) over a brain service that builds the prompt, calls the Anthropic agent SDK, and parses the emitted actions; the LLM is an injected **port** with a provider adapter, and actions are applied through*  
+*the Board-API **port** (§5) plus notify/speak ports. No infrastructure of its own beyond the LLM adapter.*
+
+*The agent will be given tools for interacting with the board.* 
+
+**Dependencies.** *Board API (§4) for state and mutations; runtime (§6) to be invoked and to deliver notify/speak; Anthropic SDK will be our LLM provider.*
 
 ### 7. Orchestrator API + event queue / runtime
 

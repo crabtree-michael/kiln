@@ -9,18 +9,18 @@ type State string
 const (
 	StateShaping State = "shaping" // Backlog · Shaping
 	StateReady   State = "ready"   // Backlog · Ready — eligible for the pull
-	StateWorking State = "working" // Developing · Working — sandbox bound
-	StateBlocked State = "blocked" // Developing · Blocked — sandbox held
-	StateDone    State = "done"    // Done — sandbox released
+	StateWorking State = "working" // Developing · Working — worker bound
+	StateBlocked State = "blocked" // Developing · Blocked — worker held
+	StateDone    State = "done"    // Done — worker released
 )
 
-// Active reports whether the state binds a sandbox (03 I3).
+// Active reports whether the state binds a worker (03 I3).
 func (s State) Active() bool { return s == StateWorking || s == StateBlocked }
 
-// TicketID and SandboxID are uuids; generation is the store adapter's concern.
+// TicketID and WorkerID are uuids; generation is the store adapter's concern.
 type (
-	TicketID  string
-	SandboxID string
+	TicketID string
+	WorkerID string
 )
 
 // Ticket per 03 §2.2.
@@ -30,19 +30,19 @@ type Ticket struct {
 	Body          string     // the shaped details; grows during Shaping
 	State         State      // one of the five State values (03 I1)
 	Priority      int        // backlog ordering for the pull; higher pulls first
-	SandboxID     *SandboxID // non-nil iff State is working/blocked (03 I3)
+	WorkerID      *WorkerID  // non-nil iff State is working/blocked (03 I3)
 	BlockedReason *string    // non-nil iff State is blocked (03 I4)
 	ReadyAt       *time.Time // set by MarkReady; pull tie-breaker (03 §5)
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
-// Sandbox is a capacity slot, not a live resource handle (03 §2.3): the WIP
+// Worker is a capacity slot, not a live resource handle (03 §2.3): the WIP
 // cap is the row count, and free vs busy is derived — busy iff an active
-// ticket references it (03 D2). There is no status column.
-type Sandbox struct {
-	ID        SandboxID
-	AmikaRef  *string // Amika's opaque sandbox identifier once known (02 §8)
+// ticket references it (03 D2). There is no status column, and no provider
+// detail — the agent-runtime module (05) owns the worker↔provider mapping.
+type Worker struct {
+	ID        WorkerID
 	CreatedAt time.Time
 }
 
@@ -56,6 +56,6 @@ type Snapshot struct {
 	Working []Ticket
 	Done    []Ticket
 
-	SandboxTotal int
-	SandboxFree  int
+	WorkerTotal int
+	WorkerFree  int
 }

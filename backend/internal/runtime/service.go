@@ -17,18 +17,20 @@ type Puller interface {
 }
 
 // Blocker is the runtime's port onto the board's mechanical failure path
-// (03 §7.3): dead-lettered amika.dispatch/instruct entries surface on the
-// ticket as Blocked with the delivery failure as reason.
+// (03 §7.3): dead-lettered agent.send entries surface on the ticket as
+// Blocked with the delivery failure as reason.
 type Blocker interface {
 	MarkBlocked(ctx context.Context, ticketID string, reason string) error
 }
 
-// AgentDispatcher executes amika.* outbox entries (02 §8, 04 §2). The outbox
-// id travels as the idempotency key; the adapter and its mock must
-// deduplicate on it (04 §3).
-type AgentDispatcher interface {
-	Dispatch(ctx context.Context, idempotencyKey int64, payload []byte) error
-	Instruct(ctx context.Context, idempotencyKey int64, payload []byte) error
+// AgentRuntime executes agent.* outbox entries (05 §2.1) — the
+// provider-neutral contract onto agent platforms. The outbox id travels as
+// the idempotency key; the module (and its mock provider) must deduplicate
+// on it (04 §3, 05 §7). Calls record-and-return; they never block on
+// provisioning or a turn (05 D2).
+type AgentRuntime interface {
+	Send(ctx context.Context, idempotencyKey int64, payload []byte) error
+	Release(ctx context.Context, idempotencyKey int64, payload []byte) error
 }
 
 // Notifier executes notify.send entries (02 §10). A rare duplicate
@@ -48,25 +50,25 @@ type SnapshotPusher interface {
 // (04 §6) and the wiring that routes claimed entries to the ports above.
 // Constructed at the composition root (04 §8).
 type Service struct {
-	store      Store
-	brain      Brain
-	puller     Puller
-	blocker    Blocker
-	dispatcher AgentDispatcher
-	notifier   Notifier
-	pusher     SnapshotPusher
+	store    Store
+	brain    Brain
+	puller   Puller
+	blocker  Blocker
+	agents   AgentRuntime
+	notifier Notifier
+	pusher   SnapshotPusher
 }
 
 // NewService assembles the runtime over its ports.
-func NewService(store Store, brain Brain, puller Puller, blocker Blocker, dispatcher AgentDispatcher, notifier Notifier, pusher SnapshotPusher) *Service {
+func NewService(store Store, brain Brain, puller Puller, blocker Blocker, agents AgentRuntime, notifier Notifier, pusher SnapshotPusher) *Service {
 	return &Service{
-		store:      store,
-		brain:      brain,
-		puller:     puller,
-		blocker:    blocker,
-		dispatcher: dispatcher,
-		notifier:   notifier,
-		pusher:     pusher,
+		store:    store,
+		brain:    brain,
+		puller:   puller,
+		blocker:  blocker,
+		agents:   agents,
+		notifier: notifier,
+		pusher:   pusher,
 	}
 }
 

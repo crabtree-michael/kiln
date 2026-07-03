@@ -6,7 +6,7 @@
 CREATE TABLE outbox (
   id         bigserial PRIMARY KEY,  -- doubles as the idempotency key (03 §7)
   topic      text  NOT NULL CHECK (topic IN
-             ('amika.dispatch','amika.instruct','notify.send','pull.evaluate','board.updated')),
+             ('agent.send','agent.release','notify.send','pull.evaluate','board.updated')),
   payload    jsonb NOT NULL,         -- emit-time snapshot; '{}' for signal-only topics
   created_at timestamptz NOT NULL DEFAULT now(),
 

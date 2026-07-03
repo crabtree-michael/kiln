@@ -6,7 +6,7 @@
 
 ## 1. Purpose & scope
 
-This document resolves everything `02` §7 leaves open, and nothing else:
+This document resolves:
 
 - The concrete shape of the **two durable queues** (`02` §2): the event queue and the
 outbox — tables, delivery-state columns, drain machinery (§2–§3).
@@ -18,9 +18,12 @@ events serialize against each other (§4).
 - The **client-facing contract**: SSE + HTTP POST transport and the endpoint set (§7).
 - **Module topology** and the composition root (§8).
 
-Out of scope: the brain's internals and its action idempotency (`02` §6); Amika's inbound
-result mapping and payload shapes (`02` §8); voice payload/format (`02` §9); push
-registration mechanics (`02` §10); auth on the client endpoints (`02` §12).
+Out of scope: 
+
+- the brain's internals and its action idempotency (`02` §6); 
+- the agent-runtime's inbound result mapping and payload shapes (`05`);
+
+
 
 ## 2. The two queues
 
@@ -32,8 +35,8 @@ machinery; they differ in who writes them and what a handled entry means:
 |                 | **Event queue** (`events`)                                                        | **Outbox** (`outbox`)                                                                                            |
 | --------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Drives          | The brain: one LLM pass per entry                                                 | The machinery: mechanical execution, no LLM                                                                      |
-| Written by      | Amika inbound handler (`agent.turn_completed`), voice route (`human.voice_input`) | The board, transactionally with state changes (`03` §7)                                                          |
-| Handled by      | Brain port (`02` §6)                                                              | Per-topic executors: Amika adapter, push adapter, board `RunPull`, SSE hub                                       |
+| Written by      | agent-runtime module (`agent.turn_completed` — `05`), voice route (`human.voice_input`) | The board, transactionally with state changes (`03` §7)                                                          |
+| Handled by      | Brain port (`02` §6)                                                              | Per-topic executors: agent-runtime module, push adapter, board `RunPull`, SSE hub                                       |
 | Emitted entries | The brain's actions cause board ops, which append outbox rows                     | — (executors emit nothing; `MarkBlocked` on the dispatch-failure path appends via the Board API like any caller) |
 
 
@@ -57,7 +60,7 @@ CREATE TABLE events (
 CREATE TABLE outbox (
   id       bigserial PRIMARY KEY,   -- doubles as the idempotency key (03 §7)
   topic    text  NOT NULL CHECK (topic IN
-           ('amika.dispatch','amika.instruct','notify.send','pull.evaluate','board.updated')),
+           ('agent.send','agent.release','notify.send','pull.evaluate','board.updated')),
   payload  jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
   -- + delivery-state columns
@@ -79,7 +82,7 @@ runtime's. The two modules share the `outbox` migration.
   `id`, `FOR UPDATE SKIP LOCKED` in a short claim transaction that only increments
    `attempts` (the lock guards against a second worker; today there isn't one — §10, D4).
 2. Execute the handler **outside any queue transaction** — a brain pass or an outbox
-  executor. Handlers may take seconds (LLM, Amika); no lock is held while they run.
+  executor. Handlers may take seconds (LLM, agent platform); no lock is held while they run.
 3. On success: `status = 'done'`, `processed_at = now()`. On error: `last_error` recorded,
   `next_attempt_at = now() + min(1s × 2^(attempts−1), 60s)`. After **8 attempts**:
    `status = 'dead'` and the per-topic dead-letter action below.
@@ -88,8 +91,8 @@ A crash anywhere between claim and mark leaves the entry `pending`; it re-runs a
 restart. That is the whole recovery story — **at-least-once delivery plus handlers that are
 safe to repeat**:
 
-- `amika.dispatch` / `amika.instruct` carry the outbox `id` as idempotency key; the adapter
-and its mock must deduplicate on it (`03` §7).
+- `agent.send` / `agent.release` carry the outbox `id` as idempotency key; the agent-runtime
+module and its mock must deduplicate on it (`03` §7, `05` §7).
 - `pull.evaluate` and `board.updated` are idempotent by construction (`03` §5, D7).
 - A replayed **brain pass** re-reads fresh board state; re-applied actions hit the Board
 API's strict preconditions (`03` D8), so a half-applied first run cannot double-apply.
@@ -101,8 +104,9 @@ Finer-grained idempotency is the brain spec's concern (`02` §6).
 
 | Entry                               | After 8 failed attempts                                                                                                                                               |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `amika.dispatch` / `amika.instruct` | Runtime calls `MarkBlocked(ticket, reason: delivery failure)` — surfaces on the ticket, notifies the user (`03` §7.3)                                                 |
+| `agent.send`                        | Runtime calls `MarkBlocked(ticket, reason: delivery failure)` — surfaces on the ticket, notifies the user (`03` §7.3)                                                 |
 | `notify.send`                       | Log at error level and drop; board already correct (`03` §7.3)                                                                                                        |
+| `agent.release`                     | Log at error level; the agent-runtime reconciler heals the worker on its next sweep (`05` §4)                                                                          |
 | `pull.evaluate` / `board.updated`   | Log at error level; both are re-emitted by the next enabling operation, so a dead entry self-heals                                                                    |
 | event (brain pass kept failing)     | Log at error level and emit `notify.send` ("Kiln hit a system error handling X") — the ticket keeps its current state; the user is pulled in rather than left waiting |
 
@@ -129,7 +133,7 @@ the pull is never a brain decision (`03` I6), so the two never want the same edg
 
 **Wakeup.** Each worker blocks on an in-process **nudge channel**, with a **1-second poll**
 as fallback. Anything that commits a queue row nudges the matching worker (the API routes
-and Amika handler after inserting an event; the board's store adapter after a transaction
+and the agent-runtime module after inserting an event; the board's store adapter after a transaction
 that appended outbox rows). The nudge is best-effort — a dropped nudge costs at most one
 poll interval. No `LISTEN/NOTIFY` (§10, D5).
 
@@ -149,8 +153,8 @@ EnqueueEvent(type, payload) → event id     -- INSERT into events + nudge
 
 Two callers, per `01`'s two event types:
 
-- **Amika inbound handler** (`02` §8): a turn result arrives (webhook or poll — that spec's
-decision) → `agent.turn_completed`, payload snapshot of the result.
+- **agent-runtime module** (`05`): a worker's turn reaches a terminal outcome →
+`agent.turn_completed`, payload snapshot of the result.
 - **Voice route** (§7 below): user audio arrives → `human.voice_input`, payload per the
 voice spec (`02` §9).
 
@@ -186,13 +190,13 @@ Per `02` §2's layering, across two modules:
 
 - `/backend/internal/runtime` — the two workers (event worker → brain port; outbox
 worker → per-topic executor ports), the drain/retry machinery of §3, `EnqueueEvent`, and
-the queue tables' delivery-state migrations. Ports consumed: brain, board, Amika, push,
+the queue tables' delivery-state migrations. Ports consumed: brain, board, agent runtime, push,
 SSE hub.
 - `/backend/internal/api` — the HTTP routes of §7 and the **SSE hub** (tracks connected
 clients, fans out `board`/`speak` events). Thin handlers: decode, delegate to
 runtime/board, encode.
 - `/backend/cmd/kiln` — the **composition root** (`02` §7): the only place concrete
-adapters exist together. It constructs the Postgres store, LLM client, Amika adapter
+adapters exist together. It constructs the Postgres store, LLM client, agent-runtime module (Amika or mock provider
 (real or mock, by config), push and STT/TTS adapters; injects them through ports into
 board, brain, runtime, and api; runs migrations; starts the workers and the HTTP server.
 
@@ -216,7 +220,7 @@ flowchart LR
     brain -->|actions| board["board (03)"]
     board -->|transactional append| obq
     obq --> obw
-    obw -->|amika.*| amika["amika (02 §8)"]
+    obw -->|agent.*| agent["agent runtime (05)"]
     obw -->|pull.evaluate| board
     obw -->|notify.send| push["push (02 §10)"]
     obw -->|board.updated| hub
@@ -238,7 +242,7 @@ without sleeping.
 fan-out to multiple SSE clients, keepalive.
 - **Integration:** real Postgres — two workers + real tables; kill the process between
 execute and mark and verify re-run; verify `id`-order processing under concurrent inserts.
-- **E2E seam:** this module is where the `02` §14 full loop runs — mock Amika emits a turn
+- **E2E seam:** this module is where the `02` §14 full loop runs — the mock agent provider emits a turn
 result, event worker drives a scripted brain, outbox effects land, SSE client observes the
 snapshots.
 
@@ -250,7 +254,7 @@ snapshots.
 | #   | Decision                                                                                       | Alternatives considered                                                     | Rationale                                                                                                                                                                                              |
 | --- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | D1  | Two tables (`events`, `outbox`) sharing delivery-state columns and drain code.                 | One table with a queue discriminator; separate bespoke machinery per queue. | The queues have different writers, consumers, and payload contracts — separate tables keep those contracts independent; shared columns keep the machinery single-sourced.                              |
-| D2  | At-least-once delivery; no exactly-once machinery.                                             | Two-phase commit around handlers; transactional inbox on consumers.         | Exactly-once is a fiction over LLM and Amika calls anyway; idempotency keys + `03`'s strict preconditions absorb replays at a fraction of the complexity.                                              |
+| D2  | At-least-once delivery; no exactly-once machinery.                                             | Two-phase commit around handlers; transactional inbox on consumers.         | Exactly-once is a fiction over LLM and agent-platform calls anyway; idempotency keys + `03`'s strict preconditions absorb replays at a fraction of the complexity.                                              |
 | D3  | Strictly serial event processing in `id` order — the single writer realized in-process.        | Concurrent brain passes; per-ticket lanes.                                  | One project, one user: concurrency buys nothing and creates prompt-state races (two passes reading the same board). Serial makes brain behavior reproducible — the `02` §14 test property.             |
 | D4  | Execute-then-mark with claim-increments-attempts; no in-flight status, no lease/claim columns. | Status `in_flight` + lease timeouts.                                        | A crashed worker's lease machinery is real complexity; with one process per deployment, `pending` + re-run on restart covers every crash window. `SKIP LOCKED` already future-proofs multiple workers. |
 | D5  | Wakeup = in-process nudge channel + 1 s poll fallback.                                         | `LISTEN/NOTIFY`; poll-only; timer-driven.                                   | Same process writes and drains the queues — a channel is free and instant; the poll catches dropped nudges and restart. `LISTEN/NOTIFY` adds a connection-state protocol for zero gain at this scale.  |

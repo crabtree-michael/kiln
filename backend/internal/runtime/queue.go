@@ -19,7 +19,7 @@ const (
 type EventType string
 
 const (
-	EventAgentTurnCompleted EventType = "agent.turn_completed" // from the Amika inbound handler (02 §8)
+	EventAgentTurnCompleted EventType = "agent.turn_completed" // from the agent-runtime module (05 §2.2)
 	EventHumanVoiceInput    EventType = "human.voice_input"    // from the voice route (04 §7, 02 §9)
 )
 

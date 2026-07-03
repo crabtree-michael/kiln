@@ -1,6 +1,6 @@
 // Package runtime is the durable, deploy-resumable service shell: it receives
-// events, drives the brain once per event, and coordinates board, amika and
-// notifications. The orchestrator wakes on events, not a timer.
+// events, drives the brain once per event, and coordinates board, the agent
+// runtime and notifications. The orchestrator wakes on events, not a timer.
 //
 // Spec: docs/specs/02-initial-technical-architecture.md §7 (Orchestrator API +
 // event queue / runtime), realizing docs/specs/01-initial.md §7–§8.
@@ -13,8 +13,8 @@
 //
 //	interfaces  — event ingestion + the queue-drain loop.
 //	services    — the single-writer-per-project event loop, ordering/serialization
-//	              of turn-completed vs voice events; depends on the durable queue,
-//	              brain, board, amika and notifications only through injected ports.
+//	              of turn-completed vs voice events; depends on the durable queues,
+//	              brain, board, agent runtime and notifications only through injected ports.
 //	infra       — the Postgres-backed durable queue behind a port, wired at the
 //	              composition root and injected upward.
 package runtime

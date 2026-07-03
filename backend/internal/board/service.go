@@ -56,7 +56,7 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 // SendToAgent covers both 01 §5 rows — Blocked→Working (resume with the
 // user's answer) and Working→Working (a new turn). Result state is working;
 // blocked_reason is cleared (03 §4).
-// Precondition: state ∈ {working, blocked}. Emits amika.instruct.
+// Precondition: state ∈ {working, blocked}. Emits agent.send.
 func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction string) (Ticket, error) {
 	return Ticket{}, errNotImplemented
 }
@@ -69,9 +69,10 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 	return Ticket{}, errNotImplemented
 }
 
-// AcceptToDone moves working|blocked → done, clearing the sandbox binding
-// (releasing the sandbox) and blocked_reason (03 §4).
-// Precondition: state ∈ {working, blocked}. Emits pull.evaluate.
+// AcceptToDone moves working|blocked → done, clearing the worker binding
+// and blocked_reason (03 §4).
+// Precondition: state ∈ {working, blocked}. Emits pull.evaluate and
+// agent.release (recycle the freed worker — 05 §4).
 func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error) {
 	return Ticket{}, errNotImplemented
 }
@@ -83,11 +84,11 @@ func (s *Service) GetBoard(ctx context.Context) (Snapshot, error) {
 
 // RunPull is the deterministic pull (03 §5) — a system action, never a brain
 // decision (03 I6). It loops, one transaction per binding, until no
-// (ready ticket, free sandbox) pair remains: lock both with SKIP LOCKED,
-// move ready → working, bind the sandbox, emit amika.dispatch. Idempotent by
-// construction, so duplicate pull.evaluate triggers and at-least-once
-// delivery are safe; the one_active_ticket_per_sandbox index (03 I2) is the
-// backstop against double-binding.
+// (ready ticket, free worker) pair remains: lock both with SKIP LOCKED,
+// move ready → working, bind the worker, emit agent.send with the work
+// order. Idempotent by construction, so duplicate pull.evaluate triggers and
+// at-least-once delivery are safe; the one_active_ticket_per_worker index
+// (03 I2) is the backstop against double-binding.
 func (s *Service) RunPull(ctx context.Context) error {
 	return errNotImplemented
 }

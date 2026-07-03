@@ -12,25 +12,53 @@ the brain (§6) once per event, and faces the client. Implements the `01` decisi
 orchestrator **wakes on events, not a timer**.
 
 **Interface.** Event ingestion for the two `01` event types — `agent-turn-completed` (from
-Amika §8) and `human-voice-input` (from voice §9). Client-facing contract: the live
+the agent-runtime module 05) and `human-voice-input` (from voice §9). Client-facing contract: the live
 connection that pushes board updates and the endpoints the client calls. Message / event
 schemas.
 
 **Dependencies.** Durable queue (Postgres queue table — §3); brain (§6); board (§5);
-notifications (§10); Amika (§8).
+notifications (§10); agent runtime (§8, 05).
 
-**Open decisions — TBD → §7.**
-- [ ] Queue technology and delivery semantics (at-least-once vs exactly-once), ordering
-      guarantees, and how a single-writer-per-project constraint is kept.
-- [ ] Deploy-safe recovery: draining a durable queue rather than trusting in-process state
-      (`01` §8).
-- [ ] Live-connection transport choice (shared with the client §11: WebSocket vs SSE).
-- [ ] How turn-completed and voice events are serialized against each other.
+**Open decisions — resolved in `docs/specs/04-runtime-and-api.md` (status: proposed).**
+- [x] Delivery semantics → 04 §3: at-least-once, execute-then-mark; backoff
+      `min(1s × 2^(attempts−1), 60s)`, 8 attempts, per-topic dead-letter actions.
+      Single writer → 04 §4: one serial event-worker goroutine, `id` order.
+- [x] Deploy-safe recovery → 04 §5: no recovery code path — restart just re-finds
+      `pending` rows; nudge channel + 1 s poll fallback for wakeup.
+- [x] Live-connection transport → 04 §7: SSE (server→client) + plain HTTP POST
+      (client→server); absolute snapshots, reconnect = fresh snapshot, no replay.
+- [x] Event serialization → 04 §4: turn-completed and voice events share the `events`
+      table and serialize by insertion (`id`) order; outbox drains on its own serial
+      worker. Queue DDL (both tables + delivery-state columns) → 04 §2.
 
 ## How to work here
 
-_(Accumulate: how to run the runtime locally, how to drive the event loop against fakes, the
-two module boundaries — `backend/internal/runtime` and `backend/internal/api`.)_
+**Scaffold layout** (stubs return `errNotImplemented`; every contract is in the doc comments):
+
+```
+backend/internal/runtime/
+  runtime.go    package doc — the two queues, delivery ownership split vs board
+  queue.go      QueueName · EventType · Entry/Event · retry constants (backoff, MaxAttempts=8)
+  store.go      Store port (InsertEvent, ClaimNextDue, MarkDone/Retry/Dead) · Clock
+  worker.go     Worker — serial drain loop, Nudge() (implemented), Handler/DeadLetter types
+  service.go    Service — EnqueueEvent + the executor ports: Brain, Puller, Blocker,
+                AgentRuntime (Send/Release — 05 §2.1), Notifier, SnapshotPusher
+  postgres/     store adapter stub
+    migrations/ 0001_events.sql (04 §2; outbox DDL lives in board's 0002_outbox.sql)
+backend/internal/api/
+  api.go        package doc — thin handlers, shapes come from /schema
+  routes.go     Server — GET /api/stream · GET /api/board · POST /api/voice (04 §7);
+                ports: BoardReader, EventEnqueuer
+  hub.go        Hub — SSE fan-out; implements runtime.SnapshotPusher
+backend/cmd/kiln/
+  main.go       composition root (04 §8, D9) — wiring diagram in the package doc
+```
+
+- Build/check from `/backend`: `gofmt -l . && go vet ./... && go build ./...`.
+- The runtime consumes the board through the narrow `Puller`/`Blocker` ports it names, not
+  `*board.Service` directly; adapt at the composition root (02 §2 — services depend on ports).
+- Unit-test the `Worker` against fake `Store`/`Handler`s with the `Clock` interface — the
+  backoff schedule must be testable without sleeping (04 §9).
 
 ## Common footguns
 

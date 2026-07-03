@@ -36,9 +36,9 @@ type Tx interface {
 	// (03 §5). ok is false when no ready ticket is available.
 	NextReadyTicket() (t Ticket, ok bool, err error)
 
-	// FreeSandbox locks a sandbox that no active ticket references, using
+	// FreeWorker locks a worker that no active ticket references, using
 	// FOR UPDATE SKIP LOCKED (03 §5). ok is false when none is free.
-	FreeSandbox() (s Sandbox, ok bool, err error)
+	FreeWorker() (w Worker, ok bool, err error)
 
 	// AppendOutbox records one emission in this transaction (03 §7, I7).
 	AppendOutbox(e Emission) error

@@ -14,7 +14,7 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
 
 - **The hard gate is a wall.** Linters + type-check + tests must be green before you commit or
   merge. Red means you cannot land. Do not weaken a check to make it pass.
-- **Work behind interfaces.** Each backend module (`backend/internal/{api,runtime,brain,board,amika}`)
+- **Work behind interfaces.** Each backend module (`backend/internal/{api,runtime,brain,board,agent}`)
   talks to its neighbors through an explicit contract. Stay inside your area's boundary.
 - **The wire contract lives in `/schema`.** Never hand-edit generated types — change the schema and
   regenerate both Go and TS.
@@ -35,7 +35,7 @@ general skills.
 | `board-mechanism` | `backend/internal/board` | §5 |
 | `orchestrator-brain` | `backend/internal/brain` | §6 |
 | `runtime-and-api` | `backend/internal/runtime` · `internal/api` | §7 |
-| `amika-integration` | `backend/internal/amika` | §8 |
+| `amika-integration` | `backend/internal/agent` — neutral agent-runtime layer; Amika adapter in `./amika` | §8, 05 |
 | `voice-pipeline` | `/frontend` mic/playback · runtime bridge | §9 |
 | `notifications` | `/frontend` registration/tap · runtime send path | §10 |
 | `web-client` | `/frontend` | §11 |

@@ -7,11 +7,11 @@ package board
 type Topic string
 
 const (
-	TopicAmikaDispatch Topic = "amika.dispatch" // RunPull: dispatch the agent into the bound sandbox
-	TopicAmikaInstruct Topic = "amika.instruct" // SendToAgent: resume, or a new turn
-	TopicNotifySend    Topic = "notify.send"    // MarkBlocked: push notification to the user
-	TopicPullEvaluate  Topic = "pull.evaluate"  // MarkReady, AcceptToDone: trigger RunPull
-	TopicBoardUpdated  Topic = "board.updated"  // every mutation: full-snapshot push (03 D7)
+	TopicAgentSend    Topic = "agent.send"    // RunPull (work order) and SendToAgent (instruction)
+	TopicAgentRelease Topic = "agent.release" // AcceptToDone: recycle the worker to a fresh workspace
+	TopicNotifySend   Topic = "notify.send"   // MarkBlocked: push notification to the user
+	TopicPullEvaluate Topic = "pull.evaluate" // MarkReady, AcceptToDone: trigger RunPull
+	TopicBoardUpdated Topic = "board.updated" // every mutation: full-snapshot push (03 D7)
 )
 
 // Emission is one outbox row, appended in the same transaction as the state
@@ -24,21 +24,19 @@ type Emission struct {
 	Payload any // one of the *Payload structs below; marshaled to jsonb by the store
 }
 
-// DispatchPayload — amika.dispatch (03 §7.1). Title + body are the work
-// instruction; the outbox id is attached by the runtime as the Amika
-// idempotency key (04 §3).
-type DispatchPayload struct {
-	TicketID  TicketID  `json:"ticket_id"`
-	SandboxID SandboxID `json:"sandbox_id"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
+// SendPayload — agent.send (03 §7.1, 05 §2.1). Message is the work order
+// (title + body) from RunPull, or the instruction from SendToAgent; the
+// agent-runtime module derives first-message-vs-continuation itself. The
+// outbox id is attached by the runtime as the idempotency key (04 §3).
+type SendPayload struct {
+	TicketID TicketID `json:"ticket_id"`
+	WorkerID WorkerID `json:"worker_id"`
+	Message  string   `json:"message"`
 }
 
-// InstructPayload — amika.instruct (03 §7.1).
-type InstructPayload struct {
-	TicketID    TicketID  `json:"ticket_id"`
-	SandboxID   SandboxID `json:"sandbox_id"`
-	Instruction string    `json:"instruction"`
+// ReleasePayload — agent.release (03 §7.1, 05 §4).
+type ReleasePayload struct {
+	WorkerID WorkerID `json:"worker_id"`
 }
 
 // NotifyPayload — notify.send (03 §7.1).

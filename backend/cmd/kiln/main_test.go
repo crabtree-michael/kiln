@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -11,7 +10,7 @@ import (
 // there is always at least one passing unit test so `go test ./...` is a
 // meaningful green wall, not an empty one (02 §4a).
 func TestRunStartsAndStopsOnSignal(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 
 	done := make(chan error, 1)
 	go func() { done <- run(log) }()

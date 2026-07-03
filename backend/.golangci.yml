@@ -21,9 +21,13 @@ linters:
     - nlreturn          # same class of cosmetic newline rules
     - ireturn           # returning interfaces (ports) is central to our architecture
     - gochecknoglobals  # a build-stamped `var version` is a legitimate global
+    - errname           # `ErrInvalidTransition`-style error type names are fine here
+    - tagliatelle       # snake_case JSON tags are a deliberate convention (mirror SQL columns)
   settings:
     govet:
       enable-all: true
+      disable:
+        - fieldalignment  # micro-optimising struct field order isn't worth the churn
     errcheck:
       check-type-assertions: true
       check-blank: true
@@ -43,6 +47,14 @@ linters:
           - mnd
           - testpackage    # we test unexported run()/version by design
           - paralleltest
+      # Modules land as stubs first (contracts before implementation): unused
+      # params and not-yet-written doc comments are expected until they fill in.
+      - linters: [revive]
+        text: unused-parameter
+      - linters: [revive]
+        text: should have comment
+      - linters: [revive]
+        text: comment on exported
 
 formatters:
   enable:

@@ -40,7 +40,9 @@ func (s *Store) MarkDone(ctx context.Context, q runtime.QueueName, id int64) err
 	return errNotImplemented
 }
 
-func (s *Store) MarkRetry(ctx context.Context, q runtime.QueueName, id int64, lastError string, nextAttemptAt time.Time) error {
+func (s *Store) MarkRetry(
+	ctx context.Context, q runtime.QueueName, id int64, lastError string, nextAttemptAt time.Time,
+) error {
 	return errNotImplemented
 }
 

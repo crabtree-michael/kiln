@@ -1,0 +1,6 @@
+# Kiln — full system on one machine (v1 is local-only; see docs/specs/02 §1, §4).
+# Services to be filled in as the surface areas are built:
+#   - db        (Postgres — board state + durable event queue)
+#   - backend   (Go orchestrator: api · runtime · brain · board · amika)
+#   - frontend  (TS/React client)
+services: {}

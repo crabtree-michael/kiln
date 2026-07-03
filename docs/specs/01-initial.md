@@ -1,7 +1,7 @@
 # Kiln — Design (v1)
 
 **Date:** 2026-07-03
-**Status:** Approved for planning
+**Status:** Approved
 **Scope:** v1, single project, single user
 
 ## 1. What Kiln is

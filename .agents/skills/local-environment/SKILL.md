@@ -1,55 +1,39 @@
 ---
 name: local-environment
-description: How to run Kiln locally — the Docker Compose stack (Postgres + backend + frontend), ports, env/secrets, and per-surface dev servers. Use when bringing the system up, debugging a service that won't start, or wiring env vars.
+description: Use when bringing the system up locally or figuring out where a service, its state, or its credentials live. v1 is local-only via Docker Compose (db, backend, frontend). Spec 02 §1, §3, §4.
 ---
 
-# Running Kiln locally
+# Working in the local environment (doc 02 §1, §3, §4)
 
-**Spec:** `docs/specs/02-initial-technical-architecture.md` §1, §4. v1 is
-**local-only** — no cloud, no IaC. The whole system runs on one machine.
+## Functional Requirements
 
-## Bring the whole system up
+v1 runs **entirely locally via Docker Compose** — no cloud or production (§1). A developer or
+agent brings the whole system up with a single `docker compose up`.
 
-```bash
-cp .env.example .env      # fill in provider keys as surface areas need them
-make up                   # docker compose up --build
-make down                 # tear down (removes volumes)
-```
+- **Services** (`docker-compose.yml`): `db` (Postgres — board state **and** the durable event
+  queue, one engine), `backend` (Go monolith: api · runtime · brain · board · amika), and
+  `frontend` (TS/React client).
+- **Where state lives.** All authoritative state is in Postgres. The backend holds no
+  authoritative state between events; a restart/deploy recovers by re-reading Postgres and
+  draining the queue table.
+- **Trust boundary.** `/backend` is the only trust boundary: it owns Postgres and all provider
+  credentials (LLM, STT/TTS, push, Amika) and is the only writer of board state.
 
-Services and ports:
+**Open decisions — TBD.**
+- [ ] Fill in the `docker-compose.yml` services (currently `services: {}`) as surface areas
+      are built.
+- [ ] Runtime configuration and secret injection for the managed-API credentials.
 
-| Service  | Port | What |
-| -------- | ---- | ---- |
-| db       | 5432 | Postgres — board state **and** the durable event queue (02 §3) |
-| backend  | 8080 | Go monolith (api·runtime·brain·board·amika) |
-| frontend | 5173 | Vite dev server (proxies `/api` → backend) |
+## How to work here
 
-## Per-surface dev (faster inner loop)
+_(Accumulate: the actual `docker compose up` invocation, service ports, how to seed/reset the
+database, and how credentials are supplied locally — once the compose file is filled in.)_
 
-```bash
-cd frontend && pnpm install && pnpm dev     # http://localhost:5173
-cd backend  && go run ./cmd/kiln            # needs DATABASE_URL
-```
+## Common footguns
 
-## Secrets (02 §12)
+- Assuming a cloud/production target — v1 is local-only (§1); hosting is future work.
+- Storing authoritative state anywhere but Postgres.
 
-Provider credentials (LLM, STT/TTS, Amika, push) live in `.env`, injected by
-Compose. **Never commit `.env`** — only `.env.example` is tracked. The backend is
-the single trust boundary; the client never holds credentials.
+## Potential gotchas
 
-## State & recovery
-
-All authoritative state is in Postgres, including the queue. Restarting `backend`
-recovers by re-reading durable state / draining the queue table (`01` §8) — you do
-not lose in-flight work to a restart.
-
-## Gotchas
-
-- First `make up` builds the Go image and installs frontend deps; it's slow once,
-  fast after (volumes cache `node_modules`).
-- If `backend` exits immediately, check `DATABASE_URL` and that `db` is healthy
-  (Compose waits on the healthcheck).
-
-## Keep this skill current
-
-Record new services, ports, env vars, and startup gotchas here.
+_(Accumulate: non-obvious traps in the local setup.)_

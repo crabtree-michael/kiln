@@ -33,5 +33,5 @@ docker-compose.yml  the whole system on one machine
 
 Kiln is built largely by coding agents. The development harness — hard gate,
 strict linters, and a self-maintaining skill per surface area — is the first
-thing built (02 §4). Start with [`AGENTS.md`](AGENTS.md) and the `hard-gate`
-skill.
+thing built (02 §4). Start with [`AGENTS.md`](AGENTS.md) and the
+`end-to-end-development` skill.

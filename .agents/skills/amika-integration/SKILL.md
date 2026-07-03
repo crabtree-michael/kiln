@@ -1,53 +1,43 @@
 ---
 name: amika-integration
-description: Work in the Kiln amika module — the agent-platform bridge (dispatch/instruct/receive-result/queue), held as an interface with a mock until Amika's real API lands. Use when editing backend/internal/amika, the Amika port/mock, or sandbox-lifecycle-to-board-binding logic.
+description: Use when working in the Amika module — the bridge to the agent platform that dispatches, instructs, and receives results from sandboxed agents. Held as an interface + mock until Amika's real API lands. Backend anchor internal/amika. Spec 02 §8.
 ---
 
-# Amika integration (backend/internal/amika)
+# Agent-platform integration — Amika (doc 02 §8)
 
-**Spec:** `docs/specs/02-initial-technical-architecture.md` §8, realizing
-`docs/specs/01-initial.md` §4. Amika's real API is **DEFERRED** (`01` §11).
+## Functional Requirements
 
-## Responsibility
+**Responsibility.** Bridge to the agent platform: dispatch an agent into a sandbox, instruct
+a running / blocked agent, receive a turn's result, and expose the queue the runtime
+triggers off of (`01` §4). Recovers safely across deploys.
 
-Bridge to the agent platform: dispatch an agent into a sandbox, instruct a
-running/blocked agent, receive a turn's result, and expose the queue the runtime
-(§7) triggers off of. Recovers safely across deploys.
+**Interface.** The dispatch / instruct / receive-result / queue contract. Defined as a Go
+**interface with a mock implementation** until Amika's real API/SDK is in hand (`01` §11),
+so the rest of the system can be built and tested against the mock.
 
-## The rule that shapes everything here
+**Dependencies.** Amika's real API (**deferred** — stays an interface); board (§5) for the
+sandbox-binding lifecycle.
 
-Amika is defined as an **interface (port) with a mock implementation**. The rest
-of the system is built and the end-to-end loop tested against the **mock** — no
-real agents. Do **not** couple other modules to a concrete Amika client; depend on
-the interface. When the real API/SDK lands, it becomes a second adapter behind the
-same port.
+**Open decisions — TBD → §8.**
+- [ ] The concrete interface shape and auth.
+- [ ] How a turn result arrives (webhook vs poll) and maps to a runtime event.
+- [ ] Sandbox lifecycle ↔ board binding (acquire on pull, hold through Blocked, release on
+      Done).
+- [ ] Retry and dispatch-failure surfacing (`01` §8).
+- [ ] What the mock must simulate to make the end-to-end loop testable without real agents.
 
-## Where the code lives
+## How to work here
 
-`backend/internal/amika`, layered (02 §2): the dispatch/instruct/receive-result
-contract (the port) → services (sandbox-lifecycle ↔ board-binding, failure
-surfacing) → infra (the **mock adapter** today; the real client later).
+**Work behind the interface.** Amika's real API is not landed — never hand-code against it.
+All the rest of the system depends on the interface + mock.
+_(Accumulate: how to run the mock, the module boundary — `backend/internal/amika`.)_
 
-## What this area still has to decide (02 §8)
+## Common footguns
 
-- The concrete interface shape and auth.
-- How a turn result arrives (webhook vs poll) and maps to a runtime event.
-- Sandbox lifecycle ↔ board binding: acquire on pull, hold through Blocked,
-  release on Done (coordinate with board §5).
-- Retry + dispatch-failure surfacing (`01` §8).
-- **What the mock must simulate** to make the e2e loop testable without agents.
+- Coding against a real Amika API/SDK that does not exist yet instead of the interface + mock.
 
-## Run the gate for this area
+_(Accumulate more as you work.)_
 
-```bash
-cd backend && go test ./internal/amika/...
-```
+## Potential gotchas
 
-## Gotchas
-
-- The mock is load-bearing: the whole e2e test (§14) depends on it faithfully
-  simulating dispatch → turn-completed. Keep it honest.
-
-## Keep this skill current
-
-When the real Amika docs land, record the mapping decisions and auth here.
+_(Accumulate: non-obvious traps and edge cases.)_

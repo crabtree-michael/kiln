@@ -1,50 +1,43 @@
 ---
 name: web-client
-description: Work in the Kiln web client — the thin, disposable, mobile-first PWA that renders the board over a live connection, captures mic audio, plays voice, and handles push. Use when editing /frontend, React components, the live-connection client, PWA/service-worker, or reconnection/resync.
+description: Use when working in the frontend — the thin, disposable, mobile-first client that renders the board over a live connection, captures mic audio, plays Kiln's voice, and receives notifications. Holds no authoritative state. Anchor /frontend. Spec 02 §11.
 ---
 
-# Web client (/frontend)
+# Web client (doc 02 §11)
 
-**Spec:** `docs/specs/02-initial-technical-architecture.md` §11, realizing
-`docs/specs/01-initial.md` §4.
+## Functional Requirements
 
-## Responsibility
+**Responsibility.** A deliberately thin, disposable, mobile-first surface that renders the
+board over a live connection, captures mic audio, plays Kiln's voice, and receives
+notifications (`01` §4). **Holds no authoritative state.**
 
-A deliberately **thin, disposable, mobile-first** surface: renders the board over
-a live connection, captures mic audio, plays Kiln's voice, receives
-notifications. **Holds no authoritative state** — all state is server-side.
+**Interface.** Consumes the runtime's live connection (§7) and client endpoints; the voice
+pipeline (§9) for audio; the notification transport (§10) for push and deep links. Types are
+generated from the wire schema (see `wire-schema`, §3).
 
-## Stack (harness defaults, 02 §11)
+**Dependencies.** Runtime (§7); voice pipeline (§9); notifications (§10).
 
-Vite + React + TypeScript, mobile-first **PWA** (`vite-plugin-pwa`). Vitest +
-Testing Library. Types are **generated** from `/schema` (see `wire-contract`).
+**Open decisions — TBD → §11.**
+- [ ] Framework and build.
+- [ ] Live-connection transport (shared with §7: WebSocket vs SSE).
+- [ ] Board rendering and how live updates are applied.
+- [ ] PWA vs. wrapped-native for mic + push on mobile.
+- [ ] Reconnection / resync after the connection drops.
 
-## The gate you must keep green (02 §4b)
+## How to work here
 
-`pnpm check` = lint + typecheck + test. The lint config **bans the escape
-hatches** — `any`, `as`, `@ts-ignore`, non-null `!`, unused symbols are hard
-errors. Do not reach for them; narrow with type guards and fix the types.
+**TS escape hatches are banned** (`any`, `as`, `@ts-ignore`, non-null `!`, unused symbols) —
+the hard gate enforces it (§4b). Types come from the wire schema; never hand-write the
+client↔server types.
+_(Accumulate: how to run the frontend locally, build/test commands, the boundary — `/frontend`.)_
 
-```bash
-cd frontend && pnpm check      # lint + typecheck + test
-cd frontend && pnpm dev        # local dev server (proxies /api to backend)
-```
+## Common footguns
 
-## What this area still has to decide (02 §11)
+- Reaching for a TS escape hatch to get past the type checker instead of fixing the schema/types.
+- Holding authoritative state in the client — it is disposable and holds none.
 
-- Live-connection transport — **WS vs SSE, shared with runtime §7**.
-- Board rendering and how live updates are applied.
-- PWA vs wrapped-native for mic + push on mobile (interacts with notifications
-  §10).
-- Reconnection / resync after the connection drops (state is server-side, so
-  resync = re-fetch, not replay).
+_(Accumulate more as you work.)_
 
-## Gotchas
+## Potential gotchas
 
-- Never introduce authoritative client state; if you feel the need, the data
-  belongs on the server (§5/§7).
-- Never hand-edit `src/schema/generated.ts` — regenerate from `/schema`.
-
-## Keep this skill current
-
-Record the transport decision, resync strategy, and PWA/native call here.
+_(Accumulate: non-obvious traps and edge cases.)_

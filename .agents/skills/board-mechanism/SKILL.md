@@ -1,54 +1,79 @@
 ---
 name: board-mechanism
-description: Work in the Kiln board module — authoritative board state (tickets, columns, zones, sandbox bindings), invariants, the deterministic pull, and side-effect transitions. Use when editing backend/internal/board, the Board API, board schema/migrations, WIP-cap or pull logic.
+description: Use when working in the board module — the authoritative state of one project's board (tickets, sandboxes, outbox emissions) and the mechanical rules over it (invariants, the deterministic pull, transactional-outbox side effects). Backend anchor internal/board. Specs 02 §5, 03.
 ---
 
-# Board mechanism (backend/internal/board)
+# Board mechanism (02 §5, mechanics decided by 03)
 
-**Spec:** `docs/specs/02-initial-technical-architecture.md` §5, realizing
-`docs/specs/01-initial.md` §5. Read both before changing behavior.
+## Functional Requirements
 
-## Responsibility
+**Responsibility.** The authoritative state of one project's board plus the mechanical
+rules that govern it. Single source of truth: nothing outside the module writes these
+tables (I8). Mechanics are fully specified in `docs/specs/03-board-mechanics.md`; the
+product rules they realize are `01` §5 and must not be re-opened here.
 
-The authoritative state of one project's board and the mechanical rules over it:
-invariants, the deterministic pull, and the side-effect transitions from `01` §5.
-This module is the **single source of truth** — nothing else mutates board state.
+**Entity model (03 §2).** One five-value ticket `state` — `shaping | ready | working |
+blocked | done`; column and zone are **derived render groupings, not stored fields** (D1).
+A sandbox row is a capacity slot, not a live resource handle: N rows seeded from config
+*are* the WIP cap, and free vs busy is derived — busy iff an active (`working`/`blocked`)
+ticket references it (D2). No status columns, no counters.
 
-## Where the code lives
+**Board API (03 §4)** — the only mutation surface, all named transition operations (no
+generic move — D4): `CreateTicket`, `ShapeTicket` (priority is a field here; no separate
+Reprioritize), `MarkReady`, `SendToAgent` (covers both Blocked→Working resume and
+Working→Working new turn), `MarkBlocked` (called by the brain, or by the runtime on
+mechanical failure), `AcceptToDone`, `GetBoard`, plus internal `RunPull`. Only the
+diagrammed edges exist — no cancel/delete/reopen (D10). Preconditions are strict: invalid
+or repeated transitions are typed errors (`ErrNotFound`, `ErrInvalidTransition`), never
+no-ops (D8). Every mutation returns the updated Ticket and emits `board.updated`.
 
-`backend/internal/board`, layered (02 §2): thin handlers → services (business
-logic over Ticket / Sandbox / column / zone / event) → infra (Postgres repository
-behind a port). Services depend on the repo **only through the port interface**,
-never on `*sql.DB`.
+**Deterministic pull (03 §5).** Ready→Working happens **only** via `RunPull`, never by
+brain action (I6) — it is not in the brain's tool set. Triggered by transactional
+`pull.evaluate` outbox entries from `MarkReady` / `AcceptToDone`; idempotent, so
+at-least-once drain and duplicate triggers are safe. Race-free via `FOR UPDATE SKIP
+LOCKED` on both ticket and sandbox rows, with the partial unique index
+`one_active_ticket_per_sandbox` (I2) as the DB backstop. Pull order: `priority DESC,
+ready_at ASC, id ASC` (D9).
 
-## Interface — the Board API
+**Concurrency (03 §6).** One operation = one short READ COMMITTED transaction.
+Lock-then-check: `SELECT … FOR UPDATE` the target ticket, then verify the precondition on
+the locked row. `SKIP LOCKED` only in the pull; targeted operations conflict loudly.
+Database constraints back up every invariant even if service code is wrong.
 
-The operations the brain (§6) and the pull system call: create ticket,
-shape/mark-ready, move ticket (firing `01` §5 side effects), send-to-agent,
-accept-to-done. Each returns a result and emits events; document what it emits.
+**Side effects (03 §7).** Transactional outbox: emissions are recorded atomically with the
+state change and executed after commit by the runtime's drain loop, at-least-once with the
+outbox `id` as idempotency key. Topics: `amika.dispatch`, `amika.instruct`, `notify.send`,
+`pull.evaluate`, `board.updated` (triggers a full-snapshot push, not diffs — D7). Payloads
+are emit-time snapshots. The outbox is distinct from the brain-waking event queue (02 §2).
+An effect failure never rolls back the board; exhausted dispatch/instruct retries →
+runtime calls `MarkBlocked` with the failure as reason.
 
-## What this area still has to decide (02 §5)
+**Topology (03 §9).** All in `/backend/internal/board`: `BoardService` (operations,
+transition rules, and the pull — the pull is board logic, not runtime logic), a store
+port private to the module, and a Postgres adapter owning the 03 §8 DDL/migrations.
+**No Amika port** — the board appends outbox intent rows; the runtime's drain loop invokes
+the Amika adapter (D5, superseding 02 §5's topology sketch). The board's only
+infrastructure dependency is Postgres.
 
-- Persistence schema; each entity's fields, valid states, invariants.
-- WIP cap (= available sandboxes) enforced **atomically**.
-- The deterministic pull made **race-free** (a ready ticket exists AND a sandbox
-  is free) — single transaction, or a locking model that can't double-pull.
-- Whether side effects are transactional with the state change or fire after
-  commit. Board mutation + enqueued events should commit in **one Postgres
-  transaction** (02 §3).
+**Persistence (03 §8).** `text + CHECK` for `state`, not a native enum (D6). CHECK
+constraints enforce I1/I3/I4; the partial unique index enforces I2. Changing capacity =
+inserting or deleting sandbox rows (insert-only reconciliation at startup).
 
-## Run the gate for this area
+**Testing (03 §9).** Unit: `BoardService` transition rules and error paths against an
+in-memory store fake — asserting emitted outbox rows *is* asserting side effects, no Amika
+fake needed. Integration: real Postgres for constraint backstops (I1–I4) and a parallel
+`RunPull` hammer test proving no double-binding.
 
-```bash
-cd backend && go test ./internal/board/... && golangci-lint run ./internal/board/...
-```
+## How to work here
 
-## Gotchas
+_(Accumulate as you work: how to run migrations, how to test the Board API against a fake
+repository, the module boundary to stay inside — `backend/internal/board`, reachable only
+through the Board API.)_
 
-- Never let another module write board state — expose an operation instead.
-- Test services against an **in-memory repo fake**, not real Postgres (02 §2).
+## Common footguns
 
-## Keep this skill current
+_(Accumulate: mistakes agents predictably make in this module.)_
 
-When you learn a board invariant, a migration convention, or a pull-race
-subtlety, write it here so the next agent inherits it (AGENTS.md).
+## Potential gotchas
+
+_(Accumulate: non-obvious traps and edge cases.)_

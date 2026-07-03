@@ -5,10 +5,9 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
 
 ## Start here
 
-1. Read the **`hard-gate`** skill (`.agents/skills/hard-gate`) — the gate, module
-   boundaries, and how to land a change. Then read your area's skill.
-2. Install the gate hooks once: `make hooks`.
-3. Run the gate before you commit: `make check` (lint + type-check/build + tests).
+1. Read the `end-to-end-development` skill (the gate + how to land a change), then your area's skill.
+2. Install the gate hooks once: `make hooks` (pre-commit = lint+typecheck, pre-push = full gate).
+3. Run the gate before you commit: `make check` (lint → type-check/build → unit + integration).
 4. Bring the stack up locally: `make up` (see the `local-environment` skill).
 
 ## Ground rules
@@ -23,20 +22,21 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
   When you learn something about your area — spec detail, a gotcha, how to run it — write it into
   that skill so the next agent inherits it.
 
-## Layout
-
-```
-/backend    Go orchestrator (api · runtime · brain · board · amika)
-/frontend   TS/React client (Vite + PWA)
-/schema     language-neutral wire contract (generates Go + TS types)
-.agents/skills   canonical skills, symlinked to .claude/skills and .codex/skills
-.githooks   pre-commit (lint+typecheck) / pre-push (full gate) — install via `make hooks`
-Makefile    the hard gate + task runner: `make check`, `make up`, `make schema`
-```
-
 ## Skills
 
-General (read first): `hard-gate`, `local-environment`, `wire-contract`.
-Per surface area: `board-mechanism`, `orchestrator-brain`, `runtime-and-api`,
-`amika-integration`, `voice-pipeline`, `notification-transport`, `web-client`.
-See `.agents/skills/README.md` for the index.
+Canonical skills live in `.agents/skills` (symlinked into `.claude/skills` and `.codex/skills`).
+Read your area's skill before working; keep it current as you go. Every agent starts from the two
+general skills.
+
+| Skill | Area | Spec |
+| ----- | ---- | ---- |
+| `end-to-end-development` | General — the hard gate, interfaces, schema regen, isolation | §4 |
+| `local-environment` | General — bring the system up via `docker compose up` | §1, §4 |
+| `board-mechanism` | `backend/internal/board` | §5 |
+| `orchestrator-brain` | `backend/internal/brain` | §6 |
+| `runtime-and-api` | `backend/internal/runtime` · `internal/api` | §7 |
+| `amika-integration` | `backend/internal/amika` | §8 |
+| `voice-pipeline` | `/frontend` mic/playback · runtime bridge | §9 |
+| `notifications` | `/frontend` registration/tap · runtime send path | §10 |
+| `web-client` | `/frontend` | §11 |
+| `wire-schema` | `/schema` | §3, §4 |

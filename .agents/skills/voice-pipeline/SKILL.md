@@ -1,49 +1,38 @@
 ---
 name: voice-pipeline
-description: Work in the Kiln voice pipeline — STT that turns speech into human-voice-input events and TTS that turns brain speak actions into audio, as a separable I/O layer. Use when editing STT/TTS integration, audio transport/format, mic capture, or the confirm-before-destructive mishear path.
+description: Use when working on the voice I/O layer — turning speech into human-input events and the brain's replies into audio (STT → brain → TTS). Spans the frontend mic/playback and the runtime bridge. Spec 02 §9.
 ---
 
-# Voice pipeline (STT → brain → TTS)
+# Voice pipeline (doc 02 §9)
 
-**Spec:** `docs/specs/02-initial-technical-architecture.md` §9, realizing
-`docs/specs/01-initial.md` §7. Providers are **real in v1** (02 §1).
+## Functional Requirements
 
-## Responsibility
+**Responsibility.** The I/O layer that turns speech into human-input events and the brain's
+replies into audio: STT → brain → TTS (`01` §7). Independent of the orchestrator so it can
+be tested separately.
 
-The I/O layer that turns speech into `human-voice-input` events and the brain's
-replies into audio. It is **independent of the orchestrator** so it can be tested
-separately.
+**Interface.** Inbound: audio → text → a `human-voice-input` event to the runtime (§7).
+Outbound: brain `speak` actions → synthesized audio to the client (§11).
 
-## Interface
+**Dependencies.** STT and TTS providers (managed APIs, real in v1); runtime (§7); client
+(§11) for mic capture and playback.
 
-- Inbound: audio → text → a `human-voice-input` event to the runtime (§7).
-- Outbound: brain `speak` actions → synthesized audio to the client (§11).
+**Open decisions — TBD → §9.**
+- [ ] STT and TTS providers.
+- [ ] Audio transport (streaming vs batched) and format.
+- [ ] Latency budget for the round trip.
+- [ ] Foreground-mic handling (`01` §7: mic open only while foregrounded).
+- [ ] How mishears are surfaced for the `01` §7 confirm-before-destructive rule.
 
-## Where it lives
+## How to work here
 
-Backend bridges STT/TTS providers behind ports (mic capture + playback live in the
-web client, §11). Provider clients are infra adapters injected at the composition
-root; the pipeline logic depends only on the ports.
+_(Accumulate: how to exercise voice as a separable I/O layer, provider config, where the
+frontend capture/playback code lives vs. the runtime bridge.)_
 
-## What this area still has to decide (02 §9)
+## Common footguns
 
-- STT and TTS providers (pin in the decision log §16).
-- Audio transport (streaming vs batched) and format.
-- Latency budget for the round trip.
-- Foreground-mic handling (`01` §7: mic open only while foregrounded).
-- How mishears surface for the `01` §7 confirm-before-destructive rule.
+_(Accumulate: mistakes agents predictably make here.)_
 
-## Test it separately
+## Potential gotchas
 
-Voice is a separable I/O layer (02 §14): unit-test STT-text → event and
-speak-action → TTS without the real orchestrator loop.
-
-## Gotchas
-
-- Confirm-before-destructive lives at the seam between a mishear-prone STT result
-  and a destructive brain action — never auto-apply a destructive action from raw
-  transcribed text (coordinate with brain §6).
-
-## Keep this skill current
-
-Record provider choices, audio formats, and the latency budget you measure.
+_(Accumulate: non-obvious traps and edge cases.)_

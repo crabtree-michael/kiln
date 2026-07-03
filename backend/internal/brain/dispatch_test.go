@@ -1,0 +1,299 @@
+package brain_test
+
+// Dispatch pins the tool -> port-method mapping (06 §4) and the "never
+// crash the pass" contract (06 §5, §8): every one of the seven tools routes
+// to the right port call with correctly-parsed arguments, and a port error
+// (or a malformed/unknown tool call) comes back as a ToolResult with IsError
+// set and the error text verbatim — never a Go error, never a panic.
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/crabtree-michael/kiln/backend/internal/board"
+	"github.com/crabtree-michael/kiln/backend/internal/brain"
+)
+
+// TestToolSet_IsExactlySevenToolsInFixedOrder pins 06 §4's tool set: no pull
+// tool, no notify tool, no board-read tool — exactly these seven, in this
+// order (order matters for prompt-cache friendliness and golden fixtures,
+// 06 §4/§9).
+func TestToolSet_IsExactlySevenToolsInFixedOrder(t *testing.T) {
+	want := []brain.ToolName{
+		brain.ToolCreateTicket,
+		brain.ToolShapeTicket,
+		brain.ToolMarkReady,
+		brain.ToolSendToAgent,
+		brain.ToolMarkBlocked,
+		brain.ToolAcceptToDone,
+		brain.ToolSay,
+	}
+	if len(brain.Tools) != len(want) {
+		t.Fatalf("len(Tools) = %d, want %d (%v)", len(brain.Tools), len(want), want)
+	}
+	for i, name := range want {
+		if brain.Tools[i].Name != name {
+			t.Errorf("Tools[%d].Name = %q, want %q", i, brain.Tools[i].Name, name)
+		}
+	}
+}
+
+// TestDispatch_RoutesEachToolToItsPortMethod is the golden tool -> port
+// mapping table (06 §4).
+func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
+	priority := 7
+	newTitle := "new title"
+	newBody := "new body"
+
+	cases := []struct {
+		name       string
+		call       func(t *testing.T) brain.ToolCall
+		wantMethod string
+		wantArgs   []any
+	}{
+		{
+			name: "create_ticket",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c1", brain.ToolCreateTicket, brain.CreateTicketInput{Title: "T", Body: "B"})
+			},
+			wantMethod: "CreateTicket",
+			wantArgs:   []any{"T", "B"},
+		},
+		{
+			name: "shape_ticket",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c2", brain.ToolShapeTicket, brain.ShapeTicketInput{
+					ID: ticketT1, Title: &newTitle, Body: &newBody, Priority: &priority,
+				})
+			},
+			wantMethod: "ShapeTicket",
+			wantArgs: []any{board.TicketID(ticketT1), board.ShapePatch{
+				Title: &newTitle, Body: &newBody, Priority: &priority,
+			}},
+		},
+		{
+			name: opMarkReady,
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c3", brain.ToolMarkReady, brain.MarkReadyInput{ID: "t-2"})
+			},
+			wantMethod: methodMarkReady,
+			wantArgs:   []any{board.TicketID("t-2")},
+		},
+		{
+			name: "send_to_agent",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c4", brain.ToolSendToAgent, brain.SendToAgentInput{ID: "t-3", Instruction: "keep going"})
+			},
+			wantMethod: "SendToAgent",
+			wantArgs:   []any{board.TicketID("t-3"), "keep going"},
+		},
+		{
+			name: "mark_blocked",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c5", brain.ToolMarkBlocked, brain.MarkBlockedInput{ID: "t-4", Reason: "need a decision"})
+			},
+			wantMethod: "MarkBlocked",
+			wantArgs:   []any{board.TicketID("t-4"), "need a decision"},
+		},
+		{
+			name: "accept_to_done",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c6", brain.ToolAcceptToDone, brain.AcceptToDoneInput{ID: "t-5"})
+			},
+			wantMethod: "AcceptToDone",
+			wantArgs:   []any{board.TicketID("t-5")},
+		},
+		{
+			name: "say",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c7", brain.ToolSay, brain.SayInput{Text: "hello"})
+			},
+			wantMethod: "Say",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fb := &fakeBoard{}
+			fs := &fakeSay{}
+			svc := newTestService(fb, fs, &fakeConvo{}, &scriptedLLM{})
+
+			call := tc.call(t)
+			result := svc.Dispatch(context.Background(), call)
+
+			if result.ToolCallID != call.ID {
+				t.Errorf("ToolResult.ToolCallID = %q, want %q", result.ToolCallID, call.ID)
+			}
+			if result.IsError {
+				t.Errorf("ToolResult.IsError = true, want false (Content: %q)", result.Content)
+			}
+
+			if tc.wantMethod == "Say" {
+				if got := fs.said(); len(got) != 1 || got[0] != "hello" {
+					t.Errorf("fakeSay.said() = %v, want [\"hello\"]", got)
+				}
+				return
+			}
+
+			calls := fb.recordedCalls()
+			if len(calls) != 1 {
+				t.Fatalf("fakeBoard recorded %d calls, want 1 (%v)", len(calls), calls)
+			}
+			if calls[0].Method != tc.wantMethod {
+				t.Errorf("recorded method = %q, want %q", calls[0].Method, tc.wantMethod)
+			}
+			if len(tc.wantArgs) > 0 {
+				if len(calls[0].Args) != len(tc.wantArgs) {
+					t.Fatalf("recorded args = %#v, want %#v", calls[0].Args, tc.wantArgs)
+				}
+				for i, want := range tc.wantArgs {
+					got := calls[0].Args[i]
+					if !argsEqual(got, want) {
+						t.Errorf("arg[%d] = %#v, want %#v", i, got, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// argsEqual compares recorded call args loosely enough to handle
+// board.ShapePatch's pointer fields (compare pointee values, not addresses).
+func argsEqual(got, want any) bool {
+	switch w := want.(type) {
+	case board.ShapePatch:
+		g, ok := got.(board.ShapePatch)
+		if !ok {
+			return false
+		}
+		return ptrStrEq(g.Title, w.Title) && ptrStrEq(g.Body, w.Body) && ptrIntEq(g.Priority, w.Priority)
+	default:
+		return got == want
+	}
+}
+
+func ptrStrEq(a, b *string) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || *a == *b
+}
+
+func ptrIntEq(a, b *int) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || *a == *b
+}
+
+// TestDispatch_BoardErrorFedBackVerbatim pins 06 §5/§6/§8: a typed Board API
+// error (here board.ErrInvalidTransition, the idempotency-rule trigger, 06
+// §6) becomes a ToolResult with IsError=true and Content equal to the
+// error's Error() text verbatim — never a Go error return, never summarized.
+func TestDispatch_BoardErrorFedBackVerbatim(t *testing.T) {
+	wantErr := &board.ErrInvalidTransition{From: board.StateWorking, Attempted: opMarkReady}
+
+	fb := &fakeBoard{
+		markReadyFn: func(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+			return board.Ticket{}, wantErr
+		},
+	}
+	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, &scriptedLLM{})
+
+	call := newToolCall(t, "err-1", brain.ToolMarkReady, brain.MarkReadyInput{ID: ticketT1})
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("ToolResult.IsError = false, want true")
+	}
+	if result.ToolCallID != "err-1" {
+		t.Errorf("ToolResult.ToolCallID = %q, want %q", result.ToolCallID, "err-1")
+	}
+	if result.Content != wantErr.Error() {
+		t.Errorf("ToolResult.Content = %q, want verbatim %q", result.Content, wantErr.Error())
+	}
+}
+
+// TestDispatch_NotFoundErrorFedBackVerbatim covers the other typed board
+// error (06 §8: "a typed Board API error ... fed back into the loop").
+func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
+	fb := &fakeBoard{
+		acceptToDoneFn: func(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+			return board.Ticket{}, board.ErrNotFound
+		},
+	}
+	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, &scriptedLLM{})
+
+	call := newToolCall(t, "err-2", brain.ToolAcceptToDone, brain.AcceptToDoneInput{ID: "missing"})
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("ToolResult.IsError = false, want true")
+	}
+	if result.Content != board.ErrNotFound.Error() {
+		t.Errorf("ToolResult.Content = %q, want verbatim %q", result.Content, board.ErrNotFound.Error())
+	}
+}
+
+// TestDispatch_UnknownToolName pins 06 §8's "unknown tool name" failure
+// mode: Dispatch must not panic or crash the pass; it returns an error
+// ToolResult distinct from the not-implemented scaffold text, and it must
+// not have called any port.
+func TestDispatch_UnknownToolName(t *testing.T) {
+	fb := &fakeBoard{}
+	fs := &fakeSay{}
+	svc := newTestService(fb, fs, &fakeConvo{}, &scriptedLLM{})
+
+	call := brain.ToolCall{ID: "unk-1", Name: brain.ToolName("delete_universe"), Input: []byte(`{}`)}
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("ToolResult.IsError = false, want true for an unknown tool name")
+	}
+	if result.ToolCallID != "unk-1" {
+		t.Errorf("ToolResult.ToolCallID = %q, want %q", result.ToolCallID, "unk-1")
+	}
+	if strings.Contains(strings.ToLower(result.Content), "not implemented") {
+		t.Errorf("ToolResult.Content = %q: looks like the scaffold's generic "+
+			"not-implemented stub, not a real unknown-tool error", result.Content)
+	}
+	if len(fb.recordedCalls()) != 0 {
+		t.Errorf("an unknown tool must not reach any BoardAPI method; recorded %v", fb.recordedCalls())
+	}
+	if len(fs.said()) != 0 {
+		t.Errorf("an unknown tool must not reach Say; recorded %v", fs.said())
+	}
+}
+
+// TestDispatch_MalformedInput pins the "unparseable tool call" failure mode
+// (06 §8): bad JSON for a known tool must not panic; it must come back as an
+// error ToolResult, and must not reach the port with zero-value/garbage
+// arguments.
+func TestDispatch_MalformedInput(t *testing.T) {
+	fb := &fakeBoard{}
+	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, &scriptedLLM{})
+
+	// "title" should be a string; this is a type-mismatched, unparseable
+	// CreateTicketInput.
+	call := brain.ToolCall{ID: "bad-1", Name: brain.ToolCreateTicket, Input: []byte(`{"title": 12345, "body": "B"}`)}
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("ToolResult.IsError = false, want true for malformed tool input")
+	}
+	if strings.Contains(strings.ToLower(result.Content), "not implemented") {
+		t.Errorf("ToolResult.Content = %q: looks like the scaffold's generic "+
+			"not-implemented stub, not a real parse error", result.Content)
+	}
+	if len(fb.recordedCalls()) != 0 {
+		t.Errorf("malformed input must not reach BoardAPI.CreateTicket; recorded %v", fb.recordedCalls())
+	}
+}

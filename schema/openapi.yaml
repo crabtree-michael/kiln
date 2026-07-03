@@ -1,0 +1,42 @@
+# OpenAPI 3.0.3: oapi-codegen (Go generator) does not yet fully support 3.1, so we
+# pin 3.0.x for cross-language generation. openapi-typescript handles it fine too.
+openapi: 3.0.3
+info:
+  title: Kiln Wire Contract
+  version: 0.0.0
+  description: >
+    The single language-neutral contract for the client<->server boundary
+    (docs/specs/02 §3). This file is the source of truth: Go and TS types are
+    GENERATED from it (see schema/README.md). Never hand-edit the generated types
+    — change this file and regenerate both sides atomically (AGENTS.md).
+
+    Endpoints and message shapes are filled in as surface areas are built
+    (api/runtime §7, board §5). This starter defines only /healthz so the
+    generators have a valid document and the harness has a contract to gate on.
+servers:
+  - url: http://localhost:8080
+    description: Local backend (Docker Compose)
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Liveness probe.
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+      additionalProperties: false

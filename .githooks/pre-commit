@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Kiln pre-commit hook (02 §4a): the fast half of the hard gate — lint +
+# type-check. Red means the commit is blocked. Do not weaken a check to pass;
+# fix the code (AGENTS.md).
+#
+# Install with: make hooks
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "pre-commit: lint + type-check ..."
+make lint typecheck
+
+echo "pre-commit: OK"

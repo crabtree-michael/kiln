@@ -1,0 +1,53 @@
+# Aggressive lint surface for the Kiln backend (02 §4b: "Incredible linters").
+# The goal: weak models fail loudly on tools, not slip through on luck.
+# Config is golangci-lint v2 format (CI installs latest); needs golangci-lint >= 2.0.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # Start from the full roster, then disable only what actively fights this
+  # codebase or is purely cosmetic (formatting is handled by `formatters` below).
+  default: all
+  disable:
+    - depguard          # no import allow/deny policy defined yet (would deny everything)
+    - gomodguard        # deprecated; likewise no module policy defined
+    - exhaustruct       # too noisy for partially-initialised structs in v1
+    - varnamelen        # short receiver/loop names are idiomatic Go
+    - noinlineerr       # `if err := f(); err != nil` IS idiomatic Go (02 §3 praises it)
+    - wsl               # opinionated whitespace cuddling; gofumpt owns layout
+    - wsl_v5            # (its successor — same reason)
+    - nlreturn          # same class of cosmetic newline rules
+    - ireturn           # returning interfaces (ports) is central to our architecture
+    - gochecknoglobals  # a build-stamped `var version` is a legitimate global
+  settings:
+    govet:
+      enable-all: true
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print.*$
+          msg: use log/slog, not fmt.Print* (structured logging only)
+  exclusions:
+    rules:
+      # Tests legitimately use magic numbers, longer bodies, and internal packages.
+      - path: _test\.go
+        linters:
+          - funlen
+          - dupl
+          - gocognit
+          - cyclop
+          - mnd
+          - testpackage    # we test unexported run()/version by design
+          - paralleltest
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra-rules: true

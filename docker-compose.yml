@@ -1,6 +1,53 @@
-# Kiln — full system on one machine (v1 is local-only; see docs/specs/02 §1, §4).
-# Services to be filled in as the surface areas are built:
-#   - db        (Postgres — board state + durable event queue)
-#   - backend   (Go orchestrator: api · runtime · brain · board · amika)
-#   - frontend  (TS/React client)
-services: {}
+# Kiln — the whole system on one machine. v1 is local-only (02 §1, §4):
+#   `docker compose up` brings up Postgres + backend + frontend.
+# Provider credentials (LLM, STT/TTS, Amika, push) come from a local .env
+# (see .env.example); never commit real secrets (02 §12).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kiln
+      POSTGRES_PASSWORD: kiln
+      POSTGRES_DB: kiln
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U kiln -d kiln']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      # Board state + durable event queue live in the same Postgres (02 §3).
+      DATABASE_URL: postgres://kiln:kiln@db:5432/kiln?sslmode=disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      KILN_LOG_LEVEL: ${KILN_LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '8080:8080'
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm dev --host"
+    environment:
+      # Client is thin/disposable and reaches the backend only (02 §2).
+      VITE_API_BASE: http://localhost:8080
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    ports:
+      - '5173:5173'
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
+  frontend-node-modules:

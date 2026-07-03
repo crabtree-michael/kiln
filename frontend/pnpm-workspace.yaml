@@ -1,0 +1,4 @@
+# pnpm build-script allowlist. esbuild ships a native binary via a postinstall
+# build that Vite/Vitest need; everything else stays blocked (supply-chain safety).
+allowBuilds:
+  esbuild: true

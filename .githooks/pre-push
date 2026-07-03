@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Kiln pre-push hook (02 §4a): the full hard gate before code leaves your machine
+# — lint + type-check + tests. Red means the push is blocked.
+#
+# Install with: make hooks
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "pre-push: full hard gate (lint + type-check + tests) ..."
+make check
+
+echo "pre-push: OK"

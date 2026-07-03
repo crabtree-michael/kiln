@@ -22,6 +22,9 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
 - **Update your area's skill as you work.** Each surface area has a skill under `.agents/skills`.
   When you learn something about your area — spec detail, a gotcha, how to run it — write it into
   that skill so the next agent inherits it.
+- **Never `cat` (or otherwise dump) the `.env` file.** It holds the live secrets needed to run the
+  app — LLM, Amika, and database credentials. Let the app/config loader read it; never print its
+  contents to the transcript.
 
 ## Skills
 

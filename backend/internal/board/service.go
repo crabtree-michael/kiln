@@ -2,12 +2,9 @@ package board
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"time"
 )
-
-// errNotImplemented marks scaffold stubs. Implementations follow
-// docs/specs/03-board-mechanics.md; remove this once the last stub is gone.
-var errNotImplemented = errors.New("board: not implemented (scaffold)")
 
 // Service is the Board API (03 §4) — the only mutation surface for board
 // state. Callers: the brain (02 §6) for every operation except RunPull, which
@@ -35,22 +32,77 @@ type ShapePatch struct {
 }
 
 // CreateTicket creates a ticket in shaping (03 §4).
-// Precondition: title non-empty.
+// Precondition: title non-empty (ErrEmptyTitle otherwise, before any write).
 func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket, error) {
-	return Ticket{}, errNotImplemented
+	if title == "" {
+		return Ticket{}, ErrEmptyTitle
+	}
+	var out Ticket
+	err := s.store.Tx(ctx, func(tx Tx) error {
+		created, err := tx.InsertTicket(ctx, Ticket{
+			Title: title,
+			Body:  body,
+			State: StateShaping,
+		})
+		if err != nil {
+			return fmt.Errorf("board: insert ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+			return fmt.Errorf("board: append board.updated: %w", err)
+		}
+		out = created
+		return nil
+	})
+	if err != nil {
+		return Ticket{}, fmt.Errorf("board: create ticket: %w", err)
+	}
+	return out, nil
 }
 
 // ShapeTicket updates a ticket's fields while it is still in Backlog; the
 // state is unchanged (03 §4).
 // Precondition: state ∈ {shaping, ready}.
 func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch) (Ticket, error) {
-	return Ticket{}, errNotImplemented
+	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if t.State != StateShaping && t.State != StateReady {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ShapeTicket"}
+		}
+		if patch.Title != nil {
+			t.Title = *patch.Title
+		}
+		if patch.Body != nil {
+			t.Body = *patch.Body
+		}
+		if patch.Priority != nil {
+			t.Priority = *patch.Priority
+		}
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 // MarkReady moves shaping → ready and sets ready_at (03 §4).
 // Precondition: state = shaping. Emits pull.evaluate.
 func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
-	return Ticket{}, errNotImplemented
+	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if t.State != StateShaping {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkReady"}
+		}
+		now := time.Now().UTC()
+		t.State = StateReady
+		t.ReadyAt = &now
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicPullEvaluate}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 // SendToAgent covers both 01 §5 rows — Blocked→Working (resume with the
@@ -58,7 +110,26 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 // blocked_reason is cleared (03 §4).
 // Precondition: state ∈ {working, blocked}. Emits agent.send.
 func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction string) (Ticket, error) {
-	return Ticket{}, errNotImplemented
+	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if !t.State.Active() || t.WorkerID == nil {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "SendToAgent"}
+		}
+		worker := *t.WorkerID
+		t.State = StateWorking
+		t.BlockedReason = nil
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentSend, Payload: SendPayload{
+			TicketID: updated.ID,
+			WorkerID: worker,
+			Message:  instruction,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append agent.send: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 // MarkBlocked moves working → blocked with the reason the user must decide on
@@ -66,7 +137,26 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 // (crash/timeout, exhausted delivery retries — 03 §7.3, 04 §3).
 // Precondition: state = working. Emits notify.send.
 func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (Ticket, error) {
-	return Ticket{}, errNotImplemented
+	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if t.State != StateWorking {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkBlocked"}
+		}
+		r := reason
+		t.State = StateBlocked
+		t.BlockedReason = &r
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicNotifySend, Payload: NotifyPayload{
+			TicketID: updated.ID,
+			Title:    updated.Title,
+			Reason:   reason,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 // AcceptToDone moves working|blocked → done, clearing the worker binding
@@ -74,21 +164,143 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 // Precondition: state ∈ {working, blocked}. Emits pull.evaluate and
 // agent.release (recycle the freed worker — 05 §4).
 func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error) {
-	return Ticket{}, errNotImplemented
+	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if !t.State.Active() || t.WorkerID == nil {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
+		}
+		worker := *t.WorkerID
+		t.State = StateDone
+		t.WorkerID = nil
+		t.BlockedReason = nil
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicPullEvaluate}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentRelease, Payload: ReleasePayload{
+			WorkerID: worker,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append agent.release: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 // GetBoard returns the full snapshot (03 §4).
 func (s *Service) GetBoard(ctx context.Context) (Snapshot, error) {
-	return Snapshot{}, errNotImplemented
+	snap, err := s.store.Snapshot(ctx)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("board: get board: %w", err)
+	}
+	return snap, nil
 }
 
 // RunPull is the deterministic pull (03 §5) — a system action, never a brain
-// decision (03 I6). It loops, one transaction per binding, until no
+// decision (03 I6). It loops, one transaction per binding (pullOnce), until no
 // (ready ticket, free worker) pair remains: lock both with SKIP LOCKED,
 // move ready → working, bind the worker, emit agent.send with the work
 // order. Idempotent by construction, so duplicate pull.evaluate triggers and
 // at-least-once delivery are safe; the one_active_ticket_per_worker index
 // (03 I2) is the backstop against double-binding.
 func (s *Service) RunPull(ctx context.Context) error {
-	return errNotImplemented
+	for {
+		bound, err := s.pullOnce(ctx)
+		if err != nil {
+			return err
+		}
+		if !bound {
+			return nil
+		}
+	}
+}
+
+// pullOnce binds at most one (ready ticket, free worker) pair in a single
+// transaction, reporting whether a binding happened. When either side is
+// exhausted it commits an empty transaction and reports bound=false, which
+// stops RunPull's loop.
+func (s *Service) pullOnce(ctx context.Context) (bool, error) {
+	bound := false
+	err := s.store.Tx(ctx, func(tx Tx) error {
+		ticket, ok, err := tx.NextReadyTicket(ctx)
+		if err != nil {
+			return fmt.Errorf("board: next ready ticket: %w", err)
+		}
+		if !ok {
+			return nil
+		}
+		worker, ok, err := tx.FreeWorker(ctx)
+		if err != nil {
+			return fmt.Errorf("board: free worker: %w", err)
+		}
+		if !ok {
+			return nil
+		}
+		wid := worker.ID
+		ticket.State = StateWorking
+		ticket.WorkerID = &wid
+		updated, err := tx.UpdateTicket(ctx, ticket)
+		if err != nil {
+			return fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentSend, Payload: SendPayload{
+			TicketID: updated.ID,
+			WorkerID: wid,
+			Message:  workOrder(updated),
+		}}); err != nil {
+			return fmt.Errorf("board: append agent.send: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+			return fmt.Errorf("board: append board.updated: %w", err)
+		}
+		bound = true
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("board: run pull: %w", err)
+	}
+	return bound, nil
+}
+
+// mutate runs the common lock-then-check transaction shape (03 §6): lock the
+// target ticket, hand it to apply for precondition-check + state change +
+// emissions, then append the universal board.updated signal (03 §4). apply
+// returns the persisted ticket; any error rolls back the whole transaction so
+// no partial write or emission survives a failed precondition (03 I7, D8).
+func (s *Service) mutate(
+	ctx context.Context,
+	id TicketID,
+	apply func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error),
+) (Ticket, error) {
+	var out Ticket
+	err := s.store.Tx(ctx, func(tx Tx) error {
+		locked, err := tx.LockTicket(ctx, id)
+		if err != nil {
+			return fmt.Errorf("board: lock ticket %s: %w", id, err)
+		}
+		updated, err := apply(ctx, tx, &locked)
+		if err != nil {
+			return err
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+			return fmt.Errorf("board: append board.updated: %w", err)
+		}
+		out = updated
+		return nil
+	})
+	if err != nil {
+		return Ticket{}, fmt.Errorf("board: mutate ticket %s: %w", id, err)
+	}
+	return out, nil
+}
+
+// workOrder is RunPull's agent.send message — the ticket's title and body as
+// the work instruction (03 §7.1). SendToAgent supplies its own instruction
+// instead; the agent-runtime module derives first-message-vs-continuation.
+func workOrder(t Ticket) string {
+	if t.Body == "" {
+		return t.Title
+	}
+	return t.Title + "\n\n" + t.Body
 }

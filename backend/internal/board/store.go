@@ -19,27 +19,38 @@ type Store interface {
 // Tx is the transaction-scoped view of the store. The service works
 // lock-then-check (03 §6): lock the target row first, then verify the
 // operation's precondition on what the lock returned.
+//
+// Every method takes the operation's context so the adapter can issue
+// context-scoped statements without capturing a context in a struct field
+// (the idiomatic Go convention; Store.Tx already owns the transaction's
+// lifetime). The context is the same one passed to Store.Tx.
 type Tx interface {
 	// LockTicket is SELECT … FOR UPDATE on one ticket. Returns ErrNotFound
 	// if the id does not exist. Targeted operations must conflict loudly —
 	// no SKIP LOCKED here (03 §6).
-	LockTicket(id TicketID) (Ticket, error)
+	LockTicket(ctx context.Context, id TicketID) (Ticket, error)
 
-	// InsertTicket persists a new ticket (CreateTicket).
-	InsertTicket(t Ticket) error
+	// InsertTicket persists a new ticket (CreateTicket) and returns the
+	// persisted row. ID and timestamp generation are the adapter's concern
+	// (entities.go); the returned Ticket carries whatever the adapter
+	// assigned, so the caller never has to re-read.
+	InsertTicket(ctx context.Context, t Ticket) (Ticket, error)
 
-	// UpdateTicket persists a mutation of a previously locked ticket.
-	UpdateTicket(t Ticket) error
+	// UpdateTicket persists a mutation of a previously locked ticket and
+	// returns the persisted row (e.g. with updated_at refreshed by the
+	// adapter), so every Service mutation can return an accurate Ticket
+	// (03 §4: "every mutation returns the updated Ticket").
+	UpdateTicket(ctx context.Context, t Ticket) (Ticket, error)
 
 	// NextReadyTicket locks the next pullable ticket in pull order —
 	// priority DESC, ready_at ASC, id ASC — using FOR UPDATE SKIP LOCKED
 	// (03 §5). ok is false when no ready ticket is available.
-	NextReadyTicket() (t Ticket, ok bool, err error)
+	NextReadyTicket(ctx context.Context) (t Ticket, ok bool, err error)
 
 	// FreeWorker locks a worker that no active ticket references, using
 	// FOR UPDATE SKIP LOCKED (03 §5). ok is false when none is free.
-	FreeWorker() (w Worker, ok bool, err error)
+	FreeWorker(ctx context.Context) (w Worker, ok bool, err error)
 
 	// AppendOutbox records one emission in this transaction (03 §7, I7).
-	AppendOutbox(e Emission) error
+	AppendOutbox(ctx context.Context, e Emission) error
 }

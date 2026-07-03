@@ -75,7 +75,7 @@ handles in any board state.
 
 One project's board has three columns:
 
-- **Backlog** — a created ticket with no sandbox. Two sub-states:
+- **Backlog** — a created ticket with no sandbox. Two zones:
   - **Shaping** — the orchestrator and user are still agreeing on the ticket's details.
   - **Ready** — the orchestrator has marked the ticket ready; it is eligible to be pulled
     into a sandbox.
@@ -85,7 +85,7 @@ One project's board has three columns:
     decision. It keeps its sandbox binding while blocked.
   - **Working** (bottom) — the agent is actively running.
   A ticket moves between Blocked and Working **without leaving the column or releasing its
-  sandbox**. Blocked is a sub-state of Developing, not a separate destination.
+  sandbox**. Blocked is a zone within Developing, not a separate destination.
 - **Done** — the orchestrator accepted the result; the sandbox is released.
 
 **Concurrency.** Work-in-progress in Developing is hard-capped at the number of available

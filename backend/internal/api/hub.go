@@ -6,8 +6,8 @@ import "context"
 // (04 §7–§8). It implements the runtime's SnapshotPusher port: a
 // board.updated outbox entry becomes one absolute GetBoard snapshot pushed
 // to every client (03 D7 / 04 D7 — never deltas, so reconnect needs no
-// replay and duplicates are harmless). speak events ride the same streams
-// (payload shape: 02 §9).
+// replay and duplicates are harmless). say events ride the same streams
+// (payload shape: 07 §4).
 type Hub struct {
 	boards BoardReader
 }

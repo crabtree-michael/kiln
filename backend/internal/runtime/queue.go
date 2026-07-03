@@ -20,7 +20,7 @@ type EventType string
 
 const (
 	EventAgentTurnCompleted EventType = "agent.turn_completed" // from the agent-runtime module (05 §2.2)
-	EventHumanVoiceInput    EventType = "human.voice_input"    // from the voice route (04 §7, 02 §9)
+	EventHumanMessage       EventType = "human.message"        // from POST /api/message (07 §4; 09 puts STT in front)
 )
 
 // Entry is one row of either queue, as the drain machinery sees it (04 §3).

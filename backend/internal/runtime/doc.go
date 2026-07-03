@@ -1,20 +1,12 @@
-// Package runtime is the durable, deploy-resumable service shell: it receives
-// events, drives the brain once per event, and coordinates board, the agent
-// runtime and notifications. The orchestrator wakes on events, not a timer.
+// Package runtime is the durable, deploy-resumable service shell: it drains
+// the two durable queues (02 §2) — the event queue that wakes the brain, one
+// LLM pass per entry, and the outbox of mechanical side effects — and owns
+// delivery: retries, backoff, dead-lettering. Spec:
+// docs/specs/04-runtime-and-api.md (realizing 02 §7 and 01 §8's
+// deploy-resumable requirement).
 //
-// Spec: docs/specs/02-initial-technical-architecture.md §7 (Orchestrator API +
-// event queue / runtime), realizing docs/specs/01-initial.md §7–§8.
-//
-// It ingests the two event types — agent-turn-completed and human-voice-input —
-// and drains a durable queue table in Postgres so a restart or deploy recovers by
-// re-reading durable state rather than trusting in-process memory.
-//
-// Layering (see 02 §2). Outer layers depend inward, never the reverse:
-//
-//	interfaces  — event ingestion + the queue-drain loop.
-//	services    — the single-writer-per-project event loop, ordering/serialization
-//	              of turn-completed vs voice events; depends on the durable queues,
-//	              brain, board, agent runtime and notifications only through injected ports.
-//	infra       — the Postgres-backed durable queue behind a port, wired at the
-//	              composition root and injected upward.
+// The board owns what goes *into* the outbox (03 §7); this module owns the
+// delivery-state columns and everything that touches them (04 §2). Recovery
+// needs no special code path: restart, poll, re-run whatever is pending
+// (04 §5).
 package runtime

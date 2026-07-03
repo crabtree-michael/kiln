@@ -5,8 +5,8 @@
 
 CREATE TABLE events (
   id         bigserial PRIMARY KEY,
-  type       text  NOT NULL CHECK (type IN ('agent.turn_completed','human.voice_input')),
-  payload    jsonb NOT NULL,          -- shape owned by the emitter's spec (02 §8 / §9)
+  type       text  NOT NULL CHECK (type IN ('agent.turn_completed','human.message')),
+  payload    jsonb NOT NULL,          -- shape owned by the emitter's spec (05 §2.2 / 07 §4)
   created_at timestamptz NOT NULL DEFAULT now(),
 
   -- delivery state (04 §2–§3)

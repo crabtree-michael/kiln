@@ -25,15 +25,17 @@ type EventEnqueuer interface {
 
 // Server owns the 04 §7 endpoint set:
 //
-//	GET  /api/stream — SSE: full board snapshot on connect, then one board
-//	                   event per board.updated entry; speak events carry the
-//	                   brain's voice replies (payload shape: 02 §9);
-//	                   comment-line keepalive every 25 s.
-//	GET  /api/board  — the same full snapshot for initial render or manual resync.
-//	POST /api/voice  — user utterance → EnqueueEvent(human.voice_input) →
-//	                   202 Accepted with the event id (format: 02 §9).
+//	GET  /api/stream   — SSE: full board snapshot on connect, then one board
+//	                     event per board.updated entry; say events carry the
+//	                     brain's text replies (07 §4; 09 adds TTS on top);
+//	                     comment-line keepalive every 25 s.
+//	GET  /api/board    — the same full snapshot for initial render or manual resync.
+//	POST /api/message  — user text {text} → transactional transcript append +
+//	                     EnqueueEvent(human.message) → 202 {event_id, message_id}
+//	                     (07 §3–§4; 09 puts STT in front of this seam).
+//	GET  /api/messages — most-recent transcript rows, oldest-first (07 §4).
 //
-// Push registration is owned entirely by the notification spec (02 §10).
+// Push registration arrives with the notification spec (02 §10); voice with 09.
 type Server struct {
 	boards BoardReader
 	events EventEnqueuer
@@ -50,7 +52,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/stream", s.handleStream)
 	mux.HandleFunc("GET /api/board", s.handleBoard)
-	mux.HandleFunc("POST /api/voice", s.handleVoice)
+	mux.HandleFunc("POST /api/message", s.handleMessage)
+	mux.HandleFunc("GET /api/messages", s.handleMessages)
 	return mux
 }
 
@@ -62,6 +65,10 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
 }
 
-func (s *Server) handleVoice(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+}
+
+func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
 }

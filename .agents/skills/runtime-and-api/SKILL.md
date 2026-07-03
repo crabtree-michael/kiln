@@ -12,7 +12,7 @@ the brain (§6) once per event, and faces the client. Implements the `01` decisi
 orchestrator **wakes on events, not a timer**.
 
 **Interface.** Event ingestion for the two `01` event types — `agent-turn-completed` (from
-the agent-runtime module 05) and `human-voice-input` (from voice §9). Client-facing contract: the live
+the agent-runtime module 05) and `human.message` (from POST /api/message — 07 A1; voice 09 later feeds the same seam). Client-facing contract: the live
 connection that pushes board updates and the endpoints the client calls. Message / event
 schemas.
 
@@ -27,7 +27,7 @@ notifications (§10); agent runtime (§8, 05).
       `pending` rows; nudge channel + 1 s poll fallback for wakeup.
 - [x] Live-connection transport → 04 §7: SSE (server→client) + plain HTTP POST
       (client→server); absolute snapshots, reconnect = fresh snapshot, no replay.
-- [x] Event serialization → 04 §4: turn-completed and voice events share the `events`
+- [x] Event serialization → 04 §4: turn-completed and human-message events share the `events`
       table and serialize by insertion (`id`) order; outbox drains on its own serial
       worker. Queue DDL (both tables + delivery-state columns) → 04 §2.
 
@@ -47,7 +47,7 @@ backend/internal/runtime/
     migrations/ 0001_events.sql (04 §2; outbox DDL lives in board's 0002_outbox.sql)
 backend/internal/api/
   api.go        package doc — thin handlers, shapes come from /schema
-  routes.go     Server — GET /api/stream · GET /api/board · POST /api/voice (04 §7);
+  routes.go     Server — GET /api/stream · GET /api/board · POST /api/message · GET /api/messages (04 §7, 07 §4);
                 ports: BoardReader, EventEnqueuer
   hub.go        Hub — SSE fan-out; implements runtime.SnapshotPusher
 backend/cmd/kiln/
@@ -59,6 +59,11 @@ backend/cmd/kiln/
   `*board.Service` directly; adapt at the composition root (02 §2 — services depend on ports).
 - Unit-test the `Worker` against fake `Store`/`Handler`s with the `Clock` interface — the
   backoff schedule must be testable without sleeping (04 §9).
+
+**07 additions (proposed):** the runtime owns the persisted transcript — `messages` table
+(append user row + enqueue event in one transaction; Say port = append kiln row + SSE
+push; ConversationReader port feeds the brain's context). notify.send executor is a
+structured log line until 10 lands.
 
 ## Common footguns
 

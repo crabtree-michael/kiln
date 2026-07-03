@@ -7,6 +7,10 @@ description: Use when working on notification transport — reaching the user wh
 
 ## Functional Requirements
 
+> **Deferred in v1** (07 D1): `notify.send` outbox entries execute as a structured log
+> line (07 §6); the Blocked zone is the in-app stand-in surface. This spec later swaps in
+> a real push executor — the outbox contract (03 §7.1) is unchanged.
+
 **Responsibility.** Reach the user when the app is backgrounded or closed and the
 orchestrator needs them (`01` §7) — e.g. a ticket moving to Blocked.
 

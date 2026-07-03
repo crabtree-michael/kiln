@@ -11,7 +11,7 @@ This document resolves:
 - The concrete shape of the **two durable queues** (`02` §2): the event queue and the
 outbox — tables, delivery-state columns, drain machinery (§2–§3).
 - **Delivery semantics**: at-least-once, retry/backoff, dead-lettering (§3).
-- **Ordering** and the single-writer-per-project constraint; how turn-completed and voice
+- **Ordering** and the single-writer-per-project constraint; how turn-completed and human-message
 events serialize against each other (§4).
 - **Deploy-safe recovery** (§5).
 - **Event ingestion** — how the two `01` event types enter the queue (§6).
@@ -35,7 +35,7 @@ machinery; they differ in who writes them and what a handled entry means:
 |                 | **Event queue** (`events`)                                                        | **Outbox** (`outbox`)                                                                                            |
 | --------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Drives          | The brain: one LLM pass per entry                                                 | The machinery: mechanical execution, no LLM                                                                      |
-| Written by      | agent-runtime module (`agent.turn_completed` — `05`), voice route (`human.voice_input`) | The board, transactionally with state changes (`03` §7)                                                          |
+| Written by      | agent-runtime module (`agent.turn_completed` — `05`), message route (`human.message` — text in v1; 09 adds STT in front, 07 A1) | The board, transactionally with state changes (`03` §7)                                                          |
 | Handled by      | Brain port (`02` §6)                                                              | Per-topic executors: agent-runtime module, push adapter, board `RunPull`, SSE hub                                       |
 | Emitted entries | The brain's actions cause board ops, which append outbox rows                     | — (executors emit nothing; `MarkBlocked` on the dispatch-failure path appends via the Board API like any caller) |
 
@@ -51,7 +51,7 @@ machinery; they differ in who writes them and what a handled entry means:
 
 CREATE TABLE events (
   id       bigserial PRIMARY KEY,
-  type     text  NOT NULL CHECK (type IN ('agent.turn_completed','human.voice_input')),
+  type     text  NOT NULL CHECK (type IN ('agent.turn_completed','human.message')),
   payload  jsonb NOT NULL,           -- shape owned by the emitter's spec (02 §8 / §9)
   created_at timestamptz NOT NULL DEFAULT now()
   -- + delivery-state columns
@@ -117,7 +117,7 @@ Finer-grained idempotency is the brain spec's concern (`02` §6).
 
 **Events are processed strictly serially, in** `id` **order, by one worker goroutine.** This
 *is* the single-writer-per-project constraint `02` §7 asks for, realized in-process: at most
-one brain pass exists at any moment, and turn-completed and voice events serialize against
+one brain pass exists at any moment, and turn-completed and message events serialize against
 each other simply by insertion order — whichever committed first is handled first, no
 special interleaving rules. (v1 is one project; multi-project later means one such serial
 lane per project, which the per-project `id` ordering already permits.)
@@ -155,8 +155,8 @@ Two callers, per `01`'s two event types:
 
 - **agent-runtime module** (`05`): a worker's turn reaches a terminal outcome →
 `agent.turn_completed`, payload snapshot of the result.
-- **Voice route** (§7 below): user audio arrives → `human.voice_input`, payload per the
-voice spec (`02` §9).
+- **Message route** (§7 below): user text arrives → `human.message` (`07` §4; `09` later
+puts STT in front of the same seam).
 
 Payloads are snapshots at ingestion time, `jsonb`, with shape contracts owned by the
 emitting surface's spec. The runtime treats them as opaque and hands them to the brain.
@@ -171,9 +171,9 @@ make resync-after-drop free — the client never needs replay, so `Last-Event-ID
 
 | Endpoint              | Method    | Contract                                                                                                                                                                                                                                                       |
 | --------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/stream`         | GET (SSE) | On connect: immediately send a `board` event with the full `GetBoard` snapshot, then one `board` event per `board.updated` outbox entry. `speak` events deliver the brain's voice replies (payload shape owned by `02` §9). Comment-line keepalive every 25 s. |
+| `/api/stream`         | GET (SSE) | On connect: immediately send a `board` event with the full `GetBoard` snapshot, then one `board` event per `board.updated` outbox entry. `say` events deliver the brain's text replies (renamed from `speak` per `07` A1; `09` adds TTS on top). Comment-line keepalive every 25 s. |
 | `/api/board`          | GET       | The same full snapshot, for initial render before the stream attaches or as a manual resync.                                                                                                                                                                   |
-| `/api/voice`          | POST      | User utterance in → `EnqueueEvent(human.voice_input, …)` → `202 Accepted` with the event id. Audio format/streaming and STT placement are the voice spec's (`02` §9); this endpoint is the seam it plugs into.                                                 |
+| `/api/message`        | POST      | User message in → transactional transcript append + `EnqueueEvent(human.message, …)` (`07` §3) → `202 Accepted` with the event id. Text `{text}` in v1 (`07` §4); `09` puts STT in front of this same seam.                                                 |
 | *(push registration)* | —         | Named here for completeness; owned entirely by the notification spec (`02` §10).                                                                                                                                                                               |
 
 
@@ -193,7 +193,7 @@ worker → per-topic executor ports), the drain/retry machinery of §3, `Enqueue
 the queue tables' delivery-state migrations. Ports consumed: brain, board, agent runtime, push,
 SSE hub.
 - `/backend/internal/api` — the HTTP routes of §7 and the **SSE hub** (tracks connected
-clients, fans out `board`/`speak` events). Thin handlers: decode, delegate to
+clients, fans out `board`/`say` events). Thin handlers: decode, delegate to
 runtime/board, encode.
 - `/backend/cmd/kiln` — the **composition root** (`02` §7): the only place concrete
 adapters exist together. It constructs the Postgres store, LLM client, agent-runtime module (Amika or mock provider
@@ -203,7 +203,7 @@ board, brain, runtime, and api; runs migrations; starts the workers and the HTTP
 ```mermaid
 flowchart LR
     subgraph api["internal/api"]
-        routes["routes<br/><i>/api/board · /api/voice</i>"]
+        routes["routes<br/><i>/api/board · /api/message(s)</i>"]
         hub["SSE hub<br/><i>/api/stream</i>"]
     end
     subgraph runtime["internal/runtime"]
@@ -214,7 +214,7 @@ flowchart LR
     evq[("events")]
     obq[("outbox")]
 
-    routes -->|voice| enq
+    routes -->|message| enq
     enq --> evq
     evq --> evw -->|one pass per event| brain["brain (02 §6)"]
     brain -->|actions| board["board (03)"]
@@ -258,14 +258,14 @@ snapshots.
 | D3  | Strictly serial event processing in `id` order — the single writer realized in-process.        | Concurrent brain passes; per-ticket lanes.                                  | One project, one user: concurrency buys nothing and creates prompt-state races (two passes reading the same board). Serial makes brain behavior reproducible — the `02` §14 test property.             |
 | D4  | Execute-then-mark with claim-increments-attempts; no in-flight status, no lease/claim columns. | Status `in_flight` + lease timeouts.                                        | A crashed worker's lease machinery is real complexity; with one process per deployment, `pending` + re-run on restart covers every crash window. `SKIP LOCKED` already future-proofs multiple workers. |
 | D5  | Wakeup = in-process nudge channel + 1 s poll fallback.                                         | `LISTEN/NOTIFY`; poll-only; timer-driven.                                   | Same process writes and drains the queues — a channel is free and instant; the poll catches dropped nudges and restart. `LISTEN/NOTIFY` adds a connection-state protocol for zero gain at this scale.  |
-| D6  | SSE + HTTP POST transport.                                                                     | WebSocket.                                                                  | User decision. One protocol (HTTP) end to end, native auto-reconnect, fits batched voice; WS's bidirectional channel buys nothing until streaming mic audio exists.                                    |
+| D6  | SSE + HTTP POST transport.                                                                     | WebSocket.                                                                  | User decision. One protocol (HTTP) end to end, native auto-reconnect, fits text now and batched voice later; WS's bidirectional channel buys nothing until streaming mic audio exists.                                    |
 | D7  | Stream carries absolute snapshots; reconnect = fresh snapshot; no `Last-Event-ID` replay.      | Delta events with replay on reconnect.                                      | Extends `03` D7: snapshots make the connection stateless, so reconnect logic is "render the next event" — nothing to get wrong in the thin client (`01` §4).                                           |
 | D8  | Backoff `min(1s × 2^(attempts−1), 60s)`, 8 attempts (~2 min), then per-topic dead-letter.      | Retry forever; fixed intervals.                                             | Bounded so failures surface on the ticket while the user still has context (`01` §8); per-topic routing because "what failing means" differs per effect (`03` §7.3).                                   |
 | D9  | Composition root in `/backend/cmd/kiln`, not inside `internal/runtime`.                        | Wiring inside the runtime module.                                           | Keeps every `internal/*` module adapter-free and port-pure (`02` §2); the binary is the only place concretes meet.                                                                                     |
 
 
 **Open questions (owned elsewhere):** `agent.turn_completed` payload shape and
-webhook-vs-poll arrival (`02` §8); `human.voice_input` payload, audio format, and the
-`speak` SSE payload (`02` §9); push registration endpoint (`02` §10); endpoint auth
+webhook-vs-poll arrival (`02` §8); `human.message` payload, audio format, and the
+`say` SSE payload (`07` §4); push registration endpoint (`02` §10); endpoint auth
 (`02` §12); brain-side action idempotency beyond the board's strict preconditions
 (`02` §6).

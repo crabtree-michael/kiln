@@ -20,7 +20,7 @@ type Puller interface {
 // (03 §7.3): dead-lettered agent.send entries surface on the ticket as
 // Blocked with the delivery failure as reason.
 type Blocker interface {
-	MarkBlocked(ctx context.Context, ticketID string, reason string) error
+	MarkBlocked(ctx context.Context, ticketID, reason string) error
 }
 
 // AgentRuntime executes agent.* outbox entries (05 §2.1) — the
@@ -60,7 +60,10 @@ type Service struct {
 }
 
 // NewService assembles the runtime over its ports.
-func NewService(store Store, brain Brain, puller Puller, blocker Blocker, agents AgentRuntime, notifier Notifier, pusher SnapshotPusher) *Service {
+func NewService(
+	store Store, brain Brain, puller Puller, blocker Blocker,
+	agents AgentRuntime, notifier Notifier, pusher SnapshotPusher,
+) *Service {
 	return &Service{
 		store:    store,
 		brain:    brain,
@@ -74,7 +77,7 @@ func NewService(store Store, brain Brain, puller Puller, blocker Blocker, agents
 
 // EnqueueEvent ingests one of the two 01 event types (04 §6): INSERT into
 // events + nudge the events worker. Callers: the Amika inbound handler
-// (agent.turn_completed) and the voice route (human.voice_input). Payloads
+// (agent.turn_completed) and the message route (human.message). Payloads
 // are opaque snapshots; shape contracts are the emitting surface's spec.
 func (s *Service) EnqueueEvent(ctx context.Context, t EventType, payload []byte) (int64, error) {
 	return 0, errNotImplemented
@@ -83,7 +86,7 @@ func (s *Service) EnqueueEvent(ctx context.Context, t EventType, payload []byte)
 // Workers builds the two serial workers (04 §3–§4): the events worker over
 // the Brain port, and the outbox worker routing per-topic to the executor
 // ports, each with its dead-letter action.
-func (s *Service) Workers(clock Clock) (events *Worker, outbox *Worker) {
+func (s *Service) Workers(clock Clock) (*Worker, *Worker) {
 	// Wiring is implementation; see 04 §2 (executors) and §3 (dead-letter table).
 	return nil, nil
 }

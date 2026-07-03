@@ -7,6 +7,10 @@ description: Use when working on the voice I/O layer — turning speech into hum
 
 ## Functional Requirements
 
+> **Deferred in v1** (07 D1): the text client talks to the brain through the same seams —
+> this spec later puts STT in front of `POST /api/message` and TTS on top of the `say`
+> SSE event. Nothing in 03–07 changes when it lands.
+
 **Responsibility.** The I/O layer that turns speech into human-input events and the brain's
 replies into audio: STT → brain → TTS (`01` §7). Independent of the orchestrator so it can
 be tested separately.

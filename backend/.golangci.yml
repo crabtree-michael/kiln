@@ -24,6 +24,15 @@ linters:
     - errname           # `ErrInvalidTransition`-style error type names are fine here
     - tagliatelle       # snake_case JSON tags are a deliberate convention (mirror SQL columns)
   settings:
+    # Complexity thresholds, pinned explicitly rather than inherited from tool
+    # defaults. cyclop is the binding per-function cyclomatic limit; gocyclo is
+    # a redundant backstop at its default; gocognit bounds cognitive complexity.
+    cyclop:
+      max-complexity: 10
+    gocyclo:
+      min-complexity: 30
+    gocognit:
+      min-complexity: 30
     govet:
       enable-all: true
       disable:

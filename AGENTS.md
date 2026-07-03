@@ -14,6 +14,7 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
 
 - **The hard gate is a wall.** Linters + type-check + tests must be green before you commit or
   merge. Red means you cannot land. Do not weaken a check to make it pass.
+- **Test your work thoroughly** 
 - **Work behind interfaces.** Each backend module (`backend/internal/{api,runtime,brain,board,agent}`)
   talks to its neighbors through an explicit contract. Stay inside your area's boundary.
 - **The wire contract lives in `/schema`.** Never hand-edit generated types — change the schema and
@@ -27,16 +28,3 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
 Canonical skills live in `.agents/skills` (symlinked into `.claude/skills` and `.codex/skills`).
 Read your area's skill before working; keep it current as you go. Every agent starts from the two
 general skills.
-
-| Skill | Area | Spec |
-| ----- | ---- | ---- |
-| `end-to-end-development` | General — the hard gate, interfaces, schema regen, isolation | §4 |
-| `local-environment` | General — bring the system up via `docker compose up` | §1, §4 |
-| `board-mechanism` | `backend/internal/board` | §5 |
-| `orchestrator-brain` | `backend/internal/brain` | §6 |
-| `runtime-and-api` | `backend/internal/runtime` · `internal/api` | §7 |
-| `amika-integration` | `backend/internal/agent` — neutral agent-runtime layer; Amika adapter in `./amika` | §8, 05 |
-| `voice-pipeline` | `/frontend` mic/playback · runtime bridge | §9 |
-| `notifications` | `/frontend` registration/tap · runtime send path | §10 |
-| `web-client` | `/frontend` | §11 |
-| `wire-schema` | `/schema` | §3, §4 |

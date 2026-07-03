@@ -77,7 +77,7 @@ flowchart LR
         amika["amika<br/><i>agent-platform adapter</i>"]
     end
 
-    db[("Postgres<br/>board state +<br/>durable event queue")]
+    db[("Postgres<br/>board state +<br/>two durable queues:<br/>events · outbox")]
 
     subgraph ext["external managed APIs (real in v1)"]
         llm["LLM"]
@@ -101,10 +101,18 @@ flowchart LR
 
 
 
-**Where state lives.** *All* authoritative state is in Postgres — board entities **and** the
-durable event queue in the same database. The `/backend` process holds no authoritative state
-between events; it reads and writes Postgres and drains the queue table, so a restart or deploy
-recovers by re-reading durable state (`01` §8). The `/frontend` holds none (`01` §4).
+**Where state lives.** *All* authoritative state is in Postgres — board entities **and two
+durable queues** in the same database, both drained by the runtime but doing different jobs:
+
+- the **event queue** — the two `01` event types (agent-turn-completed, human-voice-input);
+  each entry wakes the brain for one LLM pass. This queue *drives the brain*.
+- the **outbox** — mechanical work emitted transactionally by board state changes: agent
+  dispatch/instruct, the pull trigger, notifications, client board updates (`03` §7). Entries
+  are executed by adapters with no LLM involved. This queue *drives the machinery*.
+
+The `/backend` process holds no authoritative state between events; it reads and writes Postgres
+and drains both queue tables, so a restart or deploy recovers by re-reading durable state (`01`
+§8). The `/frontend` holds none (`01` §4).
 
 **Trust boundary.** The single trust boundary is `/backend`: it owns Postgres, all provider
 credentials (LLM, STT/TTS, push, Amika), and is the only writer of board state. The client is
@@ -229,6 +237,9 @@ agent brings the whole thing up with a single `docker compose up`.
 
 - ***Responsibility** — the one thing this surface owns.*
 - ***Interface** — the API / contract others use to reach it; what it emits.*
+- ***Topology** — where this surface lives in the repo and how it decomposes internally into the §2
+  layering (routes/handlers → services over entities → ports → infra adapters), across one or both
+  deployables.*
 - ***Dependencies** — what it relies on.*
 - ***What to decide** — the open technical questions to resolve here.*
 
@@ -245,6 +256,12 @@ system call to mutate board state: create ticket, shape/mark-ready, move ticket 
 `01` *§5 side effects), send-to-agent, accept-to-done. Specify what each returns, what events it
 emits, and its authority (this is the single source of truth; nothing else mutates board state
 directly).*
+
+**Topology.** *Lives in* `/backend/internal/board`*, structured per the §2 layering: a thin
+Board-API handler layer over board service(s) that own the logical entities (Ticket, Sandbox
+binding, Column/Zone); a state-store **port** implemented by a Postgres repository adapter; an
+Amika **port** (§8) for the dispatch/instruct side effects. Decide where the deterministic-pull
+component sits — its own service, or part of the board service.*
 
 **Dependencies.** *State store engine; Amika integration (§7) for the side effects that dispatch
 or instruct agents.*
@@ -264,6 +281,12 @@ event, load state, reason once, emit actions from the fixed tool set.*
 notify/speak. Input contract: how board state and the event are serialized into the prompt.
 Output contract: the emitted actions and how they are applied.*
 
+**Topology.** *Lives in* `/backend/internal/brain`*; stateless. A single entry invoked by the
+runtime (§7) over a brain service that builds the prompt, calls the LLM, and parses the emitted
+actions; the LLM is an injected **port** with a provider adapter, and actions are applied through
+the Board-API **port** (§5) plus notify/speak ports. No infrastructure of its own beyond the LLM
+adapter.*
+
 **Dependencies.** *Board API (§4) for state and mutations; runtime (§6) to be invoked and to
 deliver notify/speak; LLM provider.*
 
@@ -276,11 +299,20 @@ LLM errors or returns an invalid action.*
 
 **Responsibility.** *The durable, deploy-resumable service shell that receives events, drives the
 brain (§5) once per event, and faces the client. Implements the* `01` *key decision that the
-orchestrator wakes on events, not a timer.*
+orchestrator wakes on events, not a timer. The runtime drains the **two durable queues** of §2 —
+the event queue (each entry → one brain invocation) and the outbox (mechanical side effects
+executed by adapters, no LLM —* `03` *§7).*
 
 **Interface.** *Event ingestion for the two* `01` *event types — agent-turn-completed (from §7) and
 human-voice-input (from §8/§10). Client-facing contract: the live connection that pushes board
 updates and the endpoints the client calls. Message/event schemas.*
+
+**Topology.** *Spans* `/backend/internal/api` *(client-facing routes + the live-connection hub) and*
+`/backend/internal/runtime` *(the event loop). Handlers ingest the two event types and client
+calls; a runtime service drives the brain (§6) once per event and pushes board updates; **ports**
+for the two durable queues (§2), brain, board, notifications, and Amika are wired here. This module holds the
+**composition root** where every adapter is injected. Name the queue and live-connection transport
+adapters.*
 
 **Dependencies.** *Durable queue; brain (§5); board (§4); notifications (§9); Amika (§7).*
 
@@ -300,6 +332,11 @@ running/blocked agent, receive a turn's result, and expose the queue the runtime
 interface with a mock implementation until Amika's real API/SDK is in hand (*`01` *§11), so the rest
 of the system can be built and tested against the mock.*
 
+**Topology.** *Lives in* `/backend/internal/amika` *as the infra layer behind the Amika **port**
+that board/runtime consume: a real adapter (dispatch / instruct / receive-result) plus an inbound
+webhook/poll handler that maps a turn result to a runtime event, and a **mock adapter** used in dev
+and e2e until the real SDK lands (*`01` *§11). No business logic — a pure adapter.*
+
 **Dependencies.** *Amika's real API (deferred); board (§4) for sandbox-binding lifecycle.*
 
 **What to decide.** *The concrete interface shape and auth. How a turn result arrives (webhook vs
@@ -316,6 +353,11 @@ tested separately.*
 **Interface.** *Inbound: audio → text → a human-voice-input event to the runtime (§6). Outbound:
 brain speak actions → synthesized audio to the client (§10).*
 
+**Topology.** *Spans both deployables:* `/frontend` *owns mic capture and audio playback;*
+`/backend` *owns STT/TTS **ports** with provider adapters plus the routes that bridge inbound
+audio → text → a runtime human-input event and outbound speak → audio. Business logic is minimal —
+this surface is mostly transport + adapters. Decide which side holds streaming/buffering.*
+
 **Dependencies.** *STT and TTS providers; runtime (§6); client (§10) for mic capture and playback.*
 
 **What to decide.** *STT and TTS providers. Audio transport (streaming vs batched) and format.
@@ -329,6 +371,10 @@ needs them (*`01` *§7) — e.g. a ticket moving to Blocked.*
 
 **Interface.** *A send-notification capability the brain/runtime invoke; a deep link that opens the
 app to an already-updated board with the voice channel attached.*
+
+**Topology.** *Spans* `/backend` *(a push adapter behind a notifications **port** the brain/runtime
+invoke) and* `/frontend` *(a service worker for registration, token handling, and deep-link
+tap-to-open). Pure adapter on the backend side; no logical entities of its own.*
 
 **Dependencies.** *A push provider; the runtime (§6); the client (§10) for registration and
 tap-handling.*
@@ -344,6 +390,12 @@ over a live connection, captures mic audio, plays Kiln's voice, and receives not
 
 **Interface.** *Consumes the runtime's live connection (§6) and client endpoints; the voice
 pipeline (§8) for audio; the notification transport (§9) for push and deep links.*
+
+**Topology.** *All in* `/frontend`*, with its own internal layering mirroring §2 in FE terms: a
+data/transport layer (the live-connection client and the API client generated from* `/schema`*)
+feeding a board store, feeding presentational components; mic/audio, push registration, and
+deep-link handling as separate modules. Identify the components that are the **image-snapshot**
+targets (§4a).*
 
 **Dependencies.** *Runtime (§6); voice pipeline (§8); notifications (§9).*
 

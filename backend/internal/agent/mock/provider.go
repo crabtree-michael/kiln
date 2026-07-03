@@ -7,16 +7,27 @@ package mock
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 )
 
-// errNotImplemented marks scaffold stubs; see docs/specs/05-agent-runtime.md.
-var errNotImplemented = errors.New("agent/mock: not implemented (scaffold)")
+// Injected failure sentinels (05 §8). Provisioning and StartTurn failures are
+// transient/terminal mechanical errors the machine retries or exhausts (05
+// §5); a dropped conversation surfaces as agent.ErrConversationLost.
+var (
+	errProvisioning      = errors.New("mock: provisioning failed")
+	errStartTurnInjected = errors.New("mock: injected StartTurn failure")
+	errUnknownJob        = errors.New("mock: unknown job")
+)
 
 // DefaultTurnDelay is the canned turn latency for unscripted messages (05 §8).
 const DefaultTurnDelay = 100 * time.Millisecond
+
+// cannedOutput is the default success output for an unscripted message (05 §8).
+const cannedOutput = "mock: turn complete"
 
 // ScriptedTurn is one test-configured turn result (05 §8).
 type ScriptedTurn struct {
@@ -42,8 +53,22 @@ type Provider struct {
 	// FailProvisioning makes CreateWorker fail terminally (05 §8).
 	FailProvisioning bool
 
-	// FailStartTurns makes StartTurn fail this many times, then succeed.
+	// FailStartTurns makes StartTurn fail this many times, then succeed; each
+	// failure decrements it.
 	FailStartTurns int
+
+	mu      sync.Mutex
+	workers map[string]bool            // live worker names
+	convs   map[string]map[string]bool // worker name → live conversation ids
+	jobs    map[string]scriptedJob     // job id → pending result
+	seq     int                        // monotonic id source (deterministic, no rand)
+}
+
+// scriptedJob is one in-flight turn's eventual result and when it lands.
+type scriptedJob struct {
+	output  string
+	isError bool
+	doneAt  time.Time
 }
 
 var _ agent.Provider = (*Provider)(nil)
@@ -51,35 +76,131 @@ var _ agent.Provider = (*Provider)(nil)
 // New returns a mock with no script: every turn is the canned success.
 func New() *Provider { return &Provider{} }
 
-func (p *Provider) ListWorkers(ctx context.Context) ([]agent.ProviderWorker, error) {
-	return nil, errNotImplemented
+func (p *Provider) ListWorkers(_ context.Context) ([]agent.ProviderWorker, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	out := make([]agent.ProviderWorker, 0, len(p.workers))
+	for name := range p.workers {
+		out = append(out, agent.ProviderWorker{Name: name, Ref: name})
+	}
+	return out, nil
 }
 
-func (p *Provider) CreateWorker(ctx context.Context, name string) (agent.ProviderWorker, error) {
-	return agent.ProviderWorker{}, errNotImplemented
+func (p *Provider) CreateWorker(_ context.Context, name string) (agent.ProviderWorker, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	if p.FailProvisioning {
+		return agent.ProviderWorker{}, errProvisioning
+	}
+	p.workers[name] = true
+	return agent.ProviderWorker{Name: name, Ref: name}, nil
 }
 
-func (p *Provider) WorkerReady(ctx context.Context, w agent.ProviderWorker) (bool, error) {
-	return false, errNotImplemented
+func (p *Provider) WorkerReady(_ context.Context, w agent.ProviderWorker) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	return p.workers[w.Name], nil
 }
 
-func (p *Provider) DestroyWorker(ctx context.Context, w agent.ProviderWorker) error {
-	return errNotImplemented
+func (p *Provider) DestroyWorker(_ context.Context, w agent.ProviderWorker) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	delete(p.workers, w.Name) // absent worker = success (05 §2.3)
+	delete(p.convs, w.Name)   // release recreates a fresh workspace (05 §3, §4)
+	return nil
 }
 
 func (p *Provider) StartTurn(
-	ctx context.Context, w agent.ProviderWorker, conversation, message string, fresh bool,
+	_ context.Context, w agent.ProviderWorker, conversation, message string, fresh bool,
 ) (agent.TurnRef, error) {
-	return agent.TurnRef{}, errNotImplemented
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+
+	if p.FailStartTurns > 0 {
+		p.FailStartTurns--
+		return agent.TurnRef{}, errStartTurnInjected
+	}
+
+	conv, err := p.resolveConversation(w.Name, conversation, fresh)
+	if err != nil {
+		return agent.TurnRef{}, err
+	}
+
+	p.seq++
+	jobID := fmt.Sprintf("job-%d", p.seq)
+	st := p.scriptFor(message)
+	p.jobs[jobID] = scriptedJob{output: st.Output, isError: st.IsError, doneAt: time.Now().Add(st.Delay)}
+	return agent.TurnRef{Conversation: conv, Turn: jobID}, nil
 }
 
-func (p *Provider) CheckTurn(ctx context.Context, w agent.ProviderWorker, ref agent.TurnRef) (agent.TurnStatus, error) {
-	return agent.TurnStatus{}, errNotImplemented
+func (p *Provider) CheckTurn(_ context.Context, _ agent.ProviderWorker, ref agent.TurnRef) (agent.TurnStatus, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	j, ok := p.jobs[ref.Turn]
+	if !ok {
+		return agent.TurnStatus{}, fmt.Errorf("mock: job %q: %w", ref.Turn, errUnknownJob)
+	}
+	if time.Now().Before(j.doneAt) {
+		return agent.TurnStatus{Running: true}, nil
+	}
+	return agent.TurnStatus{Running: false, Output: j.output, IsError: j.isError, CostUSD: 0}, nil
 }
 
-// DropConversation forgets a live conversation on demand (05 §8), so tests
-// exercise the fresh-conversation fallback: context lost, workspace kept,
+// DropConversation forgets a worker's live conversations on demand (05 §8), so
+// tests exercise the fresh-conversation fallback: the next continuation
+// StartTurn returns agent.ErrConversationLost — context lost, workspace kept,
 // never a failed ticket (05 §3).
 func (p *Provider) DropConversation(workerName string) {
-	// Scaffold: lands with the in-memory state (05 §8).
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	delete(p.convs, workerName)
+}
+
+// init lazily allocates the maps so a bare &Provider{…} literal (the form
+// tests use to set knobs) works without calling New.
+func (p *Provider) init() {
+	if p.workers == nil {
+		p.workers = map[string]bool{}
+	}
+	if p.convs == nil {
+		p.convs = map[string]map[string]bool{}
+	}
+	if p.jobs == nil {
+		p.jobs = map[string]scriptedJob{}
+	}
+}
+
+// resolveConversation opens a fresh conversation or validates a continuation,
+// surfacing agent.ErrConversationLost when the referenced conversation is gone
+// (05 §3). Caller holds p.mu.
+func (p *Provider) resolveConversation(worker, conversation string, fresh bool) (string, error) {
+	if fresh {
+		p.seq++
+		conv := fmt.Sprintf("conv-%d", p.seq)
+		if p.convs[worker] == nil {
+			p.convs[worker] = map[string]bool{}
+		}
+		p.convs[worker][conv] = true
+		return conv, nil
+	}
+	if live := p.convs[worker]; live == nil || !live[conversation] {
+		return "", fmt.Errorf("mock: worker %q conversation %q: %w", worker, conversation, agent.ErrConversationLost)
+	}
+	return conversation, nil
+}
+
+// scriptFor returns the scripted result for message, or the canned success.
+// Caller holds p.mu.
+func (p *Provider) scriptFor(message string) ScriptedTurn {
+	if st, ok := p.Script[message]; ok {
+		return st
+	}
+	return ScriptedTurn{Output: cannedOutput, IsError: false, Delay: DefaultTurnDelay}
 }

@@ -48,6 +48,34 @@ Terminal failure → error-turn event; the brain decides what it means for the t
 and event path run for real. Instant lifecycle, scripted turns, failure injection,
 conversation loss. Default in dev and e2e.
 
+## Module layout (scaffolded; stubs return errNotImplemented)
+
+- `internal/agent` — `provider.go` (Provider port, `ProviderWorker`/`TurnRef`/`TurnStatus`,
+  `WorkerName`), `turn.go` (phases, `Turn` row, payload shapes, `PollInterval`/`ReconcileInterval`),
+  `store.go` (Store port over `agent_turns`), `service.go` (Service: `Send`/`Release` — the
+  shape of `runtime.AgentRuntime`, matched structurally, never imported — plus `Run` for
+  reconciler+poller; ports `EventEnqueuer`, `Slots`, `Clock`).
+- `internal/agent/postgres` — Store adapter + `migrations/0001_agent_turns.sql`.
+- `internal/agent/mock` — mock Provider (exported knobs: `Script`, `FailProvisioning`,
+  `FailStartTurns`, `DropConversation`).
+- `internal/agent/amika` — v0beta1 adapter (`Config`, `Client`, `APIError` envelope).
+
+Scaffold-time contract choices to know (tighten or revisit at implementation):
+
+- `agent_turns` has a `message` column beyond the 05 §7 list — recovery must be able to
+  StartTurn a never-started turn, so the message has to be durable.
+- `Provider.StartTurn` takes the prior `conversation` handle alongside `fresh` — adapters
+  are stateless and 05 §6 continues "the recorded session_id", which must come from the
+  machinery.
+- `Phase.Terminal()` is done-only: `failed` still owes the error `turn_completed` event
+  (05 §5 `failed → done`), so the poller's working set is `phase <> 'done'`.
+- The 05 §5 enqueue+mark-done single transaction is NOT resolved by the scaffold: the
+  Service holds an `EventEnqueuer` port, `Store.Update` documents the requirement, and the
+  seam (likely the board's shared-table outbox pattern, 03 §2.4) is an implementation
+  decision.
+- First-message-vs-continuation is derived via `Store.LatestForWorker` (no row or a
+  release row ⇒ fresh).
+
 ## How to work here
 
 - Never block a port call on the provider: record in `agent_turns`, return; the

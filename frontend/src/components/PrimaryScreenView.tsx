@@ -4,12 +4,19 @@
 // wrapper) bridges the feed + activity stores into these props, mirroring how
 // `App` bridges its stores into `Board`/`ChatPanel`.
 import type { JSX } from 'react';
-import type { ConnectionState, FeedCard, FeedSnapshot, FeedSummary } from '@/transport/transport';
+import type {
+  Board,
+  ConnectionState,
+  FeedCard,
+  FeedSnapshot,
+  FeedSummary,
+} from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
-import { feedStatus, streamDetail } from '@/components/feed-format';
+import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
+import { streamDetail } from '@/components/feed-format';
 import '@/components/PrimaryScreen.css';
 
 const EMPTY_SUMMARY: FeedSummary = {
@@ -22,6 +29,10 @@ const EMPTY_SUMMARY: FeedSummary = {
 
 export interface PrimaryScreenViewProps {
   feed: FeedSnapshot | null;
+  /** The latest board snapshot, broken out per-stream in the header dropdown.
+   * Optional so presentational tests can omit it (the menu then shows no
+   * active streams). */
+  board?: Board | null;
   connectionState: ConnectionState;
   thinking: boolean;
   toasts: ActivityToast[];
@@ -51,6 +62,7 @@ function dividerIndex(cards: FeedCard[]): number {
 
 export function PrimaryScreenView({
   feed,
+  board = null,
   connectionState,
   thinking,
   toasts,
@@ -76,7 +88,7 @@ export function PrimaryScreenView({
             <span data-role="kiln-glyph" aria-hidden="true" />
             <span data-role="kiln-wordmark">Kiln</span>
           </div>
-          <span data-role="feed-status">{feedStatus(summary)}</span>
+          <HeaderStatusMenu summary={summary} board={board} />
         </header>
 
         <div data-role="backlog">

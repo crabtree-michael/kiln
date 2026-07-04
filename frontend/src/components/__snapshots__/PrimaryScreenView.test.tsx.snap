@@ -28,11 +28,41 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             Kiln
           </span>
         </div>
-        <span
-          data-role="feed-status"
+        <div
+          data-role="header-status"
         >
-          5 streams · nothing needs you
-        </span>
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
+          >
+            5 streams · nothing needs you
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Streams
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No active streams
+            </div>
+          </div>
+        </div>
       </header>
       <div
         data-role="backlog"
@@ -137,11 +167,41 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
             Kiln
           </span>
         </div>
-        <span
-          data-role="feed-status"
+        <div
+          data-role="header-status"
         >
-          1 blocker · 3 updates
-        </span>
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
+          >
+            1 blocker · 3 updates
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Streams
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No active streams
+            </div>
+          </div>
+        </div>
       </header>
       <div
         data-role="backlog"
@@ -363,11 +423,41 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
             Kiln
           </span>
         </div>
-        <span
-          data-role="feed-status"
+        <div
+          data-role="header-status"
         >
-          5 streams · nothing needs you
-        </span>
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
+          >
+            5 streams · nothing needs you
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Streams
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No active streams
+            </div>
+          </div>
+        </div>
       </header>
       <div
         data-role="backlog"
@@ -519,11 +609,41 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
             Kiln
           </span>
         </div>
-        <span
-          data-role="feed-status"
+        <div
+          data-role="header-status"
         >
-          3 streams · nothing needs you
-        </span>
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
+          >
+            3 streams · nothing needs you
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Streams
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No active streams
+            </div>
+          </div>
+        </div>
       </header>
       <div
         data-role="backlog"
@@ -647,11 +767,41 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
             Kiln
           </span>
         </div>
-        <span
-          data-role="feed-status"
+        <div
+          data-role="header-status"
         >
-          5 streams · nothing needs you
-        </span>
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
+          >
+            5 streams · nothing needs you
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Streams
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No active streams
+            </div>
+          </div>
+        </div>
       </header>
       <div
         data-role="backlog"

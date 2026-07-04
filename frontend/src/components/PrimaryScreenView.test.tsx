@@ -177,6 +177,10 @@ describe('PrimaryScreenView', () => {
       'feed-empty-title',
     );
     expect(screen.getByText('3 building · 2 idle · last word 6m ago')).toBeInTheDocument();
+    // No secondary/body copy under the headline (08 §4d): the status counts are
+    // the focal content of the all-clear state.
+    expect(document.querySelector('[data-role="feed-empty-body"]')).toBeNull();
+    expect(screen.queryByText(/keeping your streams moving/)).not.toBeInTheDocument();
   });
 
   it('renders a real Accept button on a proposal card and calls acceptTicket with the ticket id (08 §5)', () => {

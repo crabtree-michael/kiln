@@ -259,26 +259,20 @@ body:has([data-role='primary-screen']) {
   color: var(--ink);
 }
 
-[data-role='feed-empty-body'] {
-  margin: 0;
-  max-width: 280px;
-  font-size: 14.5px;
-  line-height: 1.55;
-  color: oklch(0.52 0.01 40);
-}
-
 [data-role='feed-empty-status'] {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  color: var(--faint);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 [data-role='feed-empty-pulse'] {
-  width: 6px;
-  height: 6px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: oklch(0.55 0.01 40);
 }

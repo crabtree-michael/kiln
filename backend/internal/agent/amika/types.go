@@ -81,6 +81,7 @@ type sessionMetadata struct {
 }
 
 type sessionMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
 }

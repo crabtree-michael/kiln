@@ -23,6 +23,9 @@
 //	CheckTurn     — GET …/sessions/{session_id}: the turn is done once a new
 //	                assistant message appears in metadata.messages; its content is
 //	                the output. This path reports no is_error/cost.
+//	ReadLatestOutput — GET …/sessions/latest: the transcript is materialized only
+//	                at turn completion, so the last assistant message is exactly
+//	                the latest finished turn (05 §2).
 //
 // No webhooks and no idempotency keys exist in v0beta1 — hence the module's
 // poller and its own agent_turns dedupe (05 §6).
@@ -279,6 +282,35 @@ func (c *Client) CheckTurn(ctx context.Context, w agent.ProviderWorker, ref agen
 		b.WriteString(m.Content)
 	}
 	return agent.TurnStatus{Running: false, Output: b.String()}, nil
+}
+
+// ReadLatestOutput reads the worker's current conversation transcript
+// (GET …/sessions/latest) and returns the last assistant message as the
+// worker's latest completed output (05 §2). Amika materializes the transcript
+// only at turn completion (verified 2026-07-04: no mid-turn/partial output),
+// so this is exactly the latest finished turn. A missing session (404) or empty
+// metadata is "nothing yet" — empty TurnOutput, not an error.
+func (c *Client) ReadLatestOutput(ctx context.Context, w agent.ProviderWorker) (agent.TurnOutput, error) {
+	ref := workerRef(w)
+	var s sessionObject
+	path := "/sandboxes/" + url.PathEscape(ref) + "/sessions/latest"
+	if err := c.do(ctx, http.MethodGet, path, nil, &s); err != nil {
+		if statusIs(err, http.StatusNotFound) {
+			return agent.TurnOutput{}, nil
+		}
+		return agent.TurnOutput{}, err
+	}
+	var last *sessionMessage
+	for i := range s.Metadata.Messages {
+		if s.Metadata.Messages[i].Role == roleAssistant {
+			last = &s.Metadata.Messages[i]
+		}
+	}
+	if last == nil {
+		return agent.TurnOutput{}, nil
+	}
+	at, _ := time.Parse(time.RFC3339, last.Timestamp) //nolint:errcheck // best-effort; zero At on failure
+	return agent.TurnOutput{Output: last.Content, At: at}, nil
 }
 
 // createSession opens a new agent conversation on the sandbox up front (05 §6):

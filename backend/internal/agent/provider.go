@@ -78,4 +78,10 @@ type Provider interface {
 	// CheckTurn polls one turn to its terminal outcome (05 §2.3); the §5
 	// poller calls it every PollInterval.
 	CheckTurn(ctx context.Context, w ProviderWorker, ref TurnRef) (TurnStatus, error)
+
+	// ReadLatestOutput returns the most recent completed assistant output for
+	// the worker's current conversation, provider-neutral (05 §2). Empty
+	// TurnOutput when there is no completed turn yet; not an error. Used by the
+	// brain's get_agent_updates read tool via the Service inspector methods.
+	ReadLatestOutput(ctx context.Context, w ProviderWorker) (TurnOutput, error)
 }

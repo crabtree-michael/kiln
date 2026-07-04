@@ -57,11 +57,12 @@ type Provider struct {
 	// failure decrements it.
 	FailStartTurns int
 
-	mu      sync.Mutex
-	workers map[string]bool            // live worker names
-	convs   map[string]map[string]bool // worker name → live conversation ids
-	jobs    map[string]scriptedJob     // job id → pending result
-	seq     int                        // monotonic id source (deterministic, no rand)
+	mu         sync.Mutex
+	workers    map[string]bool             // live worker names
+	convs      map[string]map[string]bool  // worker name → live conversation ids
+	jobs       map[string]scriptedJob      // job id → pending result
+	lastOutput map[string]agent.TurnOutput // worker name → latest completed output
+	seq        int                         // monotonic id source (deterministic, no rand)
 }
 
 // scriptedJob is one in-flight turn's eventual result and when it lands.
@@ -138,7 +139,7 @@ func (p *Provider) StartTurn(
 	return agent.TurnRef{Conversation: conv, Turn: jobID}, nil
 }
 
-func (p *Provider) CheckTurn(_ context.Context, _ agent.ProviderWorker, ref agent.TurnRef) (agent.TurnStatus, error) {
+func (p *Provider) CheckTurn(_ context.Context, w agent.ProviderWorker, ref agent.TurnRef) (agent.TurnStatus, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.init()
@@ -149,7 +150,26 @@ func (p *Provider) CheckTurn(_ context.Context, _ agent.ProviderWorker, ref agen
 	if time.Now().Before(j.doneAt) {
 		return agent.TurnStatus{Running: true}, nil
 	}
+	p.lastOutput[w.Name] = agent.TurnOutput{Output: j.output, At: time.Now()}
 	return agent.TurnStatus{Running: false, Output: j.output, IsError: j.isError, CostUSD: 0}, nil
+}
+
+// ReadLatestOutput returns the worker's last completed turn output (05 §2),
+// recorded by CheckTurn or seeded via SeedLatestOutput. Empty when none.
+func (p *Provider) ReadLatestOutput(_ context.Context, w agent.ProviderWorker) (agent.TurnOutput, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	return p.lastOutput[w.Name], nil
+}
+
+// SeedLatestOutput presets a worker's latest output so inspector tests can read
+// it without driving a full turn (05 §8 test knob).
+func (p *Provider) SeedLatestOutput(name string, out agent.TurnOutput) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	p.lastOutput[name] = out
 }
 
 // DropConversation forgets a worker's live conversations on demand (05 §8), so
@@ -174,6 +194,9 @@ func (p *Provider) init() {
 	}
 	if p.jobs == nil {
 		p.jobs = map[string]scriptedJob{}
+	}
+	if p.lastOutput == nil {
+		p.lastOutput = map[string]agent.TurnOutput{}
 	}
 }
 

@@ -154,6 +154,24 @@ func TestFailStartTurnsFailsNTimesThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestReadLatestOutput(t *testing.T) {
+	p := mock.New()
+	w := agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: agent.WorkerName("w1")}
+
+	// Nothing seeded → empty output, no error.
+	got, err := p.ReadLatestOutput(context.Background(), w)
+	if err != nil || got.Output != "" {
+		t.Fatalf("got (%+v, %v), want empty", got, err)
+	}
+
+	// Seeded output is returned.
+	p.SeedLatestOutput(w.Name, agent.TurnOutput{Output: "done"})
+	got, err = p.ReadLatestOutput(context.Background(), w)
+	if err != nil || got.Output != "done" {
+		t.Errorf("got (%+v, %v), want output %q", got, err, "done")
+	}
+}
+
 func TestDropConversationSurfacesOnContinuation(t *testing.T) {
 	p := mock.New()
 	ctx := context.Background()

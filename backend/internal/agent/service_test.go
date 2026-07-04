@@ -68,6 +68,12 @@ func (p *blockingProvider) CheckTurn(
 	return agent.TurnStatus{}, nil
 }
 
+func (p *blockingProvider) ReadLatestOutput(ctx context.Context, w agent.ProviderWorker) (agent.TurnOutput, error) {
+	p.calls.Add(1)
+	<-p.block
+	return agent.TurnOutput{}, nil
+}
+
 func (p *blockingProvider) callCount() int64 { return p.calls.Load() }
 
 const nonBlockingBudget = 200 * time.Millisecond

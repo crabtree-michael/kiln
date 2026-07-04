@@ -74,6 +74,10 @@ func (p *reconcileProvider) CheckTurn(
 	return agent.TurnStatus{Running: false, Output: "ok", IsError: false, CostUSD: 0}, nil
 }
 
+func (p *reconcileProvider) ReadLatestOutput(ctx context.Context, w agent.ProviderWorker) (agent.TurnOutput, error) {
+	return agent.TurnOutput{}, nil
+}
+
 func (p *reconcileProvider) wasCreated(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()

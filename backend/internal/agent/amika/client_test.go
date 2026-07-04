@@ -24,6 +24,8 @@ const (
 
 	keyCode = "error_code"
 	keyMsg  = "message"
+
+	roleUser = "user" // the non-assistant sessionMessage.Role value in test transcripts
 )
 
 var (
@@ -33,6 +35,9 @@ var (
 	pathSessions  = pathSandbox + "/sessions"
 	pathSession   = pathSessions + "/" + sessID
 	pathSend      = pathSandbox + "/agent-send"
+	// pathSessionsLatest is GET .../sessions/latest — the current conversation's
+	// transcript, which ReadLatestOutput reads for get_agent_updates.
+	pathSessionsLatest = pathSessions + "/latest"
 )
 
 // route keys a handler by "METHOD /path". A test server answers exactly the
@@ -361,7 +366,7 @@ func TestStartTurnFreshAndContinuation(t *testing.T) {
 			// One prior assistant reply in the transcript ⇒ baseline 1.
 			{http.MethodGet, pathSession}: func(w http.ResponseWriter, r *http.Request) {
 				writeJSON(t, w, http.StatusOK, sessionObject{ID: sessID, Metadata: sessionMetadata{Messages: []sessionMessage{
-					{Role: "user", Content: "earlier"}, {Role: roleAssistant, Content: "prior"},
+					{Role: roleUser, Content: "earlier"}, {Role: roleAssistant, Content: "prior"},
 				}}})
 			},
 			{http.MethodPost, pathSend}: func(w http.ResponseWriter, r *http.Request) {
@@ -434,7 +439,7 @@ func TestCheckTurn(t *testing.T) {
 		}
 		return st
 	}
-	user := func(s string) sessionMessage { return sessionMessage{Role: "user", Content: s} }
+	user := func(s string) sessionMessage { return sessionMessage{Role: roleUser, Content: s} }
 	asst := func(s string) sessionMessage { return sessionMessage{Role: roleAssistant, Content: s} }
 
 	t.Run("no new assistant message keeps running", func(t *testing.T) {
@@ -471,6 +476,56 @@ func TestCheckTurn(t *testing.T) {
 		}
 		if !st.Running {
 			t.Errorf("want Running on missing session, got %+v", st)
+		}
+	})
+}
+
+func TestReadLatestOutput(t *testing.T) {
+	worker := agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID}
+	ts := "2026-07-04T15:03:46.256Z"
+
+	t.Run("returns the last assistant message with its timestamp", func(t *testing.T) {
+		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+			{http.MethodGet, pathSessionsLatest}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, sessionObject{ID: sessID, Metadata: sessionMetadata{Messages: []sessionMessage{
+					{Role: roleUser, Content: "build it", Timestamp: ts},
+					{Role: roleAssistant, Content: "pong", Timestamp: ts},
+				}}})
+			},
+		})
+		out, err := c.ReadLatestOutput(context.Background(), worker)
+		if err != nil {
+			t.Fatalf("ReadLatestOutput: %v", err)
+		}
+		if out.Output != "pong" {
+			t.Errorf("Output = %q, want %q", out.Output, "pong")
+		}
+		if out.At.IsZero() {
+			t.Errorf("At is zero, want parsed %q", ts)
+		}
+	})
+
+	t.Run("empty metadata yields empty output, no error", func(t *testing.T) {
+		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+			{http.MethodGet, pathSessionsLatest}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, sessionObject{})
+			},
+		})
+		out, err := c.ReadLatestOutput(context.Background(), worker)
+		if err != nil || out.Output != "" {
+			t.Errorf("got (%+v, %v), want empty output and nil error", out, err)
+		}
+	})
+
+	t.Run("404 (no session yet) yields empty output, no error", func(t *testing.T) {
+		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+			{http.MethodGet, pathSessionsLatest}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusNotFound, errEnvelope("not_found", "nope"))
+			},
+		})
+		out, err := c.ReadLatestOutput(context.Background(), worker)
+		if err != nil || out.Output != "" {
+			t.Errorf("got (%+v, %v), want empty output and nil error", out, err)
 		}
 	})
 }

@@ -17,9 +17,11 @@ export interface BoardColumnProps {
   /** e.g. "Backlog", "Developing", "Done". */
   title: string;
   zones: BoardColumnZone[];
+  /** Forwarded to each card so a click opens its detail overlay (debug view). */
+  onSelectTicket?: ((ticket: Ticket) => void) | undefined;
 }
 
-export function BoardColumn({ title, zones }: BoardColumnProps): JSX.Element {
+export function BoardColumn({ title, zones, onSelectTicket }: BoardColumnProps): JSX.Element {
   return (
     <section aria-label={title} data-role="board-column">
       <h2>{title}</h2>
@@ -28,7 +30,7 @@ export function BoardColumn({ title, zones }: BoardColumnProps): JSX.Element {
           <h3>{zone.label}</h3>
           <div data-role="board-zone-tickets">
             {zone.tickets.map((ticket) => (
-              <TicketCard key={ticket.id} ticket={ticket} />
+              <TicketCard key={ticket.id} ticket={ticket} onSelect={onSelectTicket} />
             ))}
           </div>
         </div>

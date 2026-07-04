@@ -276,8 +276,21 @@ var (
 // teardown — neither of which owns the other's state. tables and workers are
 // narrow ports so the ordering is unit-testable against fakes.
 type resetCoordinator struct {
-	tables  stateTruncator
-	workers workerResetter
+	tables   stateTruncator
+	workers  workerResetter
+	pool     poolReconciler
+	poolSize int
+}
+
+// newResetCoordinator wires the reset over the shared pool, the agent service,
+// and the board's worker-pool store — kept here so buildGraph reads as one line.
+func newResetCoordinator(db *sql.DB, workers workerResetter, pool poolReconciler, poolSize int) *resetCoordinator {
+	return &resetCoordinator{
+		tables:   &dbTruncator{db: db},
+		workers:  workers,
+		pool:     pool,
+		poolSize: poolSize,
+	}
 }
 
 // stateTruncator wipes every runtime state table (board, transcript, queue,
@@ -292,16 +305,30 @@ type workerResetter interface {
 	Reset(ctx context.Context) error
 }
 
-// Reset truncates first so the board has no wanted worker slots, then tears
-// down the live sandboxes and clears the agent's in-memory cache. A bare
-// truncate would leave stale cached worker handles behind (the reason a manual
-// reset previously needed a backend restart).
+// poolReconciler re-seeds the board's worker-slot pool to n rows — the same
+// startup call (03 §8). The truncate empties the workers table, so without this
+// a fresh session would have zero capacity until the next backend restart.
+// Satisfied directly by *boardpg.Store.
+type poolReconciler interface {
+	ReconcileWorkers(ctx context.Context, n int) error
+}
+
+// Reset returns the system to a fresh session in three steps: (1) truncate the
+// state tables, which also empties the board's worker slots so nothing is
+// "wanted"; (2) tear down the live sandboxes and clear the agent's in-memory
+// cache while the wanted set is empty (a bare truncate leaves stale cached
+// handles — the reason a manual reset previously needed a backend restart);
+// (3) re-seed the worker pool to its configured size so the agent reconciler
+// provisions a fresh idle pool, exactly as at startup.
 func (c *resetCoordinator) Reset(ctx context.Context) error {
 	if err := c.tables.TruncateState(ctx); err != nil {
 		return fmt.Errorf("kiln: reset truncate state: %w", err)
 	}
 	if err := c.workers.Reset(ctx); err != nil {
 		return fmt.Errorf("kiln: reset workers: %w", err)
+	}
+	if err := c.pool.ReconcileWorkers(ctx, c.poolSize); err != nil {
+		return fmt.Errorf("kiln: reset reconcile worker pool: %w", err)
 	}
 	return nil
 }

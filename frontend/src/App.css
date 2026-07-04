@@ -48,11 +48,36 @@ body {
   flex: 0 0 auto;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--kiln-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 1.1rem;
+}
+
+/* Destructive developer action (debug view only): wipe the session. */
+.reset-session-button {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--kiln-danger);
+  background: transparent;
+  border: 1px solid var(--kiln-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.reset-session-button:hover:not(:disabled) {
+  border-color: var(--kiln-danger);
+}
+
+.reset-session-button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .app-board-region {

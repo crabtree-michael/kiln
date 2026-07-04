@@ -322,6 +322,16 @@ export async function postFeedSeen(lastNotificationId: number): Promise<void> {
   });
 }
 
+/** `POST /api/dev/reset` — wipe the board, chat, and live agent sandboxes for a
+ * fresh agent session. Drives the /debug "Reset session" button; not part of the
+ * wire schema. Throws on a non-2xx so the caller can skip the reload. */
+export async function postReset(): Promise<void> {
+  const response = await fetch('/api/dev/reset', { method: 'POST' });
+  if (!response.ok) {
+    throw new Error('postReset: reset failed');
+  }
+}
+
 function isVoiceToken(value: unknown): value is VoiceToken {
   return isRecord(value) && typeof value.token === 'string' && typeof value.expires_at === 'string';
 }

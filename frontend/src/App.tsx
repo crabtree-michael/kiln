@@ -14,6 +14,7 @@ import { useFeedStore } from '@/stores/feed-context';
 import { Board } from '@/components/Board';
 import { ChatPanel } from '@/components/ChatPanel';
 import { NotificationsPanel } from '@/components/NotificationsPanel';
+import { ResetSessionButton } from '@/components/ResetSessionButton';
 import type { FeedCard } from '@/transport/transport';
 import '@/App.css';
 
@@ -40,6 +41,7 @@ export function App(): JSX.Element {
           <main className="app-shell">
             <header className="app-header">
               <h1>Kiln</h1>
+              <ResetSessionButton />
             </header>
             <div className="app-board-region">
               <Board />

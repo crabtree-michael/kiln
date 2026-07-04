@@ -172,7 +172,9 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
 	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
-	server.EnableReset(&resetCoordinator{tables: &dbTruncator{db: db}, workers: agentSvc})
+	// It re-seeds the worker pool to WorkerCount, mirroring startup, so a fresh
+	// session comes back up with capacity.
+	server.EnableReset(newResetCoordinator(db, agentSvc, boardStore, cfg.WorkerCount))
 	if cfg.DevEndpoints {
 		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
 		// post a feed notification (POST /api/dev/notifications), both without the

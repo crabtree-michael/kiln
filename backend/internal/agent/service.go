@@ -224,6 +224,34 @@ func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUp
 	return u, nil
 }
 
+// Reset tears down every live kiln-worker-* sandbox and clears the in-memory
+// worker cache — the developer "fresh session" reset (docs/superpowers/specs/
+// 2026-07-04-debug-reset-session-design.md). Best-effort: a destroy failure on
+// one worker is logged and does not abort the others, so a single stuck
+// sandbox never blocks the reset. Clearing the cache under the same mutex that
+// guards the reconcile loop and turn execution is what a bare DB truncate
+// misses — stale cached handles would otherwise survive the wipe. The caller
+// truncates the board first, so the reconcile loop has no wanted slots to
+// re-provision while this runs.
+func (s *Service) Reset(ctx context.Context) error {
+	live, err := s.provider.ListWorkers(ctx)
+	if err != nil {
+		return fmt.Errorf("agent: reset list workers: %w", err)
+	}
+	for _, w := range live {
+		if !strings.HasPrefix(w.Name, WorkerNamePrefix) {
+			continue
+		}
+		if err := s.provider.DestroyWorker(ctx, w); err != nil {
+			slog.ErrorContext(ctx, "agent: reset destroy worker", "worker", w.Name, "err", err)
+		}
+	}
+	s.mu.Lock()
+	s.workers = map[string]ProviderWorker{}
+	s.mu.Unlock()
+	return nil
+}
+
 // markContinuation stamps turn with the prior conversation handle when this
 // worker's newest operation was a send that already opened one — that is how
 // first-message-vs-continuation is derived (05 §2.1, §3): no row, or a release

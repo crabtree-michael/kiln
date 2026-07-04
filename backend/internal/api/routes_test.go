@@ -378,6 +378,64 @@ func TestDevCreateTicket(t *testing.T) {
 
 // ---- GET /api/feed, POST /api/feed/seen, POST /api/tickets/{id}/accept -------
 
+var errFakeResetFailed = errors.New("fakeResetter: synthetic reset failure")
+
+// fakeResetter records reset calls and can fail on demand.
+type fakeResetter struct {
+	calls int
+	err   error
+}
+
+func (f *fakeResetter) Reset(context.Context) error {
+	f.calls++
+	return f.err
+}
+
+// TestHandleReset covers POST /api/dev/reset: mounted only when EnableReset was
+// called, success maps to 204, and a Resetter error maps to 500.
+func TestHandleReset(t *testing.T) {
+	newResetServer := func(r api.Resetter) *httptest.Server {
+		srv := newBareServer()
+		srv.EnableReset(r)
+		return httptest.NewServer(srv.Handler())
+	}
+
+	t.Run("not mounted unless enabled", func(t *testing.T) {
+		ts := newTestServer(&fakeBoardReader{}, &fakeMessagePoster{}, &fakeMessagesReader{})
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/reset", nil)
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 when reset not enabled", resp.StatusCode)
+		}
+	})
+
+	t.Run("success returns 204 and calls Reset", func(t *testing.T) {
+		r := &fakeResetter{}
+		ts := newResetServer(r)
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/reset", nil)
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", resp.StatusCode)
+		}
+		if r.calls != 1 {
+			t.Errorf("Reset called %d times, want 1", r.calls)
+		}
+	})
+
+	t.Run("reset error returns 500", func(t *testing.T) {
+		r := &fakeResetter{err: errFakeResetFailed}
+		ts := newResetServer(r)
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/reset", nil)
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", resp.StatusCode)
+		}
+	})
+}
+
 func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 	tid := "t-9"
 	nid := int64(77)

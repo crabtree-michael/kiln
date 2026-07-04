@@ -86,6 +86,16 @@ type NotificationPoster interface {
 	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) error
 }
 
+// Resetter is the port behind POST /api/dev/reset: return the whole system to a
+// fresh agent session — wipe the state tables and tear down the live agent
+// sandboxes (docs/superpowers/specs/2026-07-04-debug-reset-session-design.md).
+// A developer/debug affordance driven from the /debug client's "Reset session"
+// button; NOT part of the wire contract (/schema). Satisfied by the composition
+// root's reset coordinator, which spans the DB and the agent service.
+type Resetter interface {
+	Reset(ctx context.Context) error
+}
+
 // VoiceTokenMinter is the api's port onto the STT provider's temporary-token
 // mint (09 §6): a short-lived AssemblyAI streaming token the client uses to
 // open the STT socket directly, so the real API key never leaves the backend
@@ -119,6 +129,7 @@ type Server struct {
 	voice    VoiceTokenMinter
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
+	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
 }
 
 // NewServer wires the routes over their ports and the hub.
@@ -140,6 +151,11 @@ func (s *Server) EnableDevTickets(seeder TicketSeeder) { s.seeder = seeder }
 // (call before Handler). Local/e2e only — gated by KILN_DEV_ENDPOINTS.
 func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes = poster }
 
+// EnableReset turns on POST /api/dev/reset (call before Handler). Unlike the
+// dev seed routes it is wired unconditionally at the composition root — the
+// /debug "Reset session" button relies on it always being present.
+func (s *Server) EnableReset(r Resetter) { s.resetter = r }
+
 // Handler returns the api's http.Handler, ready to mount.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -157,7 +173,22 @@ func (s *Server) Handler() http.Handler {
 	if s.devNotes != nil {
 		mux.HandleFunc("POST /api/dev/notifications", s.handleDevPostNotification)
 	}
+	if s.resetter != nil {
+		mux.HandleFunc("POST /api/dev/reset", s.handleReset)
+	}
 	return mux
+}
+
+// handleReset returns the system to a fresh agent session (204). The reset is
+// destructive and irreversible; the /debug client guards it behind a confirm
+// dialog. No request body.
+func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
+	if err := s.resetter.Reset(r.Context()); err != nil {
+		slog.Error("api: reset", "err", err)
+		http.Error(w, "reset", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDevCreateTicket seeds a ticket directly into a target state (dev only),

@@ -55,6 +55,12 @@ orchestrated where the shared `*sql.DB`, `agentSvc`, and `hub` already live
    agent `Service` holds an in-memory `workers` map cache; without clearing it,
    stale worker references survive (this is why a manual reset previously
    required a backend restart).
+3. **Re-seed the worker pool.** Call `boardStore.ReconcileWorkers(ctx,
+   WorkerCount)` — the same insert-only startup call (03 §8). The truncate in
+   step 1 emptied the `workers` table, so without this the fresh session would
+   have **zero worker slots and no capacity** until the next backend restart.
+   Re-seeding restores the configured idle pool; the agent reconciler then
+   provisions fresh sandboxes for the new slots, exactly as at startup.
 
 The coordinator returns the first error but attempts teardown even if it logs a
 per-sandbox failure (best-effort).
@@ -90,9 +96,9 @@ returns to idle); no reload.
 
 ## Testing
 
-- **Backend unit — coordinator:** with fakes, asserts truncate runs then
-  `agentSvc.Reset` is called (order), and that a teardown error is surfaced but
-  truncation still happened.
+- **Backend unit — coordinator:** with fakes, asserts the order truncate →
+  worker teardown → pool re-seed (to the configured size), and that an early
+  step's error short-circuits the rest.
 - **Backend unit — `agent.Service.Reset`:** with the existing fake provider,
   asserts every live worker is destroyed and the in-memory cache is emptied;
   a destroy error on one worker does not abort the others.

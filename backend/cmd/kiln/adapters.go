@@ -157,6 +157,46 @@ func (a *convoAdapter) Recent(ctx context.Context, n int) ([]brain.Message, erro
 
 var _ brain.ConversationReader = (*convoAdapter)(nil)
 
+// agentInspectorAdapter bridges *agent.Service to brain.AgentInspector,
+// converting the agent module's neutral inspector shapes to the brain's own
+// value-copies (brain cannot import internal/agent). No provider handle crosses.
+type agentInspectorAdapter struct {
+	inner *agent.Service
+}
+
+func (a *agentInspectorAdapter) ListAgents(ctx context.Context) ([]brain.AgentInfo, error) {
+	infos, err := a.inner.ListAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list agents: %w", err)
+	}
+	out := make([]brain.AgentInfo, len(infos))
+	for i, in := range infos {
+		out[i] = brain.AgentInfo{
+			WorkerID:  in.WorkerID,
+			TicketID:  in.TicketID,
+			Status:    brain.AgentStatus(in.Status),
+			UpdatedAt: in.UpdatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (a *agentInspectorAdapter) GetAgentUpdates(ctx context.Context, workerID string) (brain.AgentUpdate, error) {
+	u, err := a.inner.GetAgentUpdates(ctx, workerID)
+	if err != nil {
+		return brain.AgentUpdate{}, fmt.Errorf("kiln: get agent updates: %w", err)
+	}
+	return brain.AgentUpdate{
+		WorkerID:     u.WorkerID,
+		Status:       brain.AgentStatus(u.Status),
+		LatestOutput: u.LatestOutput,
+		IsError:      u.IsError,
+		At:           u.At,
+	}, nil
+}
+
+var _ brain.AgentInspector = (*agentInspectorAdapter)(nil)
+
 // workerLister is the concrete board capacity-slot read the composition root
 // backs agent.Slots with (05 §4). Satisfied by *board/postgres.Store's
 // WorkerIDs — a concrete adapter helper like ReconcileWorkers, not part of

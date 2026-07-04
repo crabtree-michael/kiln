@@ -466,6 +466,32 @@ body:has([data-role='primary-screen']) {
   padding: 6px 26px 12px;
 }
 
+/* The notification stack: several live toasts list vertically, newest at the
+   bottom (nearest the dock). Each entry animates in and the column reflows via
+   its gap as entries auto-dismiss, so the stack shrinks with no jumps. */
+[data-role='toast-stack'] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+[data-role='toast-stack'] > * {
+  animation: kiln-toast-in 0.22s ease-out;
+}
+
+@keyframes kiln-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 [data-role='thinking-indicator'] {
   display: flex;
   align-items: center;

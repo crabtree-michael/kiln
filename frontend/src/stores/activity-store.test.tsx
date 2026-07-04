@@ -1,7 +1,8 @@
-// Activity store tests (08 §4): the `thinking` flag, the say/toast contention
-// rules, and toast auto-dismiss. Transport is mocked at the module boundary and
-// the captured `StreamHandlers` drive live `say`/`activity` events. Fake timers
-// exercise the ~4s auto-dismiss deterministically.
+// Activity store tests (08 §4): the `thinking` flag and the notification stack —
+// every source (say + toast) pushes onto one stack rather than overwriting, and
+// each entry auto-dismisses on its own 20s clock. Transport is mocked at the
+// module boundary and the captured `StreamHandlers` drive live `say`/`activity`
+// events. Fake timers exercise the independent auto-dismiss deterministically.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import type { JSX } from 'react';
@@ -21,24 +22,27 @@ vi.mock('@/transport/transport', () => ({
   openStream: vi.fn(),
 }));
 
-const TOAST_MS = 4000;
+const TOAST_MS = 20000;
 
 function makeSay(text: string): SayEvent {
   return { message_id: 1, text, at: '2026-07-01T00:00:00Z' };
 }
 
-let capturedDismiss: (() => void) | undefined;
+let capturedDismiss: ((id: number) => void) | undefined;
+let capturedIds: number[] = [];
 
 function Probe(): JSX.Element {
-  const { thinking, pill, dismiss } = useActivityStore();
+  const { thinking, toasts, dismiss } = useActivityStore();
   capturedDismiss = dismiss;
-  const pillText =
-    pill === null
-      ? ''
-      : pill.kind === 'say'
-        ? `say:${pill.text}`
-        : `toast:${pill.verb}:${pill.ticketTitle}`;
-  return <div data-testid="probe" data-thinking={String(thinking)} data-pill={pillText} />;
+  capturedIds = toasts.map((toast) => toast.id);
+  const rendered = toasts
+    .map((toast) =>
+      toast.pill.kind === 'say'
+        ? `say:${toast.pill.text}`
+        : `toast:${toast.pill.verb}:${toast.pill.ticketTitle}`,
+    )
+    .join('|');
+  return <div data-testid="probe" data-thinking={String(thinking)} data-pills={rendered} />;
 }
 
 describe('ActivityProvider', () => {
@@ -49,6 +53,7 @@ describe('ActivityProvider', () => {
     vi.useFakeTimers();
     capturedHandlers = undefined;
     capturedDismiss = undefined;
+    capturedIds = [];
     closeStream.mockClear();
     vi.mocked(transport.openStream).mockImplementation((handlers): StreamConnection => {
       capturedHandlers = handlers;
@@ -69,8 +74,8 @@ describe('ActivityProvider', () => {
     );
   }
 
-  function pill(): string {
-    return screen.getByTestId('probe').dataset.pill ?? '';
+  function pills(): string {
+    return screen.getByTestId('probe').dataset.pills ?? '';
   }
 
   it('tracks the thinking flag from activity events', () => {
@@ -86,80 +91,52 @@ describe('ActivityProvider', () => {
     expect(screen.getByTestId('probe').dataset.thinking).toBe('false');
   });
 
-  it('shows a say pill that persists across time until replaced', () => {
+  it('shows a say pill and auto-dismisses it after 20s', () => {
     mount();
     act(() => {
       capturedHandlers?.onSay(makeSay('working on it'));
     });
-    expect(pill()).toBe('say:working on it');
+    expect(pills()).toBe('say:working on it');
 
     act(() => {
-      vi.advanceTimersByTime(TOAST_MS * 3);
+      vi.advanceTimersByTime(TOAST_MS - 1);
     });
-    expect(pill()).toBe('say:working on it');
+    expect(pills()).toBe('say:working on it');
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(pills()).toBe('');
   });
 
-  it('shows a toast and auto-dismisses it after ~4s', () => {
+  it('shows a toast and auto-dismisses it after 20s', () => {
     mount();
     act(() => {
       capturedHandlers?.onActivity?.(
         makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login' }),
       );
     });
-    expect(pill()).toBe('toast:started:Login');
+    expect(pills()).toBe('toast:started:Login');
 
     act(() => {
       vi.advanceTimersByTime(TOAST_MS);
     });
-    expect(pill()).toBe('');
+    expect(pills()).toBe('');
   });
 
-  it('lets a say replace an active toast', () => {
+  it('stacks a say and a toast together rather than overwriting', () => {
     mount();
     act(() => {
       capturedHandlers?.onActivity?.(
         makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login' }),
       );
-    });
-    expect(pill()).toBe('toast:started:Login');
-
-    act(() => {
       capturedHandlers?.onSay(makeSay('reply'));
     });
-    expect(pill()).toBe('say:reply');
+    // Both are live at once, in arrival order — nothing is overwritten.
+    expect(pills()).toBe('toast:started:Login|say:reply');
   });
 
-  it('queues toasts behind an active say, then drains them one at a time on dismiss', () => {
-    mount();
-    act(() => {
-      capturedHandlers?.onSay(makeSay('hold'));
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'finished', ticketTitle: 'A' }),
-      );
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'B' }),
-      );
-    });
-    // The say stays; both toasts are queued behind it, not shown.
-    expect(pill()).toBe('say:hold');
-
-    act(() => {
-      capturedDismiss?.();
-    });
-    expect(pill()).toBe('toast:finished:A');
-
-    act(() => {
-      vi.advanceTimersByTime(TOAST_MS);
-    });
-    expect(pill()).toBe('toast:queued:B');
-
-    act(() => {
-      vi.advanceTimersByTime(TOAST_MS);
-    });
-    expect(pill()).toBe('');
-  });
-
-  it('queues a second toast behind an active toast', () => {
+  it('stacks several toasts fired in quick succession', () => {
     mount();
     act(() => {
       capturedHandlers?.onActivity?.(
@@ -168,17 +145,67 @@ describe('ActivityProvider', () => {
       capturedHandlers?.onActivity?.(
         makeActivityEvent({ kind: 'toast', verb: 'nudged', ticketTitle: 'B' }),
       );
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'finished', ticketTitle: 'C' }),
+      );
     });
-    expect(pill()).toBe('toast:started:A');
+    expect(pills()).toBe('toast:started:A|toast:nudged:B|toast:finished:C');
+  });
+
+  it('dismisses each stacked toast independently on its own 20s clock', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'A' }),
+      );
+    });
+    // B arrives 5s after A, so their timers are offset.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'nudged', ticketTitle: 'B' }),
+      );
+    });
+    expect(pills()).toBe('toast:started:A|toast:nudged:B');
+
+    // A expires 20s after it arrived; B outlives it and the stack reflows.
+    act(() => {
+      vi.advanceTimersByTime(15000);
+    });
+    expect(pills()).toBe('toast:nudged:B');
+
+    // B expires 20s after its own arrival.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(pills()).toBe('');
+  });
+
+  it('lets a say be dismissed early by id without disturbing other toasts', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onSay(makeSay('hold'));
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'finished', ticketTitle: 'A' }),
+      );
+    });
+    expect(pills()).toBe('say:hold|toast:finished:A');
+
+    // Dismiss just the say (first id); the toast stays until its own timer.
+    const sayId = capturedIds[0];
+    if (sayId === undefined) {
+      throw new Error('expected a say toast in the stack');
+    }
+    act(() => {
+      capturedDismiss?.(sayId);
+    });
+    expect(pills()).toBe('toast:finished:A');
 
     act(() => {
       vi.advanceTimersByTime(TOAST_MS);
     });
-    expect(pill()).toBe('toast:nudged:B');
-
-    act(() => {
-      vi.advanceTimersByTime(TOAST_MS);
-    });
-    expect(pill()).toBe('');
+    expect(pills()).toBe('');
   });
 });

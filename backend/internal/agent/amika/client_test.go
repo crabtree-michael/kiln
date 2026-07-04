@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 // the same handle everywhere.
 const (
 	sbID   = "sb-1"
-	jobID  = "job-1"
 	sessID = "sess-1"
 
 	keyCode = "error_code"
@@ -27,8 +27,9 @@ var (
 	pathSandboxes = "/sandboxes"
 	pathSandbox   = "/sandboxes/" + sbID
 	pathStart     = pathSandbox + "/start"
-	pathJobs      = pathSandbox + "/agent-send-jobs"
-	pathJob       = pathJobs + "/" + jobID
+	pathSessions  = pathSandbox + "/sessions"
+	pathSession   = pathSessions + "/" + sessID
+	pathSend      = pathSandbox + "/agent-send"
 )
 
 // route keys a handler by "METHOD /path". A test server answers exactly the
@@ -288,36 +289,56 @@ func TestDestroyWorker(t *testing.T) {
 func TestStartTurnFreshAndContinuation(t *testing.T) {
 	worker := agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID}
 
-	t.Run("fresh opens new session", func(t *testing.T) {
-		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
-			{http.MethodPost, pathJobs}: func(w http.ResponseWriter, r *http.Request) {
-				var body agentSendJobRequest
+	t.Run("fresh mints a session then fires the send", func(t *testing.T) {
+		var created, sent bool
+		c := newClient(t, Config{APIKey: "k", Agent: DefaultAgent}, map[route]http.HandlerFunc{
+			{http.MethodPost, pathSessions}: func(w http.ResponseWriter, r *http.Request) {
+				var body createSessionRequest
 				decodeBody(t, r, &body)
-				if !body.NewSession {
-					t.Error("fresh turn must set new_session=true")
+				if body.AgentName != DefaultAgent {
+					t.Errorf("agent_name = %q, want %s", body.AgentName, DefaultAgent)
 				}
-				if body.SessionID != "" {
-					t.Errorf("fresh turn must not send session_id, got %q", body.SessionID)
+				created = true
+				writeJSON(t, w, http.StatusCreated, sessionObject{ID: sessID})
+			},
+			{http.MethodPost, pathSend}: func(w http.ResponseWriter, r *http.Request) {
+				var body agentSendRequest
+				decodeBody(t, r, &body)
+				if body.NewSession {
+					t.Error("send must continue the minted session (new_session=false)")
+				}
+				if body.SessionID != sessID {
+					t.Errorf("session_id = %q, want %s", body.SessionID, sessID)
 				}
 				if body.Message != "do the thing" {
 					t.Errorf("message = %q", body.Message)
 				}
-				writeJSON(t, w, http.StatusAccepted, agentSendJob{JobID: jobID, State: "queued", AgentSessionID: sessID})
+				sent = true
+				writeJSON(t, w, http.StatusOK, map[string]any{})
 			},
 		})
 		ref, err := c.StartTurn(context.Background(), worker, "", "do the thing", true)
 		if err != nil {
 			t.Fatalf("StartTurn: %v", err)
 		}
-		if want := (agent.TurnRef{Conversation: sessID, Turn: jobID}); ref != want {
+		if !created || !sent {
+			t.Fatalf("created=%v sent=%v, want both true", created, sent)
+		}
+		if want := (agent.TurnRef{Conversation: sessID, Turn: "0"}); ref != want {
 			t.Errorf("ref = %+v, want %+v", ref, want)
 		}
 	})
 
-	t.Run("continuation sends recorded session", func(t *testing.T) {
+	t.Run("continuation reuses the recorded session with a baseline", func(t *testing.T) {
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
-			{http.MethodPost, pathJobs}: func(w http.ResponseWriter, r *http.Request) {
-				var body agentSendJobRequest
+			// One prior assistant reply in the transcript ⇒ baseline 1.
+			{http.MethodGet, pathSession}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, sessionObject{ID: sessID, Metadata: sessionMetadata{Messages: []sessionMessage{
+					{Role: "user", Content: "earlier"}, {Role: roleAssistant, Content: "prior"},
+				}}})
+			},
+			{http.MethodPost, pathSend}: func(w http.ResponseWriter, r *http.Request) {
+				var body agentSendRequest
 				decodeBody(t, r, &body)
 				if body.NewSession {
 					t.Error("continuation must set new_session=false")
@@ -325,26 +346,28 @@ func TestStartTurnFreshAndContinuation(t *testing.T) {
 				if body.SessionID != sessID {
 					t.Errorf("session_id = %q, want %s", body.SessionID, sessID)
 				}
-				// 202 with a null session id — keep the recorded one.
-				writeJSON(t, w, http.StatusAccepted, agentSendJob{JobID: "job-2", State: "queued"})
+				writeJSON(t, w, http.StatusOK, map[string]any{})
 			},
 		})
 		ref, err := c.StartTurn(context.Background(), worker, sessID, "more work", false)
 		if err != nil {
 			t.Fatalf("StartTurn: %v", err)
 		}
-		if want := (agent.TurnRef{Conversation: sessID, Turn: "job-2"}); ref != want {
+		if want := (agent.TurnRef{Conversation: sessID, Turn: "1"}); ref != want {
 			t.Errorf("ref = %+v, want %+v", ref, want)
 		}
 	})
 
 	t.Run("lost session maps to ErrConversationLost", func(t *testing.T) {
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
-			{http.MethodPost, pathJobs}: func(w http.ResponseWriter, r *http.Request) {
+			{http.MethodGet, pathSession}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusNotFound, errEnvelope("session_not_found", "gone"))
+			},
+			{http.MethodPost, pathSend}: func(w http.ResponseWriter, r *http.Request) {
 				writeJSON(t, w, http.StatusNotFound, errEnvelope("session_not_found", "unknown session id"))
 			},
 		})
-		_, err := c.StartTurn(context.Background(), worker, "sess-gone", "continue", false)
+		_, err := c.StartTurn(context.Background(), worker, sessID, "continue", false)
 		if !errors.Is(err, agent.ErrConversationLost) {
 			t.Fatalf("err = %v, want ErrConversationLost", err)
 		}
@@ -352,7 +375,10 @@ func TestStartTurnFreshAndContinuation(t *testing.T) {
 
 	t.Run("non-session 404 is a plain error, not conversation loss", func(t *testing.T) {
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
-			{http.MethodPost, pathJobs}: func(w http.ResponseWriter, r *http.Request) {
+			{http.MethodGet, pathSession}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, sessionObject{ID: sessID})
+			},
+			{http.MethodPost, pathSend}: func(w http.ResponseWriter, r *http.Request) {
 				writeJSON(t, w, http.StatusNotFound, errEnvelope("sandbox_not_found", "no such sandbox"))
 			},
 		})
@@ -365,60 +391,59 @@ func TestStartTurnFreshAndContinuation(t *testing.T) {
 
 func TestCheckTurn(t *testing.T) {
 	worker := agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID}
-	check := func(t *testing.T, job agentSendJob) agent.TurnStatus {
+	// check runs CheckTurn against a session whose transcript the case supplies,
+	// with the given baseline (assistant-message count recorded at StartTurn).
+	check := func(t *testing.T, baseline int, msgs []sessionMessage) agent.TurnStatus {
 		t.Helper()
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
-			{http.MethodGet, pathJob}: func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, job)
+			{http.MethodGet, pathSession}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, sessionObject{ID: sessID, Metadata: sessionMetadata{Messages: msgs}})
 			},
 		})
-		st, err := c.CheckTurn(context.Background(), worker, agent.TurnRef{Conversation: sessID, Turn: jobID})
+		ref := agent.TurnRef{Conversation: sessID, Turn: strconv.Itoa(baseline)}
+		st, err := c.CheckTurn(context.Background(), worker, ref)
 		if err != nil {
 			t.Fatalf("CheckTurn: %v", err)
 		}
 		return st
 	}
+	user := func(s string) sessionMessage { return sessionMessage{Role: "user", Content: s} }
+	asst := func(s string) sessionMessage { return sessionMessage{Role: roleAssistant, Content: s} }
 
-	t.Run("running", func(t *testing.T) {
-		st := check(t, agentSendJob{JobID: jobID, State: "running"})
+	t.Run("no new assistant message keeps running", func(t *testing.T) {
+		st := check(t, 1, []sessionMessage{user("q"), asst("prior")})
 		if !st.Running {
 			t.Errorf("want Running, got %+v", st)
 		}
 	})
 
-	t.Run("success", func(t *testing.T) {
-		st := check(t, agentSendJob{JobID: jobID, State: "completed", ResultText: "all done", CostUSD: 0.42})
-		want := agent.TurnStatus{Running: false, Output: "all done", IsError: false, CostUSD: 0.42}
+	t.Run("fresh turn's first reply is the output", func(t *testing.T) {
+		st := check(t, 0, []sessionMessage{user("build it"), asst("all done")})
+		want := agent.TurnStatus{Running: false, Output: "all done"}
 		if st != want {
 			t.Errorf("got %+v, want %+v", st, want)
 		}
 	})
 
-	t.Run("agent errored with description", func(t *testing.T) {
-		st := check(t, agentSendJob{JobID: jobID, State: "completed", IsError: true, ResultText: "tests failed"})
-		if !st.IsError || st.Running || st.Output != "tests failed" {
-			t.Errorf("got %+v, want error turn with output", st)
+	t.Run("continuation reports only the new reply", func(t *testing.T) {
+		st := check(t, 1, []sessionMessage{user("q1"), asst("prior"), user("q2"), asst("second reply")})
+		if st.Running || st.Output != "second reply" {
+			t.Errorf("got %+v, want done with 'second reply'", st)
 		}
 	})
 
-	t.Run("mechanical failure synthesizes a description", func(t *testing.T) {
-		st := check(t, agentSendJob{JobID: jobID, State: "failed"})
-		if !st.IsError || st.Running || st.Output == "" {
-			t.Errorf("got %+v, want error turn with a synthesized description", st)
+	t.Run("missing session keeps polling", func(t *testing.T) {
+		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+			{http.MethodGet, pathSession}: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusNotFound, errEnvelope("session_not_found", "nope"))
+			},
+		})
+		st, err := c.CheckTurn(context.Background(), worker, agent.TurnRef{Conversation: sessID, Turn: "0"})
+		if err != nil {
+			t.Fatalf("CheckTurn: %v", err)
 		}
-	})
-
-	t.Run("unknown state with a result is terminal", func(t *testing.T) {
-		st := check(t, agentSendJob{JobID: jobID, State: "weird", ResultText: "output present"})
-		if st.Running || st.IsError || st.Output != "output present" {
-			t.Errorf("got %+v, want terminal success", st)
-		}
-	})
-
-	t.Run("unknown state with no signal keeps polling", func(t *testing.T) {
-		st := check(t, agentSendJob{JobID: jobID, State: "weird"})
 		if !st.Running {
-			t.Errorf("got %+v, want Running (defensive)", st)
+			t.Errorf("want Running on missing session, got %+v", st)
 		}
 	})
 }

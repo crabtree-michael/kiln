@@ -71,51 +71,6 @@ func classifyState(state string) sandboxPhase {
 	}
 }
 
-// jobPhase is the defensive classification of an async job's state (05 §6).
-type jobPhase int
-
-const (
-	jobRunning jobPhase = iota
-	jobSuccess
-	jobFailed
-)
-
-var (
-	jobSuccessStates = set(
-		"completed", "complete", "done", "succeeded", "success", "finished", "ok",
-	)
-	jobFailureStates = set(
-		"failed", "failure", "error", "errored", "cancelled", "canceled",
-		"timeout", "timed_out", "aborted", "dead",
-	)
-	jobRunningStates = set(
-		"", "pending", "queued", "running", "in_progress", "processing",
-		"started", "active", "working", "scheduled", "enqueued", "created",
-	)
-)
-
-func classifyJob(j agentSendJob) jobPhase {
-	switch s := norm(j.State); {
-	case jobFailureStates[s]:
-		return jobFailed
-	case jobSuccessStates[s]:
-		return jobSuccess
-	case jobRunningStates[s]:
-		return jobRunning
-	default:
-		// Unknown state: only treat as terminal once the job has actually
-		// produced a signal (an error flag or result text). Otherwise keep
-		// polling rather than reporting an empty turn (05 §6).
-		if j.IsError {
-			return jobFailed
-		}
-		if strings.TrimSpace(j.ResultText) != "" {
-			return jobSuccess
-		}
-		return jobRunning
-	}
-}
-
 func norm(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 func set(vs ...string) map[string]bool {

@@ -32,24 +32,43 @@ type sandbox struct {
 	CurrentSessionID string `json:"current_session_id"`
 }
 
-// agentSendJobRequest is the POST …/agent-send-jobs body (05 §6): jobs, never
-// the synchronous agent-send. new_session opens a fresh conversation; session_id
-// continues the recorded one (omitted when unknown ⇒ Amika continues the
-// sandbox's current session).
-type agentSendJobRequest struct {
+// --- Synchronous-send bridge (temporary) ---
+//
+// Amika's async …/agent-send-jobs endpoint 500s org-wide (2026-07, "Agent launch
+// failed") while the synchronous …/agent-send works. StartTurn mints a session up
+// front (createSessionRequest), fires agent-send (bounding the wait; the turn keeps
+// running server-side), and CheckTurn recovers the output from the session
+// transcript. Restore the async agent-send-jobs types from git once Amika fixes it.
+// See client.go StartTurn/CheckTurn.
+
+const roleAssistant = "assistant"
+
+// agentSendRequest is the POST …/agent-send body (same shape as the job request).
+type agentSendRequest struct {
 	Message    string `json:"message"`
 	NewSession bool   `json:"new_session"`
 	SessionID  string `json:"session_id,omitempty"`
 }
 
-// agentSendJob is the async job object (POST 202 and GET 200 share the shape).
-// state drives terminal detection (classifyJob); like sandbox state it is not
-// enumerated in v0beta1. result_text/agent_session_id decode null to "".
-type agentSendJob struct {
-	JobID          string  `json:"job_id"`
-	State          string  `json:"state"`
-	AgentSessionID string  `json:"agent_session_id"`
-	IsError        bool    `json:"is_error"`
-	ResultText     string  `json:"result_text"`
-	CostUSD        float64 `json:"cost_usd"`
+// createSessionRequest is the POST …/sessions body: agent_name is required, so a
+// fresh StartTurn can mint a conversation id before sending anything into it.
+type createSessionRequest struct {
+	AgentName string `json:"agent_name"`
+}
+
+// sessionObject is the subset of GET …/sessions/{id} we read: metadata.messages
+// carries the transcript (user + assistant turns) CheckTurn reads back.
+type sessionObject struct {
+	ID       string          `json:"id"`
+	Status   string          `json:"status"`
+	Metadata sessionMetadata `json:"metadata"`
+}
+
+type sessionMetadata struct {
+	Messages []sessionMessage `json:"messages"`
+}
+
+type sessionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }

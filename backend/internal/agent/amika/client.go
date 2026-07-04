@@ -15,12 +15,14 @@
 //	                defensively (states.go), hardened against the real set
 //	                during implementation (05 §6, §11)
 //	DestroyWorker — DELETE /sandboxes/{id}; 404 = already gone = success
-//	StartTurn     — POST /sandboxes/{id}/agent-send-jobs: new_session when
-//	                fresh, else the recorded session id. Jobs, never the
-//	                synchronous agent-send — a coding turn outlives any sane
-//	                HTTP timeout (05 D6)
-//	CheckTurn     — GET …/agent-send-jobs/{job_id}: terminal state +
-//	                result_text / is_error / cost_usd
+//	StartTurn     — POST /sandboxes/{id}/sessions (fresh: mint a conversation id)
+//	                then fire-and-forget POST …/agent-send into it. TEMPORARY: the
+//	                async agent-send-jobs endpoint 500s org-wide (2026-07), so we
+//	                use the working synchronous send with a bounded wait — the turn
+//	                keeps running server-side past the deadline.
+//	CheckTurn     — GET …/sessions/{session_id}: the turn is done once a new
+//	                assistant message appears in metadata.messages; its content is
+//	                the output. This path reports no is_error/cost.
 //
 // No webhooks and no idempotency keys exist in v0beta1 — hence the module's
 // poller and its own agent_turns dedupe (05 §6).
@@ -35,6 +37,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,10 +55,17 @@ const (
 // the envelope — a defensive bound, envelopes are tiny.
 const maxErrorBody = 1 << 20
 
+// agentSendTimeout bounds the client's wait on /agent-send; a longer coding turn
+// just trips it and keeps running server-side (see StartTurn).
+const agentSendTimeout = 12 * time.Second
+
 // errWorkerErrored is the sentinel WorkerReady wraps when a sandbox reports a
 // terminal provisioning failure; the machine exhausts it into a failed turn
 // (05 §5).
 var errWorkerErrored = errors.New("amika: worker errored")
+
+// errNoSessionID is wrapped when POST …/sessions returns without an id (05 §6).
+var errNoSessionID = errors.New("amika: created session has no id")
 
 // Config is read at the composition root (05 §9, 04 §8); the API key never
 // leaves /backend (02 §2).
@@ -183,58 +193,122 @@ func (c *Client) DestroyWorker(ctx context.Context, w agent.ProviderWorker) erro
 	return err
 }
 
-// StartTurn enqueues an async agent-send job (never the synchronous send).
-// fresh opens a new conversation; otherwise the recorded session id is
-// continued (omitted when empty ⇒ Amika continues the sandbox's current
-// session). A continuation whose session the provider no longer recognises is
-// mapped to agent.ErrConversationLost so the machine falls back to a fresh
-// conversation, same message — context lost, workspace kept (05 §3).
+// StartTurn fires one turn on w and returns the handle CheckTurn reads.
+//
+// TEMPORARY BRIDGE (2026-07): Amika's async POST …/agent-send-jobs endpoint 500s
+// org-wide ("Agent launch failed") while the synchronous POST …/agent-send works.
+// A fresh turn first mints the conversation up front — POST …/sessions returns a
+// session id without running anything — so every send is a pure fire-and-forget
+// continuation into a known session, with no handle to recover afterwards. The
+// client wait is bounded (agentSendTimeout); Amika keeps running the turn
+// server-side past the deadline (verified), and CheckTurn reads the reply from the
+// session transcript. A continuation whose session is gone maps to
+// agent.ErrConversationLost, so the machine retries fresh — a new session (05 §3).
+// The session id is the conversation handle the machinery persists per binding
+// (agent_turns), reset to fresh on release — one session per ticket's active life.
+// Revert to agent-send-jobs once Amika fixes it (05 D6).
 func (c *Client) StartTurn(
 	ctx context.Context, w agent.ProviderWorker, conversation, message string, fresh bool,
 ) (agent.TurnRef, error) {
-	req := agentSendJobRequest{Message: message, NewSession: fresh}
-	if !fresh && conversation != "" {
-		req.SessionID = conversation
+	ref := workerRef(w)
+
+	// Resolve the conversation: a fresh turn mints a new (empty ⇒ baseline 0)
+	// session; a continuation reuses the recorded one, its existing replies the
+	// baseline so CheckTurn reports only this turn's new message.
+	session, baseline := conversation, 0
+	if fresh {
+		s, err := c.createSession(ctx, ref)
+		if err != nil {
+			return agent.TurnRef{}, err
+		}
+		session = s
+	} else if msgs, err := c.assistantMessages(ctx, ref, session); err == nil {
+		baseline = len(msgs)
 	}
-	var job agentSendJob
-	path := "/sandboxes/" + url.PathEscape(workerRef(w)) + "/agent-send-jobs"
-	if err := c.do(ctx, http.MethodPost, path, req, &job); err != nil {
+
+	// Fire-and-forget: bound the wait, discard the body. A tripped deadline is the
+	// expected path for a real coding turn — the reply lands in the session either
+	// way. Only a genuine API error (incl. a lost session) fails the turn.
+	sendCtx, cancel := context.WithTimeout(ctx, agentSendTimeout)
+	defer cancel()
+	req := agentSendRequest{Message: message, NewSession: false, SessionID: session}
+	err := c.do(sendCtx, http.MethodPost, "/sandboxes/"+url.PathEscape(ref)+"/agent-send", req, nil)
+	if err != nil && !isDeadline(err) {
 		if !fresh && isConversationLost(err) {
 			return agent.TurnRef{}, fmt.Errorf("amika: worker %s continuation: %w", w.Name, agent.ErrConversationLost)
 		}
 		return agent.TurnRef{}, err
 	}
-	// The session id is the conversation handle recorded for the next turn.
-	// v0beta1 may leave it null at enqueue time (the job assigns it as it
-	// runs); keep the passed conversation so a continuation's record stays
-	// stable, and CheckTurn's later reads surface the real one.
-	return agent.TurnRef{
-		Conversation: firstNonEmpty(job.AgentSessionID, conversation),
-		Turn:         job.JobID,
-	}, nil
+	return agent.TurnRef{Conversation: session, Turn: strconv.Itoa(baseline)}, nil
 }
 
-// CheckTurn polls one job to its terminal outcome (05 §2.3). Terminal
-// detection is defensive over the un-enumerated job state (states.go); a
-// mechanically-failed or agent-errored job surfaces IsError with a description
-// so the brain owns what it means (05 §2.2, D3).
+// CheckTurn resolves a turn by reading its session transcript (the sync bridge —
+// see StartTurn). The turn is done once an assistant message appears beyond the
+// baseline StartTurn recorded; that message's content is the output. This path
+// carries no error flag or cost, so both are reported best-effort (05 §2.2).
 func (c *Client) CheckTurn(ctx context.Context, w agent.ProviderWorker, ref agent.TurnRef) (agent.TurnStatus, error) {
-	var job agentSendJob
-	path := "/sandboxes/" + url.PathEscape(workerRef(w)) + "/agent-send-jobs/" + url.PathEscape(ref.Turn)
-	if err := c.do(ctx, http.MethodGet, path, nil, &job); err != nil {
+	if ref.Conversation == "" {
+		return agent.TurnStatus{Running: true}, nil // session not resolved yet
+	}
+	msgs, err := c.assistantMessages(ctx, workerRef(w), ref.Conversation)
+	if err != nil {
+		if statusIs(err, http.StatusNotFound) {
+			return agent.TurnStatus{Running: true}, nil // session not visible yet
+		}
 		return agent.TurnStatus{}, err
 	}
-	phase := classifyJob(job)
-	if phase == jobRunning {
+	baseline := 0
+	if n, aerr := strconv.Atoi(ref.Turn); aerr == nil {
+		baseline = n
+	}
+	if len(msgs) <= baseline {
 		return agent.TurnStatus{Running: true}, nil
 	}
-	isErr := job.IsError || phase == jobFailed
-	output := job.ResultText
-	if isErr && strings.TrimSpace(output) == "" {
-		output = fmt.Sprintf("agent turn failed (state=%q)", job.State)
+	var b strings.Builder
+	for _, m := range msgs[baseline:] {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(m.Content)
 	}
-	return agent.TurnStatus{Running: false, Output: output, IsError: isErr, CostUSD: job.CostUSD}, nil
+	return agent.TurnStatus{Running: false, Output: b.String()}, nil
 }
+
+// createSession opens a new agent conversation on the sandbox up front (05 §6):
+// POST …/sessions returns an id without running a turn, so the send that follows
+// is a clean fire-and-forget continuation. agent_name is the configured agent.
+func (c *Client) createSession(ctx context.Context, ref string) (string, error) {
+	var s sessionObject
+	req := createSessionRequest{AgentName: c.cfg.Agent}
+	if err := c.do(ctx, http.MethodPost, "/sandboxes/"+url.PathEscape(ref)+"/sessions", req, &s); err != nil {
+		return "", err
+	}
+	if s.ID == "" {
+		return "", fmt.Errorf("amika: worker %s: %w", ref, errNoSessionID)
+	}
+	return s.ID, nil
+}
+
+// assistantMessages returns the assistant turns in a session's transcript
+// (metadata.messages) — how CheckTurn recovers a fired turn's output.
+func (c *Client) assistantMessages(ctx context.Context, ref, session string) ([]sessionMessage, error) {
+	var s sessionObject
+	path := "/sandboxes/" + url.PathEscape(ref) + "/sessions/" + url.PathEscape(session)
+	if err := c.do(ctx, http.MethodGet, path, nil, &s); err != nil {
+		return nil, err
+	}
+	out := make([]sessionMessage, 0, len(s.Metadata.Messages))
+	for _, m := range s.Metadata.Messages {
+		if m.Role == roleAssistant {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// isDeadline reports whether err is (wraps) a context deadline — the signal that
+// the bounded agent-send wait tripped while the turn runs on server-side.
+func isDeadline(err error) bool { return errors.Is(err, context.DeadlineExceeded) }
 
 // startSandbox wakes an auto-stopped sandbox. A 409 (already
 // starting/running) is not an error — the state read that follows will report

@@ -21,6 +21,12 @@ export interface ActivityStoreValue {
   pill: ActivityPill;
   /** Dismisses the current pill (e.g. a persistent `say`), draining any queued toasts. */
   dismiss: () => void;
+  /**
+   * Dismisses the current pill only when it is a transient toast (draining the
+   * queue). A no-op when the row shows a `say` or is already clear — used when
+   * the user sends input, which supersedes a lingering toast.
+   */
+  dismissToast: () => void;
 }
 
 export const ActivityStoreContext = createContext<ActivityStoreValue | undefined>(undefined);

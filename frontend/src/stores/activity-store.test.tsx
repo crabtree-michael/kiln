@@ -28,10 +28,12 @@ function makeSay(text: string): SayEvent {
 }
 
 let capturedDismiss: (() => void) | undefined;
+let capturedDismissToast: (() => void) | undefined;
 
 function Probe(): JSX.Element {
-  const { thinking, pill, dismiss } = useActivityStore();
+  const { thinking, pill, dismiss, dismissToast } = useActivityStore();
   capturedDismiss = dismiss;
+  capturedDismissToast = dismissToast;
   const pillText =
     pill === null
       ? ''
@@ -49,6 +51,7 @@ describe('ActivityProvider', () => {
     vi.useFakeTimers();
     capturedHandlers = undefined;
     capturedDismiss = undefined;
+    capturedDismissToast = undefined;
     closeStream.mockClear();
     vi.mocked(transport.openStream).mockImplementation((handlers): StreamConnection => {
       capturedHandlers = handlers;
@@ -155,6 +158,54 @@ describe('ActivityProvider', () => {
 
     act(() => {
       vi.advanceTimersByTime(TOAST_MS);
+    });
+    expect(pill()).toBe('');
+  });
+
+  it('dismissToast clears a showing toast and drains the queue (input sent)', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'A' }),
+      );
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'nudged', ticketTitle: 'B' }),
+      );
+    });
+    expect(pill()).toBe('toast:started:A');
+
+    // Submitting mid-toast dismisses the current one; the queued toast then
+    // takes its normal turn (new toasts are unaffected).
+    act(() => {
+      capturedDismissToast?.();
+    });
+    expect(pill()).toBe('toast:nudged:B');
+
+    act(() => {
+      vi.advanceTimersByTime(TOAST_MS);
+    });
+    expect(pill()).toBe('');
+  });
+
+  it('dismissToast leaves a persistent say untouched', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onSay(makeSay('reply'));
+    });
+    expect(pill()).toBe('say:reply');
+
+    act(() => {
+      capturedDismissToast?.();
+    });
+    expect(pill()).toBe('say:reply');
+  });
+
+  it('dismissToast is a no-op when the row is already clear', () => {
+    mount();
+    expect(pill()).toBe('');
+
+    act(() => {
+      capturedDismissToast?.();
     });
     expect(pill()).toBe('');
   });

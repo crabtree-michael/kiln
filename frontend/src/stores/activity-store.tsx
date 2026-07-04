@@ -101,6 +101,19 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
     pump();
   }, [clearTimer, pump, setPill]);
 
+  // Dismiss the row only when it is showing a transient toast, draining any
+  // queue behind it. Used when the user sends input: the fresh turn supersedes
+  // a lingering toast, but a persistent `say` and an already-clear row are left
+  // untouched (so a submission with no toast up is a no-op).
+  const dismissToast = useCallback((): void => {
+    if (pillRef.current?.kind !== 'toast') {
+      return;
+    }
+    clearTimer();
+    setPill(null);
+    pump();
+  }, [clearTimer, pump, setPill]);
+
   const handleActivity = useCallback(
     (event: ActivityEvent): void => {
       if (event.kind === 'thinking') {
@@ -137,8 +150,8 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
   useEffect(() => clearTimer, [clearTimer]);
 
   const value = useMemo<ActivityStoreValue>(
-    () => ({ thinking, pill, dismiss }),
-    [thinking, pill, dismiss],
+    () => ({ thinking, pill, dismiss, dismissToast }),
+    [thinking, pill, dismiss, dismissToast],
   );
 
   return <ActivityStoreContext.Provider value={value}>{children}</ActivityStoreContext.Provider>;

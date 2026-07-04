@@ -30,6 +30,8 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+
+	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=..."; it
@@ -107,7 +109,15 @@ func getenvInt(key string, def int) int {
 }
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	log, err := obs.NewLogger()
+	if err != nil {
+		// The logger is usable (stdout) even when the durable file sink could
+		// not be opened; report the degradation rather than start blind.
+		log.Warn("kiln: log file sink unavailable; logging to stdout only", "err", err)
+	}
+	// Make this the process default so every module's slog.*Context call flows
+	// through the turn-id context handler (obs.Handler) as JSON lines.
+	slog.SetDefault(log)
 
 	if err := run(log); err != nil {
 		log.Error("kiln exited with error", "err", err)

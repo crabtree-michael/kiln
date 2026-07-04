@@ -354,7 +354,7 @@ func newTestServiceN(
 ) *brain.Service {
 	return brain.NewService(
 		board, board, say, notifications, convo, &fakeInspector{}, llm,
-		brain.Config{Model: brain.DefaultModel}, brain.CurrentPromptVersion,
+		brain.Config{Model: brain.DefaultModel},
 	)
 }
 
@@ -364,7 +364,7 @@ func newTestServiceI(
 ) *brain.Service {
 	return brain.NewService(
 		board, board, say, &fakeNotifications{}, convo, agents, llm,
-		brain.Config{Model: brain.DefaultModel}, brain.CurrentPromptVersion,
+		brain.Config{Model: brain.DefaultModel},
 	)
 }
 

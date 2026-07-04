@@ -4,7 +4,7 @@ package brain_test
 // snapshot + last TranscriptWindow (20) transcript messages + the event
 // into the first LLMRequest, with agent.turn_completed output truncated to
 // AgentOutputTruncateBytes (head+tail), and a non-empty, stable system
-// prompt rendered from the versioned template.
+// prompt rendered from the repo's template.
 
 import (
 	"context"
@@ -162,11 +162,10 @@ func TestHandleEvent_TruncatesLongAgentOutputHeadAndTail(t *testing.T) {
 }
 
 // TestHandleEvent_RendersNonEmptyStableSystemPrompt pins 06 §3's "the
-// system prompt is versioned in the repo as a Go template" — every round of
-// a pass renders the same, non-empty system prompt (prompt.go's
-// RenderSystemPrompt over CurrentPromptVersion). This intentionally does
-// not pin the prompt's literal prose, which is solution-phase business
-// content reviewed on its own terms (06 D7).
+// system prompt lives in the repo as a Go template" — every round of a pass
+// renders the same, non-empty system prompt (prompt.go's RenderSystemPrompt).
+// This intentionally does not pin the prompt's literal prose, which is
+// business content reviewed on its own terms (06 D7).
 func TestHandleEvent_RendersNonEmptyStableSystemPrompt(t *testing.T) {
 	llm := &scriptedLLM{responses: []brain.LLMResponse{
 		toolUse(newToolCall(t, "s1", brain.ToolSay, brain.SayInput{Text: "one"})),

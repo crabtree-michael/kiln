@@ -13,9 +13,23 @@ describe('commit machine', () => {
     expect(s.commit).toBe('Hello, world.');
     expect(s.settledText).toBe('Hello, world.');
     expect(s.tailText).toBe('');
-    // next tick: caller clears the consumed commit
+    // next tick: a successful POST clears the transcript back to idle so stale
+    // text can't linger (09 §4)
     s = voiceReducer(s, { type: 'commitConsumed' });
     expect(s.commit).toBeUndefined();
+    expect(s.settledText).toBe('');
+    expect(s.tailText).toBe('');
+  });
+
+  it('failed commit keeps the finalized text on screen for a retry', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+    expect(s.settledText).toBe('Ship it.');
+    // POST failed: drop the one-tick commit but keep the ink visible (09 §4)
+    s = voiceReducer(s, { type: 'commitFailed' });
+    expect(s.commit).toBeUndefined();
+    expect(s.settledText).toBe('Ship it.');
   });
 
   it('empty / whitespace final -> no commit', () => {

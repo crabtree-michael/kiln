@@ -110,4 +110,14 @@ describe('Dock', () => {
     render(<Dock />);
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
+
+  it('idle after send: no transcript region, mic controls intact', () => {
+    // Post-send state (09 §4): the store cleared settledText + tailText, so the
+    // dock shows an empty transcript ready for the next turn — but still listens.
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
+    const { container } = render(<Dock />);
+    expect(container.querySelector('[data-role="dock-transcript"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Talk' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
 });

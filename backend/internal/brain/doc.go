@@ -41,8 +41,8 @@
 // Files: doc.go (this file); service.go (Service, HandleEvent, the pass
 // loop); ports.go (BoardAPI, BoardReader, Say, ConversationReader — the
 // ports consumed); tools.go (the seven ToolDef schemas, the registry, and the
-// tool-call → port-method dispatch); prompt.go (the versioned Go-template
-// system prompt, D7); llm.go (model config, the LLM port + request/response
+// tool-call → port-method dispatch); prompt.go (the Go-template system
+// prompt, D7); llm.go (model config, the LLM port + request/response
 // shapes, and the not-yet-wired Anthropic adapter); types.go (the per-pass
 // input contract, transcript Message, and event/payload shapes, 06 §3).
 package brain

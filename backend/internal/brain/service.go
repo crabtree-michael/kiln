@@ -38,25 +38,22 @@ type Service struct {
 	agents        AgentInspector
 	llm           LLM
 	cfg           Config
-	prompts       PromptVersion
 }
 
 // NewService assembles the brain over its ports and model configuration.
-// promptVersion is normally CurrentPromptVersion; golden tests may pin an
-// older version explicitly (06 §9, D7).
 //
 // The notifications port (08 §7) is grouped with the other user-facing output
 // ports, immediately after say. The full parameter order INTEGRATION wires is:
 //
 //	NewService(board BoardAPI, reader BoardReader, say Say,
 //	    notifications NotificationStore, convo ConversationReader,
-//	    agents AgentInspector, llm LLM, cfg Config, promptVersion PromptVersion)
+//	    agents AgentInspector, llm LLM, cfg Config)
 //
 // INTEGRATION passes rtSvc for notifications (*runtime.Service satisfies the
 // port structurally, D5/§E4).
 func NewService(
 	board BoardAPI, reader BoardReader, say Say, notifications NotificationStore,
-	convo ConversationReader, agents AgentInspector, llm LLM, cfg Config, promptVersion PromptVersion,
+	convo ConversationReader, agents AgentInspector, llm LLM, cfg Config,
 ) *Service {
 	return &Service{
 		board:         board,
@@ -67,7 +64,6 @@ func NewService(
 		agents:        agents,
 		llm:           llm,
 		cfg:           cfg,
-		prompts:       promptVersion,
 	}
 }
 
@@ -144,7 +140,7 @@ func (s *Service) model() string {
 //
 // See docs/specs/06-orchestrator-brain.md §5 and §8.
 func (s *Service) runPass(ctx context.Context, input PassInput) error {
-	system, err := RenderSystemPrompt(s.prompts, PromptData{Role: orchestratorRole})
+	system, err := RenderSystemPrompt(PromptData{Role: orchestratorRole})
 	if err != nil {
 		return fmt.Errorf("brain: render system prompt: %w", err)
 	}

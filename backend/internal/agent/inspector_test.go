@@ -76,6 +76,25 @@ func TestGetAgentUpdates_ReturnsLatestOutput(t *testing.T) {
 	}
 }
 
+func TestGetAgentUpdates_FailedTurnSetsIsError(t *testing.T) {
+	id := "44444444-4444-4444-4444-444444444444"
+	store := newFakeStore()
+	store.seed(agent.Turn{
+		IdempotencyKey: 1, Kind: agent.KindSend, WorkerID: id,
+		TicketID: "tkt-d", Phase: agent.PhaseFailed,
+	})
+	svc, p := newInspector(t, store)
+	mustCreate(t, p, agent.WorkerName(id))
+
+	u, err := svc.GetAgentUpdates(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetAgentUpdates: %v", err)
+	}
+	if !u.IsError || u.Status != agent.AgentIdle {
+		t.Errorf("update = %+v, want IsError and idle", u)
+	}
+}
+
 func TestGetAgentUpdates_UnknownWorkerIsEmptyNotError(t *testing.T) {
 	svc, _ := newInspector(t, newFakeStore())
 	u, err := svc.GetAgentUpdates(context.Background(), "nope")

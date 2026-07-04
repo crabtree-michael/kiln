@@ -65,9 +65,28 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
   authenticates a real socket (no audio asset needed); the audio→`human.message` assertion runs
   only when `KILN_VOICE_SAMPLE=/path/to/clip.pcm` (raw PCM16 mono 16 kHz) is supplied. Recipe:
   bring the stack up with `ASSEMBLYAI_API_KEY` set, then `KILN_VOICE_SMOKE=1 make e2e`.
+- **Full browser E2E** (`tests/tests/voice-mic-to-brain.spec.ts`, Playwright `voice` project):
+  Chromium is launched with a **fake microphone** fed by a canned clip — no real mic. Flags:
+  `--use-fake-device-for-media-stream`, `--use-fake-ui-for-media-stream`,
+  `--use-file-for-fake-audio-capture=<abs .wav>%noloop`, and crucially
+  `--autoplay-policy=no-user-gesture-required` (the VoiceProvider opens its AudioContext on
+  mount with no click; without this flag it stays suspended and no audio flows). The clip
+  (`tests/fixtures/this-is-a-test.wav`, mono 16 kHz PCM16) is **padded with ~1 s leading + ~1.4 s
+  trailing silence**: the lead covers the socket-open startup window (early frames are dropped
+  until the socket is OPEN), the trailing silence lets AssemblyAI fire end-of-turn (a seamless
+  loop has no pause, so use `%noloop`, not looping). It asserts the utterance lands as a
+  `human.message` and the brain runs a turn (a `kiln` reply). Generate a clip on macOS with
+  `say -o x.aiff "..."` + `afconvert -f WAVE -d LEI16@16000 -c 1 x.aiff x.wav`.
 
 ## Common footguns
 
+- **AssemblyAI rejects frames outside 50–1000 ms** (`error_code 3007` "Input Duration
+  Violation", then closes the socket). An AudioWorklet render quantum is 128 samples
+  (~2.6 ms), so the worklet MUST batch. `pcm-batch.ts`'s `PcmFramer` decimates to 16 kHz and
+  accumulates **1600-sample (~100 ms) frames** before posting — unit-tested so a regression
+  is caught in `make check` (the browser E2E is gated, not in the default gate). Symptom of
+  regressing this: the socket opens, one tiny frame is sent, `{"type":"Error",...3007}` comes
+  back, socket closes, no transcript ever lands.
 - **Don't proxy audio through the backend** (09 D2). The backend is SSE+POST only (04 D6);
   the client streams to AssemblyAI directly. Only the temp token crosses our API.
 - **Auth header is the raw key**, not `Bearer <key>`, on the `/v3/token` GET.

@@ -2,14 +2,18 @@
 // the AudioWorklet global scope, turning the mic's Float32 frames (at the device
 // sample rate, typically 44.1/48 kHz) into 16 kHz mono PCM16 — the frame format
 // AssemblyAI's Universal-Streaming socket expects (encoding=pcm_s16le,
-// sample_rate=16000). Each processed block is posted to the main thread as a
-// transferred ArrayBuffer; `assemblyai-client` forwards it as a binary WS frame.
+// sample_rate=16000). Complete frames are posted to the main thread as a
+// transferred ArrayBuffer; `assemblyai-client` forwards each as a binary WS frame.
 //
 // This module is loaded via `addModule(new URL('./pcm-worklet.ts', ...))`, so it
 // executes in `AudioWorkletGlobalScope`, not the DOM. That scope's globals
 // (`AudioWorkletProcessor`, `registerProcessor`, `sampleRate`) are not in the
 // DOM lib, so we declare exactly the slice we use rather than reaching for `any`
 // (02 §4b: no `any`, no `as`).
+//
+// The decimate-and-batch logic lives in the pure `pcm-batch` module so it can be
+// unit-tested off this thread; this file is just the AudioWorklet shell.
+import { PcmFramer } from '@/voice/pcm-batch';
 
 /** The device's audio-context sample rate, provided by AudioWorkletGlobalScope. */
 declare const sampleRate: number;
@@ -30,11 +34,12 @@ declare function registerProcessor(
 /** The single processor name both sides agree on. */
 export const PCM_WORKLET_NAME = 'pcm16-downsample';
 
-const TARGET_SAMPLE_RATE = 16000;
-const INT16_MAX = 0x7fff;
-const INT16_MIN = 0x8000;
-
 class PCM16DownsampleProcessor extends AudioWorkletProcessor {
+  // Decimates to 16 kHz and batches render quanta into ~100 ms frames — a bare
+  // quantum (~2.6 ms) would trip AssemblyAI's 50–1000 ms frame-duration rule
+  // (error 3007). The batching/clamping logic is the unit-tested `PcmFramer`.
+  private readonly framer = new PcmFramer();
+
   override process(inputs: Float32Array[][]): boolean {
     const input = inputs[0];
     if (input === undefined) {
@@ -44,20 +49,11 @@ class PCM16DownsampleProcessor extends AudioWorkletProcessor {
     if (channel === undefined || channel.length === 0) {
       return true;
     }
-
-    // Nearest-neighbour linear decimation to 16 kHz. The ratio is > 1 for the
-    // usual 44.1/48 kHz capture rates; if capture is already <= 16 kHz we pass
-    // frames through 1:1.
-    const ratio = sampleRate > TARGET_SAMPLE_RATE ? sampleRate / TARGET_SAMPLE_RATE : 1;
-    const outLength = Math.max(1, Math.floor(channel.length / ratio));
-    const pcm = new Int16Array(outLength);
-    for (let i = 0; i < outLength; i += 1) {
-      const sample = channel[Math.floor(i * ratio)] ?? 0;
-      const clamped = Math.max(-1, Math.min(1, sample));
-      pcm[i] = clamped < 0 ? clamped * INT16_MIN : clamped * INT16_MAX;
+    for (const frame of this.framer.push(channel, sampleRate)) {
+      // Transfer each complete frame's buffer to the main thread; the framer
+      // returns fresh copies, so it retains ownership of its accumulator.
+      this.port.postMessage(frame.buffer, [frame.buffer]);
     }
-
-    this.port.postMessage(pcm.buffer, [pcm.buffer]);
     return true;
   }
 }

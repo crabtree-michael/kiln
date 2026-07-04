@@ -170,6 +170,60 @@ func (s *Service) Run(ctx context.Context) error {
 	return nil
 }
 
+// ListAgents reports every live worker this module owns with its neutral
+// busy/idle status and current ticket binding (05 §2) — backs the brain's
+// list_agents tool. Status and ticket come from the module's own agent_turns
+// (LatestForWorker); no provider handle is exposed.
+func (s *Service) ListAgents(ctx context.Context) ([]AgentInfo, error) {
+	live, err := s.provider.ListWorkers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent: list agents: %w", err)
+	}
+	out := make([]AgentInfo, 0, len(live))
+	for _, w := range live {
+		workerID := strings.TrimPrefix(w.Name, WorkerNamePrefix)
+		info := AgentInfo{WorkerID: workerID, Status: AgentIdle}
+		if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found {
+			info.UpdatedAt = prev.UpdatedAt
+			if prev.Kind == KindSend {
+				info.TicketID = prev.TicketID
+				if isRunning(prev.Phase) {
+					info.Status = AgentWorking
+				}
+			}
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// GetAgentUpdates returns one worker's status plus its latest completed output
+// (05 §2) — backs the brain's get_agent_updates tool. An unknown/never-created
+// worker is an empty idle update, not an error (best-effort read, 05 D2).
+func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUpdate, error) {
+	u := AgentUpdate{WorkerID: workerID, Status: AgentIdle}
+	if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found && prev.Kind == KindSend {
+		if isRunning(prev.Phase) {
+			u.Status = AgentWorking
+		}
+		u.IsError = prev.Phase == PhaseFailed
+	}
+	w, err := s.resolveWorker(ctx, WorkerName(workerID))
+	if err != nil {
+		return AgentUpdate{}, fmt.Errorf("agent: get agent updates: %w", err)
+	}
+	if w == (ProviderWorker{}) {
+		return u, nil // worker not live yet — status only
+	}
+	out, err := s.provider.ReadLatestOutput(ctx, w)
+	if err != nil {
+		return AgentUpdate{}, fmt.Errorf("agent: read latest output: %w", err)
+	}
+	u.LatestOutput = out.Output
+	u.At = out.At
+	return u, nil
+}
+
 // markContinuation stamps turn with the prior conversation handle when this
 // worker's newest operation was a send that already opened one — that is how
 // first-message-vs-continuation is derived (05 §2.1, §3): no row, or a release
@@ -497,6 +551,30 @@ func (s *Service) lookupWorker(name string) ProviderWorker {
 	}
 	return ProviderWorker{Name: name}
 }
+
+// resolveWorker returns the cached provider worker for a name, falling back to a
+// list-and-match (never creating one — this is a read path). A zero
+// ProviderWorker means "not live", handled by the caller as an empty update.
+func (s *Service) resolveWorker(ctx context.Context, name string) (ProviderWorker, error) {
+	if w, ok := s.getWorker(name); ok {
+		return w, nil
+	}
+	live, err := s.provider.ListWorkers(ctx)
+	if err != nil {
+		return ProviderWorker{}, fmt.Errorf("agent: list workers: %w", err)
+	}
+	for _, w := range live {
+		if w.Name == name {
+			s.putWorker(w)
+			return w, nil
+		}
+	}
+	return ProviderWorker{}, nil
+}
+
+// isRunning reports whether a send machine's phase means a turn is in flight
+// (05 §5) — everything before the two resting/terminal phases.
+func isRunning(p Phase) bool { return p != PhaseDone && p != PhaseFailed }
 
 // errMissingTurnRef guards the impossible turn_started-without-a-ref case.
 var errMissingTurnRef = errors.New("agent: turn started without a provider turn ref")

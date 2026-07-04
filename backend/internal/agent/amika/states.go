@@ -19,9 +19,11 @@ import (
 const autoDeleteOff = -1
 
 // autoStopInterval converts KILN_WORKER_AUTO_STOP into Amika's
-// auto_stop_interval. NOTE: v0beta1 does not document the unit; we send whole
-// minutes and this is a hardening point to confirm against the live API
-// (05 §11). d <= 0 disables auto-stop (0, matching the docs' example default).
+// auto_stop_interval. v0beta1 does not document the unit, but a live probe
+// confirmed it is NOT seconds — a sandbox created with interval=45 stayed
+// running well past 45s (2026-07-04), and the Amika UI default is 30 — so whole
+// minutes is correct. d <= 0 disables auto-stop (0, matching the docs' example
+// default).
 func autoStopInterval(d time.Duration) int {
 	if d <= 0 {
 		return 0

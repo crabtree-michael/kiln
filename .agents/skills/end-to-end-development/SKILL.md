@@ -53,8 +53,14 @@ run offline against fakes; **e2e is separate** and needs a live stack.
   3. `make e2e` (i.e. `cd tests && pnpm test`). It targets the docker-compose frontend
      (`http://localhost:5173`) by default; override with `KILN_E2E_BASE_URL`.
   Any e2e that reaches Developing must destroy the Amika sandboxes it creates (`auto_delete` is
-  off — 05 D6); the current `say → ticket in Backlog` test stops before the pull, so no cleanup.
-  See `/tests/README.md` for the full recipe.
+  off — 05 D6). `say → ticket in Backlog` stops before the pull, so no cleanup;
+  `ready-kicks-off-amika-run` (API-driven: `POST /api/message` → brain marks ready → pull →
+  real Amika turn, asserting both the ticket reaches `working` and — reaching past the 05 §1
+  abstraction on purpose, to verify the default provider — that the bound sandbox gains a new
+  Amika session, since v0beta1 has no list-jobs endpoint) does reach Developing and is cleaned
+  up automatically by Playwright's `global-teardown.ts`, which deletes the `kiln-worker-*` pool
+  (best-effort while the stack is up — the reconciler recreates idle slots, so run `make down`
+  after for a clean slate). See `/tests/README.md` for the full recipe.
 
 ## Common footguns
 

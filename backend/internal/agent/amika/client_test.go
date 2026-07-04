@@ -112,6 +112,7 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 	c := newClient(t, Config{
 		APIKey:   "k",
 		RepoURL:  "https://example.com/repo.git",
+		Snapshot: "snap-42",
 		Agent:    "claude",
 		AutoStop: 30 * time.Minute,
 	}, map[route]http.HandlerFunc{
@@ -123,6 +124,9 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 			}
 			if body.RepoURL != "https://example.com/repo.git" {
 				t.Errorf("repo_url = %q", body.RepoURL)
+			}
+			if body.Snapshot != "snap-42" {
+				t.Errorf("snapshot = %q", body.Snapshot)
 			}
 			if body.Agent != "claude" {
 				t.Errorf("agent = %q", body.Agent)
@@ -143,6 +147,25 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 	}
 	if want := (agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: "sb-9"}); got != want {
 		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// An unset Snapshot (env var absent) must be omitted from the wire, not sent as
+// an empty string — omitempty keeps the field optional (task: unused if unset).
+func TestCreateWorkerOmitsSnapshotWhenUnset(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k", RepoURL: "https://example.com/repo.git"}, map[route]http.HandlerFunc{
+		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			var raw map[string]json.RawMessage
+			decodeBody(t, r, &raw)
+			if _, present := raw["snapshot"]; present {
+				t.Errorf("snapshot key present when unset: %v", raw)
+			}
+			writeJSON(t, w, http.StatusAccepted, sandbox{ID: "sb-9", Name: agent.WorkerName("w1")})
+		},
+	})
+
+	if _, err := c.CreateWorker(context.Background(), agent.WorkerName("w1")); err != nil {
+		t.Fatalf("CreateWorker: %v", err)
 	}
 }
 

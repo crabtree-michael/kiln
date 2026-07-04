@@ -104,6 +104,7 @@ type graph struct {
 	server *api.Server
 	events *runtime.Worker
 	outbox *runtime.Worker
+	agent  *agent.Service
 }
 
 // buildGraph constructs every service and adapter and resolves the two
@@ -151,6 +152,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 		server: api.NewServer(boardSvc, rtSvc, rtSvc, hub),
 		events: events,
 		outbox: outbox,
+		agent:  agentSvc,
 	}, nil
 }
 
@@ -159,6 +161,10 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	go g.runWorker(ctx, "events", g.events, log)
 	go g.runWorker(ctx, "outbox", g.outbox, log)
+	// The agent-runtime loops: an initial worker-pool reconcile, then the poller
+	// (advances turns → provider StartTurn/CheckTurn) and reconciler sweep (05 §4–§5).
+	// Without this the pool is never provisioned and agent.send turns never reach Amika.
+	go g.runAgent(ctx, log)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -190,6 +196,13 @@ func (g graph) runWorker(ctx context.Context, name string, w *runtime.Worker, lo
 	}
 }
 
+// runAgent runs the agent-runtime reconciler+poller loop, logging a non-shutdown error.
+func (g graph) runAgent(ctx context.Context, log *slog.Logger) {
+	if err := g.agent.Run(ctx); err != nil {
+		log.Error("kiln: agent runtime exited", "err", err)
+	}
+}
+
 // newProvider selects the agent provider by AGENT_MODE (05 §9): the Amika HTTP
 // client (default) or the in-memory mock.
 func newProvider(cfg Config) (agent.Provider, error) {
@@ -198,9 +211,10 @@ func newProvider(cfg Config) (agent.Provider, error) {
 		return mock.New(), nil
 	case "amika":
 		return amika.New(amika.Config{
-			BaseURL: cfg.AmikaBaseURL,
-			APIKey:  os.Getenv("AMIKA_API_KEY"),
-			RepoURL: os.Getenv("KILN_REPO_URL"),
+			BaseURL:  cfg.AmikaBaseURL,
+			APIKey:   os.Getenv("AMIKA_API_KEY"),
+			RepoURL:  os.Getenv("AMIKA_REPO_URL"),
+			Snapshot: os.Getenv("AMIKA_SNAPSHOT"),
 		}, nil), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)

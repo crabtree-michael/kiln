@@ -181,7 +181,7 @@ The one place Amika vocabulary is legal. Mapping the Provider port:
 | Provider port   | Amika v0beta1                                                                                                                                                                                    |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ListWorkers`   | `GET /sandboxes`, filtered to `kiln-worker-*` names (`GET /sandboxes/{id}` accepts id **or** name — adoption needs no local state)                                                               |
-| `CreateWorker`  | `POST /sandboxes` (202, async): `name` per convention, `repo_url = KILN_REPO_URL`, `agent = KILN_AGENT`, `auto_stop_interval` on, `auto_delete_interval` **off** (§10, D6)                       |
+| `CreateWorker`  | `POST /sandboxes` (202, async): `name` per convention, `repo_url = AMIKA_REPO_URL`, `snapshot = AMIKA_SNAPSHOT` (omitted when unset), `agent = KILN_AGENT`, `auto_stop_interval` on, `auto_delete_interval` **off** (§10, D6)                       |
 | `WorkerReady`   | `GET /sandboxes/{name}` → `state` reachable/not-provisioning/not-errored; start it (`POST …/start`) if auto-stopped                                                                              |
 | `DestroyWorker` | `DELETE /sandboxes/{id}`; 404 → already gone → success                                                                                                                                           |
 | `StartTurn`     | `POST /sandboxes/{id}/agent-send-jobs` — `new_session` when `fresh`, else the recorded `session_id`; **jobs, never the synchronous** `agent-send` (a coding turn outlives any sane HTTP timeout) |
@@ -253,8 +253,9 @@ Bearer auth, error-envelope mapping, nothing else.
 
 Config (composition root, `04` §8): `AGENT_MODE` (`amika`/`mock`), `AMIKA_BASE_URL`
 (default `https://app.amika.dev/api/v0beta1`), `AMIKA_API_KEY` (secret, never leaves
-`/backend` — `02` §2), `KILN_REPO_URL`, `KILN_AGENT` (default `claude`),
-`KILN_WORKER_AUTO_STOP` (default 30 min).
+`/backend` — `02` §2), `AMIKA_REPO_URL`, `AMIKA_SNAPSHOT` (optional; a default
+snapshot every worker starts from, omitted when unset), `KILN_AGENT` (default
+`claude`), `KILN_WORKER_AUTO_STOP` (default 30 min).
 
 ## 10. Testing & decision log
 

@@ -62,7 +62,8 @@ var errWorkerErrored = errors.New("amika: worker errored")
 type Config struct {
 	BaseURL  string        // AMIKA_BASE_URL, default DefaultBaseURL
 	APIKey   string        // AMIKA_API_KEY (secret) — Bearer auth
-	RepoURL  string        // KILN_REPO_URL — the project repo every worker clones
+	RepoURL  string        // AMIKA_REPO_URL — the project repo every worker clones
+	Snapshot string        // AMIKA_SNAPSHOT — snapshot every worker starts from; omitted when unset
 	Agent    string        // KILN_AGENT, default DefaultAgent
 	AutoStop time.Duration // KILN_WORKER_AUTO_STOP, default DefaultAutoStop; auto_delete stays OFF (05 D6)
 }
@@ -133,6 +134,7 @@ func (c *Client) CreateWorker(ctx context.Context, name string) (agent.ProviderW
 	req := createSandboxRequest{
 		Name:               name,
 		RepoURL:            c.cfg.RepoURL,
+		Snapshot:           c.cfg.Snapshot,
 		Agent:              c.cfg.Agent,
 		AutoStopInterval:   autoStopInterval(c.cfg.AutoStop),
 		AutoDeleteInterval: autoDeleteOff,

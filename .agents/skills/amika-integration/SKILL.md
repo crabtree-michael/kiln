@@ -42,7 +42,7 @@ Terminal failure → error-turn event; the brain decides what it means for the t
 **Amika mapping (05 §6).** Sandboxes ↔ workers; `agent-send-jobs` (async, never sync
 `agent-send`) ↔ turns; `new_session` ⇔ first send of a conversation. `auto_stop` on,
 `auto_delete` **off**. Config: `AGENT_MODE` (`amika`/`mock`), `AMIKA_BASE_URL`,
-`AMIKA_API_KEY`, `KILN_REPO_URL`, `KILN_AGENT`, `KILN_WORKER_AUTO_STOP`.
+`AMIKA_API_KEY`, `AMIKA_REPO_URL`, `AMIKA_SNAPSHOT`, `KILN_AGENT`, `KILN_WORKER_AUTO_STOP`.
 
 **Mock (05 §8).** A mock **Provider** (not a mock of the whole module) — machinery, table,
 and event path run for real. Instant lifecycle, scripted turns, failure injection,

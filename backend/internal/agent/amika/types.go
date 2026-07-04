@@ -9,10 +9,12 @@ package amika
 // createSandboxRequest is the POST /sandboxes body (05 §6). auto_stop_interval
 // is on (cost control, restart on demand); auto_delete_interval is forced OFF
 // (autoDeleteOff) so Amika never yanks a worker out from under a Blocked
-// ticket (05 D6).
+// ticket (05 D6). repo_url and snapshot seed the workspace and are both
+// omitted when unset so the environment stays optional.
 type createSandboxRequest struct {
 	Name               string `json:"name"`
 	RepoURL            string `json:"repo_url,omitempty"`
+	Snapshot           string `json:"snapshot,omitempty"`
 	Agent              string `json:"agent,omitempty"`
 	AutoStopInterval   int    `json:"auto_stop_interval"`
 	AutoDeleteInterval int    `json:"auto_delete_interval"`

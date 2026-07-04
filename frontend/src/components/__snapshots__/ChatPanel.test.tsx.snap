@@ -1,0 +1,95 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ChatPanel > matches the DOM-structure snapshot for user/kiln/pending/failed bubbles (07 §9 target) 1`] = `
+<div>
+  <section
+    aria-label="Chat"
+    data-role="chat-panel"
+  >
+    <ul
+      data-role="chat-transcript"
+    >
+      <li
+        data-message-role="user"
+        data-role="chat-message"
+        data-status="sent"
+      >
+        <span
+          data-role="chat-message-role"
+        >
+          user
+        </span>
+        <span
+          data-role="chat-message-text"
+        >
+          user message
+        </span>
+      </li>
+      <li
+        data-message-role="kiln"
+        data-role="chat-message"
+        data-status="sent"
+      >
+        <span
+          data-role="chat-message-role"
+        >
+          kiln
+        </span>
+        <span
+          data-role="chat-message-text"
+        >
+          kiln message
+        </span>
+      </li>
+      <li
+        data-message-role="user"
+        data-role="chat-message"
+        data-status="pending"
+      >
+        <span
+          data-role="chat-message-role"
+        >
+          user
+        </span>
+        <span
+          data-role="chat-message-text"
+        >
+          pending message
+        </span>
+      </li>
+      <li
+        data-message-role="user"
+        data-role="chat-message"
+        data-status="failed"
+      >
+        <span
+          data-role="chat-message-role"
+        >
+          user
+        </span>
+        <span
+          data-role="chat-message-text"
+        >
+          failed message
+        </span>
+        <button
+          type="button"
+        >
+          Retry
+        </button>
+      </li>
+    </ul>
+    <form>
+      <input
+        aria-label="Message"
+        value=""
+      />
+      <button
+        type="submit"
+      >
+        Send
+      </button>
+    </form>
+  </section>
+</div>
+`;

@@ -1,0 +1,24 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TicketCard > matches the DOM-structure snapshot for a blocked ticket (07 §9 target) 1`] = `
+<div>
+  <article
+    data-role="ticket-card"
+    data-state="blocked"
+  >
+    <h3>
+      Snapshot blocked ticket
+    </h3>
+    <p
+      data-role="body-preview"
+    >
+      Waiting.
+    </p>
+    <p
+      data-role="blocked-reason"
+    >
+      Waiting on a decision from the user about which payment provider to integrate first: Stripe supports the subscription model we need out of the box, but the team previously evaluated Paddle for tax handling in the EU and no final call was recorded in the ticket history, so the worker cannot proceed without a human answering in chat.
+    </p>
+  </article>
+</div>
+`;

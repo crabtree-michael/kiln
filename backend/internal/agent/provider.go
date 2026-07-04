@@ -1,10 +1,21 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // WorkerNamePrefix scopes every provider-side worker this module owns; the
 // reconciler destroys prefix-matched workers that match no board slot (05 §4).
 const WorkerNamePrefix = "kiln-worker-"
+
+// ErrConversationLost is the sentinel an adapter returns from StartTurn when a
+// continuation (fresh=false) references a conversation the provider no longer
+// has (05 §3). The machine recognises it and falls back to a fresh
+// conversation with the same message — context lost, workspace kept, logged;
+// it never fails the ticket for it. Adapters wrap it (fmt.Errorf("…: %w", …))
+// so errors.Is still matches.
+var ErrConversationLost = errors.New("agent: provider lost the conversation")
 
 // WorkerName derives the deterministic provider-side name for a board
 // worker slot (05 §4). The name is the whole board↔provider join — no shared

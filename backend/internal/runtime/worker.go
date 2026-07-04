@@ -2,12 +2,9 @@ package runtime
 
 import (
 	"context"
-	"errors"
+	"log/slog"
+	"time"
 )
-
-// errNotImplemented marks scaffold stubs. Implementations follow
-// docs/specs/04-runtime-and-api.md; remove this once the last stub is gone.
-var errNotImplemented = errors.New("runtime: not implemented (scaffold)")
 
 // Handler executes one claimed entry — a brain pass on the events queue, a
 // per-topic executor on the outbox (04 §2). It runs outside any queue
@@ -15,10 +12,15 @@ var errNotImplemented = errors.New("runtime: not implemented (scaffold)")
 type Handler func(ctx context.Context, e Entry) error
 
 // DeadLetter runs the per-kind action after MaxAttempts failures (04 §3):
-// exhausted amika.* → MarkBlocked on the ticket; notify.send → log and drop;
+// exhausted agent.send → MarkBlocked on the ticket; notify.send → log and drop;
 // pull.evaluate / board.updated → log, they self-heal; a dead event →
 // notify the user.
 type DeadLetter func(ctx context.Context, e Entry, lastErr error) error
+
+// pollInterval is the fallback wakeup cadence (04 §5): the worker blocks on
+// its nudge channel but also wakes at least this often, so a dropped nudge
+// costs at most one interval and a restart still finds pending work.
+const pollInterval = time.Second
 
 // Worker drains one queue serially, in id order (04 §3–§4). The events
 // worker *is* the single-writer-per-project constraint realized in-process:
@@ -50,9 +52,18 @@ func NewWorker(store Store, queue QueueName, handle Handler, deadLetter DeadLett
 }
 
 // Run drains until ctx is done, blocking on the nudge channel with a
-// 1-second poll fallback (04 §5).
+// 1-second poll fallback (04 §5). It returns nil on cancellation — a clean
+// shutdown, not an error.
 func (w *Worker) Run(ctx context.Context) error {
-	return errNotImplemented
+	for {
+		w.drainDue(ctx)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-w.nudge:
+		case <-w.clock.After(pollInterval):
+		}
+	}
 }
 
 // Nudge wakes the worker immediately (04 §5). Best-effort and non-blocking —
@@ -62,4 +73,75 @@ func (w *Worker) Nudge() {
 	case w.nudge <- struct{}{}:
 	default:
 	}
+}
+
+// drainDue processes every currently-due entry, in id order, one at a time,
+// until the queue reports nothing due (04 §4). Serial by construction: the
+// next claim only happens after the current entry has been marked.
+func (w *Worker) drainDue(ctx context.Context) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		entry, ok, err := w.store.ClaimNextDue(ctx, w.queue)
+		if err != nil {
+			slog.Error("runtime: claim next due", "queue", w.queue, "err", err)
+			return
+		}
+		if !ok {
+			return
+		}
+		w.process(ctx, entry)
+	}
+}
+
+// process runs one entry's handler, then marks the outcome (04 §3 steps 2–3):
+// success → done; failure with attempts left → retry with backoff; failure at
+// MaxAttempts → dead + the per-kind dead-letter action.
+func (w *Worker) process(ctx context.Context, e Entry) {
+	handleErr := w.handle(ctx, e)
+	if handleErr == nil {
+		if err := w.store.MarkDone(ctx, w.queue, e.ID); err != nil {
+			slog.Error("runtime: mark done", "queue", w.queue, "id", e.ID, "err", err)
+		}
+		return
+	}
+	if e.Attempts >= MaxAttempts {
+		w.retire(ctx, e, handleErr)
+		return
+	}
+	next := w.clock.Now().Add(backoff(e.Attempts))
+	if err := w.store.MarkRetry(ctx, w.queue, e.ID, handleErr.Error(), next); err != nil {
+		slog.Error("runtime: mark retry", "queue", w.queue, "id", e.ID, "err", err)
+	}
+}
+
+// retire dead-letters an exhausted entry (04 §3): mark it dead, then run the
+// per-kind dead-letter action. Both failures are logged, never fatal — the
+// worker keeps draining.
+func (w *Worker) retire(ctx context.Context, e Entry, cause error) {
+	if err := w.store.MarkDead(ctx, w.queue, e.ID, cause.Error()); err != nil {
+		slog.Error("runtime: mark dead", "queue", w.queue, "id", e.ID, "err", err)
+	}
+	if err := w.deadLetter(ctx, e, cause); err != nil {
+		slog.Error("runtime: dead-letter action", "queue", w.queue, "id", e.ID, "err", err)
+	}
+}
+
+// backoff is the retry delay after a failed attempt (04 §3, D8):
+// min(1s × 2^(attempts−1), 60s). attempts is the just-incremented claim count,
+// so the first failure (attempts=1) waits 1s and the seventh (attempts=7)
+// waits 60s; the eighth exhausts and never reaches here.
+func backoff(attempts int) time.Duration {
+	shift := max(attempts-1, 0)
+	// Guard against shifting past the width of time.Duration on absurd inputs.
+	const maxShift = 62
+	if shift > maxShift {
+		return BackoffCap
+	}
+	d := BackoffBase << shift
+	if d <= 0 || d > BackoffCap {
+		return BackoffCap
+	}
+	return d
 }

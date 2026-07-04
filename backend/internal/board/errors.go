@@ -8,6 +8,13 @@ import (
 // ErrNotFound — the ticket id does not exist (03 §4).
 var ErrNotFound = errors.New("board: ticket not found")
 
+// ErrEmptyTitle — CreateTicket's title precondition failed (03 §4: "title
+// non-empty"). A pure input-validation error on a not-yet-created ticket, so
+// it is neither an ErrNotFound nor a state-transition failure; it is returned
+// before any transaction opens, so a rejected CreateTicket never writes or
+// emits (03 I7).
+var ErrEmptyTitle = errors.New("board: ticket title must be non-empty")
+
 // ErrInvalidTransition — an operation's precondition failed (03 §4). Strict by
 // design (03 D8): repeated or illegal transitions are loud typed errors, never
 // no-ops, so caller bugs surface immediately.

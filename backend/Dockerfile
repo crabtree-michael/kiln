@@ -1,5 +1,5 @@
 # Kiln backend — single static Go binary (02 §3: "single static binary").
-FROM golang:1.23-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 
 # Cache module downloads independently of source changes.

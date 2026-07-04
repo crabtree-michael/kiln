@@ -20,20 +20,33 @@ agent brings the whole system up with a single `docker compose up`.
   credentials (LLM, STT/TTS, push, Amika) and is the only writer of board state.
 
 **Open decisions — TBD.**
-- [ ] Fill in the `docker-compose.yml` services (currently `services: {}`) as surface areas
-      are built.
-- [ ] Runtime configuration and secret injection for the managed-API credentials.
+- [ ] Runtime configuration and secret injection for the managed-API credentials beyond the
+      current `.env` pass-through (compose reads `.env` at the repo root).
 
 ## How to work here
 
-_(Accumulate: the actual `docker compose up` invocation, service ports, how to seed/reset the
-database, and how credentials are supplied locally — once the compose file is filled in.)_
+- **First-time setup:** `cp .env.example .env` at the repo root (compose reads it
+  automatically; never commit the real `.env`). Keys may stay blank until a surface area
+  needs them.
+- **Bring it up:** `make up` (= `docker compose up --build`), or
+  `docker compose up -d db backend` for just the backend stack. `make down` tears down
+  **and deletes volumes** (`-v`) — it wipes Postgres data.
+- **Ports:** Postgres `5432` (user/pass/db all `kiln`), backend `8080`, frontend dev
+  server `5173`. Backend reaches the db at `postgres://kiln:kiln@db:5432/kiln?sslmode=disable`.
+- **Reset the database:** `docker compose down -v && docker compose up -d db`.
+- **Check health:** `docker compose ps` (db has a `pg_isready` healthcheck; backend waits
+  on it) and `docker compose logs backend` (JSON logs; expect `"kiln starting"`).
 
 ## Common footguns
 
 - Assuming a cloud/production target — v1 is local-only (§1); hosting is future work.
 - Storing authoritative state anywhere but Postgres.
+- The backend Dockerfile's `golang:X-alpine` build image must satisfy the `go` directive in
+  `backend/go.mod` — bumping the toolchain in go.mod without bumping the Dockerfile breaks
+  `docker compose build` with "go.mod requires go >= X".
 
 ## Potential gotchas
 
-_(Accumulate: non-obvious traps in the local setup.)_
+- The backend currently wires no modules (harness-before-product, 02 §4): it starts, logs
+  `"kiln starting"`, and blocks on a signal. Nothing listens on 8080 yet, so a connection
+  refused there is expected until the api/runtime surface areas land.

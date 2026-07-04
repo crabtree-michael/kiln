@@ -1,0 +1,94 @@
+package brain
+
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/crabtree-michael/kiln/backend/internal/board"
+)
+
+// EventType enumerates the two 01 event types this module decodes (06 §3.3).
+// Mirrors runtime.EventType (04 §2, §6) by value, not by import — this
+// module does not depend on internal/runtime (see doc.go); the composition
+// root maps runtime.EventType <-> EventType when it adapts runtime.Event to
+// Event.
+type EventType string
+
+const (
+	EventHumanMessage       EventType = "human.message"        // 07 A1: {text}
+	EventAgentTurnCompleted EventType = "agent.turn_completed" // 05 §2.2 payload
+)
+
+// Event is one events-queue entry as the brain decodes it (06 §3.3): tagged
+// with its queue id, carrying the emitter's opaque payload. Structurally
+// mirrors runtime.Event; kept as this module's own type per doc.go's
+// no-runtime-import rule.
+type Event struct {
+	ID        int64
+	Type      EventType
+	Payload   json.RawMessage
+	CreatedAt time.Time
+}
+
+// HumanMessagePayload is the human.message event payload (06 §3.3, 07 A1):
+// the user's text, verbatim.
+type HumanMessagePayload struct {
+	Text string `json:"text"`
+}
+
+// AgentTurnCompletedPayload is the agent.turn_completed event payload as the
+// brain decodes it (06 §3.3), mirroring agent.TurnCompleted's JSON shape
+// (05 §2.2) by value — this module does not import internal/agent, for the
+// same reason it does not import internal/runtime (doc.go). Output is the
+// agent's turn output or the failure description, subject to the ~8k
+// head+tail truncation budget (AgentOutputTruncateBytes) before it enters a
+// pass's context — the brain judges outcomes, it does not re-review diffs
+// (06 §3.3).
+type AgentTurnCompletedPayload struct {
+	TicketID string  `json:"ticket_id"`
+	WorkerID string  `json:"worker_id"`
+	IsError  bool    `json:"is_error"`
+	Output   string  `json:"output"`
+	CostUSD  float64 `json:"cost_usd"`
+}
+
+// AgentOutputTruncateBytes bounds agent.turn_completed's Output field before
+// it enters a pass's context (06 §3.3): ~8k chars, head + tail, with an
+// elision marker in between. The truncation itself happens during context
+// assembly inside the (stubbed) pass — see service.go.
+const AgentOutputTruncateBytes = 8000
+
+// MessageRole is a transcript message's speaker (07 §3).
+type MessageRole string
+
+const (
+	RoleUser MessageRole = "user"
+	RoleKiln MessageRole = "kiln"
+)
+
+// Message is one transcript row as the brain reads it through
+// ConversationReader (07 §3): oldest first when returned by Recent.
+type Message struct {
+	Role MessageRole
+	Text string
+	At   time.Time
+}
+
+// TranscriptWindow is how much conversation history enters every pass
+// (06 §3.2, D2): the last 20 messages, oldest first — enough to cover any
+// plausible shaping exchange without inviting "the brain didn't know X" bugs
+// from over-trimming.
+const TranscriptWindow = 20
+
+// PassInput is one pass's assembled context (06 §3): built fresh every
+// HandleEvent call, never held between events (06 §9). The three blocks go
+// into one user message after the fixed system prompt (prompt.go):
+//
+//  1. Board — the full GetBoard snapshot, render-order preserved (06 §3.1).
+//  2. Transcript — the last TranscriptWindow messages, oldest first (06 §3.2).
+//  3. Event — the triggering event, tagged with its queue id (06 §3.3).
+type PassInput struct {
+	Board      board.Snapshot
+	Transcript []Message
+	Event      Event
+}

@@ -7,20 +7,31 @@ import { createContext, useContext } from 'react';
 export type ToastVerb = 'started' | 'nudged' | 'finished' | 'queued';
 
 /**
- * The single activity pill (08 §4). `say` is a persistent brain utterance that
- * outranks toasts; `toast` is an auto-dismissing side-effect confirmation;
- * `null` means the row is clear (the UI may then show `thinking`).
+ * The content of one activity pill (08 §4). `say` is a brain utterance (agent
+ * says something); `toast` is a side-effect board-transition confirmation. Both
+ * sources share the same notification surface — they stack rather than overwrite
+ * each other, and each auto-dismisses independently.
  */
 export type ActivityPill =
-  { kind: 'say'; text: string } | { kind: 'toast'; verb: ToastVerb; ticketTitle: string } | null;
+  { kind: 'say'; text: string } | { kind: 'toast'; verb: ToastVerb; ticketTitle: string };
+
+/**
+ * One live notification in the activity stack. `id` is a stable, unique key so
+ * React can reflow the stack smoothly as individual toasts dismiss, and so a
+ * dismiss/timer can target exactly one entry without disturbing its neighbours.
+ */
+export interface ActivityToast {
+  id: number;
+  pill: ActivityPill;
+}
 
 export interface ActivityStoreValue {
-  /** Brain-pass spinner flag (08 §4). The UI shows it only when `pill` is null. */
+  /** Brain-pass spinner flag (08 §4). The UI shows it only when the stack is empty. */
   thinking: boolean;
-  /** The currently displayed pill, or `null` when the activity row is clear. */
-  pill: ActivityPill;
-  /** Dismisses the current pill (e.g. a persistent `say`), draining any queued toasts. */
-  dismiss: () => void;
+  /** The live notification stack, oldest first — rendered as a stacked list. */
+  toasts: ActivityToast[];
+  /** Dismisses one toast by id (early-dismiss for a `say`; also used by timers). */
+  dismiss: (id: number) => void;
 }
 
 export const ActivityStoreContext = createContext<ActivityStoreValue | undefined>(undefined);

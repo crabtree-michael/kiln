@@ -14,7 +14,7 @@ import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 
 function PrimaryScreenBody(): JSX.Element {
   const { feed, connectionState } = useFeedStore();
-  const { thinking, pill, dismiss } = useActivityStore();
+  const { thinking, toasts, dismiss } = useActivityStore();
 
   const onAccept = useCallback((ticketId: string): void => {
     // Tap-accept routes straight to the accept endpoint (08 §5 / D6); the
@@ -27,7 +27,7 @@ function PrimaryScreenBody(): JSX.Element {
       feed={feed}
       connectionState={connectionState}
       thinking={thinking}
-      pill={pill}
+      toasts={toasts}
       onDismiss={dismiss}
       onAccept={onAccept}
     />

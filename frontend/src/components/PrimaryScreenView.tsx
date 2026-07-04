@@ -5,7 +5,7 @@
 // `App` bridges its stores into `Board`/`ChatPanel`.
 import type { JSX } from 'react';
 import type { ConnectionState, FeedCard, FeedSnapshot, FeedSummary } from '@/transport/transport';
-import type { ActivityPill } from '@/stores/activity-context';
+import type { ActivityToast } from '@/stores/activity-context';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
@@ -24,8 +24,8 @@ export interface PrimaryScreenViewProps {
   feed: FeedSnapshot | null;
   connectionState: ConnectionState;
   thinking: boolean;
-  pill: ActivityPill;
-  onDismiss: () => void;
+  toasts: ActivityToast[];
+  onDismiss: (id: number) => void;
   onAccept: (ticketId: string) => void;
   /** Injected "now" for deterministic relative-age rendering (defaults to real time). */
   now?: number;
@@ -53,7 +53,7 @@ export function PrimaryScreenView({
   feed,
   connectionState,
   thinking,
-  pill,
+  toasts,
   onDismiss,
   onAccept,
   now = Date.now(),
@@ -104,7 +104,7 @@ export function PrimaryScreenView({
         </div>
       </section>
 
-      <ActivityRow thinking={thinking} pill={pill} onDismiss={onDismiss} />
+      <ActivityRow thinking={thinking} toasts={toasts} onDismiss={onDismiss} />
       <Dock />
     </div>
   );

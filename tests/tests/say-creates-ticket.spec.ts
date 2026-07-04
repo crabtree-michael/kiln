@@ -16,34 +16,33 @@ import { expect, test } from '@playwright/test';
 test('saying a build request creates a ticket in Backlog', async ({ page }) => {
   await page.goto('/');
 
-  // The board region must render before we can reason about its contents.
+  // The board region must render, and the live stream must be connected, before
+  // the created ticket can reach us over SSE (07 §8).
   const board = page.getByRole('region', { name: 'Board' });
   await expect(board).toBeVisible();
-
-  // Every ticket in Backlog — Shaping or Ready — renders as a ticket-card
-  // inside the Backlog column. Record the starting count rather than assuming
-  // an empty board: this suite runs against a persistent stack, so earlier runs
-  // may have left tickets. We assert this send adds one, not that Backlog is
-  // empty. Let the initial snapshot settle before counting (the board arrives
-  // over SSE just after connect).
-  const backlog = page.getByRole('region', { name: 'Backlog' });
-  const backlogTickets = backlog.locator('[data-role="ticket-card"]');
   await expect(board).toHaveAttribute('data-connection-state', 'connected');
-  const before = await backlogTickets.count();
+
+  // This suite runs against a persistent stack, so earlier runs may have left
+  // tickets on the board — and a repeated identical request is (correctly) not
+  // duplicated by the orchestrator. So we don't count tickets or assume an empty
+  // Backlog: we tag THIS request with a unique marker and assert that our own
+  // ticket appears. That verifies this send created a ticket regardless of what
+  // was already there.
+  const tag = `E2E-${Date.now().toString(36).toUpperCase()}`;
 
   // Step 1: the user says what they want, through the real chat input.
   await page
     .getByLabel('Message')
-    .fill('Create a ticket to build a login form and wire it to the auth endpoint.');
+    .fill(
+      `Create a ticket to build a login form and wire it to the auth endpoint. ` +
+        `Include the exact tag ${tag} in the ticket title.`,
+    );
   await page.getByRole('button', { name: 'Send' }).click();
 
-  // Step 2: the orchestrator creates the ticket; it arrives over SSE and the
-  // board re-renders. A real-LLM turn takes a while — poll until Backlog holds
-  // at least one more card than before (expect.timeout gives it ~90s). Relative
-  // to `before`, so pre-existing tickets don't matter.
-  await expect
-    .poll(() => backlogTickets.count(), {
-      message: 'expected a new ticket to appear in Backlog after the build request',
-    })
-    .toBeGreaterThan(before);
+  // Step 2: the orchestrator creates the ticket in Backlog; it arrives over SSE
+  // and the board re-renders. A real-LLM turn is slow, so give it room (the
+  // configured expect timeout ~90s). Assert our tagged ticket is now in the
+  // Backlog column — Shaping or Ready both render as a ticket-card there.
+  const backlog = page.getByRole('region', { name: 'Backlog' });
+  await expect(backlog.locator('[data-role="ticket-card"]', { hasText: tag })).toBeVisible();
 });

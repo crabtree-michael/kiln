@@ -35,7 +35,13 @@ agent brings the whole system up with a single `docker compose up`.
   server `5173`. Backend reaches the db at `postgres://kiln:kiln@db:5432/kiln?sslmode=disable`.
 - **Reset the database:** `docker compose down -v && docker compose up -d db`.
 - **Check health:** `docker compose ps` (db has a `pg_isready` healthcheck; backend waits
-  on it) and `docker compose logs backend` (JSON logs; expect `"kiln starting"`).
+  on it) and `docker compose logs backend` (JSON logs; expect `"kiln starting"` then
+  `"kiln serving" addr=":8080"`). There is **no `/healthz` route** yet (the wire schema
+  declares it but the backend only serves `/api/*`); use `GET /api/board` as a readiness
+  probe — it returns the empty board snapshot once migrations have run.
+- **End-to-end test:** the live-stack suite lives in `/tests` (Playwright, drives the real
+  web client). Bring the stack up on the cheap model (`KILN_BRAIN_MODEL=claude-haiku-4-5-20251001 make up`),
+  then `make e2e`. See the `end-to-end-development` skill and `/tests/README.md`.
 
 ## Common footguns
 
@@ -44,9 +50,16 @@ agent brings the whole system up with a single `docker compose up`.
 - The backend Dockerfile's `golang:X-alpine` build image must satisfy the `go` directive in
   `backend/go.mod` — bumping the toolchain in go.mod without bumping the Dockerfile breaks
   `docker compose build` with "go.mod requires go >= X".
+- **Frontend proxy target is container-relative.** The client talks same-origin (`/api/...`,
+  transport.ts) and the vite dev server proxies `/api` to the backend. In compose the backend
+  is the `backend` **service**, not `localhost` — so the frontend service sets
+  `KILN_PROXY_TARGET=http://backend:8080` (vite.config.ts reads it, default `localhost:8080`
+  for a bare `pnpm dev`). Point it at `localhost` inside the container and every `/api` hop —
+  board fetch *and* the SSE stream — 500s with ECONNREFUSED, so the board stays `reconnecting`.
 
 ## Potential gotchas
 
-- The backend currently wires no modules (harness-before-product, 02 §4): it starts, logs
-  `"kiln starting"`, and blocks on a signal. Nothing listens on 8080 yet, so a connection
-  refused there is expected until the api/runtime surface areas land.
+- **Migrations ship embedded.** Each `internal/*/postgres` package `go:embed`s its
+  `migrations/*.sql`, and the composition root applies them at startup from the embedded FS —
+  so the single static binary carries them (the distroless image has no source tree). Add a
+  new `.sql` file and it's picked up automatically; there is no `KILN_MIGRATIONS_DIR` to set.

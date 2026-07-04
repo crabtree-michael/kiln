@@ -45,21 +45,26 @@ func TestToolSet_IsExactlyTwelveToolsInFixedOrder(t *testing.T) {
 	}
 }
 
-// TestCurrentPromptVersion_IsV3 pins the shipped prompt version: v3 recasts
-// the prose around 08's interaction model (the feed as the product surface),
-// keeping the 08 §5/§7 feed-tool guidance. It asserts tool-name presence, not
-// literal prose (06 D7).
-func TestCurrentPromptVersion_IsV3(t *testing.T) {
-	if brain.CurrentPromptVersion != 3 {
-		t.Fatalf("CurrentPromptVersion = %d, want 3", brain.CurrentPromptVersion)
+// TestCurrentPromptVersion_IsV4 pins the shipped prompt version: v4 carries
+// forward v3's recast prose around 08's interaction model (the feed as the
+// product surface) plus the 08 §5/§7 feed-tool guidance, and adds the agent
+// read-tool guidance (list_agents, get_agent_updates). It asserts tool-name
+// presence, not literal prose (06 D7).
+func TestCurrentPromptVersion_IsV4(t *testing.T) {
+	if brain.CurrentPromptVersion != 4 {
+		t.Fatalf("CurrentPromptVersion = %d, want 4", brain.CurrentPromptVersion)
 	}
 	got, err := brain.RenderSystemPrompt(brain.CurrentPromptVersion, brain.PromptData{Role: "Kiln"})
 	if err != nil {
-		t.Fatalf("RenderSystemPrompt(v3): %v", err)
+		t.Fatalf("RenderSystemPrompt(v4): %v", err)
 	}
-	for _, tool := range []string{"request_approval", "post_update", "retract_update"} {
+	tools := []string{
+		"request_approval", "post_update", "retract_update",
+		"list_agents", "get_agent_updates",
+	}
+	for _, tool := range tools {
 		if !strings.Contains(got, tool) {
-			t.Errorf("v3 prompt is missing the 08 feed-tool guidance for %s:\n%s", tool, got)
+			t.Errorf("v4 prompt is missing tool guidance for %s:\n%s", tool, got)
 		}
 	}
 }

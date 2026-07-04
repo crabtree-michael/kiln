@@ -22,6 +22,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     pause: noop,
     resume: noop,
     cancel: noop,
+    getLevel: () => 0,
     ...overrides,
   };
 }

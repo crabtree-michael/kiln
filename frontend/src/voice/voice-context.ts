@@ -18,6 +18,9 @@ export interface VoiceStoreValue {
   resume: () => void;
   /** The X → discard the un-committed utterance client-side (09 §4). */
   cancel: () => void;
+  /** Current mic input loudness as a raw RMS (0..~1); the dock samples this each
+   *  animation frame to size the volume orb (09 §3). 0 when not listening. */
+  getLevel: () => number;
 }
 
 export const VoiceStoreContext = createContext<VoiceStoreValue | undefined>(undefined);

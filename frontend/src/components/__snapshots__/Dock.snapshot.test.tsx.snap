@@ -21,6 +21,10 @@ exports[`Dock snapshots > Denied 1`] = `
           data-role="dock-mic"
         >
           <span
+            data-role="dock-mic-orb"
+            style="--mic-level: 0;"
+          />
+          <span
             data-role="dock-mic-capsule"
           />
           <span
@@ -84,6 +88,9 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
           data-role="dock-mic"
         >
           <span
+            data-role="dock-mic-orb"
+          />
+          <span
             data-role="dock-mic-capsule"
           />
           <span
@@ -136,6 +143,10 @@ exports[`Dock snapshots > Paused 1`] = `
           data-role="dock-mic"
         >
           <span
+            data-role="dock-mic-orb"
+            style="--mic-level: 0;"
+          />
+          <span
             data-role="dock-mic-capsule"
           />
           <span
@@ -187,6 +198,10 @@ exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §
           aria-hidden="true"
           data-role="dock-mic"
         >
+          <span
+            data-role="dock-mic-orb"
+            style="--mic-level: 0;"
+          />
           <span
             data-role="dock-mic-capsule"
           />

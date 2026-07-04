@@ -204,6 +204,11 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     dispatch({ type: 'cancel' });
   }, []);
 
+  // Live mic loudness for the dock's volume orb (09 §3). Reads the current
+  // stream's AnalyserNode each call; 0 while no stream is up (paused/denied/
+  // between reconnects) so the orb naturally shrinks away.
+  const getLevel = useCallback((): number => streamRef.current?.getLevel() ?? 0, []);
+
   const value = useMemo<VoiceStoreValue>(
     () => ({
       micState: state.micState,
@@ -212,8 +217,9 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       pause,
       resume,
       cancel,
+      getLevel,
     }),
-    [state.micState, state.settledText, state.tailText, pause, resume, cancel],
+    [state.micState, state.settledText, state.tailText, pause, resume, cancel, getLevel],
   );
 
   return <VoiceStoreContext.Provider value={value}>{children}</VoiceStoreContext.Provider>;

@@ -8,8 +8,9 @@
 // `"dock-talk"`, `aria-label="Talk"`, and the mic-glyph sub-elements) so
 // `PrimaryScreen.css` and existing selectors keep working; `data-dock-state` now
 // reflects the live `micState` instead of the placeholder `"idle"`.
-import type { JSX } from 'react';
+import { useEffect, useRef, type JSX } from 'react';
 import { useVoice } from '@/voice/voice-context';
+import { VolumeSmoother, toDisplayLevel } from '@/voice/volume-meter';
 import type { MicState } from '@/voice/commit-machine';
 
 // The mic-button copy per state (09 §3 table). Listening is the amber resting
@@ -22,7 +23,33 @@ const LABELS: Record<MicState, string> = {
 };
 
 export function Dock(): JSX.Element {
-  const { micState, settledText, tailText, pause, resume, cancel } = useVoice();
+  const { micState, settledText, tailText, pause, resume, cancel, getLevel } = useVoice();
+  const orbRef = useRef<HTMLSpanElement | null>(null);
+
+  // Drive the volume orb (09 §3): while listening, sample the mic RMS each frame,
+  // smooth it (fast attack / slow release) and write it to the orb's `--mic-level`
+  // CSS var, which drives the orb's scale + opacity. This runs off React state so
+  // it never re-renders the dock per frame; any non-listening state parks the orb
+  // at 0 so it shrinks and fades away.
+  useEffect(() => {
+    const orb = orbRef.current;
+    if (orb === null) {
+      return;
+    }
+    if (micState !== 'listening') {
+      orb.style.setProperty('--mic-level', '0');
+      return;
+    }
+    const smoother = new VolumeSmoother();
+    let handle = requestAnimationFrame(function tick() {
+      const level = smoother.push(toDisplayLevel(getLevel()));
+      orb.style.setProperty('--mic-level', level.toFixed(3));
+      handle = requestAnimationFrame(tick);
+    });
+    return () => {
+      cancelAnimationFrame(handle);
+    };
+  }, [micState, getLevel]);
 
   // One mic tap: pause while listening, otherwise resume/retry (09 §3, §5).
   const onMicTap = (): void => {
@@ -66,6 +93,7 @@ export function Dock(): JSX.Element {
           onClick={onMicTap}
         >
           <span data-role="dock-mic" aria-hidden="true">
+            <span data-role="dock-mic-orb" ref={orbRef} />
             <span data-role="dock-mic-capsule" />
             <span data-role="dock-mic-arc" />
             <span data-role="dock-mic-stem" />

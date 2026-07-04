@@ -28,6 +28,7 @@ vi.mock('@/voice/voice-context', async (importOriginal) => {
       pause: vi.fn(),
       resume: vi.fn(),
       cancel: vi.fn(),
+      getLevel: vi.fn(() => 0),
     }),
   };
 });

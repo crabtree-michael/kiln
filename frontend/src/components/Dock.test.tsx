@@ -23,6 +23,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     pause: vi.fn(),
     resume: vi.fn(),
     cancel: vi.fn(),
+    getLevel: vi.fn(() => 0),
     ...overrides,
   };
 }

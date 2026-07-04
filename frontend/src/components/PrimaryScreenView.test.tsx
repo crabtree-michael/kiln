@@ -13,6 +13,25 @@ vi.mock('@/transport/transport', async (importOriginal) => {
   return { ...actual, acceptTicket: vi.fn() };
 });
 
+// The dock is a live voice-store consumer (09). These presentational tests
+// render `PrimaryScreenView` directly (no `VoiceProvider`), so `useVoice` is
+// mocked to a static resting state — deterministic, and no mic/socket I/O. The
+// dock's own state rendering is covered by Dock.test.tsx / Dock.snapshot.test.tsx.
+vi.mock('@/voice/voice-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/voice/voice-context')>();
+  return {
+    ...actual,
+    useVoice: () => ({
+      micState: 'listening' as const,
+      settledText: '',
+      tailText: '',
+      pause: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn(),
+    }),
+  };
+});
+
 const NOW = new Date('2026-07-04T10:00:00Z').getTime();
 const minutesAgo = (m: number): string => new Date(NOW - m * 60_000).toISOString();
 

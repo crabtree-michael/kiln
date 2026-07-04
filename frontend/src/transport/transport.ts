@@ -22,6 +22,7 @@ export type FeedSummary = components['schemas']['FeedSummary'];
 export type FeedSnapshot = components['schemas']['FeedSnapshot'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
+export type VoiceToken = components['schemas']['VoiceToken'];
 
 /**
  * Stream connection state (07 §8): `EventSource` retries natively, so this is
@@ -319,6 +320,25 @@ export async function postFeedSeen(lastNotificationId: number): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+function isVoiceToken(value: unknown): value is VoiceToken {
+  return isRecord(value) && typeof value.token === 'string' && typeof value.expires_at === 'string';
+}
+
+/** `POST /api/voice/token` — mint a short-lived AssemblyAI streaming token (09 §2).
+ * The client opens the STT WebSocket directly with `token` and refreshes before
+ * `expires_at`; the real API key never leaves the backend (02 §2). */
+export async function fetchVoiceToken(): Promise<VoiceToken> {
+  const response = await fetch('/api/voice/token', { method: 'POST' });
+  if (!response.ok) {
+    throw new Error('fetchVoiceToken: mint failed');
+  }
+  const payload: unknown = await response.json();
+  if (!isVoiceToken(payload)) {
+    throw new Error('fetchVoiceToken: unexpected response shape');
+  }
+  return payload;
 }
 
 /** `POST /api/tickets/{id}/accept` — routes acceptance through the brain like `postMessage` (08 contract). */

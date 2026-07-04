@@ -72,34 +72,40 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
       data-role="activity-row"
     />
     <div
-      data-dock-state="idle"
+      data-dock-state="listening"
       data-role="dock"
     >
-      <button
-        aria-label="Talk"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-controls"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-capsule"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to talk
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -289,34 +295,40 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
       data-role="activity-row"
     />
     <div
-      data-dock-state="idle"
+      data-dock-state="listening"
       data-role="dock"
     >
-      <button
-        aria-label="Talk"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-controls"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-capsule"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to talk
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -436,34 +448,40 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
       data-role="activity-row"
     />
     <div
-      data-dock-state="idle"
+      data-dock-state="listening"
       data-role="dock"
     >
-      <button
-        aria-label="Talk"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-controls"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-capsule"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to talk
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -555,34 +573,40 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
       data-role="activity-row"
     />
     <div
-      data-dock-state="idle"
+      data-dock-state="listening"
       data-role="dock"
     >
-      <button
-        aria-label="Talk"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-controls"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-capsule"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to talk
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -730,34 +754,40 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
       data-role="activity-row"
     />
     <div
-      data-dock-state="idle"
+      data-dock-state="listening"
       data-role="dock"
     >
-      <button
-        aria-label="Talk"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-controls"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-capsule"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to talk
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
     </div>
   </div>
 </div>

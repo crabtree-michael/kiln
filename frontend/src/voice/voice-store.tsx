@@ -137,9 +137,10 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   }, [startStream, stopStream]);
 
   // Commit effect (09 §4): a finalized utterance is POSTed to the unchanged
-  // /api/message seam, then the one-tick `commit` is cleared. On failure the
-  // finalized text stays on screen (it is already `settledText`) — no modal
-  // (07 §8); the user can simply speak again.
+  // /api/message seam. On success the transcript clears back to idle
+  // (`commitConsumed`), ready for the next turn. On failure the finalized text
+  // stays on screen (it is already `settledText`) — no modal (07 §8); the user
+  // can simply speak again.
   useEffect(() => {
     const pending = state.commit;
     if (pending === undefined) {
@@ -150,13 +151,15 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     // than being narrowed to the initial literal (the cleanup below flips it).
     const isCancelled = (): boolean => cancelled;
     void (async () => {
+      let sent = true;
       try {
         await postMessage(pending);
       } catch {
         // Keep the finalized text visible; nothing else to do inline.
+        sent = false;
       }
       if (!isCancelled()) {
-        dispatch({ type: 'commitConsumed' });
+        dispatch({ type: sent ? 'commitConsumed' : 'commitFailed' });
       }
     })();
     return () => {

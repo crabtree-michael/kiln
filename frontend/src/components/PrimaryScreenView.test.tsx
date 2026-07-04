@@ -172,7 +172,10 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    expect(screen.getByText('All clear')).toHaveAttribute('data-role', 'feed-empty-title');
+    expect(screen.getByText('Nothing needs you right now.')).toHaveAttribute(
+      'data-role',
+      'feed-empty-title',
+    );
     expect(screen.getByText('3 building · 2 idle · last word 6m ago')).toBeInTheDocument();
   });
 

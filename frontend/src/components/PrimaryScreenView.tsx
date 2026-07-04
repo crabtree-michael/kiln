@@ -83,7 +83,7 @@ export function PrimaryScreenView({
           {isEmpty ? (
             <div data-role="feed-empty">
               <span data-role="feed-empty-mark" aria-hidden="true" />
-              <span data-role="feed-empty-title">All clear</span>
+              <span data-role="feed-empty-title">Nothing needs you right now.</span>
               <p data-role="feed-empty-body">
                 Nothing needs you right now. I&rsquo;m keeping your streams moving and I&rsquo;ll
                 speak up the moment something needs a decision.

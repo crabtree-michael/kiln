@@ -52,7 +52,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
           <p
             data-role="feed-empty-body"
           >
-            Nothing needs you right now. I’m keeping your streams moving and I’ll speak up the moment something needs a decision.
+            I’m keeping your streams moving and I’ll speak up the moment something needs a decision.
           </p>
           <div
             data-role="feed-empty-status"

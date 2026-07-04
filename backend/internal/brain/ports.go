@@ -79,6 +79,19 @@ type ConversationReader interface {
 	Recent(ctx context.Context, n int) ([]Message, error)
 }
 
+// AgentInspector is the brain's read seam into the agent runtime (05 §2, 06 §4
+// amended): list running agents and read one agent's latest completed output.
+// Provider-neutral — worker ids in, neutral status/output out. Best-effort: a
+// read failure becomes a tool error the pass loop absorbs (06 §5), never a pass
+// failure. Satisfied structurally by a cmd/kiln adapter over *agent.Service;
+// brain cannot import internal/agent, so there is no assertion here.
+type AgentInspector interface {
+	// ListAgents → tool list_agents.
+	ListAgents(ctx context.Context) ([]AgentInfo, error)
+	// GetAgentUpdates → tool get_agent_updates, keyed by board worker id.
+	GetAgentUpdates(ctx context.Context, workerID string) (AgentUpdate, error)
+}
+
 // Compile-time assertions: *board.Service is the Board API's only
 // implementation in v1 and satisfies both ports here with no adapter
 // (see doc.go and ports.go's BoardAPI comment).

@@ -25,6 +25,7 @@ const (
 	ticketT99       = "t-99"
 	opMarkReady     = "mark_ready"
 	methodMarkReady = "MarkReady"
+	workerW1        = "w-1"
 )
 
 // --- scripted LLM -----------------------------------------------------
@@ -320,6 +321,25 @@ func (f *fakeNotifications) retracted() []int64 {
 	return out
 }
 
+// --- fake AgentInspector --------------------------------------------------
+
+// fakeInspector is a canned brain.AgentInspector for dispatch tests.
+type fakeInspector struct {
+	list        []brain.AgentInfo
+	update      brain.AgentUpdate
+	err         error
+	gotWorkerID string
+}
+
+func (f *fakeInspector) ListAgents(context.Context) ([]brain.AgentInfo, error) {
+	return f.list, f.err
+}
+
+func (f *fakeInspector) GetAgentUpdates(_ context.Context, workerID string) (brain.AgentUpdate, error) {
+	f.gotWorkerID = workerID
+	return f.update, f.err
+}
+
 // --- construction helpers -------------------------------------------------
 
 func newTestService(board *fakeBoard, say *fakeSay, convo *fakeConvo, llm *scriptedLLM) *brain.Service {
@@ -333,7 +353,17 @@ func newTestServiceN(
 	convo *fakeConvo, llm *scriptedLLM,
 ) *brain.Service {
 	return brain.NewService(
-		board, board, say, notifications, convo, llm,
+		board, board, say, notifications, convo, &fakeInspector{}, llm,
+		brain.Config{Model: brain.DefaultModel}, brain.CurrentPromptVersion,
+	)
+}
+
+// newTestServiceI is newTestService with an explicit inspector.
+func newTestServiceI(
+	board *fakeBoard, say *fakeSay, convo *fakeConvo, agents brain.AgentInspector, llm *scriptedLLM,
+) *brain.Service {
+	return brain.NewService(
+		board, board, say, &fakeNotifications{}, convo, agents, llm,
 		brain.Config{Model: brain.DefaultModel}, brain.CurrentPromptVersion,
 	)
 }

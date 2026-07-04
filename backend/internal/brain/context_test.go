@@ -136,7 +136,7 @@ func TestHandleEvent_TruncatesLongAgentOutputHeadAndTail(t *testing.T) {
 	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, llm)
 
 	ev := agentTurnCompletedEvent(12, brain.AgentTurnCompletedPayload{
-		TicketID: "t-7", WorkerID: "w-1", IsError: false, Output: output, CostUSD: 0.02,
+		TicketID: "t-7", WorkerID: workerW1, IsError: false, Output: output, CostUSD: 0.02,
 	})
 	if err := svc.HandleEvent(context.Background(), ev); err != nil {
 		t.Fatalf("HandleEvent returned error: %v", err)

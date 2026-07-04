@@ -28,13 +28,14 @@ const MaxToolRounds = 8
 
 // Service is the brain's core: HandleEvent (the runtime's Brain port,
 // 04 §2) and the bounded tool loop it drives (06 §5). Constructed at the
-// composition root over its six ports (06 §9, 08 §7); stateless between calls.
+// composition root over its seven ports (06 §9, 08 §7); stateless between calls.
 type Service struct {
 	board         BoardAPI
 	reader        BoardReader
 	say           Say
 	notifications NotificationStore
 	convo         ConversationReader
+	agents        AgentInspector
 	llm           LLM
 	cfg           Config
 	prompts       PromptVersion
@@ -49,13 +50,13 @@ type Service struct {
 //
 //	NewService(board BoardAPI, reader BoardReader, say Say,
 //	    notifications NotificationStore, convo ConversationReader,
-//	    llm LLM, cfg Config, promptVersion PromptVersion)
+//	    agents AgentInspector, llm LLM, cfg Config, promptVersion PromptVersion)
 //
 // INTEGRATION passes rtSvc for notifications (*runtime.Service satisfies the
 // port structurally, D5/§E4).
 func NewService(
 	board BoardAPI, reader BoardReader, say Say, notifications NotificationStore,
-	convo ConversationReader, llm LLM, cfg Config, promptVersion PromptVersion,
+	convo ConversationReader, agents AgentInspector, llm LLM, cfg Config, promptVersion PromptVersion,
 ) *Service {
 	return &Service{
 		board:         board,
@@ -63,6 +64,7 @@ func NewService(
 		say:           say,
 		notifications: notifications,
 		convo:         convo,
+		agents:        agents,
 		llm:           llm,
 		cfg:           cfg,
 		prompts:       promptVersion,

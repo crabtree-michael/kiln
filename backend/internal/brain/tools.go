@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
@@ -20,12 +21,15 @@ const (
 	toolResultSummaryBytes = 512
 )
 
-// ToolName enumerates the ten tools (06 §4, amended by 08 §5/§7) — the brain's
-// entire action surface. Not in the set (06 §4, D3, I6): anything that pulls
-// (03 I6, the pull is a system action, never a brain decision), notify
-// (deferred to 10 — the mechanical notify.send from MarkBlocked still emits,
-// log-only in v1), and any board-read (the snapshot is already in context).
-// 08 adds the three feed tools: request_approval, post_update, retract_update.
+// ToolName enumerates the twelve tools (06 §4, amended by 08 §5/§7 and the
+// agent read tools) — the brain's entire action surface. Not in the set
+// (06 §4, D3, I6): anything that pulls (03 I6, the pull is a system action,
+// never a brain decision), notify (deferred to 10 — the mechanical
+// notify.send from MarkBlocked still emits, log-only in v1), and any
+// board-read (the snapshot is already in context). 08 adds the three feed
+// tools: request_approval, post_update, retract_update. The two read tools,
+// list_agents and get_agent_updates, give the model visibility into the
+// agent runtime without it needing to import internal/agent.
 type ToolName string
 
 const (
@@ -39,6 +43,8 @@ const (
 	ToolRequestApproval ToolName = "request_approval"
 	ToolPostUpdate      ToolName = "post_update"
 	ToolRetractUpdate   ToolName = "retract_update"
+	ToolListAgents      ToolName = "list_agents"
+	ToolGetAgentUpdates ToolName = "get_agent_updates"
 )
 
 // ToolDef is one tool's schema in the shape the Anthropic tool-use API
@@ -128,6 +134,14 @@ type RetractUpdateInput struct {
 	NotificationID int64 `json:"notification_id"`
 }
 
+// ListAgentsInput — list_agents takes no arguments (06 §4 amended).
+type ListAgentsInput struct{}
+
+// GetAgentUpdatesInput — get_agent_updates → AgentInspector.GetAgentUpdates(worker_id).
+type GetAgentUpdatesInput struct {
+	WorkerID string `json:"worker_id"`
+}
+
 const (
 	schemaKeyType        = "type"
 	schemaKeyDescription = "description"
@@ -144,6 +158,7 @@ const (
 	fieldTicket         = "ticket"
 	fieldImageURL       = "image_url"
 	fieldNotificationID = "notification_id"
+	fieldWorkerID       = "worker_id"
 
 	// notifKindUpdate/notifKindPreview are post_update's two kinds (08 §7):
 	// "preview" when an image is attached, "update" otherwise.
@@ -255,6 +270,20 @@ var Tools = []ToolDef{
 			fieldNotificationID: intSchema("The id of the notification to retract."),
 		}),
 	},
+	{
+		Name: ToolListAgents,
+		Description: "List the running agents (workers) and whether each is working a " +
+			"ticket or idle. Read-only.",
+		InputSchema: objectSchema([]string{}, map[string]any{}),
+	},
+	{
+		Name: ToolGetAgentUpdates,
+		Description: "Read an agent's latest completed output by worker id — use to check " +
+			"what a working agent last produced. Read-only.",
+		InputSchema: objectSchema([]string{fieldWorkerID}, map[string]any{
+			fieldWorkerID: stringSchema("Board worker id, from list_agents or the board snapshot."),
+		}),
+	},
 }
 
 // Dispatch executes one tool call against the injected ports — the
@@ -329,6 +358,10 @@ func (s *Service) routeTool(ctx context.Context, call ToolCall) (ToolResult, boo
 		return s.doPostUpdate(ctx, call)
 	case ToolRetractUpdate:
 		return s.doRetractUpdate(ctx, call)
+	case ToolListAgents:
+		return s.doListAgents(ctx, call)
+	case ToolGetAgentUpdates:
+		return s.doGetAgentUpdates(ctx, call)
 	default:
 		return ToolResult{
 			ToolCallID: call.ID,
@@ -459,4 +492,54 @@ func errorResult(id string, err error) ToolResult {
 // argument-shape problem from a precondition failure.
 func malformedResult(id string, err error) ToolResult {
 	return ToolResult{ToolCallID: id, Content: fmt.Sprintf("invalid tool arguments: %v", err), IsError: true}
+}
+
+func (s *Service) doListAgents(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	agents, err := s.agents.ListAgents(ctx)
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: formatAgents(agents)}, false
+}
+
+func (s *Service) doGetAgentUpdates(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in GetAgentUpdatesInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	u, err := s.agents.GetAgentUpdates(ctx, in.WorkerID)
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: formatUpdate(u)}, false
+}
+
+// formatAgents renders list_agents' result as one line per worker for the model.
+func formatAgents(agents []AgentInfo) string {
+	if len(agents) == 0 {
+		return "no running agents"
+	}
+	var b strings.Builder
+	for i, a := range agents {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "worker %s — %s", a.WorkerID, a.Status)
+		if a.TicketID != "" {
+			fmt.Fprintf(&b, " (ticket %s)", a.TicketID)
+		}
+	}
+	return b.String()
+}
+
+// formatUpdate renders get_agent_updates' result for the model.
+func formatUpdate(u AgentUpdate) string {
+	head := fmt.Sprintf("worker %s — %s", u.WorkerID, u.Status)
+	if u.IsError {
+		head += " (last turn errored)"
+	}
+	if u.LatestOutput == "" {
+		return head + "\nno completed output yet"
+	}
+	return head + "\nlatest output:\n" + u.LatestOutput
 }

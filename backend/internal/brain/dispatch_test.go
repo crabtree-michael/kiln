@@ -15,11 +15,12 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 )
 
-// TestToolSet_IsExactlyTenToolsInFixedOrder pins the tool set (06 §4, amended
-// by 08 §5/§7): no pull tool, no board-read tool — exactly these ten, in this
-// order (order matters for prompt-cache friendliness and golden fixtures,
-// 06 §4/§9). The last three are 08's feed tools.
-func TestToolSet_IsExactlyTenToolsInFixedOrder(t *testing.T) {
+// TestToolSet_IsExactlyTwelveToolsInFixedOrder pins the tool set (06 §4,
+// amended by 08 §5/§7 and the agent read tools): no pull tool, no board-read
+// tool — exactly these twelve, in this order (order matters for prompt-cache
+// friendliness and golden fixtures, 06 §4/§9). The last three are 08's feed
+// tools plus list_agents/get_agent_updates.
+func TestToolSet_IsExactlyTwelveToolsInFixedOrder(t *testing.T) {
 	want := []brain.ToolName{
 		brain.ToolCreateTicket,
 		brain.ToolShapeTicket,
@@ -31,6 +32,8 @@ func TestToolSet_IsExactlyTenToolsInFixedOrder(t *testing.T) {
 		brain.ToolRequestApproval,
 		brain.ToolPostUpdate,
 		brain.ToolRetractUpdate,
+		brain.ToolListAgents,
+		brain.ToolGetAgentUpdates,
 	}
 	if len(brain.Tools) != len(want) {
 		t.Fatalf("len(Tools) = %d, want %d (%v)", len(brain.Tools), len(want), want)
@@ -285,6 +288,49 @@ func TestDispatch_NotificationErrorFedBack(t *testing.T) {
 	}
 	if result.Content != wantErr.Error() {
 		t.Errorf("Content = %q, want verbatim %q", result.Content, wantErr.Error())
+	}
+}
+
+// TestDispatch_ListAgents_RoutesToInspector pins list_agents' mapping to
+// AgentInspector.ListAgents (06 §4 amended).
+func TestDispatch_ListAgents_RoutesToInspector(t *testing.T) {
+	fi := &fakeInspector{list: []brain.AgentInfo{
+		{WorkerID: workerW1, TicketID: "tkt-1", Status: brain.AgentWorking},
+		{WorkerID: "w-2", Status: brain.AgentIdle},
+	}}
+	svc := newTestServiceI(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fi, &scriptedLLM{})
+
+	call := newToolCall(t, "la-1", brain.ToolListAgents, brain.ListAgentsInput{})
+	result := svc.Dispatch(context.Background(), call)
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want false (%q)", result.Content)
+	}
+	if !strings.Contains(result.Content, workerW1) || !strings.Contains(result.Content, "tkt-1") ||
+		!strings.Contains(result.Content, "w-2") {
+		t.Errorf("Content = %q, want both workers", result.Content)
+	}
+}
+
+// TestDispatch_GetAgentUpdates_RoutesToInspector pins get_agent_updates'
+// mapping to AgentInspector.GetAgentUpdates(worker_id) (06 §4 amended).
+func TestDispatch_GetAgentUpdates_RoutesToInspector(t *testing.T) {
+	fi := &fakeInspector{update: brain.AgentUpdate{
+		WorkerID: workerW1, Status: brain.AgentWorking, LatestOutput: "all done",
+	}}
+	svc := newTestServiceI(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fi, &scriptedLLM{})
+
+	call := newToolCall(t, "gu-1", brain.ToolGetAgentUpdates, brain.GetAgentUpdatesInput{WorkerID: workerW1})
+	result := svc.Dispatch(context.Background(), call)
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want false (%q)", result.Content)
+	}
+	if fi.gotWorkerID != workerW1 {
+		t.Errorf("GetAgentUpdates worker = %q, want w-1", fi.gotWorkerID)
+	}
+	if !strings.Contains(result.Content, "all done") {
+		t.Errorf("Content = %q, want the latest output", result.Content)
 	}
 }
 

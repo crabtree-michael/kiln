@@ -92,3 +92,29 @@ type PassInput struct {
 	Transcript []Message
 	Event      Event
 }
+
+// AgentStatus / AgentInfo / AgentUpdate mirror the agent runtime's neutral
+// inspector shapes by value (06 §4, amended) — brain cannot import internal/agent
+// (same rule as the runtime payloads above), so the cmd/kiln adapter converts
+// agent.AgentInfo → brain.AgentInfo. No provider handle ever appears here.
+type AgentStatus string
+
+const (
+	AgentWorking AgentStatus = "working"
+	AgentIdle    AgentStatus = "idle"
+)
+
+type AgentInfo struct {
+	WorkerID  string
+	TicketID  string
+	Status    AgentStatus
+	UpdatedAt time.Time
+}
+
+type AgentUpdate struct {
+	WorkerID     string
+	Status       AgentStatus
+	LatestOutput string
+	IsError      bool
+	At           time.Time
+}

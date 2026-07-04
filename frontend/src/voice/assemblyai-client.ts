@@ -12,6 +12,7 @@
 import pcmWorkletUrl from '@/voice/pcm-worklet.ts?url';
 import type { VoiceProviderEvent } from '@/voice/commit-machine';
 import type { VoiceToken } from '@/transport/transport';
+import { computeRms } from '@/voice/volume-meter';
 
 // The processor name registered inside `pcm-worklet.ts`. Kept as a local literal
 // (not imported) because importing that module here would run its top-level
@@ -35,6 +36,10 @@ export interface StartVoiceStreamOptions {
 export interface VoiceStream {
   /** Sends Terminate, closes the socket, and stops the mic + AudioContext. */
   stop: () => void;
+  /** Current mic input loudness as a raw RMS (0..~1), sampled live off an
+   *  AnalyserNode tapping the mic — the dock's volume orb reads this each frame
+   *  (09 §3). Returns 0 before the audio graph is up or after teardown. */
+  getLevel: () => number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,6 +101,21 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
   let audioContext: AudioContext | null = null;
   let workletNode: AudioWorkletNode | null = null;
   let sourceNode: MediaStreamAudioSourceNode | null = null;
+  // The metering tap: an AnalyserNode fanned out from the same source that feeds
+  // the worklet, plus a reused scratch buffer `getLevel` fills each call. Kept
+  // separate from the PCM path so metering never perturbs what is streamed.
+  let analyserNode: AnalyserNode | null = null;
+  // `getFloatTimeDomainData` requires an `ArrayBuffer`-backed view (not the
+  // default `ArrayBufferLike`), so pin the buffer type on the declaration.
+  let levelBuffer: Float32Array<ArrayBuffer> | null = null;
+
+  function getLevel(): number {
+    if (analyserNode === null || levelBuffer === null) {
+      return 0;
+    }
+    analyserNode.getFloatTimeDomainData(levelBuffer);
+    return computeRms(levelBuffer);
+  }
 
   function teardown(): void {
     session.stopped = true;
@@ -113,6 +133,11 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
       workletNode.port.onmessage = null;
       workletNode.disconnect();
       workletNode = null;
+    }
+    if (analyserNode !== null) {
+      analyserNode.disconnect();
+      analyserNode = null;
+      levelBuffer = null;
     }
     if (sourceNode !== null) {
       sourceNode.disconnect();
@@ -182,6 +207,14 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
       const source = context.createMediaStreamSource(stream);
       sourceNode = source;
       source.connect(node);
+      // Fan the same source into an AnalyserNode so the dock's volume orb can
+      // read live loudness (09 §3). It is a read-only tap — not connected to the
+      // worklet or destination, so it never alters the PCM that is streamed.
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyserNode = analyser;
+      levelBuffer = new Float32Array(analyser.fftSize);
+      source.connect(analyser);
       // Intentionally NOT connected to `context.destination` — the user must not
       // hear their own mic echoed back. The worklet's job is only to emit PCM.
       node.port.onmessage = (event: MessageEvent): void => {
@@ -231,5 +264,5 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
 
   void init();
 
-  return { stop: teardown };
+  return { stop: teardown, getLevel };
 }

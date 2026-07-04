@@ -485,6 +485,34 @@ body:has([data-role='primary-screen']) {
   box-shadow: 0 6px 16px rgba(70, 28, 20, 0.08);
 }
 
+[data-role='dock-mic-orb'] {
+  /* The red mic-input volume orb (09 §3): a soft halo behind the mic glyph whose
+     size + brightness track `--mic-level` (0..1), written each animation frame by
+     the dock. Absolutely positioned so it never shifts the glyph's layout, and
+     painted first so the glyph stays on top. Idle at level 0 → invisible. */
+  --mic-level: 0;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    oklch(0.62 0.21 25 / 0.55) 0%,
+    oklch(0.62 0.22 25 / 0.28) 55%,
+    oklch(0.62 0.22 25 / 0) 72%
+  );
+  opacity: calc(var(--mic-level) * 0.9);
+  transform: scale(calc(1 + var(--mic-level) * 0.9));
+  /* A short linear transition micro-smooths the step between rAF samples so the
+     orb reads as continuous rather than stepped. */
+  transition:
+    opacity 0.09s linear,
+    transform 0.09s linear;
+}
+
 [data-role='dock-mic-capsule'] {
   width: 9px;
   height: 13px;
@@ -530,5 +558,12 @@ body:has([data-role='primary-screen']) {
   [data-role='thinking-spinner'],
   [data-role='dock-caret'] {
     animation: none;
+  }
+
+  /* Keep the orb's brightness feedback but drop the scaling motion so it does
+     not pulse for motion-sensitive users. */
+  [data-role='dock-mic-orb'] {
+    transform: none;
+    transition: none;
   }
 }

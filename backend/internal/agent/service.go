@@ -9,12 +9,32 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
 
 // maxAttempts is the machine's own retry budget for transient provider errors
 // (05 §5, 04 §3): terminal exhaustion moves the machine to failed, which then
 // owes the error-turn event.
 const maxAttempts = 8
+
+// instructionSummaryBytes / outputSummaryBytes bound how much of a delivered
+// instruction and a returned agent output a log line carries. The paired
+// *_hash fingerprints give exact identity — a redelivered stale instruction
+// (ticket 841fb6cc) shows the same instruction_hash, an unchanged output shows
+// the same output_hash — without logging kilobytes of diff.
+const (
+	instructionSummaryBytes = 512
+	outputSummaryBytes      = 1024
+)
+
+// deliveryTurn is the correlation/turn id for one delivery's whole agent-side
+// lifecycle (record → start → completed), keyed by the outbox id that also
+// serves as the idempotency key. ticket_id links it back to the brain pass
+// (evt-<id>) that decided the send.
+func deliveryTurn(idempotencyKey int64) string {
+	return fmt.Sprintf("delivery-%d", idempotencyKey)
+}
 
 // EventEnqueuer is this module's port onto the runtime's event queue
 // (04 §6): every terminal turn outcome becomes exactly one
@@ -83,6 +103,7 @@ func (s *Service) Send(ctx context.Context, idempotencyKey int64, payload []byte
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return fmt.Errorf("agent: decode send payload: %w", err)
 	}
+	ctx = obs.WithTurn(ctx, deliveryTurn(idempotencyKey))
 	turn := Turn{
 		IdempotencyKey: idempotencyKey,
 		Kind:           KindSend,
@@ -92,6 +113,17 @@ func (s *Service) Send(ctx context.Context, idempotencyKey int64, payload []byte
 		Phase:          PhaseRecorded,
 	}
 	s.markContinuation(ctx, &turn)
+	// The outbound delivery, logged at the seam it lands: instruction fingerprint
+	// + summary, whether it continues an existing conversation, and the outbox
+	// idempotency key. A stale/duplicate redelivery is the same instruction_hash
+	// on the same ticket (ticket 841fb6cc).
+	slog.InfoContext(ctx, "agent.delivery.recorded",
+		"idem_key", idempotencyKey,
+		"ticket_id", p.TicketID,
+		"worker_id", p.WorkerID,
+		"instruction_hash", obs.Hash(p.Message),
+		"instruction", obs.Summary(p.Message, instructionSummaryBytes),
+		"continuation", turn.ProviderTurn != nil)
 	if _, err := s.store.Record(ctx, turn); err != nil {
 		return fmt.Errorf("agent: record send: %w", err)
 	}
@@ -110,12 +142,14 @@ func (s *Service) Release(ctx context.Context, idempotencyKey int64, payload []b
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return fmt.Errorf("agent: decode release payload: %w", err)
 	}
+	ctx = obs.WithTurn(ctx, deliveryTurn(idempotencyKey))
 	turn := Turn{
 		IdempotencyKey: idempotencyKey,
 		Kind:           KindRelease,
 		WorkerID:       p.WorkerID,
 		Phase:          PhaseRecorded,
 	}
+	slog.InfoContext(ctx, "agent.release.recorded", "idem_key", idempotencyKey, "worker_id", p.WorkerID)
 	if _, err := s.store.Record(ctx, turn); err != nil {
 		return fmt.Errorf("agent: record release: %w", err)
 	}
@@ -174,8 +208,11 @@ func (s *Service) pollOnce(ctx context.Context) {
 	}
 }
 
-// advance dispatches one machine step by operation kind (05 §5).
+// advance dispatches one machine step by operation kind (05 §5). It stamps the
+// context with this delivery's turn id so every step it drives (start, check,
+// completed) shares one correlation id across the async poller.
 func (s *Service) advance(ctx context.Context, t Turn) {
+	ctx = obs.WithTurn(ctx, deliveryTurn(t.IdempotencyKey))
 	switch t.Kind {
 	case KindSend:
 		s.advanceSend(ctx, t)
@@ -263,6 +300,12 @@ func (s *Service) stepStartTurn(ctx context.Context, t Turn) {
 		s.handleStartTurnErr(ctx, t, fresh, err)
 		return
 	}
+	// The instruction is now actually in flight at the provider. fresh vs a
+	// continuation, plus the instruction fingerprint, is exactly what
+	// distinguishes a correct new turn from a stale redelivery (ticket 841fb6cc).
+	slog.InfoContext(ctx, "agent.turn.started",
+		"idem_key", t.IdempotencyKey, "ticket_id", t.TicketID, "worker_id", t.WorkerID,
+		"fresh", fresh, "instruction_hash", obs.Hash(t.Message))
 	t.ProviderTurn = &ref
 	t.Phase = PhaseTurnStarted
 	s.update(ctx, t)
@@ -329,6 +372,13 @@ func (s *Service) recordFailure(ctx context.Context, t Turn, cause error) {
 // emitCompleted enqueues one agent.turn_completed event (05 §2.2). No provider
 // handles leak into the payload.
 func (s *Service) emitCompleted(ctx context.Context, t Turn, isErr bool, output string, cost float64) {
+	// The inbound result, logged before it becomes an event: output fingerprint
+	// + summary keyed to the same delivery turn id and ticket, closing the loop
+	// opened by agent.delivery.recorded / agent.turn.started.
+	slog.InfoContext(ctx, "agent.turn.completed",
+		"idem_key", t.IdempotencyKey, "ticket_id", t.TicketID, "worker_id", t.WorkerID,
+		"is_error", isErr, "cost_usd", cost,
+		"output_hash", obs.Hash(output), "output", obs.Summary(output, outputSummaryBytes))
 	payload, err := json.Marshal(TurnCompleted{
 		TicketID: t.TicketID,
 		WorkerID: t.WorkerID,

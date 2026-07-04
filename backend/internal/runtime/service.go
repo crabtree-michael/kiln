@@ -6,7 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
+
+// eventPayloadSummaryBytes bounds how much of an event's raw payload is logged
+// at ingest — enough to eyeball a human message or turn-completed shape without
+// carrying a full (possibly truncated-elsewhere) agent output.
+const eventPayloadSummaryBytes = 1024
 
 // Brain is the runtime's port onto the decision step (02 §6): one call per
 // event, invoked serially by the events worker (04 §4). A replayed pass
@@ -307,7 +314,17 @@ func (s *Service) nudgeEvents() {
 // handleEvent is the events worker's handler: one brain pass per queued event
 // (04 §4, §6), typed from the raw Entry.
 func (s *Service) handleEvent(ctx context.Context, e Entry) error {
+	// The event id is this turn's correlation anchor: it rides the context so
+	// every log the brain pass emits — board mutations, transitions, says —
+	// carries turn_id=evt-<id>, letting a full turn be reconstructed end-to-end
+	// (trigger event → actions taken → result). Downstream agent deliveries the
+	// pass triggers run asynchronously in their own turn ids; ticket_id links
+	// the two sides.
+	ctx = obs.WithTurn(ctx, fmt.Sprintf("evt-%d", e.ID))
 	ev := Event{ID: e.ID, Type: EventType(e.Kind), Payload: e.Payload, CreatedAt: e.CreatedAt}
+	slog.InfoContext(ctx, "runtime.event.received",
+		"event_id", e.ID, "event_type", e.Kind, "attempts", e.Attempts,
+		"payload", obs.Summary(string(e.Payload), eventPayloadSummaryBytes))
 	// Bracket the brain pass with a thinking activity event (08 §4): On=true
 	// before, On=false after. This is the events queue only — the spinner
 	// tracks a decision step, not an outbox delivery. A failed push must not
@@ -315,8 +332,10 @@ func (s *Service) handleEvent(ctx context.Context, e Entry) error {
 	s.pushThinking(ctx, true)
 	defer s.pushThinking(ctx, false)
 	if err := s.brain.HandleEvent(ctx, ev); err != nil {
+		slog.ErrorContext(ctx, "runtime.event.failed", "event_id", e.ID, "event_type", e.Kind, "err", err)
 		return fmt.Errorf("runtime: brain pass for event %d: %w", e.ID, err)
 	}
+	slog.InfoContext(ctx, "runtime.event.handled", "event_id", e.ID, "event_type", e.Kind)
 	return nil
 }
 

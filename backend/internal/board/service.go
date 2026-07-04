@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -56,6 +57,7 @@ func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket,
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: create ticket: %w", err)
 	}
+	logTransition(ctx, "create_ticket", string(out.ID), "", out.State)
 	return out, nil
 }
 
@@ -63,7 +65,7 @@ func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket,
 // state is unchanged (03 §4).
 // Precondition: state ∈ {shaping, ready}.
 func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch) (Ticket, error) {
-	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+	return s.mutate(ctx, "shape_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping && t.State != StateReady {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ShapeTicket"}
 		}
@@ -88,7 +90,7 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 // approval (08 §5). Sets ApprovalRequested = true; the ticket stays in shaping.
 // Precondition: state = shaping. Emits feed.updated (a proposal card appears).
 func (s *Service) RequestApproval(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+	return s.mutate(ctx, "request_approval", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "RequestApproval"}
 		}
@@ -109,7 +111,7 @@ func (s *Service) RequestApproval(ctx context.Context, id TicketID) (Ticket, err
 // Precondition: state = shaping. Emits pull.evaluate, feed.updated, and a
 // "queued" activity toast (08 §B).
 func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+	return s.mutate(ctx, "mark_ready", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkReady"}
 		}
@@ -142,7 +144,7 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 // blocked_reason is cleared (03 §4).
 // Precondition: state ∈ {working, blocked}. Emits agent.send.
 func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction string) (Ticket, error) {
-	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+	return s.mutate(ctx, "send_to_agent", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "SendToAgent"}
 		}
@@ -183,7 +185,7 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 // (crash/timeout, exhausted delivery retries — 03 §7.3, 04 §3).
 // Precondition: state = working. Emits notify.send.
 func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (Ticket, error) {
-	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+	return s.mutate(ctx, "mark_blocked", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateWorking {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkBlocked"}
 		}
@@ -214,7 +216,7 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 // Precondition: state ∈ {working, blocked}. Emits pull.evaluate and
 // agent.release (recycle the freed worker — 05 §4).
 func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+	return s.mutate(ctx, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
 		}
@@ -300,6 +302,7 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: seed ticket: %w", err)
 	}
+	logTransition(ctx, "seed_ticket", string(out.ID), "", out.State)
 	return out, nil
 }
 
@@ -368,6 +371,7 @@ func (s *Service) RunPull(ctx context.Context) error {
 // stops RunPull's loop.
 func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 	bound := false
+	var boundTicket, boundWorker string
 	err := s.store.Tx(ctx, func(tx Tx) error {
 		ticket, ok, err := tx.NextReadyTicket(ctx)
 		if err != nil {
@@ -408,12 +412,29 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 			return fmt.Errorf("board: append activity.toast: %w", err)
 		}
 		bound = true
+		boundTicket = string(updated.ID)
+		boundWorker = string(wid)
 		return nil
 	})
 	if err != nil {
 		return false, fmt.Errorf("board: run pull: %w", err)
 	}
+	logPull(ctx, bound, boundTicket, boundWorker)
 	return bound, nil
+}
+
+// logPull emits the pull's ready→working board.transition when a binding
+// happened. The system pull is the one state change that is never a brain tool
+// (03 I6); logging it keeps every ready→working move — including an automatic
+// redelivery — in the same board.transition stream. Split out of pullOnce so
+// the pull's own control flow stays within the complexity budget.
+func logPull(ctx context.Context, bound bool, ticketID, workerID string) {
+	if !bound {
+		return
+	}
+	slog.InfoContext(ctx, "board.transition",
+		"op", "pull", "ticket_id", ticketID, "worker_id", workerID,
+		"from", string(StateReady), "to", string(StateWorking))
 }
 
 // mutate runs the common lock-then-check transaction shape (03 §6): lock the
@@ -421,17 +442,24 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 // emissions, then append the universal board.updated signal (03 §4). apply
 // returns the persisted ticket; any error rolls back the whole transaction so
 // no partial write or emission survives a failed precondition (03 I7, D8).
+//
+// op names the Board API operation for the board.transition log emitted on
+// commit — the authoritative before/after state record (turn_id injected from
+// context), covering every operation that flows through here.
 func (s *Service) mutate(
 	ctx context.Context,
+	op string,
 	id TicketID,
 	apply func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error),
 ) (Ticket, error) {
 	var out Ticket
+	var before State
 	err := s.store.Tx(ctx, func(tx Tx) error {
 		locked, err := tx.LockTicket(ctx, id)
 		if err != nil {
 			return fmt.Errorf("board: lock ticket %s: %w", id, err)
 		}
+		before = locked.State
 		updated, err := apply(ctx, tx, &locked)
 		if err != nil {
 			return err
@@ -445,7 +473,17 @@ func (s *Service) mutate(
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: mutate ticket %s: %w", id, err)
 	}
+	logTransition(ctx, op, string(id), before, out.State)
 	return out, nil
+}
+
+// logTransition emits the structured board.transition record (before/after
+// state + ticket id) once a mutation has committed. Shared by mutate, the
+// create/seed inserts (from ""), and the pull (op="pull") so every state change
+// — brain-driven or the system pull — appears in one greppable log stream.
+func logTransition(ctx context.Context, op, ticketID string, from, to State) {
+	slog.InfoContext(ctx, "board.transition",
+		"op", op, "ticket_id", ticketID, "from", string(from), "to", string(to))
 }
 
 // workOrder is RunPull's agent.send message — the ticket's title and body as

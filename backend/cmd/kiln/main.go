@@ -51,6 +51,9 @@ type Config struct {
 	LogLevel        string // KILN_LOG_LEVEL (docker-compose.yml)
 	WorkerCount     int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
 	DevEndpoints    bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
+
+	AssemblyAIAPIKey  string // ASSEMBLYAI_API_KEY — the STT provider's token-mint credential (09 §6)
+	AssemblyAIBaseURL string // ASSEMBLYAI_BASE_URL — override the streaming host (default in-adapter)
 }
 
 // Defaults for the composition root's configuration.
@@ -75,6 +78,9 @@ func loadConfig() Config {
 		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
 		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
 		DevEndpoints:    os.Getenv("KILN_DEV_ENDPOINTS") == "1",
+
+		AssemblyAIAPIKey:  os.Getenv("ASSEMBLYAI_API_KEY"),
+		AssemblyAIBaseURL: os.Getenv("ASSEMBLYAI_BASE_URL"),
 	}
 }
 

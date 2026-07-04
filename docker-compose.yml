@@ -38,6 +38,10 @@ services:
       AMIKA_BASE_URL: ${AMIKA_BASE_URL:-}
       AMIKA_REPO_URL: ${AMIKA_REPO_URL:-}
       AMIKA_SNAPSHOT: ${AMIKA_SNAPSHOT:-}
+      # STT provider (09 §2, §6). The backend mints a short-lived AssemblyAI
+      # streaming token; the browser opens the STT socket directly. Key never
+      # leaves the backend (02 §2). Sourced from .env.
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
       KILN_WORKER_COUNT: ${KILN_WORKER_COUNT:-}
       # Dev/e2e only: mount POST /api/dev/tickets so a test can seed a ticket without
       # the brain. v1 is local-only (02 §1); default on for this stack, never prod.

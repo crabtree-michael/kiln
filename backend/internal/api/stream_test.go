@@ -125,7 +125,10 @@ const streamReadTimeout = 2 * time.Second
 func TestHandleStream_SendsBoardSnapshotImmediatelyOnConnect(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 4, WorkerFree: 2}}
 	hub := api.NewHub(boards)
-	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, hub)
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -153,7 +156,10 @@ func TestHandleStream_SendsBoardSnapshotImmediatelyOnConnect(t *testing.T) {
 func TestHub_PushBoard_FansOutToEveryConnectedClient(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 1, WorkerFree: 1}}
 	hub := api.NewHub(boards)
-	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, hub)
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -198,7 +204,10 @@ func TestHub_PushBoard_FansOutToEveryConnectedClient(t *testing.T) {
 func TestHub_PushSay_DeliversSayEventToConnectedClients(t *testing.T) {
 	boards := &fakeBoardReader{}
 	hub := api.NewHub(boards)
-	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, hub)
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -236,7 +245,10 @@ func TestHub_PushSay_DeliversSayEventToConnectedClients(t *testing.T) {
 func TestHandleStream_Reconnect_GetsFreshSnapshotNotReplay(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 1}}
 	hub := api.NewHub(boards)
-	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, hub)
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

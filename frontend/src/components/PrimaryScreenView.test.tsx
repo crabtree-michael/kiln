@@ -84,7 +84,7 @@ function renderView(feed: Parameters<typeof PrimaryScreenView>[0]['feed']) {
       feed={feed}
       connectionState="connected"
       thinking={false}
-      pill={null}
+      toasts={[]}
       onDismiss={noop}
       onAccept={noop}
       now={NOW}
@@ -197,7 +197,7 @@ describe('PrimaryScreenView', () => {
         feed={makeFeedSnapshot({ summary: { stream_count: 3 }, cards: [proposal] })}
         connectionState="connected"
         thinking={false}
-        pill={null}
+        toasts={[]}
         onDismiss={noop}
         onAccept={(id) => {
           void acceptTicket(id);
@@ -226,7 +226,7 @@ describe('PrimaryScreenView', () => {
         feed={makeFeedSnapshot({ cards: [proposal] })}
         connectionState="connected"
         thinking={false}
-        pill={null}
+        toasts={[]}
         onDismiss={noop}
         onAccept={onAccept}
         now={NOW}

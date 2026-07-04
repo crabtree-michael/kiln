@@ -6,26 +6,30 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
     data-role="activity-row"
   >
     <div
-      data-role="toast-pill"
-      data-verb="started"
+      data-role="toast-stack"
     >
-      <span
-        aria-hidden="true"
-        data-role="toast-icon"
+      <div
+        data-role="toast-pill"
+        data-verb="started"
       >
-        🚀
-      </span>
-      <span
-        data-role="toast-text"
-      >
-        Started
-         
         <span
-          data-role="toast-title"
+          aria-hidden="true"
+          data-role="toast-icon"
         >
-          Login Redesign
+          🚀
         </span>
-      </span>
+        <span
+          data-role="toast-text"
+        >
+          Started
+           
+          <span
+            data-role="toast-title"
+          >
+            Login Redesign
+          </span>
+        </span>
+      </div>
     </div>
   </div>
 </div>
@@ -37,20 +41,24 @@ exports[`ActivityRow > matches the DOM-structure snapshot: say pill 1`] = `
     data-role="activity-row"
   >
     <div
-      data-role="say-pill"
+      data-role="toast-stack"
     >
-      <span
-        data-role="say-text"
+      <div
+        data-role="say-pill"
       >
-        Trust the session cookie.
-      </span>
-      <button
-        aria-label="Dismiss"
-        data-role="say-dismiss"
-        type="button"
-      >
-        ×
-      </button>
+        <span
+          data-role="say-text"
+        >
+          Trust the session cookie.
+        </span>
+        <button
+          aria-label="Dismiss"
+          data-role="say-dismiss"
+          type="button"
+        >
+          ×
+        </button>
+      </div>
     </div>
   </div>
 </div>

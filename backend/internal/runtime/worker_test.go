@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 var errHandlerFailed = errors.New("handler: synthetic failure")
@@ -24,7 +25,7 @@ func noopDeadLetter(_ context.Context, _ runtime.Entry, _ error) error { return 
 // ---- serial, id-ordered drain (04 §4) -------------------------------------
 
 func TestWorker_ProcessesEntriesSeriallyInIDOrder(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 
 	const n = 5
@@ -60,7 +61,7 @@ func TestWorker_ProcessesEntriesSeriallyInIDOrder(t *testing.T) {
 	}
 
 	close(gate)
-	eventually(t, func() bool {
+	testutil.Eventually(t, func() bool {
 		orderMu.Lock()
 		defer orderMu.Unlock()
 		return len(order) == n
@@ -79,7 +80,7 @@ func TestWorker_ProcessesEntriesSeriallyInIDOrder(t *testing.T) {
 // ---- execute-then-mark, at-least-once (04 §3 step 2-3) --------------------
 
 func TestWorker_ExecuteThenMark_SuccessMarksDone(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	id := store.seed(runtime.QueueOutbox, "pull.evaluate", []byte(`{}`), 0)
 
@@ -101,11 +102,11 @@ func TestWorker_ExecuteThenMark_SuccessMarksDone(t *testing.T) {
 		if e.Attempts != 1 {
 			t.Errorf("first claim's Attempts = %d, want 1 (claim increments attempts, 04 §3 step 1)", e.Attempts)
 		}
-	case <-time.After(eventuallyTimeout):
+	case <-time.After(testutil.EventuallyTimeout):
 		t.Fatal("handler was never invoked")
 	}
 
-	eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == statusDone })
+	testutil.Eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == statusDone })
 	if got := store.doneCallCount(); got != 1 {
 		t.Errorf("MarkDone called %d times, want exactly 1", got)
 	}
@@ -118,7 +119,7 @@ func TestWorker_ExecuteThenMark_SuccessMarksDone(t *testing.T) {
 // after each of the first 7, then the dead-letter action on the 8th — the
 // schedule the spec pins verbatim: min(1s*2^(attempts-1), 60s).
 func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	id := store.seed(runtime.QueueEvents, string(runtime.EventHumanMessage), []byte(`{}`), 0)
 
@@ -138,11 +139,11 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 	defer stop()
 
 	stopPump := make(chan struct{})
-	go clock.pump(stopPump)
+	go clock.Pump(stopPump, pumpStep)
 	defer close(stopPump)
 
-	eventually(t, func() bool { return store.retryCallCount() >= 7 })
-	eventually(t, func() bool { return store.deadCallCount() >= 1 })
+	testutil.Eventually(t, func() bool { return store.retryCallCount() >= 7 })
+	testutil.Eventually(t, func() bool { return store.deadCallCount() >= 1 })
 
 	wantDelays := []time.Duration{
 		1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
@@ -183,7 +184,7 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 // to the worker's loop: an entry whose next_attempt_at is in the future must
 // not be handled until the clock reaches it.
 func TestWorker_DoesNotClaimBeforeDue(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	id := store.seed(runtime.QueueOutbox, "notify.send", []byte(`{}`), 0)
 	// Push the row's due time 10s into the future, simulating a row already
@@ -207,9 +208,9 @@ func TestWorker_DoesNotClaimBeforeDue(t *testing.T) {
 	}
 
 	stopPump := make(chan struct{})
-	go clock.pump(stopPump)
+	go clock.Pump(stopPump, pumpStep)
 	defer close(stopPump)
-	eventually(t, func() bool { return calls == 1 })
+	testutil.Eventually(t, func() bool { return calls == 1 })
 }
 
 // ---- wakeup: Nudge beats the poll fallback (04 §5) ------------------------
@@ -251,7 +252,7 @@ func TestWorker_Nudge_WakesFasterThanPollFallback(t *testing.T) {
 // ---- deploy-safe recovery: crash-replay needs no special code path (04 §5) -
 
 func TestWorker_CrashReplay_ReRunsAPendingEntryWithPriorAttempts(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	// Simulate a crash between claim and mark: the row is still "pending"
 	// (04 D4 — no in-flight status) but already carries one attempt.
@@ -275,8 +276,8 @@ func TestWorker_CrashReplay_ReRunsAPendingEntryWithPriorAttempts(t *testing.T) {
 			t.Errorf("Attempts = %d, want 2 (1 pre-crash + 1 re-claim) — recovery is just re-finding "+
 				"pending rows, no special code path (04 §5)", e.Attempts)
 		}
-	case <-time.After(eventuallyTimeout):
+	case <-time.After(testutil.EventuallyTimeout):
 		t.Fatal("worker never re-ran the crashed, still-pending entry")
 	}
-	eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == statusDone })
+	testutil.Eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == statusDone })
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/agent/mock"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 const (
@@ -67,8 +68,8 @@ func (r *recordingProvider) startTurnCalls() []startTurnCall {
 	return append([]startTurnCall(nil), r.calls...)
 }
 
-func newHarness(workerIDs ...string) (*fakeStore, *fakeEvents, *fakeSlots, *fakeClock) {
-	return newFakeStore(), &fakeEvents{}, &fakeSlots{ids: workerIDs}, newFakeClock()
+func newHarness(workerIDs ...string) (*fakeStore, *fakeEvents, *fakeSlots, *testutil.FakeClock) {
+	return newFakeStore(), &fakeEvents{}, &fakeSlots{ids: workerIDs}, testutil.NewFakeClock()
 }
 
 func TestRun_FreshSendCompletesAndEmitsTurnCompleted(t *testing.T) {
@@ -84,7 +85,7 @@ func TestRun_FreshSendCompletesAndEmitsTurnCompleted(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	tcs := events.turnCompletedEvents(t)
 	if len(tcs) != 1 {
@@ -125,7 +126,7 @@ func TestRun_TurnCompletedPayloadCarriesNoProviderHandles(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	raws := events.rawPayloads(agent.EventTurnCompleted)
 	if len(raws) != 1 {
@@ -168,7 +169,7 @@ func TestRun_ProvisioningFailureStillEmitsErrorTurnCompletedAndReachesDone(t *te
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	tcs := events.turnCompletedEvents(t)
 	if len(tcs) != 1 {
@@ -205,7 +206,7 @@ func TestRun_TerminalTurnErrorStillEmitsEventAndReachesDone(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	tcs := events.turnCompletedEvents(t)
 	if len(tcs) != 1 {
@@ -234,7 +235,7 @@ func TestRun_TransientStartTurnFailuresRetryThenSucceed(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	tcs := events.turnCompletedEvents(t)
 	if len(tcs) != 1 {
@@ -259,7 +260,7 @@ func TestRun_StartTurnExhaustingRetryBudgetBecomesFailed(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	tcs := events.turnCompletedEvents(t)
 	if len(tcs) != 1 {
@@ -291,14 +292,14 @@ func TestRun_ContinuationSendReusesTheRecordedConversation(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	secondMsg := sendPayload(t, testTicketID, testWorkerID, "follow-up message")
 	if err := svc.Send(context.Background(), 2, secondMsg); err != nil {
 		t.Fatalf("Send #2: %v", err)
 	}
 
-	eventually(t, func() bool { return events.count() >= 2 })
+	testutil.Eventually(t, func() bool { return events.count() >= 2 })
 
 	calls := provider.startTurnCalls()
 	if len(calls) < 2 {
@@ -331,7 +332,7 @@ func TestRun_ReleaseThenSendStartsFreshConversationAgain(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	if err := svc.Release(context.Background(), 2, releasePayload(t, testWorkerID)); err != nil {
 		t.Fatalf("Release: %v", err)
@@ -340,7 +341,7 @@ func TestRun_ReleaseThenSendStartsFreshConversationAgain(t *testing.T) {
 	// Release has no CheckTurn to observe; wait for its own machine row to
 	// settle instead of counting turn_completed events (05 §5: release uses
 	// only recorded -> done/failed, destroy then recreate-to-ready, no turn).
-	eventually(t, func() bool {
+	testutil.Eventually(t, func() bool {
 		row, ok := store.get(2)
 		return ok && row.Phase == agent.PhaseDone
 	})
@@ -349,7 +350,7 @@ func TestRun_ReleaseThenSendStartsFreshConversationAgain(t *testing.T) {
 		t.Fatalf("second Send: %v", err)
 	}
 
-	eventually(t, func() bool { return len(provider.startTurnCalls()) >= 2 })
+	testutil.Eventually(t, func() bool { return len(provider.startTurnCalls()) >= 2 })
 
 	calls := provider.startTurnCalls()
 	last := calls[len(calls)-1]
@@ -374,7 +375,7 @@ func TestRun_ConversationLossFallsBackToFreshConversationNeverFailingTheTicket(t
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	p.DropConversation(agent.WorkerName(testWorkerID))
 
@@ -383,7 +384,7 @@ func TestRun_ConversationLossFallsBackToFreshConversationNeverFailingTheTicket(t
 		t.Fatalf("Send #2: %v", err)
 	}
 
-	eventually(t, func() bool { return events.count() >= 2 })
+	testutil.Eventually(t, func() bool { return events.count() >= 2 })
 
 	tcs := events.turnCompletedEvents(t)
 	last := tcs[len(tcs)-1]
@@ -425,7 +426,7 @@ func TestRun_RecoversNonTerminalRowsOnStartWithoutSend(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return events.count() >= 1 })
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
 
 	tcs := events.turnCompletedEvents(t)
 	if len(tcs) != 1 || tcs[0].TicketID != testTicketID || tcs[0].IsError {

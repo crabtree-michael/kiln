@@ -1,7 +1,7 @@
 // Split from chat-store.tsx so that file exports only the `ChatProvider`
 // component (react-refresh/only-export-components) — this file carries the
 // message shape, the context, and the consumer hook.
-import { createContext, useContext } from 'react';
+import { createStoreContext } from '@/stores/create-store-context';
 
 export type ChatMessageRole = 'user' | 'kiln';
 
@@ -34,12 +34,7 @@ export interface ChatStoreValue {
   retryMessage: (clientId: string) => Promise<void>;
 }
 
-export const ChatStoreContext = createContext<ChatStoreValue | undefined>(undefined);
+const { Context: ChatStoreContext, useStore: useChatStore } =
+  createStoreContext<ChatStoreValue>('useChatStore');
 
-export function useChatStore(): ChatStoreValue {
-  const context = useContext(ChatStoreContext);
-  if (context === undefined) {
-    throw new Error('useChatStore must be used within a ChatProvider');
-  }
-  return context;
-}
+export { ChatStoreContext, useChatStore };

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
+	"github.com/crabtree-michael/kiln/backend/internal/pgutil"
 )
 
 // columns is the full agent_turns projection every read scans.
@@ -30,11 +31,6 @@ var _ agent.Store = (*Store)(nil)
 // startup (tooling TBD — 02 §14).
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-// scanner is the shared shape of *sql.Row and *sql.Rows.
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // Record inserts the machine's initial row; a repeated idempotency key is a
 // no-op reported as created=false (05 §7).
 func (s *Store) Record(ctx context.Context, t agent.Turn) (bool, error) {
@@ -48,8 +44,8 @@ func (s *Store) Record(ctx context.Context, t agent.Turn) (bool, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (idempotency_key) DO NOTHING`
 	res, err := s.db.ExecContext(ctx, q,
-		t.IdempotencyKey, string(t.Kind), nullString(t.TicketID), t.WorkerID, t.Message,
-		phaseValue(t.Phase), nullString(t.ProviderWorker), providerTurn, t.Attempts, nullString(t.LastError))
+		t.IdempotencyKey, string(t.Kind), pgutil.NullString(t.TicketID), t.WorkerID, t.Message,
+		phaseValue(t.Phase), pgutil.NullString(t.ProviderWorker), providerTurn, t.Attempts, pgutil.NullString(t.LastError))
 	if err != nil {
 		return false, fmt.Errorf("agent/postgres: record: %w", err)
 	}
@@ -98,8 +94,8 @@ func (s *Store) Update(ctx context.Context, t agent.Turn) error {
 		    attempts = $5, last_error = $6, updated_at = now()
 		WHERE idempotency_key = $1`
 	if _, err := s.db.ExecContext(ctx, q,
-		t.IdempotencyKey, phaseValue(t.Phase), nullString(t.ProviderWorker),
-		providerTurn, t.Attempts, nullString(t.LastError)); err != nil {
+		t.IdempotencyKey, phaseValue(t.Phase), pgutil.NullString(t.ProviderWorker),
+		providerTurn, t.Attempts, pgutil.NullString(t.LastError)); err != nil {
 		return fmt.Errorf("agent/postgres: update: %w", err)
 	}
 	return nil
@@ -120,7 +116,7 @@ func (s *Store) LatestForWorker(ctx context.Context, workerID string) (agent.Tur
 }
 
 // scanTurn reads one agent_turns row in `columns` order.
-func scanTurn(sc scanner) (agent.Turn, error) {
+func scanTurn(sc pgutil.RowScanner) (agent.Turn, error) {
 	var (
 		t              agent.Turn
 		kind, phase    string
@@ -160,14 +156,6 @@ func marshalTurnRef(ref *agent.TurnRef) (sql.NullString, error) {
 		return sql.NullString{}, fmt.Errorf("agent/postgres: encode provider_turn: %w", err)
 	}
 	return sql.NullString{String: string(b), Valid: true}, nil
-}
-
-// nullString maps "" to SQL NULL so nullable text/uuid columns stay clean.
-func nullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: s, Valid: true}
 }
 
 // phaseValue defaults an unset phase to recorded (the table's own default).

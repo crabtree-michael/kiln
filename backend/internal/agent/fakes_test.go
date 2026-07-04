@@ -15,112 +15,20 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 // errUnknownTurn marks an Update() call against a key fakeStore never Recorded.
 var errUnknownTurn = errors.New("fakeStore: update of unknown turn")
 
-// ---- fakeClock -------------------------------------------------------
-
-// clockWaiter is one pending After() call: fired once the fake clock's Now()
-// reaches or passes deadline.
-type clockWaiter struct {
-	deadline time.Time
-	ch       chan time.Time
-}
-
-// fakeClock is a manually-advanced agent.Clock. Tests step simulated time
-// forward explicitly (via Advance/pump) so the real 2s poll / 60s reconcile
-// cadence (turn.go PollInterval/ReconcileInterval) never costs real wall
-// time — the whole point of the Clock port existing (05 §10).
-type fakeClock struct {
-	mu      sync.Mutex
-	now     time.Time
-	waiters []clockWaiter
-}
-
-func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)}
-}
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *fakeClock) After(d time.Duration) <-chan time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ch := make(chan time.Time, 1)
-	c.waiters = append(c.waiters, clockWaiter{deadline: c.now.Add(d), ch: ch})
-	return ch
-}
-
-// Advance moves the clock forward by d and fires every waiter whose deadline
-// has elapsed.
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-	remaining := c.waiters[:0]
-	for _, w := range c.waiters {
-		if !w.deadline.After(c.now) {
-			w.ch <- c.now
-		} else {
-			remaining = append(remaining, w)
-		}
-	}
-	c.waiters = remaining
-}
-
-// pump advances the clock by step on a tight real-time heartbeat until stop
-// is closed. This is the "without real sleeps" trick: the *simulated*
-// interval a Run loop waits on (2s poll, 60s reconcile) is what advances —
-// the real wall-clock cost is only the heartbeat tick (1ms), so a test
-// crosses many simulated poll/reconcile cycles in well under a second of
-// real time.
-func (c *fakeClock) pump(stop <-chan struct{}, step time.Duration) {
-	t := time.NewTicker(time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-t.C:
-			c.Advance(step)
-		}
-	}
-}
-
-// eventuallyTimeout bounds every eventually() wait below: real scheduling
-// slack only, never the module's own PollInterval/ReconcileInterval (those
-// are owned and sped up by fakeClock).
-const eventuallyTimeout = 2 * time.Second
-
-// eventually polls cond until it's true or eventuallyTimeout elapses.
-func eventually(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(eventuallyTimeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	if !cond() {
-		t.Fatalf("condition not met within %s", eventuallyTimeout)
-	}
-}
-
 // runService starts svc.Run in the background against a fake clock that's
 // continuously pumped, and returns a stop func that cancels the context and
 // waits for Run to return (failing the test if it doesn't, promptly).
-func runService(t *testing.T, svc *agent.Service, clock *fakeClock) func() {
+func runService(t *testing.T, svc *agent.Service, clock *testutil.FakeClock) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	stopPump := make(chan struct{})
-	go clock.pump(stopPump, time.Second)
+	go clock.Pump(stopPump, time.Second)
 
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
@@ -133,7 +41,7 @@ func runService(t *testing.T, svc *agent.Service, clock *fakeClock) func() {
 			if err != nil {
 				t.Errorf("Service.Run returned an error after context cancellation: %v", err)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(testutil.EventuallyTimeout):
 			t.Error("Service.Run did not return after context cancellation")
 		}
 	}

@@ -8,32 +8,14 @@
 // connection, later subscribers just get fanned events from it, and the
 // last one to unsubscribe closes it.
 import { openStream } from '@/transport/transport';
-import type {
-  Board,
-  ConnectionState,
-  SayEvent,
-  StreamConnection,
-  StreamHandlers,
-} from '@/transport/transport';
+import type { StreamConnection, StreamHandlers } from '@/transport/transport';
 
 let connection: StreamConnection | null = null;
 const subscribers = new Set<StreamHandlers>();
 
-function fanOutBoard(board: Board): void {
+function fanOut(invoke: (subscriber: StreamHandlers) => void): void {
   for (const subscriber of subscribers) {
-    subscriber.onBoard(board);
-  }
-}
-
-function fanOutSay(event: SayEvent): void {
-  for (const subscriber of subscribers) {
-    subscriber.onSay(event);
-  }
-}
-
-function fanOutConnectionState(state: ConnectionState): void {
-  for (const subscriber of subscribers) {
-    subscriber.onConnectionStateChange(state);
+    invoke(subscriber);
   }
 }
 
@@ -41,9 +23,21 @@ function fanOutConnectionState(state: ConnectionState): void {
 export function subscribeStream(handlers: StreamHandlers): () => void {
   subscribers.add(handlers);
   connection ??= openStream({
-    onBoard: fanOutBoard,
-    onSay: fanOutSay,
-    onConnectionStateChange: fanOutConnectionState,
+    onBoard: (board) => {
+      fanOut((s) => {
+        s.onBoard(board);
+      });
+    },
+    onSay: (event) => {
+      fanOut((s) => {
+        s.onSay(event);
+      });
+    },
+    onConnectionStateChange: (state) => {
+      fanOut((s) => {
+        s.onConnectionStateChange(state);
+      });
+    },
   });
 
   return () => {

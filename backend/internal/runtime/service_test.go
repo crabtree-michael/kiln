@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 var errStoreFailed = errors.New("fakeMessageStore: synthetic failure")
@@ -27,7 +28,7 @@ func newTestService(
 // ---- EnqueueEvent (04 §6) --------------------------------------------------
 
 func TestService_EnqueueEvent_InsertsIntoStore(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	svc := newTestService(store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
@@ -59,7 +60,7 @@ func TestService_EnqueueEvent_InsertsIntoStore(t *testing.T) {
 // ---- PostMessage (07 §3-§4) ------------------------------------------------
 
 func TestService_PostMessage_DelegatesToMessageStoreAndReturnsBothIDs(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{}
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
@@ -81,7 +82,7 @@ func TestService_PostMessage_DelegatesToMessageStoreAndReturnsBothIDs(t *testing
 // transactional append+enqueue (07 §3: "the transcript and the event queue
 // cannot disagree" — a failure here must be visible, not silently partial).
 func TestService_PostMessage_PropagatesStoreErrorWithoutPartialIDs(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{
 		appendUserFn: func(context.Context, string) (int64, int64, error) {
 			return 0, 0, errStoreFailed
@@ -102,7 +103,7 @@ func TestService_PostMessage_PropagatesStoreErrorWithoutPartialIDs(t *testing.T)
 // ---- Say: append-then-push (07 §3, §6) ------------------------------------
 
 func TestService_Say_AppendsThenPushes(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{}
 	sayer := &fakeSayPusher{}
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
@@ -128,7 +129,7 @@ func TestService_Say_AppendsThenPushes(t *testing.T) {
 // SSE push (07 §3 — "a crash between them costs a live push, not history",
 // implying the push only happens once the row is durable).
 func TestService_Say_DoesNotPushWhenAppendFails(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{
 		appendKilnFn: func(context.Context, string) (runtime.Message, error) {
 			return runtime.Message{}, errStoreFailed
@@ -149,7 +150,7 @@ func TestService_Say_DoesNotPushWhenAppendFails(t *testing.T) {
 // ---- Recent (07 §3-§4) ------------------------------------------------------
 
 func TestService_Recent_DelegatesToMessageStore(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{}
 	ctx := context.Background()
 	if _, _, err := messages.AppendUserMessageAndEnqueueEvent(ctx, "one"); err != nil {
@@ -180,7 +181,7 @@ func TestService_Recent_DelegatesToMessageStore(t *testing.T) {
 // (04 §4, §6) ----------------------------------------------------------------
 
 func TestService_Workers_EventsWorkerDrivesBrainOncePerEvent(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	brain := &fakeBrain{}
 	svc := newTestService(store, &fakeMessageStore{}, brain, &fakePuller{}, &fakeBlocker{},
@@ -199,7 +200,7 @@ func TestService_Workers_EventsWorkerDrivesBrainOncePerEvent(t *testing.T) {
 	stop := runWorker(t, eventsWorker)
 	defer stop()
 
-	eventually(t, func() bool { return brain.count("HandleEvent") == 2 })
+	testutil.Eventually(t, func() bool { return brain.count("HandleEvent") == 2 })
 	time.Sleep(20 * time.Millisecond) // give any stray extra dispatch a chance to show up
 	if got := brain.count("HandleEvent"); got != 2 {
 		t.Fatalf("Brain.HandleEvent called %d times, want exactly 2 (one per event, 04 §4)", got)
@@ -229,7 +230,7 @@ const (
 )
 
 func TestService_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	agents := &fakeAgentRuntime{}
 	notifier := &fakeNotifier{}
@@ -254,7 +255,7 @@ func TestService_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
-	eventually(t, func() bool {
+	testutil.Eventually(t, func() bool {
 		return agents.count("Send") >= 1 && agents.count("Release") >= 1 &&
 			puller.count("RunPull") >= 1 && notifier.count("Send") >= 1 && pusher.count("PushBoard") >= 1
 	})
@@ -275,7 +276,7 @@ func TestService_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 // table, 03 §7.3) ------------------------------------------------------------
 
 func TestService_Workers_ExhaustedAgentSendMarksTicketBlocked(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	blocker := &fakeBlocker{}
 	agents := &fakeAgentRuntime{
@@ -296,10 +297,10 @@ func TestService_Workers_ExhaustedAgentSendMarksTicketBlocked(t *testing.T) {
 	defer stop()
 
 	stopPump := make(chan struct{})
-	go clock.pump(stopPump)
+	go clock.Pump(stopPump, pumpStep)
 	defer close(stopPump)
 
-	eventually(t, func() bool { return blocker.count("MarkBlocked") >= 1 })
+	testutil.Eventually(t, func() bool { return blocker.count("MarkBlocked") >= 1 })
 	time.Sleep(20 * time.Millisecond)
 	if got := blocker.count("MarkBlocked"); got != 1 {
 		t.Fatalf("MarkBlocked called %d times, want exactly 1", got)
@@ -333,7 +334,7 @@ func TestService_Workers_ExhaustedAgentSendMarksTicketBlocked(t *testing.T) {
 // pull.evaluate/board.updated log-and-drop (or self-heal) rather than
 // touching the Blocker port at all — only agent.send does.
 func TestService_Workers_ExhaustedNonAgentSendTopics_DoNotMarkBlocked(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	blocker := &fakeBlocker{}
 	notifier := &fakeNotifier{
@@ -355,10 +356,10 @@ func TestService_Workers_ExhaustedNonAgentSendTopics_DoNotMarkBlocked(t *testing
 	defer stop()
 
 	stopPump := make(chan struct{})
-	go clock.pump(stopPump)
+	go clock.Pump(stopPump, pumpStep)
 	defer close(stopPump)
 
-	eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == "dead" })
+	testutil.Eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == "dead" })
 	time.Sleep(20 * time.Millisecond)
 	if got := blocker.count("MarkBlocked"); got != 0 {
 		t.Errorf("MarkBlocked called %d times for an exhausted notify.send, want 0 (04 §3: log-and-drop, not blocked)", got)

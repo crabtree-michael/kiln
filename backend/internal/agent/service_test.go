@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 // blockingProvider hangs on every method until closeBlock is closed (never,
@@ -92,7 +93,7 @@ func releasePayload(t *testing.T, workerID string) []byte {
 
 func TestSend_DoesNotBlockOnTheProvider(t *testing.T) {
 	provider := newBlockingProvider()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 
 	done := make(chan error, 1)
 	go func() {
@@ -116,7 +117,7 @@ func TestSend_DoesNotBlockOnTheProvider(t *testing.T) {
 
 func TestRelease_DoesNotBlockOnTheProvider(t *testing.T) {
 	provider := newBlockingProvider()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 
 	done := make(chan error, 1)
 	go func() {
@@ -140,7 +141,7 @@ func TestRelease_DoesNotBlockOnTheProvider(t *testing.T) {
 
 func TestSend_RecordsTheDecodedPayload(t *testing.T) {
 	store := newFakeStore()
-	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 
 	if err := svc.Send(context.Background(), 7, sendPayload(t, "ticket-9", "worker-9", "fix the flaky test")); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -163,7 +164,7 @@ func TestSend_RecordsTheDecodedPayload(t *testing.T) {
 
 func TestRelease_RecordsTheDecodedPayload(t *testing.T) {
 	store := newFakeStore()
-	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 
 	if err := svc.Release(context.Background(), 8, releasePayload(t, "worker-9")); err != nil {
 		t.Fatalf("Release: %v", err)
@@ -186,7 +187,7 @@ func TestRelease_RecordsTheDecodedPayload(t *testing.T) {
 
 func TestSend_DuplicateIdempotencyKeyIsSilentSuccessWithNoSecondTurn(t *testing.T) {
 	store := newFakeStore()
-	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 
 	payload := sendPayload(t, "ticket-1", "worker-1", "hello")
 	if err := svc.Send(context.Background(), 42, payload); err != nil {
@@ -207,7 +208,7 @@ func TestSend_DuplicateIdempotencyKeyIsSilentSuccessWithNoSecondTurn(t *testing.
 
 func TestRelease_DuplicateIdempotencyKeyIsSilentSuccessWithNoSecondTurn(t *testing.T) {
 	store := newFakeStore()
-	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(store, newBlockingProvider(), &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 
 	payload := releasePayload(t, "worker-1")
 	if err := svc.Release(context.Background(), 43, payload); err != nil {

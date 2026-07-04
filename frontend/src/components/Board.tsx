@@ -41,7 +41,11 @@ export function Board(): JSX.Element {
       </div>
       <div data-role="board-columns">
         <BoardColumn title="Backlog" zones={backlogZones} onSelectTicket={setSelectedTicket} />
-        <BoardColumn title="Developing" zones={developingZones} onSelectTicket={setSelectedTicket} />
+        <BoardColumn
+          title="Developing"
+          zones={developingZones}
+          onSelectTicket={setSelectedTicket}
+        />
         <BoardColumn title="Done" zones={doneZones} onSelectTicket={setSelectedTicket} />
       </div>
       {selectedTicket !== null && (

@@ -55,7 +55,12 @@ export function TicketDetail({ ticket, onClose }: TicketDetailProps): JSX.Elemen
       >
         <header data-role="ticket-detail-header">
           <h2 data-role="ticket-detail-title">{ticket.title}</h2>
-          <button type="button" data-role="ticket-detail-close" aria-label="Close" onClick={onClose}>
+          <button
+            type="button"
+            data-role="ticket-detail-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
             ×
           </button>
         </header>

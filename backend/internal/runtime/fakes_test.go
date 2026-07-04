@@ -591,3 +591,155 @@ func (f *fakeSayPusher) pushedMessages() []runtime.Message {
 }
 
 var _ runtime.SayPusher = (*fakeSayPusher)(nil)
+
+// ---- fakeNotificationStore, fakeBoardReader, fakeFeedPusher,
+// fakeActivityPusher: the 08 §7 ports service.go names. In-memory and offline,
+// mirroring the other fakes; the postgres NotificationStore is exercised in
+// store_integration_test.go.
+
+// fakeNotificationStore is an in-memory runtime.NotificationStore: post/retract/
+// mark-seen mutate an in-memory slice, and UnseenNotifications returns the
+// neither-seen-nor-retracted rows newest-first (08 §3).
+type fakeNotificationStore struct {
+	mu    sync.Mutex
+	rows  []runtime.Notification
+	next  int64
+	posts []runtime.Notification
+
+	postFn    func(ctx context.Context, kind, body string, ticketID, imageURL *string) (runtime.Notification, error)
+	retractFn func(ctx context.Context, id int64) error
+	markSeenN []int64
+}
+
+func (f *fakeNotificationStore) PostNotification(
+	ctx context.Context, kind, body string, ticketID, imageURL *string,
+) (runtime.Notification, error) {
+	if f.postFn != nil {
+		return f.postFn(ctx, kind, body, ticketID, imageURL)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.next++
+	n := runtime.Notification{
+		ID: f.next, Kind: runtime.NotificationKind(kind), Body: body,
+		TicketID: ticketID, ImageURL: imageURL, CreatedAt: time.Now(),
+	}
+	f.rows = append(f.rows, n)
+	f.posts = append(f.posts, n)
+	return n, nil
+}
+
+func (f *fakeNotificationStore) RetractNotification(ctx context.Context, id int64) error {
+	if f.retractFn != nil {
+		return f.retractFn(ctx, id)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := time.Now()
+	for i := range f.rows {
+		if f.rows[i].ID == id {
+			f.rows[i].RetractedAt = &now
+		}
+	}
+	return nil
+}
+
+func (f *fakeNotificationStore) MarkSeen(_ context.Context, lastID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.markSeenN = append(f.markSeenN, lastID)
+	now := time.Now()
+	for i := range f.rows {
+		if f.rows[i].SeenAt == nil && f.rows[i].ID <= lastID {
+			f.rows[i].SeenAt = &now
+		}
+	}
+	return nil
+}
+
+func (f *fakeNotificationStore) UnseenNotifications(_ context.Context) ([]runtime.Notification, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []runtime.Notification
+	for _, n := range slices.Backward(f.rows) { // newest-first
+		if n.SeenAt == nil && n.RetractedAt == nil {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+// seed inserts an already-persisted notification directly, bypassing the tx
+// path, so feed-assembly tests can stage fixed rows.
+func (f *fakeNotificationStore) seed(n runtime.Notification) runtime.Notification {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.next++
+	n.ID = f.next
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = time.Now()
+	}
+	f.rows = append(f.rows, n)
+	return n
+}
+
+var _ runtime.NotificationStore = (*fakeNotificationStore)(nil)
+
+// fakeBoardReader is an in-memory runtime.BoardReader returning a staged
+// BoardView.
+type fakeBoardReader struct {
+	view    runtime.BoardView
+	viewErr error
+}
+
+func (f *fakeBoardReader) BoardView(context.Context) (runtime.BoardView, error) {
+	return f.view, f.viewErr
+}
+
+var _ runtime.BoardReader = (*fakeBoardReader)(nil)
+
+// fakeFeedPusher records every pushed FeedSnapshot (08 §3).
+type fakeFeedPusher struct {
+	mu     sync.Mutex
+	pushed []runtime.FeedSnapshot
+}
+
+func (f *fakeFeedPusher) PushFeed(_ context.Context, snap runtime.FeedSnapshot) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pushed = append(f.pushed, snap)
+	return nil
+}
+
+func (f *fakeFeedPusher) pushes() []runtime.FeedSnapshot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]runtime.FeedSnapshot, len(f.pushed))
+	copy(out, f.pushed)
+	return out
+}
+
+var _ runtime.FeedPusher = (*fakeFeedPusher)(nil)
+
+// fakeActivityPusher records every pushed ActivityEvent (08 §4).
+type fakeActivityPusher struct {
+	mu     sync.Mutex
+	pushed []runtime.ActivityEvent
+}
+
+func (f *fakeActivityPusher) PushActivity(_ context.Context, ev runtime.ActivityEvent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pushed = append(f.pushed, ev)
+	return nil
+}
+
+func (f *fakeActivityPusher) events() []runtime.ActivityEvent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]runtime.ActivityEvent, len(f.pushed))
+	copy(out, f.pushed)
+	return out
+}
+
+var _ runtime.ActivityPusher = (*fakeActivityPusher)(nil)

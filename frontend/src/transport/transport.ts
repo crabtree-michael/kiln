@@ -17,6 +17,11 @@ export type Board = components['schemas']['Board'];
 export type Message = components['schemas']['Message'];
 export type MessagePostResponse = components['schemas']['MessagePostResponse'];
 export type SayEvent = components['schemas']['SayEvent'];
+export type FeedCard = components['schemas']['FeedCard'];
+export type FeedSummary = components['schemas']['FeedSummary'];
+export type FeedSnapshot = components['schemas']['FeedSnapshot'];
+export type ActivityEvent = components['schemas']['ActivityEvent'];
+export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 
 /**
  * Stream connection state (07 §8): `EventSource` retries natively, so this is
@@ -30,6 +35,10 @@ export interface StreamHandlers {
   onBoard: (board: Board) => void;
   /** Called for every `say` SSE event — one per brain `say` (07 §3). */
   onSay: (event: SayEvent) => void;
+  /** Called for every `feed` SSE event — always a wholesale replacement (08 §3). */
+  onFeed?: (feed: FeedSnapshot) => void;
+  /** Called for every `activity` SSE event — ephemeral, never stored (08 §4). */
+  onActivity?: (event: ActivityEvent) => void;
   /** Called whenever the underlying connection's state changes (07 §8). */
   onConnectionStateChange: (state: ConnectionState) => void;
 }
@@ -124,6 +133,73 @@ function isSayEvent(value: unknown): value is SayEvent {
   );
 }
 
+function isNullableNumber(value: unknown): value is number | null | undefined {
+  return value === undefined || value === null || typeof value === 'number';
+}
+
+function isFeedCardKind(value: unknown): value is FeedCard['kind'] {
+  return value === 'blocker' || value === 'proposal' || value === 'update' || value === 'preview';
+}
+
+function isFeedCard(value: unknown): value is FeedCard {
+  return (
+    isRecord(value) &&
+    isFeedCardKind(value.kind) &&
+    typeof value.id === 'string' &&
+    typeof value.label === 'string' &&
+    typeof value.body === 'string' &&
+    typeof value.created_at === 'string' &&
+    isNullableString(value.ticket_id) &&
+    isNullableNumber(value.notification_id) &&
+    isNullableString(value.image_url)
+  );
+}
+
+function isFeedCardArray(value: unknown): value is FeedCard[] {
+  return Array.isArray(value) && value.every(isFeedCard);
+}
+
+function isFeedSummary(value: unknown): value is FeedSummary {
+  return (
+    isRecord(value) &&
+    typeof value.blocker_count === 'number' &&
+    typeof value.update_count === 'number' &&
+    typeof value.stream_count === 'number' &&
+    typeof value.building === 'number' &&
+    typeof value.idle === 'number' &&
+    isNullableString(value.last_word_at)
+  );
+}
+
+function isFeedSnapshot(value: unknown): value is FeedSnapshot {
+  return isRecord(value) && isFeedSummary(value.summary) && isFeedCardArray(value.cards);
+}
+
+function isActivityKind(value: unknown): value is ActivityEvent['kind'] {
+  return value === 'thinking' || value === 'toast';
+}
+
+function isActivityVerb(value: unknown): value is ActivityEvent['verb'] {
+  return (
+    value === undefined ||
+    value === null ||
+    value === 'started' ||
+    value === 'nudged' ||
+    value === 'finished' ||
+    value === 'queued'
+  );
+}
+
+function isActivityEvent(value: unknown): value is ActivityEvent {
+  return (
+    isRecord(value) &&
+    isActivityKind(value.kind) &&
+    (value.on === undefined || value.on === null || typeof value.on === 'boolean') &&
+    isActivityVerb(value.verb) &&
+    isNullableString(value.ticket_title)
+  );
+}
+
 function isMessageEvent(event: Event): event is MessageEvent<string> {
   return event instanceof MessageEvent && typeof event.data === 'string';
 }
@@ -153,6 +229,26 @@ export function openStream(handlers: StreamHandlers): StreamConnection {
     const payload: unknown = JSON.parse(event.data);
     if (isSayEvent(payload)) {
       handlers.onSay(payload);
+    }
+  });
+
+  source.addEventListener('feed', (event) => {
+    if (!isMessageEvent(event)) {
+      return;
+    }
+    const payload: unknown = JSON.parse(event.data);
+    if (isFeedSnapshot(payload)) {
+      handlers.onFeed?.(payload);
+    }
+  });
+
+  source.addEventListener('activity', (event) => {
+    if (!isMessageEvent(event)) {
+      return;
+    }
+    const payload: unknown = JSON.parse(event.data);
+    if (isActivityEvent(payload)) {
+      handlers.onActivity?.(payload);
     }
   });
 
@@ -201,6 +297,36 @@ export async function postMessage(text: string): Promise<MessagePostResponse> {
   const payload: unknown = await response.json();
   if (!isMessagePostResponse(payload)) {
     throw new Error('postMessage: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `GET /api/feed` — the same absolute snapshot shape as the `feed` SSE event (08 §3). */
+export async function fetchFeed(): Promise<FeedSnapshot> {
+  const response = await fetch('/api/feed');
+  const payload: unknown = await response.json();
+  if (!isFeedSnapshot(payload)) {
+    throw new Error('fetchFeed: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `POST /api/feed/seen` — marks update/preview cards seen up to `lastNotificationId` (08 §3). */
+export async function postFeedSeen(lastNotificationId: number): Promise<void> {
+  const body: FeedSeenRequest = { last_notification_id: lastNotificationId };
+  await fetch('/api/feed/seen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** `POST /api/tickets/{id}/accept` — routes acceptance through the brain like `postMessage` (08 contract). */
+export async function acceptTicket(id: string): Promise<MessagePostResponse> {
+  const response = await fetch(`/api/tickets/${id}/accept`, { method: 'POST' });
+  const payload: unknown = await response.json();
+  if (!isMessagePostResponse(payload)) {
+    throw new Error('acceptTicket: unexpected response shape');
   }
   return payload;
 }

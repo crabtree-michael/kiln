@@ -17,7 +17,10 @@ import (
 // the same handle everywhere.
 const (
 	sbID   = "sb-1"
+	sbID9  = "sb-9"
 	sessID = "sess-1"
+
+	testRepoURL = "https://example.com/repo.git"
 
 	keyCode = "error_code"
 	keyMsg  = "message"
@@ -112,7 +115,7 @@ func TestListWorkersFiltersPrefixAndMapsID(t *testing.T) {
 func TestCreateWorkerSendsConventionBody(t *testing.T) {
 	c := newClient(t, Config{
 		APIKey:   "k",
-		RepoURL:  "https://example.com/repo.git",
+		RepoURL:  testRepoURL,
 		Snapshot: "snap-42",
 		Agent:    "claude",
 		AutoStop: 30 * time.Minute,
@@ -123,7 +126,7 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 			if body.Name != agent.WorkerName("w1") {
 				t.Errorf("name = %q", body.Name)
 			}
-			if body.RepoURL != "https://example.com/repo.git" {
+			if body.RepoURL != testRepoURL {
 				t.Errorf("repo_url = %q", body.RepoURL)
 			}
 			if body.Snapshot != "snap-42" {
@@ -138,7 +141,7 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 			if body.AutoDeleteInterval != autoDeleteOff {
 				t.Errorf("auto_delete_interval = %d, want %d (OFF)", body.AutoDeleteInterval, autoDeleteOff)
 			}
-			writeJSON(t, w, http.StatusAccepted, sandbox{ID: "sb-9", Name: body.Name, State: "provisioning"})
+			writeJSON(t, w, http.StatusAccepted, sandbox{ID: sbID9, Name: body.Name, State: "provisioning"})
 		},
 	})
 
@@ -146,7 +149,7 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorker: %v", err)
 	}
-	if want := (agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: "sb-9"}); got != want {
+	if want := (agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID9}); got != want {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
@@ -154,14 +157,14 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 // An unset Snapshot (env var absent) must be omitted from the wire, not sent as
 // an empty string — omitempty keeps the field optional (task: unused if unset).
 func TestCreateWorkerOmitsSnapshotWhenUnset(t *testing.T) {
-	c := newClient(t, Config{APIKey: "k", RepoURL: "https://example.com/repo.git"}, map[route]http.HandlerFunc{
+	c := newClient(t, Config{APIKey: "k", RepoURL: testRepoURL}, map[route]http.HandlerFunc{
 		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
 			var raw map[string]json.RawMessage
 			decodeBody(t, r, &raw)
 			if _, present := raw["snapshot"]; present {
 				t.Errorf("snapshot key present when unset: %v", raw)
 			}
-			writeJSON(t, w, http.StatusAccepted, sandbox{ID: "sb-9", Name: agent.WorkerName("w1")})
+			writeJSON(t, w, http.StatusAccepted, sandbox{ID: sbID9, Name: agent.WorkerName("w1")})
 		},
 	})
 

@@ -1,0 +1,29 @@
+// Split from feed-store.tsx so that file exports only the `FeedProvider`
+// component (react-refresh/only-export-components) — this file carries the
+// context, its value shape, and the consumer hook. Mirrors board-context.ts.
+import { createContext, useContext } from 'react';
+import type { ConnectionState, FeedSnapshot } from '@/transport/transport';
+
+export type { FeedSnapshot };
+
+export interface FeedStoreValue {
+  /**
+   * The current feed, or `null` before the first `feed` event/fetch arrives.
+   * Blocker/proposal cards mirror the server snapshot wholesale; update/preview
+   * cards are session-held (08 §3) — once rendered on a visible screen they
+   * persist for the session even after the server drops them as seen.
+   */
+  feed: FeedSnapshot | null;
+  /** Stream state for the connection chip (07 §8, 08 §F feed region gate). */
+  connectionState: ConnectionState;
+}
+
+export const FeedStoreContext = createContext<FeedStoreValue | undefined>(undefined);
+
+export function useFeedStore(): FeedStoreValue {
+  const context = useContext(FeedStoreContext);
+  if (context === undefined) {
+    throw new Error('useFeedStore must be used within a FeedProvider');
+  }
+  return context;
+}

@@ -32,8 +32,9 @@ type Store struct {
 }
 
 var (
-	_ runtime.Store        = (*Store)(nil)
-	_ runtime.MessageStore = (*Store)(nil)
+	_ runtime.Store             = (*Store)(nil)
+	_ runtime.MessageStore      = (*Store)(nil)
+	_ runtime.NotificationStore = (*Store)(nil)
 )
 
 // New wraps an open connection pool; migrations are applied separately at
@@ -250,6 +251,112 @@ func (s *Store) Recent(ctx context.Context, n int) (_ []runtime.Message, err err
 	}
 	if rerr := rows.Err(); rerr != nil {
 		return nil, fmt.Errorf("runtime/postgres: iterate messages: %w", rerr)
+	}
+	return out, nil
+}
+
+// enqueueFeedUpdatedTx appends a signal-only feed.updated outbox row (08 §7)
+// inside an existing transaction — the shared half of every notification
+// mutation, which makes the runtime a second outbox writer so a live feed
+// re-render fans out exactly when the feed's contents change.
+func enqueueFeedUpdatedTx(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO outbox (topic, payload) VALUES ('feed.updated', '{}')`); err != nil {
+		return fmt.Errorf("runtime/postgres: enqueue feed.updated: %w", err)
+	}
+	return nil
+}
+
+// PostNotification implements runtime.NotificationStore (08 §3, §7): INSERT the
+// brain-authored row and append a feed.updated outbox row in one transaction.
+func (s *Store) PostNotification(
+	ctx context.Context, kind, body string, ticketID, imageURL *string,
+) (runtime.Notification, error) {
+	n := runtime.Notification{
+		Kind: runtime.NotificationKind(kind), Body: body, TicketID: ticketID, ImageURL: imageURL,
+	}
+	txErr := s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx,
+			`INSERT INTO notifications (kind, ticket_id, body, image_url)
+			 VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+			kind, ticketID, body, imageURL).Scan(&n.ID, &n.CreatedAt); err != nil {
+			return fmt.Errorf("runtime/postgres: insert notification: %w", err)
+		}
+		return enqueueFeedUpdatedTx(ctx, tx)
+	})
+	if txErr != nil {
+		return runtime.Notification{}, txErr
+	}
+	return n, nil
+}
+
+// RetractNotification implements runtime.NotificationStore (08 §3): stamp
+// retracted_at=now() and append feed.updated in one transaction.
+func (s *Store) RetractNotification(ctx context.Context, id int64) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE notifications SET retracted_at = now() WHERE id = $1 AND retracted_at IS NULL`,
+			id); err != nil {
+			return fmt.Errorf("runtime/postgres: retract notification: %w", err)
+		}
+		return enqueueFeedUpdatedTx(ctx, tx)
+	})
+}
+
+// MarkSeen implements runtime.NotificationStore (08 §3): stamp seen_at=now() on
+// every still-unseen notification up to the client's high-water id, and append
+// feed.updated in one transaction.
+func (s *Store) MarkSeen(ctx context.Context, lastID int64) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE notifications SET seen_at = now() WHERE seen_at IS NULL AND id <= $1`,
+			lastID); err != nil {
+			return fmt.Errorf("runtime/postgres: mark seen: %w", err)
+		}
+		return enqueueFeedUpdatedTx(ctx, tx)
+	})
+}
+
+// UnseenNotifications implements runtime.NotificationStore (08 §3): the
+// neither-seen-nor-retracted rows, newest-first — the update/preview section
+// of the feed.
+func (s *Store) UnseenNotifications(ctx context.Context) (_ []runtime.Notification, err error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, kind, ticket_id, body, image_url, created_at
+		 FROM notifications
+		 WHERE seen_at IS NULL AND retracted_at IS NULL
+		 ORDER BY id DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("runtime/postgres: query unseen notifications: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("runtime/postgres: close unseen notifications: %w", cerr)
+		}
+	}()
+
+	var out []runtime.Notification
+	for rows.Next() {
+		var (
+			n        runtime.Notification
+			kind     string
+			ticketID sql.NullString
+			imageURL sql.NullString
+		)
+		if serr := rows.Scan(&n.ID, &kind, &ticketID, &n.Body, &imageURL, &n.CreatedAt); serr != nil {
+			return nil, fmt.Errorf("runtime/postgres: scan notification: %w", serr)
+		}
+		n.Kind = runtime.NotificationKind(kind)
+		if ticketID.Valid {
+			n.TicketID = &ticketID.String
+		}
+		if imageURL.Valid {
+			n.ImageURL = &imageURL.String
+		}
+		out = append(out, n)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return nil, fmt.Errorf("runtime/postgres: iterate notifications: %w", rerr)
 	}
 	return out, nil
 }

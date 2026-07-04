@@ -33,8 +33,12 @@ type Ticket struct {
 	WorkerID      *WorkerID  // non-nil iff State is working/blocked (03 I3)
 	BlockedReason *string    // non-nil iff State is blocked (03 I4)
 	ReadyAt       *time.Time // set by MarkReady; pull tie-breaker (03 §5)
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// ApprovalRequested marks a shaping ticket the brain has surfaced for the
+	// user to approve (08 §5 proposal card). True only while shaping — the DB
+	// CHECK ties it to state='shaping'; MarkReady clears it (08 §B).
+	ApprovalRequested bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // Worker is a capacity slot, not a live resource handle (03 §2.3): the WIP

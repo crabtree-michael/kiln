@@ -15,6 +15,11 @@ var ErrNotFound = errors.New("board: ticket not found")
 // emits (03 I7).
 var ErrEmptyTitle = errors.New("board: ticket title must be non-empty")
 
+// ErrNoFreeWorker — a dev SeedTicket asked for a working/blocked ticket but no
+// worker slot is free to bind (03 I3). Dev-seam only; the real pull never fails
+// this way (it simply waits for capacity).
+var ErrNoFreeWorker = errors.New("board: no free worker to bind for seed")
+
 // ErrInvalidTransition — an operation's precondition failed (03 §4). Strict by
 // design (03 D8): repeated or illegal transitions are loud typed errors, never
 // no-ops, so caller bugs surface immediately.

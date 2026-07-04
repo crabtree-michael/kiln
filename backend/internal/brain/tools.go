@@ -8,21 +8,25 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
 
-// ToolName enumerates the seven tools (06 §4) — the brain's entire action
-// surface. Not in the set (06 §4, D3, I6): anything that pulls (03 I6, the
-// pull is a system action, never a brain decision), notify (deferred to 10 —
-// the mechanical notify.send from MarkBlocked still emits, log-only in v1),
-// and any board-read (the snapshot is already in context).
+// ToolName enumerates the ten tools (06 §4, amended by 08 §5/§7) — the brain's
+// entire action surface. Not in the set (06 §4, D3, I6): anything that pulls
+// (03 I6, the pull is a system action, never a brain decision), notify
+// (deferred to 10 — the mechanical notify.send from MarkBlocked still emits,
+// log-only in v1), and any board-read (the snapshot is already in context).
+// 08 adds the three feed tools: request_approval, post_update, retract_update.
 type ToolName string
 
 const (
-	ToolCreateTicket ToolName = "create_ticket"
-	ToolShapeTicket  ToolName = "shape_ticket"
-	ToolMarkReady    ToolName = "mark_ready"
-	ToolSendToAgent  ToolName = "send_to_agent"
-	ToolMarkBlocked  ToolName = "mark_blocked"
-	ToolAcceptToDone ToolName = "accept_to_done"
-	ToolSay          ToolName = "say"
+	ToolCreateTicket    ToolName = "create_ticket"
+	ToolShapeTicket     ToolName = "shape_ticket"
+	ToolMarkReady       ToolName = "mark_ready"
+	ToolSendToAgent     ToolName = "send_to_agent"
+	ToolMarkBlocked     ToolName = "mark_blocked"
+	ToolAcceptToDone    ToolName = "accept_to_done"
+	ToolSay             ToolName = "say"
+	ToolRequestApproval ToolName = "request_approval"
+	ToolPostUpdate      ToolName = "post_update"
+	ToolRetractUpdate   ToolName = "retract_update"
 )
 
 // ToolDef is one tool's schema in the shape the Anthropic tool-use API
@@ -89,6 +93,29 @@ type SayInput struct {
 	Text string `json:"text"`
 }
 
+// RequestApprovalInput — request_approval → BoardAPI.RequestApproval(id)
+// (08 §5). Sets approval_requested on a Shaping ticket so it surfaces as a
+// proposal card. Used at the brain's discretion for complex decisions;
+// routine work goes straight to mark_ready.
+type RequestApprovalInput struct {
+	Ticket string `json:"ticket"`
+}
+
+// PostUpdateInput — post_update → NotificationStore.PostNotification(kind,
+// body, ticket?, image_url?) (08 §7). kind is "preview" when ImageURL is set,
+// else "update". A feed card worth a glance, not a play-by-play.
+type PostUpdateInput struct {
+	Body     string  `json:"body"`
+	Ticket   *string `json:"ticket,omitempty"`
+	ImageURL *string `json:"image_url,omitempty"`
+}
+
+// RetractUpdateInput — retract_update → NotificationStore.RetractNotification(
+// notification_id) (08 §7). Drops an update card that stopped mattering.
+type RetractUpdateInput struct {
+	NotificationID int64 `json:"notification_id"`
+}
+
 const (
 	schemaKeyType        = "type"
 	schemaKeyDescription = "description"
@@ -99,9 +126,17 @@ const (
 	schemaTypeInteger = "integer"
 	schemaTypeObject  = "object"
 
-	fieldTicketID = "id"
-	fieldTitle    = "title"
-	fieldBody     = "body"
+	fieldTicketID       = "id"
+	fieldTitle          = "title"
+	fieldBody           = "body"
+	fieldTicket         = "ticket"
+	fieldImageURL       = "image_url"
+	fieldNotificationID = "notification_id"
+
+	// notifKindUpdate/notifKindPreview are post_update's two kinds (08 §7):
+	// "preview" when an image is attached, "update" otherwise.
+	notifKindUpdate  = "update"
+	notifKindPreview = "preview"
 )
 
 func stringSchema(description string) map[string]any {
@@ -182,6 +217,32 @@ var Tools = []ToolDef{
 			"text": stringSchema("The text to say."),
 		}),
 	},
+	{
+		Name: ToolRequestApproval,
+		Description: "Ask the user to approve a Shaping ticket before it runs — it surfaces " +
+			"as a proposal card. Use for tickets embedding a complex or consequential " +
+			"technical decision; routine work goes straight to mark_ready.",
+		InputSchema: objectSchema([]string{fieldTicket}, map[string]any{
+			fieldTicket: stringSchema("Ticket id."),
+		}),
+	},
+	{
+		Name: ToolPostUpdate,
+		Description: "Post an update to the user's feed — a card worth a glance, not a " +
+			"play-by-play. Attach image_url for an inline preview.",
+		InputSchema: objectSchema([]string{fieldBody}, map[string]any{
+			fieldBody:     stringSchema("The update text."),
+			fieldTicket:   stringSchema("Related ticket id, if any."),
+			fieldImageURL: stringSchema("Image URL for an inline preview, if any."),
+		}),
+	},
+	{
+		Name:        ToolRetractUpdate,
+		Description: "Retract a previously posted update once it no longer matters.",
+		InputSchema: objectSchema([]string{fieldNotificationID}, map[string]any{
+			fieldNotificationID: intSchema("The id of the notification to retract."),
+		}),
+	},
 }
 
 // Dispatch executes one tool call against the injected ports — the
@@ -192,8 +253,11 @@ var Tools = []ToolDef{
 //	mark_ready     -> BoardAPI.MarkReady(id)
 //	send_to_agent  -> BoardAPI.SendToAgent(id, instruction)
 //	mark_blocked   -> BoardAPI.MarkBlocked(id, reason)
-//	accept_to_done -> BoardAPI.AcceptToDone(id)
-//	say            -> Say.Say(text)
+//	accept_to_done   -> BoardAPI.AcceptToDone(id)
+//	say              -> Say.Say(text)
+//	request_approval -> BoardAPI.RequestApproval(id)                  (08 §5)
+//	post_update      -> NotificationStore.PostNotification(kind, ...) (08 §7)
+//	retract_update   -> NotificationStore.RetractNotification(id)     (08 §7)
 //
 // Never returns a Go error: a tool failure — bad arguments, a typed Board
 // API error, an unknown tool name — becomes a ToolResult with IsError set
@@ -211,6 +275,9 @@ func (s *Service) Dispatch(ctx context.Context, call ToolCall) ToolResult {
 // the pass loop counts toward its one-re-prompt-then-fail rule. A typed Board
 // API error is *not* malformed: it is a valid call whose precondition failed,
 // fed back verbatim for the model to self-correct (06 §6).
+// case count, not any branching logic, is what trips the complexity metric.
+//
+//nolint:cyclop // Flat one-case-per-tool dispatch table (06 §4, 08 §5/§7); the
 func (s *Service) dispatchOne(ctx context.Context, call ToolCall) (ToolResult, bool) {
 	switch call.Name {
 	case ToolCreateTicket:
@@ -227,6 +294,12 @@ func (s *Service) dispatchOne(ctx context.Context, call ToolCall) (ToolResult, b
 		return s.doAcceptToDone(ctx, call)
 	case ToolSay:
 		return s.doSay(ctx, call)
+	case ToolRequestApproval:
+		return s.doRequestApproval(ctx, call)
+	case ToolPostUpdate:
+		return s.doPostUpdate(ctx, call)
+	case ToolRetractUpdate:
+		return s.doRetractUpdate(ctx, call)
 	default:
 		return ToolResult{
 			ToolCallID: call.ID,
@@ -297,6 +370,41 @@ func (s *Service) doSay(ctx context.Context, call ToolCall) (ToolResult, bool) {
 		return malformedResult(call.ID, err), true
 	}
 	if err := s.say.Say(ctx, in.Text); err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
+}
+
+func (s *Service) doRequestApproval(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in RequestApprovalInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	t, err := s.board.RequestApproval(ctx, board.TicketID(in.Ticket))
+	return ticketResult(call.ID, t, err), false
+}
+
+func (s *Service) doPostUpdate(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in PostUpdateInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	kind := notifKindUpdate
+	if in.ImageURL != nil {
+		kind = notifKindPreview
+	}
+	if err := s.notifications.PostNotification(ctx, kind, in.Body, in.Ticket, in.ImageURL); err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
+}
+
+func (s *Service) doRetractUpdate(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in RetractUpdateInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	if err := s.notifications.RetractNotification(ctx, in.NotificationID); err != nil {
 		return errorResult(call.ID, err), false
 	}
 	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false

@@ -103,3 +103,108 @@ func (f *fakeMessagesReader) requestedNs() []int {
 	defer f.mu.Unlock()
 	return append([]int(nil), f.ns...)
 }
+
+// fakeFeedReader is api.FeedReader (08 §3 GET /api/feed).
+type fakeFeedReader struct {
+	mu       sync.Mutex
+	snapshot runtime.FeedSnapshot
+	err      error
+	calls    int
+}
+
+func (f *fakeFeedReader) Feed(context.Context) (runtime.FeedSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.snapshot, f.err
+}
+
+func (f *fakeFeedReader) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// fakeSeenAcker is api.SeenAcker (08 §3 POST /api/feed/seen).
+type fakeSeenAcker struct {
+	mu      sync.Mutex
+	lastIDs []int64
+	err     error
+}
+
+func (f *fakeSeenAcker) MarkSeen(_ context.Context, lastID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastIDs = append(f.lastIDs, lastID)
+	return f.err
+}
+
+func (f *fakeSeenAcker) seen() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int64(nil), f.lastIDs...)
+}
+
+// devTicketID is the id fakeSeeder mints, shared with the route assertions.
+const devTicketID = "t-1"
+
+// fakeSeeder is the double for the dev-only TicketSeeder port: it records the
+// SeedTicket spec and can inject a failure (including board.ErrNoFreeWorker).
+type fakeSeeder struct {
+	seedErr     error
+	spec        board.SeedSpec
+	markedReady board.TicketID
+}
+
+func (f *fakeSeeder) SeedTicket(_ context.Context, spec board.SeedSpec) (board.Ticket, error) {
+	if f.seedErr != nil {
+		return board.Ticket{}, f.seedErr
+	}
+	f.spec = spec
+	state := spec.State
+	if state == "" {
+		state = board.StateShaping
+	}
+	return board.Ticket{
+		ID: devTicketID, Title: spec.Title, Body: spec.Body, State: state,
+		ApprovalRequested: spec.ApprovalRequested,
+	}, nil
+}
+
+// MarkReady records the ready transition the dev route triggers for a state=ready
+// seed and returns the ticket in ready.
+func (f *fakeSeeder) MarkReady(_ context.Context, id board.TicketID) (board.Ticket, error) {
+	if f.seedErr != nil {
+		return board.Ticket{}, f.seedErr
+	}
+	f.markedReady = id
+	return board.Ticket{ID: id, Title: f.spec.Title, Body: f.spec.Body, State: board.StateReady}, nil
+}
+
+// fakeNotificationPoster is the double for the dev-only NotificationPoster port
+// (08 §E.3 POST /api/dev/notifications).
+type fakeNotificationPoster struct {
+	mu    sync.Mutex
+	calls []devNote
+	err   error
+}
+
+type devNote struct {
+	kind, body         string
+	ticketID, imageURL *string
+}
+
+func (f *fakeNotificationPoster) PostNotification(
+	_ context.Context, kind, body string, ticketID, imageURL *string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, devNote{kind: kind, body: body, ticketID: ticketID, imageURL: imageURL})
+	return f.err
+}
+
+func (f *fakeNotificationPoster) posted() []devNote {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]devNote(nil), f.calls...)
+}

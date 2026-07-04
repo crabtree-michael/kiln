@@ -20,7 +20,8 @@ import (
 
 // ticketColumns is the canonical projection for a ticket row, shared by every
 // SELECT/RETURNING so scanTicket can read them positionally.
-const ticketColumns = `id, title, body, state, priority, worker_id, blocked_reason, ready_at, created_at, updated_at`
+const ticketColumns = `id, title, body, state, priority, worker_id, blocked_reason, ready_at, ` +
+	`approval_requested, created_at, updated_at`
 
 // activeTicketExists is the correlated subquery that derives a worker's busy
 // state (03 D2): a worker is busy iff an active ticket references it.
@@ -244,11 +245,11 @@ func (t *tx) LockTicket(ctx context.Context, id board.TicketID) (board.Ticket, e
 // never re-reads (entities.go).
 func (t *tx) InsertTicket(ctx context.Context, tk board.Ticket) (board.Ticket, error) {
 	row := t.sqltx.QueryRowContext(ctx,
-		`INSERT INTO tickets (id, title, body, state, priority, worker_id, blocked_reason, ready_at)
-		 VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO tickets (id, title, body, state, priority, worker_id, blocked_reason, ready_at, approval_requested)
+		 VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING `+ticketColumns,
 		tk.Title, tk.Body, string(tk.State), tk.Priority,
-		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt))
+		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt), tk.ApprovalRequested)
 	return scanTicket(row)
 }
 
@@ -258,11 +259,12 @@ func (t *tx) UpdateTicket(ctx context.Context, tk board.Ticket) (board.Ticket, e
 	row := t.sqltx.QueryRowContext(ctx,
 		`UPDATE tickets
 		 SET title = $2, body = $3, state = $4, priority = $5,
-		     worker_id = $6, blocked_reason = $7, ready_at = $8, updated_at = now()
+		     worker_id = $6, blocked_reason = $7, ready_at = $8, approval_requested = $9,
+		     updated_at = now()
 		 WHERE id = $1
 		 RETURNING `+ticketColumns,
 		string(tk.ID), tk.Title, tk.Body, string(tk.State), tk.Priority,
-		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt))
+		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt), tk.ApprovalRequested)
 	out, err := scanTicket(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return board.Ticket{}, board.ErrNotFound
@@ -399,7 +401,7 @@ func scanTicket(r rowScanner) (board.Ticket, error) {
 		readyAt  sql.NullTime
 	)
 	if err := r.Scan(&id, &tk.Title, &tk.Body, &state, &tk.Priority,
-		&workerID, &blocked, &readyAt, &tk.CreatedAt, &tk.UpdatedAt); err != nil {
+		&workerID, &blocked, &readyAt, &tk.ApprovalRequested, &tk.CreatedAt, &tk.UpdatedAt); err != nil {
 		return board.Ticket{}, fmt.Errorf("board/postgres: scan ticket: %w", err)
 	}
 	tk.ID = board.TicketID(id)

@@ -25,8 +25,18 @@ var errFakeBoardFailed = errors.New("fakeBoardReader: synthetic failure")
 
 func newTestServer(boards *fakeBoardReader, poster *fakeMessagePoster, messages *fakeMessagesReader) *httptest.Server {
 	hub := api.NewHub(boards)
-	srv := api.NewServer(boards, poster, messages, hub)
+	srv := api.NewServer(boards, poster, messages, &fakeFeedReader{}, &fakeSeenAcker{}, hub)
 	return httptest.NewServer(srv.Handler())
+}
+
+// newBareServer builds a *api.Server over all-default fakes (no live board,
+// runtime, or feed) — the base for tests that then EnableDev* on it.
+func newBareServer() *api.Server {
+	boards := &fakeBoardReader{}
+	return api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards),
+	)
 }
 
 // doGet issues a context-ful GET and fails the test on a transport error.
@@ -270,4 +280,247 @@ func TestHandleMessages_LimitOutOfRange_Returns400(t *testing.T) {
 			t.Errorf("limit=%s: status = %d, want 400 (schema/openapi.yaml bounds 1-500)", limit, resp.StatusCode)
 		}
 	}
+}
+
+// TestDevCreateTicket covers the dev-only seed endpoint (POST /api/dev/tickets):
+// mounted only when enabled, and the {title, body, state, blocked_reason,
+// approval_requested} body mapped straight onto board.SeedSpec.
+func TestDevCreateTicket(t *testing.T) {
+	newDevServer := func(seeder api.TicketSeeder) *httptest.Server {
+		srv := newBareServer()
+		srv.EnableDevTickets(seeder)
+		return httptest.NewServer(srv.Handler())
+	}
+
+	t.Run("not mounted unless enabled", func(t *testing.T) {
+		ts := newTestServer(&fakeBoardReader{}, &fakeMessagePoster{}, &fakeMessagesReader{})
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/tickets", []byte(`{"title":"x","body":"y"}`))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 when dev endpoints disabled", resp.StatusCode)
+		}
+	})
+
+	t.Run("default seed is shaping", func(t *testing.T) {
+		seeder := &fakeSeeder{}
+		ts := newDevServer(seeder)
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/tickets", []byte(`{"title":"Do X","body":"emit done"}`))
+		defer closeBody(t, resp)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		var out map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if out["id"] != devTicketID || out["state"] != string(board.StateShaping) {
+			t.Errorf("response = %v, want id=%s state=shaping", out, devTicketID)
+		}
+		if seeder.spec.Title != "Do X" || seeder.spec.Body != "emit done" || seeder.spec.State != "" {
+			t.Errorf("spec = %+v, want title/body passed through and empty (default) state", seeder.spec)
+		}
+	})
+
+	t.Run("blocked seed passes state and reason through", func(t *testing.T) {
+		seeder := &fakeSeeder{}
+		ts := newDevServer(seeder)
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/tickets",
+			[]byte(`{"title":"Auth","state":"blocked","blocked_reason":"need keys"}`))
+		defer closeBody(t, resp)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		if seeder.spec.State != board.StateBlocked || seeder.spec.BlockedReason != "need keys" {
+			t.Errorf("spec = %+v, want state=blocked blocked_reason=need keys", seeder.spec)
+		}
+	})
+
+	t.Run("proposal seed passes approval_requested through", func(t *testing.T) {
+		seeder := &fakeSeeder{}
+		ts := newDevServer(seeder)
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/tickets",
+			[]byte(`{"title":"Prop","state":"shaping","approval_requested":true}`))
+		defer closeBody(t, resp)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		if seeder.spec.State != board.StateShaping || !seeder.spec.ApprovalRequested {
+			t.Errorf("spec = %+v, want state=shaping approval_requested=true", seeder.spec)
+		}
+	})
+
+	t.Run("no free worker is 409", func(t *testing.T) {
+		ts := newDevServer(&fakeSeeder{seedErr: board.ErrNoFreeWorker})
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/tickets", []byte(`{"title":"x","state":"blocked"}`))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("status = %d, want 409 for ErrNoFreeWorker", resp.StatusCode)
+		}
+	})
+
+	t.Run("seed failure is 500", func(t *testing.T) {
+		ts := newDevServer(&fakeSeeder{seedErr: errFakeBoardFailed})
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/tickets", []byte(`{"title":"x","body":"y"}`))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", resp.StatusCode)
+		}
+	})
+}
+
+// ---- GET /api/feed, POST /api/feed/seen, POST /api/tickets/{id}/accept -------
+
+func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
+	tid := "t-9"
+	nid := int64(77)
+	feed := &fakeFeedReader{snapshot: runtime.FeedSnapshot{
+		Summary: runtime.FeedSummary{BlockerCount: 1, UpdateCount: 2, StreamCount: 3, Building: 2, Idle: 1},
+		Cards: []runtime.FeedCard{
+			{Kind: "blocker", ID: "blocker:t-9", Label: "Auth", Body: "need keys", TicketID: &tid, CreatedAt: time.Now()},
+			{Kind: "update", ID: "update:77", Label: "note", Body: "shipped", NotificationID: &nid, CreatedAt: time.Now()},
+		},
+	}}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, feed, &fakeSeenAcker{}, api.NewHub(boards))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/feed")
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if feed.callCount() != 1 {
+		t.Fatalf("Feed called %d times, want 1", feed.callCount())
+	}
+	var got wire.FeedSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Summary.BlockerCount != 1 || got.Summary.UpdateCount != 2 || got.Summary.StreamCount != 3 {
+		t.Errorf("summary = %+v, want blocker=1 update=2 stream=3", got.Summary)
+	}
+	if len(got.Cards) != 2 {
+		t.Fatalf("cards = %d, want 2", len(got.Cards))
+	}
+	if got.Cards[0].Kind != wire.Blocker || got.Cards[0].TicketId == nil || *got.Cards[0].TicketId != tid {
+		t.Errorf("card0 = %+v, want blocker with ticket_id %s", got.Cards[0], tid)
+	}
+	if got.Cards[1].Kind != wire.Update || got.Cards[1].NotificationId == nil || *got.Cards[1].NotificationId != nid {
+		t.Errorf("card1 = %+v, want update with notification_id %d", got.Cards[1], nid)
+	}
+}
+
+func TestHandleFeedSeen_CallsMarkSeen(t *testing.T) {
+	seen := &fakeSeenAcker{}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, &fakeFeedReader{}, seen, api.NewHub(boards))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := mustJSON(t, wire.FeedSeenRequest{LastNotificationId: 123})
+	resp := doPost(t, ts.URL+"/api/feed/seen", body)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if ids := seen.seen(); len(ids) != 1 || ids[0] != 123 {
+		t.Fatalf("MarkSeen called with %v, want a single call with 123", ids)
+	}
+}
+
+func TestHandleAccept_PostsSynthesizedMessageAndReturns202(t *testing.T) {
+	boards := &fakeBoardReader{snapshot: board.Snapshot{
+		Shaping: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateShaping, ApprovalRequested: true}},
+	}}
+	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
+	srv := api.NewServer(boards, poster, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/tickets/t-42/accept", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if poster.callCount() != 1 {
+		t.Fatalf("PostMessage called %d times, want 1", poster.callCount())
+	}
+	want := `The user tapped Accept on the proposal "Payment retries" (ticket t-42). ` +
+		`Mark that ticket ready now; do not ask for confirmation.`
+	if got := poster.lastText(); got != want {
+		t.Errorf("posted text =\n  %q\nwant\n  %q", got, want)
+	}
+	var out wire.MessagePostResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.MessageId != 5 || out.EventId != 9 {
+		t.Errorf("response = %+v, want message_id=5 event_id=9", out)
+	}
+}
+
+func TestHandleAccept_UnknownTicketFallsBackToID(t *testing.T) {
+	boards := &fakeBoardReader{} // empty snapshot: no ticket matches.
+	poster := &fakeMessagePoster{}
+	srv := api.NewServer(boards, poster, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/tickets/t-unknown/accept", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if got := poster.lastText(); !strings.Contains(got, `"t-unknown"`) || !strings.Contains(got, "ticket t-unknown") {
+		t.Errorf("posted text = %q, want it to fall back to the id for both title and ticket", got)
+	}
+}
+
+// TestDevPostNotification covers the dev-only POST /api/dev/notifications seam.
+func TestDevPostNotification(t *testing.T) {
+	newDevServer := func(poster api.NotificationPoster) *httptest.Server {
+		srv := newBareServer()
+		srv.EnableDevNotifications(poster)
+		return httptest.NewServer(srv.Handler())
+	}
+
+	t.Run("not mounted unless enabled", func(t *testing.T) {
+		ts := newTestServer(&fakeBoardReader{}, &fakeMessagePoster{}, &fakeMessagesReader{})
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/notifications", []byte(`{"kind":"update","body":"x"}`))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 when dev endpoints disabled", resp.StatusCode)
+		}
+	})
+
+	t.Run("posts notification", func(t *testing.T) {
+		poster := &fakeNotificationPoster{}
+		ts := newDevServer(poster)
+		defer ts.Close()
+		resp := doPost(t, ts.URL+"/api/dev/notifications",
+			[]byte(`{"kind":"preview","body":"rendered","ticket_id":"t-3","image_url":"http://img"}`))
+		defer closeBody(t, resp)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		posted := poster.posted()
+		if len(posted) != 1 {
+			t.Fatalf("PostNotification called %d times, want 1", len(posted))
+		}
+		n := posted[0]
+		if n.kind != "preview" || n.body != "rendered" {
+			t.Errorf("posted = %+v, want kind=preview body=rendered", n)
+		}
+		if n.ticketID == nil || *n.ticketID != "t-3" || n.imageURL == nil || *n.imageURL != "http://img" {
+			t.Errorf("posted ptrs = %+v, want ticket_id=t-3 image_url=http://img", n)
+		}
+	})
 }

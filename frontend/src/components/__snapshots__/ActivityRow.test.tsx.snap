@@ -1,0 +1,79 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`] = `
+<div>
+  <div
+    data-role="activity-row"
+  >
+    <div
+      data-role="toast-pill"
+      data-verb="started"
+    >
+      <span
+        aria-hidden="true"
+        data-role="toast-icon"
+      >
+        🚀
+      </span>
+      <span
+        data-role="toast-text"
+      >
+        Started
+         
+        <span
+          data-role="toast-title"
+        >
+          Login Redesign
+        </span>
+      </span>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ActivityRow > matches the DOM-structure snapshot: say pill 1`] = `
+<div>
+  <div
+    data-role="activity-row"
+  >
+    <div
+      data-role="say-pill"
+    >
+      <span
+        data-role="say-text"
+      >
+        Trust the session cookie.
+      </span>
+      <button
+        aria-label="Dismiss"
+        data-role="say-dismiss"
+        type="button"
+      >
+        ×
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ActivityRow > matches the DOM-structure snapshot: thinking indicator (6a) 1`] = `
+<div>
+  <div
+    data-role="activity-row"
+  >
+    <div
+      data-role="thinking-indicator"
+    >
+      <span
+        aria-hidden="true"
+        data-role="thinking-spinner"
+      />
+      <span
+        data-role="thinking-text"
+      >
+        Kiln is thinking…
+      </span>
+    </div>
+  </div>
+</div>
+`;

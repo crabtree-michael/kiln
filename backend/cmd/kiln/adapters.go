@@ -68,6 +68,51 @@ func (a *blockerAdapter) MarkBlocked(ctx context.Context, ticketID, reason strin
 
 var _ runtime.Blocker = (*blockerAdapter)(nil)
 
+// boardViewAdapter satisfies runtime.BoardReader over *board.Service (08 §3
+// feed assembly): map a board.Snapshot to the runtime's local BoardView so the
+// runtime never imports internal/board. Blocked tickets become blocker cards
+// (BlockedReason dereferenced, "" when nil); shaping tickets awaiting approval
+// become proposal cards; the working/blocked counts drive the header summary.
+type boardViewAdapter struct{ inner *board.Service }
+
+func (a *boardViewAdapter) BoardView(ctx context.Context) (runtime.BoardView, error) {
+	snap, err := a.inner.GetBoard(ctx)
+	if err != nil {
+		return runtime.BoardView{}, fmt.Errorf("kiln: board view: %w", err)
+	}
+	view := runtime.BoardView{
+		WorkingCount: len(snap.Working),
+		BlockedCount: len(snap.Blocked),
+	}
+	for _, t := range snap.Blocked {
+		reason := ""
+		if t.BlockedReason != nil {
+			reason = *t.BlockedReason
+		}
+		view.Blocked = append(view.Blocked, runtime.BoardTicket{
+			ID:            string(t.ID),
+			Title:         t.Title,
+			Body:          t.Body,
+			BlockedReason: reason,
+			UpdatedAt:     t.UpdatedAt,
+		})
+	}
+	for _, t := range snap.Shaping {
+		if !t.ApprovalRequested {
+			continue
+		}
+		view.Proposals = append(view.Proposals, runtime.BoardTicket{
+			ID:        string(t.ID),
+			Title:     t.Title,
+			Body:      t.Body,
+			UpdatedAt: t.UpdatedAt,
+		})
+	}
+	return view, nil
+}
+
+var _ runtime.BoardReader = (*boardViewAdapter)(nil)
+
 // agentEventAdapter satisfies agent.EventEnqueuer over *runtime.Service
 // (05 §2.2's inbound seam): wrap the plain-string event type as
 // runtime.EventType. rt is set after runtime.Service is constructed,

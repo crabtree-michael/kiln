@@ -28,32 +28,44 @@ const MaxToolRounds = 8
 
 // Service is the brain's core: HandleEvent (the runtime's Brain port,
 // 04 §2) and the bounded tool loop it drives (06 §5). Constructed at the
-// composition root over its five ports (06 §9); stateless between calls.
+// composition root over its six ports (06 §9, 08 §7); stateless between calls.
 type Service struct {
-	board   BoardAPI
-	reader  BoardReader
-	say     Say
-	convo   ConversationReader
-	llm     LLM
-	cfg     Config
-	prompts PromptVersion
+	board         BoardAPI
+	reader        BoardReader
+	say           Say
+	notifications NotificationStore
+	convo         ConversationReader
+	llm           LLM
+	cfg           Config
+	prompts       PromptVersion
 }
 
 // NewService assembles the brain over its ports and model configuration.
 // promptVersion is normally CurrentPromptVersion; golden tests may pin an
 // older version explicitly (06 §9, D7).
+//
+// The notifications port (08 §7) is grouped with the other user-facing output
+// ports, immediately after say. The full parameter order INTEGRATION wires is:
+//
+//	NewService(board BoardAPI, reader BoardReader, say Say,
+//	    notifications NotificationStore, convo ConversationReader,
+//	    llm LLM, cfg Config, promptVersion PromptVersion)
+//
+// INTEGRATION passes rtSvc for notifications (*runtime.Service satisfies the
+// port structurally, D5/§E4).
 func NewService(
-	board BoardAPI, reader BoardReader, say Say, convo ConversationReader,
-	llm LLM, cfg Config, promptVersion PromptVersion,
+	board BoardAPI, reader BoardReader, say Say, notifications NotificationStore,
+	convo ConversationReader, llm LLM, cfg Config, promptVersion PromptVersion,
 ) *Service {
 	return &Service{
-		board:   board,
-		reader:  reader,
-		say:     say,
-		convo:   convo,
-		llm:     llm,
-		cfg:     cfg,
-		prompts: promptVersion,
+		board:         board,
+		reader:        reader,
+		say:           say,
+		notifications: notifications,
+		convo:         convo,
+		llm:           llm,
+		cfg:           cfg,
+		prompts:       promptVersion,
 	}
 }
 

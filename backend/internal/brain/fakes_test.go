@@ -117,13 +117,14 @@ type fakeBoard struct {
 	calls     []recordedCall
 	getBoards int
 
-	createTicketFn func(ctx context.Context, title, body string) (board.Ticket, error)
-	shapeTicketFn  func(ctx context.Context, id board.TicketID, patch board.ShapePatch) (board.Ticket, error)
-	markReadyFn    func(ctx context.Context, id board.TicketID) (board.Ticket, error)
-	sendToAgentFn  func(ctx context.Context, id board.TicketID, instruction string) (board.Ticket, error)
-	markBlockedFn  func(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
-	acceptToDoneFn func(ctx context.Context, id board.TicketID) (board.Ticket, error)
-	getBoardFn     func(ctx context.Context) (board.Snapshot, error)
+	createTicketFn    func(ctx context.Context, title, body string) (board.Ticket, error)
+	shapeTicketFn     func(ctx context.Context, id board.TicketID, patch board.ShapePatch) (board.Ticket, error)
+	markReadyFn       func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	sendToAgentFn     func(ctx context.Context, id board.TicketID, instruction string) (board.Ticket, error)
+	markBlockedFn     func(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
+	acceptToDoneFn    func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	requestApprovalFn func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	getBoardFn        func(ctx context.Context) (board.Snapshot, error)
 }
 
 func (f *fakeBoard) CreateTicket(ctx context.Context, title, body string) (board.Ticket, error) {
@@ -172,6 +173,14 @@ func (f *fakeBoard) AcceptToDone(ctx context.Context, id board.TicketID) (board.
 		return f.acceptToDoneFn(ctx, id)
 	}
 	return board.Ticket{ID: id, State: board.StateDone}, nil
+}
+
+func (f *fakeBoard) RequestApproval(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+	f.record("RequestApproval", id)
+	if f.requestApprovalFn != nil {
+		return f.requestApprovalFn(ctx, id)
+	}
+	return board.Ticket{ID: id, State: board.StateShaping}, nil
 }
 
 // GetBoard is the read port (BoardReader), tracked separately from the six
@@ -260,11 +269,71 @@ func (f *fakeConvo) Recent(_ context.Context, n int) ([]brain.Message, error) {
 	return out, nil
 }
 
+// --- fake NotificationStore ----------------------------------------------
+
+// postedNotification records one post_update call (08 §7).
+type postedNotification struct {
+	Kind     string
+	Body     string
+	Ticket   *string
+	ImageURL *string
+}
+
+// fakeNotifications is the NotificationStore port's recording double (08 §7):
+// PostNotification/RetractNotification record their args and optionally return
+// a configured error, so golden tests can assert the tool -> port mapping.
+type fakeNotifications struct {
+	mu         sync.Mutex
+	posts      []postedNotification
+	retracts   []int64
+	postErr    error
+	retractErr error
+}
+
+func (f *fakeNotifications) PostNotification(_ context.Context, kind, body string, ticketID, imageURL *string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posts = append(f.posts, postedNotification{Kind: kind, Body: body, Ticket: ticketID, ImageURL: imageURL})
+	return f.postErr
+}
+
+func (f *fakeNotifications) RetractNotification(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retracts = append(f.retracts, id)
+	return f.retractErr
+}
+
+func (f *fakeNotifications) posted() []postedNotification {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]postedNotification, len(f.posts))
+	copy(out, f.posts)
+	return out
+}
+
+func (f *fakeNotifications) retracted() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]int64, len(f.retracts))
+	copy(out, f.retracts)
+	return out
+}
+
 // --- construction helpers -------------------------------------------------
 
 func newTestService(board *fakeBoard, say *fakeSay, convo *fakeConvo, llm *scriptedLLM) *brain.Service {
+	return newTestServiceN(board, say, &fakeNotifications{}, convo, llm)
+}
+
+// newTestServiceN is newTestService with an explicit NotificationStore, for
+// the feed-tool golden tests (08 §7) that assert post_update/retract_update.
+func newTestServiceN(
+	board *fakeBoard, say *fakeSay, notifications brain.NotificationStore,
+	convo *fakeConvo, llm *scriptedLLM,
+) *brain.Service {
 	return brain.NewService(
-		board, board, say, convo, llm,
+		board, board, say, notifications, convo, llm,
 		brain.Config{Model: brain.DefaultModel}, brain.CurrentPromptVersion,
 	)
 }

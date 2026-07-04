@@ -30,6 +30,27 @@ type BoardAPI interface {
 	// AcceptToDone → tool accept_to_done. Always destructive — releases and
 	// recycles the worker (06 §7).
 	AcceptToDone(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	// RequestApproval → tool request_approval (08 §5). Sets approval_requested
+	// on a Shaping ticket so it surfaces as a proposal card; the gate is at the
+	// brain's discretion (08 §5, §9 D5). Precondition state==shaping surfaces as
+	// a typed board error, fed back verbatim like any other (06 §6, §8).
+	RequestApproval(ctx context.Context, id board.TicketID) (board.Ticket, error)
+}
+
+// NotificationStore is the brain's port onto the runtime's notification feed
+// (08 §7): brain-authored update/preview cards. Satisfied structurally by
+// *runtime.Service at the composition root (no adapter) — brain cannot import
+// runtime (see doc.go's no-runtime-import rule), so there is no compile-time
+// assertion here; INTEGRATION passes rtSvc for this port. Both ops append
+// feed.updated transactionally inside the runtime (08 §7), making the runtime
+// a second outbox writer.
+type NotificationStore interface {
+	// PostNotification → tool post_update (08 §7). kind is "update", or
+	// "preview" when image_url is set; ticketID/imageURL are optional.
+	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) error
+	// RetractNotification → tool retract_update (08 §7). Stamps retracted_at so
+	// the card drops from the feed.
+	RetractNotification(ctx context.Context, id int64) error
 }
 
 // BoardReader is the brain's port onto the board's read path (03 §4

@@ -24,10 +24,13 @@ const keepaliveInterval = 25 * time.Second
 // fully resyncs it; say frames are reconciled by message_id on the next fetch.
 const clientBuffer = 16
 
-// SSE event names (04 §7, 07 §4): the two named events the client listens for.
+// SSE event names (04 §7, 07 §4, 08 §3–§4): the named events the client
+// listens for.
 const (
-	eventBoard = "board"
-	eventSay   = "say"
+	eventBoard    = "board"
+	eventSay      = "say"
+	eventFeed     = "feed"
+	eventActivity = "activity"
 )
 
 // sseFrame is one named SSE event ready to write: `event: <name>\ndata: <data>\n\n`.
@@ -59,6 +62,15 @@ type Hub struct {
 func NewHub(boards BoardReader) *Hub {
 	return &Hub{boards: boards, clients: make(map[*client]struct{})}
 }
+
+// The hub satisfies every runtime push port: board/say snapshots (04/07) and
+// the 08 feed/activity fan-out.
+var (
+	_ runtime.SnapshotPusher = (*Hub)(nil)
+	_ runtime.SayPusher      = (*Hub)(nil)
+	_ runtime.FeedPusher     = (*Hub)(nil)
+	_ runtime.ActivityPusher = (*Hub)(nil)
+)
 
 // ServeStream handles one /api/stream connection (04 §7): send the current
 // board snapshot immediately, then stream board/say frames as they are pushed,
@@ -128,6 +140,31 @@ func (h *Hub) PushSay(_ context.Context, m runtime.Message) error {
 		return fmt.Errorf("api: marshal say event: %w", err)
 	}
 	h.broadcast(sseFrame{event: eventSay, data: data})
+	return nil
+}
+
+// PushFeed implements runtime.FeedPusher (08 §3): fan one absolute FeedSnapshot
+// out to every connected stream, distinguished by the feed event name. The
+// snapshot is passed in already assembled — the hub never reads the feed
+// itself, so there is no feed-reader dependency (and no runtime↔api cycle).
+func (h *Hub) PushFeed(_ context.Context, snap runtime.FeedSnapshot) error {
+	data, err := json.Marshal(feedToWire(snap))
+	if err != nil {
+		return fmt.Errorf("api: marshal feed event: %w", err)
+	}
+	h.broadcast(sseFrame{event: eventFeed, data: data})
+	return nil
+}
+
+// PushActivity implements runtime.ActivityPusher (08 §4): fan one ephemeral
+// activity event (thinking bracket or toast) out to every connected stream.
+// Ephemeral — never stored, never replayed on reconnect.
+func (h *Hub) PushActivity(_ context.Context, ev runtime.ActivityEvent) error {
+	data, err := json.Marshal(activityToWire(ev))
+	if err != nil {
+		return fmt.Errorf("api: marshal activity event: %w", err)
+	}
+	h.broadcast(sseFrame{event: eventActivity, data: data})
 	return nil
 }
 

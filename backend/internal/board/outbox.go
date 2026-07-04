@@ -7,11 +7,13 @@ package board
 type Topic string
 
 const (
-	TopicAgentSend    Topic = "agent.send"    // RunPull (work order) and SendToAgent (instruction)
-	TopicAgentRelease Topic = "agent.release" // AcceptToDone: recycle the worker to a fresh workspace
-	TopicNotifySend   Topic = "notify.send"   // MarkBlocked: push notification to the user
-	TopicPullEvaluate Topic = "pull.evaluate" // MarkReady, AcceptToDone: trigger RunPull
-	TopicBoardUpdated Topic = "board.updated" // every mutation: full-snapshot push (03 D7)
+	TopicAgentSend     Topic = "agent.send"     // RunPull (work order) and SendToAgent (instruction)
+	TopicAgentRelease  Topic = "agent.release"  // AcceptToDone: recycle the worker to a fresh workspace
+	TopicNotifySend    Topic = "notify.send"    // MarkBlocked: push notification to the user
+	TopicPullEvaluate  Topic = "pull.evaluate"  // MarkReady, AcceptToDone: trigger RunPull
+	TopicBoardUpdated  Topic = "board.updated"  // every mutation: full-snapshot push (03 D7)
+	TopicFeedUpdated   Topic = "feed.updated"   // feed-relevant change: reassemble the feed (08 §7)
+	TopicActivityToast Topic = "activity.toast" // ephemeral activity pill (08 §5): started/nudged/finished/queued
 )
 
 // Emission is one outbox row, appended in the same transaction as the state
@@ -44,4 +46,12 @@ type NotifyPayload struct {
 	TicketID TicketID `json:"ticket_id"`
 	Title    string   `json:"title"`
 	Reason   string   `json:"reason"`
+}
+
+// ToastPayload — activity.toast (08 §5): a short-lived pill announcing a board
+// verb. Verb ∈ {started, nudged, finished, queued}; TicketTitle names the
+// ticket the toast is about. The runtime turns this into a wire ActivityEvent.
+type ToastPayload struct {
+	Verb        string `json:"verb"`
+	TicketTitle string `json:"ticket_title"`
 }

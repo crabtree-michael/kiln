@@ -16,12 +16,19 @@ import (
 
 var errStoreFailed = errors.New("fakeMessageStore: synthetic failure")
 
+// newTestService builds a Service over the 04/07 ports, defaulting the 08 §7
+// ports (notifications, board reader, feed/activity pushers) to empty fakes so
+// the existing call sites stay unchanged. Tests that exercise the feed or
+// activity paths call runtime.NewService directly with their own fakes.
 func newTestService(
 	store *fakeStore, messages *fakeMessageStore, brain *fakeBrain, puller *fakePuller,
 	blocker *fakeBlocker, agents *fakeAgentRuntime, notifier *fakeNotifier,
 	pusher *fakeSnapshotPusher, sayer *fakeSayPusher,
 ) *runtime.Service {
-	return runtime.NewService(store, messages, brain, puller, blocker, agents, notifier, pusher, sayer)
+	return runtime.NewService(
+		store, messages, brain, puller, blocker, agents, notifier, pusher, sayer,
+		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+	)
 }
 
 // ---- EnqueueEvent (04 §6) --------------------------------------------------

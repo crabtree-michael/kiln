@@ -15,11 +15,11 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 )
 
-// TestToolSet_IsExactlySevenToolsInFixedOrder pins 06 §4's tool set: no pull
-// tool, no notify tool, no board-read tool — exactly these seven, in this
+// TestToolSet_IsExactlyTenToolsInFixedOrder pins the tool set (06 §4, amended
+// by 08 §5/§7): no pull tool, no board-read tool — exactly these ten, in this
 // order (order matters for prompt-cache friendliness and golden fixtures,
-// 06 §4/§9).
-func TestToolSet_IsExactlySevenToolsInFixedOrder(t *testing.T) {
+// 06 §4/§9). The last three are 08's feed tools.
+func TestToolSet_IsExactlyTenToolsInFixedOrder(t *testing.T) {
 	want := []brain.ToolName{
 		brain.ToolCreateTicket,
 		brain.ToolShapeTicket,
@@ -28,6 +28,9 @@ func TestToolSet_IsExactlySevenToolsInFixedOrder(t *testing.T) {
 		brain.ToolMarkBlocked,
 		brain.ToolAcceptToDone,
 		brain.ToolSay,
+		brain.ToolRequestApproval,
+		brain.ToolPostUpdate,
+		brain.ToolRetractUpdate,
 	}
 	if len(brain.Tools) != len(want) {
 		t.Fatalf("len(Tools) = %d, want %d (%v)", len(brain.Tools), len(want), want)
@@ -36,6 +39,21 @@ func TestToolSet_IsExactlySevenToolsInFixedOrder(t *testing.T) {
 		if brain.Tools[i].Name != name {
 			t.Errorf("Tools[%d].Name = %q, want %q", i, brain.Tools[i].Name, name)
 		}
+	}
+}
+
+// TestCurrentPromptVersion_IsV2 pins the shipped prompt version (08 §5/§7,
+// D3/D4): a fresh pass renders v2, and v2 is registered.
+func TestCurrentPromptVersion_IsV2(t *testing.T) {
+	if brain.CurrentPromptVersion != 2 {
+		t.Fatalf("CurrentPromptVersion = %d, want 2", brain.CurrentPromptVersion)
+	}
+	got, err := brain.RenderSystemPrompt(brain.CurrentPromptVersion, brain.PromptData{Role: "Kiln"})
+	if err != nil {
+		t.Fatalf("RenderSystemPrompt(v2): %v", err)
+	}
+	if !strings.Contains(got, "request_approval") || !strings.Contains(got, "post_update") {
+		t.Errorf("v2 prompt is missing the 08 feed-tool guidance:\n%s", got)
 	}
 }
 
@@ -118,6 +136,15 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			},
 			wantMethod: "Say",
 		},
+		{
+			name: "request_approval",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c8", brain.ToolRequestApproval, brain.RequestApprovalInput{Ticket: "t-6"})
+			},
+			wantMethod: "RequestApproval",
+			wantArgs:   []any{board.TicketID("t-6")},
+		},
 	}
 
 	for _, tc := range cases {
@@ -162,6 +189,98 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDispatch_PostUpdate_RoutesToNotificationStore pins post_update's mapping
+// (08 §7): kind is "update" with no image, "preview" when image_url is set,
+// and body/ticket/image_url reach NotificationStore.PostNotification verbatim.
+func TestDispatch_PostUpdate_RoutesToNotificationStore(t *testing.T) {
+	ticket := "t-7"
+	img := "https://example.test/preview.png"
+
+	cases := []struct {
+		name     string
+		input    brain.PostUpdateInput
+		wantKind string
+	}{
+		{
+			name:     "update (no image)",
+			input:    brain.PostUpdateInput{Body: "build is green", Ticket: &ticket},
+			wantKind: "update",
+		},
+		{
+			name:     "preview (image set)",
+			input:    brain.PostUpdateInput{Body: "have a look", Ticket: &ticket, ImageURL: &img},
+			wantKind: "preview",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := &fakeNotifications{}
+			svc := newTestServiceN(&fakeBoard{}, &fakeSay{}, fn, &fakeConvo{}, &scriptedLLM{})
+
+			call := newToolCall(t, "pu-1", brain.ToolPostUpdate, tc.input)
+			result := svc.Dispatch(context.Background(), call)
+
+			if result.IsError {
+				t.Fatalf("ToolResult.IsError = true, want false (Content: %q)", result.Content)
+			}
+			posts := fn.posted()
+			if len(posts) != 1 {
+				t.Fatalf("PostNotification called %d times, want 1", len(posts))
+			}
+			got := posts[0]
+			if got.Kind != tc.wantKind {
+				t.Errorf("kind = %q, want %q", got.Kind, tc.wantKind)
+			}
+			if got.Body != tc.input.Body {
+				t.Errorf("body = %q, want %q", got.Body, tc.input.Body)
+			}
+			if !ptrStrEq(got.Ticket, tc.input.Ticket) {
+				t.Errorf("ticket = %v, want %v", got.Ticket, tc.input.Ticket)
+			}
+			if !ptrStrEq(got.ImageURL, tc.input.ImageURL) {
+				t.Errorf("image_url = %v, want %v", got.ImageURL, tc.input.ImageURL)
+			}
+		})
+	}
+}
+
+// TestDispatch_RetractUpdate_RoutesToNotificationStore pins retract_update's
+// mapping (08 §7): notification_id reaches NotificationStore.RetractNotification.
+func TestDispatch_RetractUpdate_RoutesToNotificationStore(t *testing.T) {
+	fn := &fakeNotifications{}
+	svc := newTestServiceN(&fakeBoard{}, &fakeSay{}, fn, &fakeConvo{}, &scriptedLLM{})
+
+	call := newToolCall(t, "ru-1", brain.ToolRetractUpdate, brain.RetractUpdateInput{NotificationID: 42})
+	result := svc.Dispatch(context.Background(), call)
+
+	if result.IsError {
+		t.Fatalf("ToolResult.IsError = true, want false (Content: %q)", result.Content)
+	}
+	if got := fn.retracted(); len(got) != 1 || got[0] != 42 {
+		t.Errorf("retracted() = %v, want [42]", got)
+	}
+}
+
+// TestDispatch_NotificationErrorFedBack pins that a NotificationStore error
+// comes back as an error ToolResult, not a Go error (06 §5/§8 applied to the
+// 08 feed tools).
+func TestDispatch_NotificationErrorFedBack(t *testing.T) {
+	wantErr := board.ErrNotFound // any error value; asserting it round-trips verbatim
+	fn := &fakeNotifications{postErr: wantErr}
+	svc := newTestServiceN(&fakeBoard{}, &fakeSay{}, fn, &fakeConvo{}, &scriptedLLM{})
+
+	call := newToolCall(t, "pu-err", brain.ToolPostUpdate, brain.PostUpdateInput{Body: "x"})
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("ToolResult.IsError = false, want true")
+	}
+	if result.Content != wantErr.Error() {
+		t.Errorf("Content = %q, want verbatim %q", result.Content, wantErr.Error())
 	}
 }
 

@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -43,6 +45,46 @@ type MessagesReader interface {
 	Recent(ctx context.Context, n int) ([]runtime.Message, error)
 }
 
+// FeedReader is the api's port onto the runtime's feed assembly (08 §3 GET
+// /api/feed): one absolute FeedSnapshot (blockers, proposals, unseen updates).
+// Satisfied directly by *runtime.Service's Feed.
+type FeedReader interface {
+	Feed(ctx context.Context) (runtime.FeedSnapshot, error)
+}
+
+// SeenAcker is the api's port onto the runtime's seen high-water mark (08 §3
+// POST /api/feed/seen): mark every update up to and including lastID as seen.
+// Satisfied directly by *runtime.Service's MarkSeen.
+type SeenAcker interface {
+	MarkSeen(ctx context.Context, lastID int64) error
+}
+
+// TicketSeeder is the DEV-ONLY port behind POST /api/dev/tickets: seed a ticket
+// straight into a target state (08 §B.6 SeedSpec), bypassing the brain's
+// create/shape decision (D5). It exists so an e2e can establish a feed/board
+// precondition deterministically — a Developing ticket, a blocker card, a
+// proposal card — and then exercise the real loop. Satisfied by *board.Service.
+// Mounted only when EnableDevTickets was called; NOT part of the wire contract
+// (/schema) — never the real client.
+type TicketSeeder interface {
+	SeedTicket(ctx context.Context, spec board.SeedSpec) (board.Ticket, error)
+	// MarkReady is the real board op, reused by the dev route for a state=ready
+	// seed: a direct insert into ready would be inert (no pull.evaluate, no
+	// queued toast), so ready is seeded as shaping then marked ready, exactly
+	// like the brain's own path — feeding the pull and emitting the activity
+	// toast (08 §4). Satisfied by *board.Service.
+	MarkReady(ctx context.Context, id board.TicketID) (board.Ticket, error)
+}
+
+// NotificationPoster is the DEV-ONLY port behind POST /api/dev/notifications:
+// post a brain-authored feed notification (update/preview) without the LLM's
+// discretion, so an e2e can deterministically produce an update/preview card
+// (08 §E.3). Satisfied by *runtime.Service's PostNotification. Mounted only when
+// EnableDevNotifications was called; NOT part of the wire contract (/schema).
+type NotificationPoster interface {
+	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) error
+}
+
 // Server owns the 04 §7 / 07 §4 endpoint set:
 //
 //	GET  /api/stream   — SSE: full board snapshot on connect, then one board
@@ -61,13 +103,28 @@ type Server struct {
 	boards   BoardReader
 	poster   MessagePoster
 	messages MessagesReader
+	feed     FeedReader
+	seen     SeenAcker
 	hub      *Hub
+	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
+	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 }
 
 // NewServer wires the routes over their ports and the hub.
-func NewServer(boards BoardReader, poster MessagePoster, messages MessagesReader, hub *Hub) *Server {
-	return &Server{boards: boards, poster: poster, messages: messages, hub: hub}
+func NewServer(
+	boards BoardReader, poster MessagePoster, messages MessagesReader,
+	feed FeedReader, seen SeenAcker, hub *Hub,
+) *Server {
+	return &Server{boards: boards, poster: poster, messages: messages, feed: feed, seen: seen, hub: hub}
 }
+
+// EnableDevTickets turns on the dev-only POST /api/dev/tickets route (call before
+// Handler). Local/e2e only — gated at the composition root by KILN_DEV_ENDPOINTS.
+func (s *Server) EnableDevTickets(seeder TicketSeeder) { s.seeder = seeder }
+
+// EnableDevNotifications turns on the dev-only POST /api/dev/notifications route
+// (call before Handler). Local/e2e only — gated by KILN_DEV_ENDPOINTS.
+func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes = poster }
 
 // Handler returns the api's http.Handler, ready to mount.
 func (s *Server) Handler() http.Handler {
@@ -76,7 +133,88 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/board", s.handleBoard)
 	mux.HandleFunc("POST /api/message", s.handleMessage)
 	mux.HandleFunc("GET /api/messages", s.handleMessages)
+	mux.HandleFunc("GET /api/feed", s.handleFeed)
+	mux.HandleFunc("POST /api/feed/seen", s.handleFeedSeen)
+	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
+	if s.seeder != nil {
+		mux.HandleFunc("POST /api/dev/tickets", s.handleDevCreateTicket)
+	}
+	if s.devNotes != nil {
+		mux.HandleFunc("POST /api/dev/notifications", s.handleDevPostNotification)
+	}
 	return mux
+}
+
+// handleDevCreateTicket seeds a ticket directly into a target state (dev only),
+// so an e2e can establish a feed/board precondition deterministically without
+// the brain: the default (no state) is shaping, state=blocked binds a free
+// worker and sets a blocked_reason (a blocker card), state=shaping with
+// approval_requested surfaces a proposal card, state=ready feeds the pull. Body
+// is the work order the agent receives. Mounted only when EnableDevTickets was
+// called (KILN_DEV_ENDPOINTS).
+func (s *Server) handleDevCreateTicket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title             string `json:"title"`
+		Body              string `json:"body"`
+		State             string `json:"state"`
+		BlockedReason     string `json:"blocked_reason"`
+		ApprovalRequested bool   `json:"approval_requested"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	// A ready seed can't be a direct insert: it would emit no pull.evaluate and
+	// no queued toast, leaving the ticket inert. Seed it as shaping, then run the
+	// real MarkReady — which feeds the pull and emits the queued activity toast,
+	// exactly as the brain's mark_ready would (08 §4).
+	seedState := board.State(req.State)
+	markReady := seedState == board.StateReady
+	if markReady {
+		seedState = board.StateShaping
+	}
+	t, err := s.seeder.SeedTicket(r.Context(), board.SeedSpec{
+		Title:             req.Title,
+		Body:              req.Body,
+		State:             seedState,
+		BlockedReason:     req.BlockedReason,
+		ApprovalRequested: req.ApprovalRequested,
+	})
+	if err == nil && markReady {
+		t, err = s.seeder.MarkReady(r.Context(), t.ID)
+	}
+	switch {
+	case errors.Is(err, board.ErrNoFreeWorker):
+		http.Error(w, "no free worker to bind for a blocked/working seed", http.StatusConflict)
+		return
+	case err != nil:
+		slog.Error("api: dev seed ticket", "err", err)
+		http.Error(w, "seed ticket", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": string(t.ID), "state": string(t.State)})
+}
+
+// handleDevPostNotification posts a brain-authored feed notification directly
+// (dev only), so an e2e can produce an update/preview card without the LLM.
+// Mounted only when EnableDevNotifications was called (KILN_DEV_ENDPOINTS).
+func (s *Server) handleDevPostNotification(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Kind     string  `json:"kind"`
+		Body     string  `json:"body"`
+		TicketID *string `json:"ticket_id"`
+		ImageURL *string `json:"image_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := s.devNotes.PostNotification(r.Context(), req.Kind, req.Body, req.TicketID, req.ImageURL); err != nil {
+		slog.Error("api: dev post notification", "err", err)
+		http.Error(w, "post notification", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
 }
 
 // handleStream serves the SSE connection (04 §7): the hub owns the client
@@ -140,6 +278,74 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, messagesToWire(msgs))
 }
 
+// handleFeed returns the absolute feed snapshot (08 §3): the same shape the
+// stream's feed event carries.
+func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
+	snap, err := s.feed.Feed(r.Context())
+	if err != nil {
+		slog.Error("api: read feed", "err", err)
+		http.Error(w, "read feed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, feedToWire(snap))
+}
+
+// handleFeedSeen advances the seen high-water mark (08 §3): every update up to
+// and including last_notification_id is marked seen. Returns 202.
+func (s *Server) handleFeedSeen(w http.ResponseWriter, r *http.Request) {
+	var req wire.FeedSeenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := s.seen.MarkSeen(r.Context(), req.LastNotificationId); err != nil {
+		slog.Error("api: mark seen", "err", err)
+		http.Error(w, "mark seen", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleAccept routes a tap-Accept on a proposal through the brain (08
+// implementation-contract decision, overriding 08 D6): look up the ticket's
+// title, synthesize an explicit acceptance message, and post it exactly like
+// POST /api/message so the brain marks the ticket ready via mark_ready. Returns
+// 202 {event_id, message_id} — the same reconcile ids as a normal send.
+func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	title := id // fall back to the id if the title lookup fails or misses.
+	if snap, err := s.boards.GetBoard(r.Context()); err == nil {
+		if t, ok := findTicket(snap, id); ok {
+			title = t.Title
+		}
+	}
+	text := fmt.Sprintf(
+		"The user tapped Accept on the proposal %q (ticket %s). "+
+			"Mark that ticket ready now; do not ask for confirmation.",
+		title, id,
+	)
+	messageID, eventID, err := s.poster.PostMessage(r.Context(), text)
+	if err != nil {
+		slog.Error("api: accept proposal", "err", err)
+		http.Error(w, "accept proposal", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
+}
+
+// findTicket locates a ticket by id across every group of a board snapshot.
+func findTicket(snap board.Snapshot, id string) (board.Ticket, bool) {
+	groups := [][]board.Ticket{snap.Shaping, snap.Ready, snap.Blocked, snap.Working, snap.Done}
+	for _, g := range groups {
+		for _, t := range g {
+			if string(t.ID) == id {
+				return t, true
+			}
+		}
+	}
+	return board.Ticket{}, false
+}
+
 // writeJSON encodes v as the response body with the given status. An encode
 // failure is logged, not returned — the header is already committed.
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -176,16 +382,68 @@ func ticketsToWire(ts []board.Ticket) []wire.Ticket {
 
 func ticketToWire(t board.Ticket) wire.Ticket {
 	return wire.Ticket{
-		Id:            string(t.ID),
-		Title:         t.Title,
-		Body:          t.Body,
-		State:         wire.TicketState(t.State),
-		Priority:      t.Priority,
-		BlockedReason: t.BlockedReason,
-		ReadyAt:       t.ReadyAt,
-		CreatedAt:     t.CreatedAt,
-		UpdatedAt:     t.UpdatedAt,
+		Id:                string(t.ID),
+		Title:             t.Title,
+		Body:              t.Body,
+		State:             wire.TicketState(t.State),
+		Priority:          t.Priority,
+		BlockedReason:     t.BlockedReason,
+		ReadyAt:           t.ReadyAt,
+		ApprovalRequested: t.ApprovalRequested,
+		CreatedAt:         t.CreatedAt,
+		UpdatedAt:         t.UpdatedAt,
 	}
+}
+
+// feedToWire maps a runtime.FeedSnapshot onto the generated wire.FeedSnapshot
+// (08 §3): the identical absolute shape backs GET /api/feed and the feed SSE
+// event. Nullable card fields (TicketId, ImageUrl, NotificationId) and the
+// summary's LastWordAt carry through as pointers untouched.
+func feedToWire(s runtime.FeedSnapshot) wire.FeedSnapshot {
+	cards := make([]wire.FeedCard, 0, len(s.Cards))
+	for _, c := range s.Cards {
+		cards = append(cards, wire.FeedCard{
+			Kind:           wire.FeedCardKind(c.Kind),
+			Id:             c.ID,
+			Label:          c.Label,
+			Body:           c.Body,
+			TicketId:       c.TicketID,
+			ImageUrl:       c.ImageURL,
+			NotificationId: c.NotificationID,
+			CreatedAt:      c.CreatedAt,
+		})
+	}
+	return wire.FeedSnapshot{
+		Summary: wire.FeedSummary{
+			BlockerCount: s.Summary.BlockerCount,
+			UpdateCount:  s.Summary.UpdateCount,
+			StreamCount:  s.Summary.StreamCount,
+			Building:     s.Summary.Building,
+			Idle:         s.Summary.Idle,
+			LastWordAt:   s.Summary.LastWordAt,
+		},
+		Cards: cards,
+	}
+}
+
+// activityToWire maps a runtime.ActivityEvent onto the generated
+// wire.ActivityEvent (08 §4). The wire type keys its optional fields by kind:
+// On is set only for thinking; Verb and TicketTitle only for a toast (and only
+// when non-empty), left nil otherwise.
+func activityToWire(ev runtime.ActivityEvent) wire.ActivityEvent {
+	out := wire.ActivityEvent{Kind: wire.ActivityEventKind(ev.Kind)}
+	if ev.Kind == string(wire.Thinking) {
+		out.On = ev.On
+	}
+	if ev.Verb != "" {
+		v := wire.ActivityEventVerb(ev.Verb)
+		out.Verb = &v
+	}
+	if ev.TicketTitle != "" {
+		tt := ev.TicketTitle
+		out.TicketTitle = &tt
+	}
+	return out
 }
 
 // messagesToWire maps transcript rows onto wire.Message, always non-nil.

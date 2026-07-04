@@ -110,11 +110,169 @@ func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
 }
 
 // truncateRuntimeTables resets exactly the runtime's own tables so every
-// test starts clean, without disturbing other modules sharing kiln_test.
+// test starts clean, without disturbing other modules sharing kiln_test. The
+// notification tests also append feed.updated outbox rows (08 §7); outbox is
+// board-owned, so it is truncated here (not DROPped) only if it exists — the
+// runtime's migrations don't create it.
 func truncateRuntimeTables(ctx context.Context, t *testing.T, db *sql.DB) {
 	t.Helper()
-	if _, err := db.ExecContext(ctx, `TRUNCATE TABLE events, messages RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := db.ExecContext(ctx,
+		`TRUNCATE TABLE events, messages, notifications RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate runtime tables: %v", err)
+	}
+	var outboxExists bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'outbox'
+	)`).Scan(&outboxExists); err != nil {
+		t.Fatalf("check for outbox table: %v", err)
+	}
+	if outboxExists {
+		if _, err := db.ExecContext(ctx, `TRUNCATE TABLE outbox RESTART IDENTITY`); err != nil {
+			t.Fatalf("truncate outbox: %v", err)
+		}
+	}
+}
+
+// feedUpdatedCount counts pending feed.updated outbox rows — the runtime's
+// second-outbox-writer signal (08 §7). Skips the assertion when outbox is
+// absent (the board's migrations own it and may not be applied in isolation).
+func feedUpdatedCount(ctx context.Context, t *testing.T, db *sql.DB) (int, bool) {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'outbox'
+	)`).Scan(&exists); err != nil {
+		t.Fatalf("check for outbox table: %v", err)
+	}
+	if !exists {
+		return 0, false
+	}
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM outbox WHERE topic = 'feed.updated'`).Scan(&n); err != nil {
+		t.Fatalf("count feed.updated outbox rows: %v", err)
+	}
+	return n, true
+}
+
+// ---- notifications: post/retract/seen + feed.updated emission (08 §3, §7) --
+
+func TestIntegration_PostNotification_InsertsRowAndEmitsFeedUpdated(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	tid := "tk-1"
+	img := "https://img/x.png"
+	n, err := store.PostNotification(ctx, "preview", "a preview", &tid, &img)
+	if err != nil {
+		t.Fatalf("PostNotification: %v", err)
+	}
+	if n.ID == 0 || n.CreatedAt.IsZero() {
+		t.Fatalf("PostNotification returned %+v, want a persisted id + created_at", n)
+	}
+
+	var kind, body, gotTid, gotImg string
+	if err := db.QueryRowContext(ctx,
+		`SELECT kind, body, ticket_id, image_url FROM notifications WHERE id = $1`, n.ID).
+		Scan(&kind, &body, &gotTid, &gotImg); err != nil {
+		t.Fatalf("query notification row: %v", err)
+	}
+	if kind != "preview" || body != "a preview" || gotTid != tid || gotImg != img {
+		t.Errorf("row = (%q,%q,%q,%q), want (preview, a preview, %q, %q)", kind, body, gotTid, gotImg, tid, img)
+	}
+
+	if got, ok := feedUpdatedCount(ctx, t, db); ok && got != 1 {
+		t.Errorf("feed.updated outbox rows = %d after one PostNotification, want 1 (08 §7)", got)
+	}
+}
+
+func TestIntegration_UnseenNotifications_NewestFirstFiltersSeenAndRetracted(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	older, err := store.PostNotification(ctx, "update", "older", nil, nil)
+	if err != nil {
+		t.Fatalf("post older: %v", err)
+	}
+	mid, err := store.PostNotification(ctx, "update", "middle", nil, nil)
+	if err != nil {
+		t.Fatalf("post middle: %v", err)
+	}
+	newest, err := store.PostNotification(ctx, "update", "newest", nil, nil)
+	if err != nil {
+		t.Fatalf("post newest: %v", err)
+	}
+
+	// Retract the middle one; it must drop out of the unseen set.
+	if err := store.RetractNotification(ctx, mid.ID); err != nil {
+		t.Fatalf("RetractNotification: %v", err)
+	}
+
+	got, err := store.UnseenNotifications(ctx)
+	if err != nil {
+		t.Fatalf("UnseenNotifications: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("UnseenNotifications returned %d rows, want 2 (retracted filtered)", len(got))
+	}
+	if got[0].ID != newest.ID || got[1].ID != older.ID {
+		t.Errorf("order = [%d, %d], want newest-first [%d, %d]", got[0].ID, got[1].ID, newest.ID, older.ID)
+	}
+}
+
+func TestIntegration_MarkSeen_StampsUpToHighWaterAndEmitsFeedUpdated(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	n1, err := store.PostNotification(ctx, "update", "one", nil, nil)
+	if err != nil {
+		t.Fatalf("post one: %v", err)
+	}
+	n2, err := store.PostNotification(ctx, "update", "two", nil, nil)
+	if err != nil {
+		t.Fatalf("post two: %v", err)
+	}
+	n3, err := store.PostNotification(ctx, "update", "three", nil, nil)
+	if err != nil {
+		t.Fatalf("post three: %v", err)
+	}
+
+	// Seen up to n2: n1 and n2 stamped, n3 still unseen.
+	if err := store.MarkSeen(ctx, n2.ID); err != nil {
+		t.Fatalf("MarkSeen: %v", err)
+	}
+
+	got, err := store.UnseenNotifications(ctx)
+	if err != nil {
+		t.Fatalf("UnseenNotifications: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != n3.ID {
+		t.Fatalf("unseen after MarkSeen(%d) = %+v, want only n3=%d", n2.ID, got, n3.ID)
+	}
+
+	var n1Seen, n2Seen, n3Seen sql.NullTime
+	for _, id := range []struct {
+		id   int64
+		seen *sql.NullTime
+	}{{n1.ID, &n1Seen}, {n2.ID, &n2Seen}, {n3.ID, &n3Seen}} {
+		if err := db.QueryRowContext(ctx,
+			`SELECT seen_at FROM notifications WHERE id = $1`, id.id).Scan(id.seen); err != nil {
+			t.Fatalf("query seen_at for %d: %v", id.id, err)
+		}
+	}
+	if !n1Seen.Valid || !n2Seen.Valid {
+		t.Errorf("n1/n2 seen_at = (%v, %v), want both stamped (id <= high-water)", n1Seen.Valid, n2Seen.Valid)
+	}
+	if n3Seen.Valid {
+		t.Error("n3 seen_at stamped, want NULL (above the high-water id)")
+	}
+
+	// PostNotification (x3) + Retract-free MarkSeen each emit one feed.updated.
+	if got, ok := feedUpdatedCount(ctx, t, db); ok && got != 4 {
+		t.Errorf("feed.updated outbox rows = %d, want 4 (3 posts + 1 mark-seen, 08 §7)", got)
 	}
 }
 

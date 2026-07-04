@@ -97,26 +97,94 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Message'
+  /api/feed:
+    get:
+      operationId: getFeed
+      summary: Full feed snapshot for the primary screen (08 §3).
+      description: >
+        The same absolute snapshot the `feed` SSE event carries — for initial
+        render before /api/stream attaches, or a manual resync (08 §3, mirroring
+        04 D7). Assembled server-side (08 §7): derived blocker/proposal cards
+        from board state joined with unseen, unretracted brain-authored update/
+        preview notifications, in strict order (blockers -> proposals -> updates
+        newest-first). Never a delta.
+      responses:
+        '200':
+          description: Current feed snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedSnapshot'
+  /api/feed/seen:
+    post:
+      operationId: postFeedSeen
+      summary: Ack that update cards up to a high-water mark were seen (08 §3).
+      description: >
+        Inbox-drains semantics (08 D2): stamps seen_at on every unseen
+        notification with id <= last_notification_id; seen updates drop out of
+        subsequent feed snapshots. Blockers and proposals ignore seen entirely.
+        Fired by the client when update cards render on a foregrounded, visible
+        screen (08 §3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedSeenRequest'
+      responses:
+        '202':
+          description: Accepted — the seen high-water mark was stamped.
+  /api/tickets/{id}/accept:
+    post:
+      operationId: acceptTicket
+      summary: Accept a proposal (08 §5).
+      description: >
+        Tap-accept on a proposal card. Per this project's decision (overriding
+        08 D6), acceptance routes through the brain: this appends a user
+        transcript row and enqueues a human.message event expressing the
+        acceptance, exactly like POST /api/message. The brain then marks the
+        ticket Ready via mark_ready. Voice accept flows through the same brain
+        path (08 §5).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The Shaping ticket's id (must have approval_requested set).
+          schema:
+            type: string
+      responses:
+        '202':
+          description: >
+            Accepted — the acceptance user row is appended and the human.message
+            event is enqueued for the brain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePostResponse'
   /api/stream:
     get:
       operationId: getStream
-      summary: SSE stream of `board` and `say` events (04 §7, 07 §4).
+      summary: SSE stream of `board`, `say`, `feed`, and `activity` events (04 §7, 07 §4, 08 §3–§4).
       description: >
-        Server-sent events; not a JSON response. Two named SSE event types
-        ride this one connection: `board` (payload: Board — the full
-        snapshot, sent immediately on connect and again per board.updated
-        outbox entry, absolute and never a delta — 03 D7/04 D7) and `say`
-        (payload: SayEvent — one per brain say, renamed from `speak`, 07 A1).
-        Comment-line keepalive every 25s. `Last-Event-ID` is unused —
-        reconnect's resync is simply the next `board` event (04 §7, D6/D7).
-        This operation is declared for documentation and so the Board/SayEvent
-        payload schemas below generate into both sides' types; the actual
-        response content type is `text/event-stream`.
+        Server-sent events; not a JSON response. Four named SSE event types
+        ride this one connection: `board` (payload: Board — the full snapshot,
+        sent immediately on connect and again per board.updated outbox entry,
+        absolute and never a delta — 03 D7/04 D7); `say` (payload: SayEvent —
+        one per brain say, renamed from `speak`, 07 A1); `feed` (payload:
+        FeedSnapshot — the full visible feed, sent per feed.updated outbox
+        entry, absolute; reconnect's resync is the next `feed` event — 08 §3);
+        and `activity` (payload: ActivityEvent — ephemeral, SSE-only, never
+        stored: thinking on/off and per-transition action toasts — 08 §4).
+        Comment-line keepalive every 25s. `Last-Event-ID` is unused. This
+        operation is declared for documentation and so the payload schemas below
+        generate into both sides' types; the actual response content type is
+        `text/event-stream`.
       responses:
         '200':
           description: >
-            text/event-stream carrying `board` (Board) and `say` (SayEvent)
-            named SSE events.
+            text/event-stream carrying `board` (Board), `say` (SayEvent),
+            `feed` (FeedSnapshot), and `activity` (ActivityEvent) named SSE
+            events.
           content:
             text/event-stream:
               schema:
@@ -139,7 +207,7 @@ components:
       description: >
         One ticket as rendered on the board (03 §2.2). Column/zone placement
         is derived from `state`, never carried as a separate field (03 D1).
-      required: [id, title, body, state, priority, created_at, updated_at]
+      required: [id, title, body, state, priority, approval_requested, created_at, updated_at]
       properties:
         id:
           type: string
@@ -157,6 +225,12 @@ components:
         priority:
           type: integer
           description: Backlog ordering for the pull; higher pulls first.
+        approval_requested:
+          type: boolean
+          description: >
+            Set by the brain's request_approval tool on a Shaping ticket (08 §5);
+            true iff state is shaping and the brain is seeking human approval.
+            Surfaces the ticket as a `proposal` feed card. Cleared by mark_ready.
         blocked_reason:
           type: string
           nullable: true
@@ -273,4 +347,142 @@ components:
         at:
           type: string
           format: date-time
+      additionalProperties: false
+
+    FeedCard:
+      type: object
+      description: >
+        One backlog item on the primary screen (08 §3). Hybrid-sourced but the
+        client renders one list and never knows the difference: `blocker` and
+        `proposal` are derived from board state; `update` and `preview` are
+        brain-authored notification rows. The visible tag (Blocker/Proposal/
+        Update/Preview) is derived from `kind` on the client.
+      required: [kind, id, label, body, created_at]
+      properties:
+        kind:
+          type: string
+          description: >
+            blocker -> ticket in the Blocked zone (body is blocked_reason);
+            proposal -> Shaping ticket with approval_requested (body is the
+            shaped summary, Accept affordance shown); update -> brain-authored
+            note; preview -> brain-authored note with an image.
+          enum: [blocker, proposal, update, preview]
+        id:
+          type: string
+          description: >
+            Stable render key. `blocker:<ticket_id>`, `proposal:<ticket_id>`,
+            or `update:<notification_id>`.
+        label:
+          type: string
+          description: >
+            The short stream/ticket label shown above the card body (e.g. the
+            ticket title). May be empty for an authored note with no linked ticket.
+        body:
+          type: string
+        ticket_id:
+          type: string
+          nullable: true
+          description: Set for blocker/proposal (the derived ticket); optional for authored notes.
+        notification_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            Set for update/preview cards; the id the client passes to
+            /api/feed/seen as the high-water mark (08 §3).
+        image_url:
+          type: string
+          nullable: true
+          description: Set for preview cards — the embedded render (08 §3, 4c).
+        created_at:
+          type: string
+          format: date-time
+          description: >
+            When the card became current (blocked-at for blockers, request time
+            for proposals, post time for notes); drives the relative age label.
+      additionalProperties: false
+
+    FeedSummary:
+      type: object
+      description: >
+        Server-derived header status counts (08 §2). The client renders the
+        one-line summary from these: "N blocker(s) · M updates" when blockers
+        exist, "K streams · nothing needs you" when not, "all clear" when the
+        feed is empty; plus the all-clear detail line (building/idle/last word).
+      required: [blocker_count, update_count, stream_count, building, idle]
+      properties:
+        blocker_count:
+          type: integer
+        update_count:
+          type: integer
+          description: Count of unseen update/preview cards.
+        stream_count:
+          type: integer
+          description: Number of active ticket streams (working + blocked).
+        building:
+          type: integer
+          description: Streams with a worker actively building (working).
+        idle:
+          type: integer
+          description: Active streams not currently building.
+        last_word_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp of the most recent brain say/update, for "last word 6m ago".
+      additionalProperties: false
+
+    FeedSnapshot:
+      type: object
+      description: >
+        GET /api/feed's body and the `feed` SSE event payload — the identical
+        absolute shape (08 §3). `cards` is in strict order: unresolved blockers,
+        then pending proposals, then unseen updates newest-first.
+      required: [summary, cards]
+      properties:
+        summary:
+          $ref: '#/components/schemas/FeedSummary'
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedCard'
+      additionalProperties: false
+
+    FeedSeenRequest:
+      type: object
+      description: POST /api/feed/seen body (08 §3) — the seen high-water mark.
+      required: [last_notification_id]
+      properties:
+        last_notification_id:
+          type: integer
+          format: int64
+      additionalProperties: false
+
+    ActivityEvent:
+      type: object
+      description: >
+        The `activity` SSE event payload (08 §4) — ephemeral, never stored.
+        `thinking` brackets a brain pass (renders the spinner); `toast` confirms
+        one side-effect board transition (renders the auto-dismissing pill).
+        Fields are keyed by `kind`, mirroring Ticket.state's enum discriminator.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [thinking, toast]
+        on:
+          type: boolean
+          nullable: true
+          description: For kind=thinking — true when a pass starts, false when it ends.
+        verb:
+          type: string
+          nullable: true
+          description: >
+            For kind=toast — the transition: started (dispatched), nudged (new
+            turn sent), finished (accepted to done), queued (marked ready).
+          enum: [started, nudged, finished, queued]
+        ticket_title:
+          type: string
+          nullable: true
+          description: For kind=toast — the affected ticket's title.
       additionalProperties: false

@@ -81,6 +81,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Full feed snapshot for the primary screen (08 §3).
+         * @description The same absolute snapshot the `feed` SSE event carries — for initial render before /api/stream attaches, or a manual resync (08 §3, mirroring 04 D7). Assembled server-side (08 §7): derived blocker/proposal cards from board state joined with unseen, unretracted brain-authored update/ preview notifications, in strict order (blockers -> proposals -> updates newest-first). Never a delta.
+         */
+        get: operations["getFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feed/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ack that update cards up to a high-water mark were seen (08 §3).
+         * @description Inbox-drains semantics (08 D2): stamps seen_at on every unseen notification with id <= last_notification_id; seen updates drop out of subsequent feed snapshots. Blockers and proposals ignore seen entirely. Fired by the client when update cards render on a foregrounded, visible screen (08 §3).
+         */
+        post: operations["postFeedSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a proposal (08 §5).
+         * @description Tap-accept on a proposal card. Per this project's decision (overriding 08 D6), acceptance routes through the brain: this appends a user transcript row and enqueues a human.message event expressing the acceptance, exactly like POST /api/message. The brain then marks the ticket Ready via mark_ready. Voice accept flows through the same brain path (08 §5).
+         */
+        post: operations["acceptTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream": {
         parameters: {
             query?: never;
@@ -89,8 +149,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * SSE stream of `board` and `say` events (04 §7, 07 §4).
-         * @description Server-sent events; not a JSON response. Two named SSE event types ride this one connection: `board` (payload: Board — the full snapshot, sent immediately on connect and again per board.updated outbox entry, absolute and never a delta — 03 D7/04 D7) and `say` (payload: SayEvent — one per brain say, renamed from `speak`, 07 A1). Comment-line keepalive every 25s. `Last-Event-ID` is unused — reconnect's resync is simply the next `board` event (04 §7, D6/D7). This operation is declared for documentation and so the Board/SayEvent payload schemas below generate into both sides' types; the actual response content type is `text/event-stream`.
+         * SSE stream of `board`, `say`, `feed`, and `activity` events (04 §7, 07 §4, 08 §3–§4).
+         * @description Server-sent events; not a JSON response. Four named SSE event types ride this one connection: `board` (payload: Board — the full snapshot, sent immediately on connect and again per board.updated outbox entry, absolute and never a delta — 03 D7/04 D7); `say` (payload: SayEvent — one per brain say, renamed from `speak`, 07 A1); `feed` (payload: FeedSnapshot — the full visible feed, sent per feed.updated outbox entry, absolute; reconnect's resync is the next `feed` event — 08 §3); and `activity` (payload: ActivityEvent — ephemeral, SSE-only, never stored: thinking on/off and per-transition action toasts — 08 §4). Comment-line keepalive every 25s. `Last-Event-ID` is unused. This operation is declared for documentation and so the payload schemas below generate into both sides' types; the actual response content type is `text/event-stream`.
          */
         get: operations["getStream"];
         put?: never;
@@ -122,6 +182,8 @@ export interface components {
             state: "shaping" | "ready" | "working" | "blocked" | "done";
             /** @description Backlog ordering for the pull; higher pulls first. */
             priority: number;
+            /** @description Set by the brain's request_approval tool on a Shaping ticket (08 §5); true iff state is shaping and the brain is seeking human approval. Surfaces the ticket as a `proposal` feed card. Cleared by mark_ready. */
+            approval_requested: boolean;
             /** @description Set iff state is blocked (03 I4); full text, shown on the card (07 §7). */
             blocked_reason?: string | null;
             /**
@@ -174,6 +236,74 @@ export interface components {
             text: string;
             /** Format: date-time */
             at: string;
+        };
+        /** @description One backlog item on the primary screen (08 §3). Hybrid-sourced but the client renders one list and never knows the difference: `blocker` and `proposal` are derived from board state; `update` and `preview` are brain-authored notification rows. The visible tag (Blocker/Proposal/ Update/Preview) is derived from `kind` on the client. */
+        FeedCard: {
+            /**
+             * @description blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image.
+             * @enum {string}
+             */
+            kind: "blocker" | "proposal" | "update" | "preview";
+            /** @description Stable render key. `blocker:<ticket_id>`, `proposal:<ticket_id>`, or `update:<notification_id>`. */
+            id: string;
+            /** @description The short stream/ticket label shown above the card body (e.g. the ticket title). May be empty for an authored note with no linked ticket. */
+            label: string;
+            body: string;
+            /** @description Set for blocker/proposal (the derived ticket); optional for authored notes. */
+            ticket_id?: string | null;
+            /**
+             * Format: int64
+             * @description Set for update/preview cards; the id the client passes to /api/feed/seen as the high-water mark (08 §3).
+             */
+            notification_id?: number | null;
+            /** @description Set for preview cards — the embedded render (08 §3, 4c). */
+            image_url?: string | null;
+            /**
+             * Format: date-time
+             * @description When the card became current (blocked-at for blockers, request time for proposals, post time for notes); drives the relative age label.
+             */
+            created_at: string;
+        };
+        /** @description Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, "K streams · nothing needs you" when not, "all clear" when the feed is empty; plus the all-clear detail line (building/idle/last word). */
+        FeedSummary: {
+            blocker_count: number;
+            /** @description Count of unseen update/preview cards. */
+            update_count: number;
+            /** @description Number of active ticket streams (working + blocked). */
+            stream_count: number;
+            /** @description Streams with a worker actively building (working). */
+            building: number;
+            /** @description Active streams not currently building. */
+            idle: number;
+            /**
+             * Format: date-time
+             * @description Timestamp of the most recent brain say/update, for "last word 6m ago".
+             */
+            last_word_at?: string | null;
+        };
+        /** @description GET /api/feed's body and the `feed` SSE event payload — the identical absolute shape (08 §3). `cards` is in strict order: unresolved blockers, then pending proposals, then unseen updates newest-first. */
+        FeedSnapshot: {
+            summary: components["schemas"]["FeedSummary"];
+            cards: components["schemas"]["FeedCard"][];
+        };
+        /** @description POST /api/feed/seen body (08 §3) — the seen high-water mark. */
+        FeedSeenRequest: {
+            /** Format: int64 */
+            last_notification_id: number;
+        };
+        /** @description The `activity` SSE event payload (08 §4) — ephemeral, never stored. `thinking` brackets a brain pass (renders the spinner); `toast` confirms one side-effect board transition (renders the auto-dismissing pill). Fields are keyed by `kind`, mirroring Ticket.state's enum discriminator. */
+        ActivityEvent: {
+            /** @enum {string} */
+            kind: "thinking" | "toast";
+            /** @description For kind=thinking — true when a pass starts, false when it ends. */
+            on?: boolean | null;
+            /**
+             * @description For kind=toast — the transition: started (dispatched), nudged (new turn sent), finished (accepted to done), queued (marked ready).
+             * @enum {string|null}
+             */
+            verb?: "started" | "nudged" | "finished" | "queued" | null;
+            /** @description For kind=toast — the affected ticket's title. */
+            ticket_title?: string | null;
         };
     };
     responses: never;
@@ -271,6 +401,71 @@ export interface operations {
             };
         };
     };
+    getFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current feed snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedSnapshot"];
+                };
+            };
+        };
+    };
+    postFeedSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedSeenRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted — the seen high-water mark was stamped. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acceptTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Shaping ticket's id (must have approval_requested set). */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted — the acceptance user row is appended and the human.message event is enqueued for the brain. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePostResponse"];
+                };
+            };
+        };
+    };
     getStream: {
         parameters: {
             query?: never;
@@ -280,7 +475,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description text/event-stream carrying `board` (Board) and `say` (SayEvent) named SSE events. */
+            /** @description text/event-stream carrying `board` (Board), `say` (SayEvent), `feed` (FeedSnapshot), and `activity` (ActivityEvent) named SSE events. */
             200: {
                 headers: {
                     [name: string]: unknown;

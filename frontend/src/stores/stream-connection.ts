@@ -9,8 +9,10 @@
 // last one to unsubscribe closes it.
 import { openStream } from '@/transport/transport';
 import type {
+  ActivityEvent,
   Board,
   ConnectionState,
+  FeedSnapshot,
   SayEvent,
   StreamConnection,
   StreamHandlers,
@@ -31,6 +33,18 @@ function fanOutSay(event: SayEvent): void {
   }
 }
 
+function fanOutFeed(feed: FeedSnapshot): void {
+  for (const subscriber of subscribers) {
+    subscriber.onFeed?.(feed);
+  }
+}
+
+function fanOutActivity(event: ActivityEvent): void {
+  for (const subscriber of subscribers) {
+    subscriber.onActivity?.(event);
+  }
+}
+
 function fanOutConnectionState(state: ConnectionState): void {
   for (const subscriber of subscribers) {
     subscriber.onConnectionStateChange(state);
@@ -43,6 +57,8 @@ export function subscribeStream(handlers: StreamHandlers): () => void {
   connection ??= openStream({
     onBoard: fanOutBoard,
     onSay: fanOutSay,
+    onFeed: fanOutFeed,
+    onActivity: fanOutActivity,
     onConnectionStateChange: fanOutConnectionState,
   });
 

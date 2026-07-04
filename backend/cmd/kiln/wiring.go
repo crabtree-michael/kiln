@@ -137,19 +137,29 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	rtSvc := runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), brainPort, boardSvc,
 		&blockerAdapter{inner: boardSvc}, agentSvc, &logNotifier{log: log}, hub, hub,
+		runtimepg.New(db), &boardViewAdapter{inner: boardSvc}, hub, hub,
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
 
 	brainSvc := brain.NewService(
-		boardSvc, boardSvc, rtSvc, &convoAdapter{rt: rtSvc},
+		boardSvc, boardSvc, rtSvc, rtSvc, &convoAdapter{rt: rtSvc},
 		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),
 		brain.Config{Model: cfg.BrainModel}, brain.CurrentPromptVersion,
 	)
 	brainPort.inner = brainSvc // close the runtime↔brain cycle.
 
+	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub)
+	if cfg.DevEndpoints {
+		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
+		// post a feed notification (POST /api/dev/notifications), both without the
+		// brain — deterministic e2e preconditions.
+		server.EnableDevTickets(boardSvc)
+		server.EnableDevNotifications(rtSvc)
+	}
+
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
-		server: api.NewServer(boardSvc, rtSvc, rtSvc, hub),
+		server: server,
 		events: events,
 		outbox: outbox,
 		agent:  agentSvc,

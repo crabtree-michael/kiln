@@ -28,6 +28,14 @@ so the brain hits the **real LLM** (02 §4a, §1).
   it needs `AMIKA_API_KEY` (from the repo-root `.env`) plus a **free worker** — if the
   key is missing or a prior run left the pool busy it fails fast with a clear message
   rather than timing out.
+- `tests/agent-completion-feeds-brain.spec.ts` — the **return leg** of the loop, a
+  separate mechanism from the send leg above: an agent's response feeds back through the
+  event queue into the brain. It **seeds** a Developing ticket via the dev-only
+  `POST /api/dev/tickets` (no brain, so setup is deterministic), the real pull binds a
+  worker, the agent replies, `CheckTurn` emits `agent.turn_completed`, the runtime
+  dequeues it into `brain.HandleEvent`, and the brain moves the ticket to **done or
+  blocked** — the assertion. Needs `KILN_DEV_ENDPOINTS=1` on the stack (docker-compose
+  defaults it on) and a free worker; also reaches Developing (real Amika, bills money).
 
 ## Target frontend
 

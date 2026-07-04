@@ -84,8 +84,30 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 	})
 }
 
-// MarkReady moves shaping → ready and sets ready_at (03 §4).
-// Precondition: state = shaping. Emits pull.evaluate.
+// RequestApproval surfaces a shaping ticket to the user as a proposal awaiting
+// approval (08 §5). Sets ApprovalRequested = true; the ticket stays in shaping.
+// Precondition: state = shaping. Emits feed.updated (a proposal card appears).
+func (s *Service) RequestApproval(ctx context.Context, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if t.State != StateShaping {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "RequestApproval"}
+		}
+		t.ApprovalRequested = true
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+		}
+		return updated, nil
+	})
+}
+
+// MarkReady moves shaping → ready and sets ready_at (03 §4). Clears any pending
+// approval request — the proposal is resolved once the ticket is queued (08 §5).
+// Precondition: state = shaping. Emits pull.evaluate, feed.updated, and a
+// "queued" activity toast (08 §B).
 func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping {
@@ -94,12 +116,22 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 		now := time.Now().UTC()
 		t.State = StateReady
 		t.ReadyAt = &now
+		t.ApprovalRequested = false
 		updated, err := tx.UpdateTicket(ctx, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicPullEvaluate}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+			Verb:        "queued",
+			TicketTitle: updated.Title,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
 		}
 		return updated, nil
 	})
@@ -114,6 +146,9 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "SendToAgent"}
 		}
+		// A resume out of Blocked is a user-visible nudge (08 §5); a working →
+		// working new turn is not (the blocker card was the only feed surface).
+		leavingBlocked := t.State == StateBlocked
 		worker := *t.WorkerID
 		t.State = StateWorking
 		t.BlockedReason = nil
@@ -127,6 +162,17 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 			Message:  instruction,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append agent.send: %w", err)
+		}
+		if leavingBlocked {
+			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+				return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+			}
+			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+				Verb:        "nudged",
+				TicketTitle: updated.Title,
+			}}); err != nil {
+				return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
+			}
 		}
 		return updated, nil
 	})
@@ -154,6 +200,10 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 			Reason:   reason,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
+		}
+		// A blocker becomes a feed card (08 §5); no toast — the card is the surface.
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		return updated, nil
 	})
@@ -184,8 +234,104 @@ func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error)
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append agent.release: %w", err)
 		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+			Verb:        "finished",
+			TicketTitle: updated.Title,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
+		}
 		return updated, nil
 	})
+}
+
+// SeedSpec describes a ticket to plant directly into a target state, bypassing
+// the brain's create/shape decisions (08 §B.6). Dev/e2e only.
+type SeedSpec struct {
+	Title             string // required, non-empty (ErrEmptyTitle otherwise)
+	Body              string
+	State             State  // target state; empty means shaping (the default)
+	BlockedReason     string // used only when State == blocked; defaulted if empty
+	ApprovalRequested bool   // only meaningful (and only allowed) when State == shaping
+}
+
+// SeedTicket plants a ticket directly into SeedSpec.State — DEV/E2E ONLY (08
+// §B.6). It exists so an e2e can establish a feed precondition (a blocker card,
+// a proposal card) deterministically, without depending on brain/LLM
+// discretion. It is not a Board API operation and is never reachable by the
+// real client.
+//
+// Invariants are honored: a working/blocked seed binds a currently-free worker
+// (ErrNoFreeWorker if none), a blocked seed carries a blocked_reason (03 I3/I4),
+// a ready seed gets a ready_at, and approval_requested is only set on a shaping
+// seed. Emits board.updated always, plus feed.updated when the seed produces a
+// feed surface (blocker or proposal), so the feed reassembles immediately.
+func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error) {
+	if spec.Title == "" {
+		return Ticket{}, ErrEmptyTitle
+	}
+	state := spec.State
+	if state == "" {
+		state = StateShaping
+	}
+	var out Ticket
+	err := s.store.Tx(ctx, func(tx Tx) error {
+		seed, err := buildSeedTicket(ctx, tx, spec, state)
+		if err != nil {
+			return err
+		}
+		created, err := tx.InsertTicket(ctx, seed)
+		if err != nil {
+			return fmt.Errorf("board: seed insert ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+			return fmt.Errorf("board: append board.updated: %w", err)
+		}
+		if state == StateBlocked || created.ApprovalRequested {
+			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+				return fmt.Errorf("board: append feed.updated: %w", err)
+			}
+		}
+		out = created
+		return nil
+	})
+	if err != nil {
+		return Ticket{}, fmt.Errorf("board: seed ticket: %w", err)
+	}
+	return out, nil
+}
+
+// buildSeedTicket assembles the invariant-honoring Ticket for SeedTicket: a
+// worker binding for active states (03 I3), a blocked_reason for blocked
+// (03 I4), a ready_at for ready, and approval_requested only for shaping.
+func buildSeedTicket(ctx context.Context, tx Tx, spec SeedSpec, state State) (Ticket, error) {
+	seed := Ticket{Title: spec.Title, Body: spec.Body, State: state}
+	if state.Active() { // working/blocked need a bound worker (03 I3)
+		w, ok, err := tx.FreeWorker(ctx)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: seed free worker: %w", err)
+		}
+		if !ok {
+			return Ticket{}, ErrNoFreeWorker
+		}
+		wid := w.ID
+		seed.WorkerID = &wid
+	}
+	if state == StateBlocked { // 03 I4
+		reason := spec.BlockedReason
+		if reason == "" {
+			reason = "seeded blocker"
+		}
+		seed.BlockedReason = &reason
+	}
+	if state == StateReady {
+		now := time.Now().UTC()
+		seed.ReadyAt = &now
+	}
+	seed.ApprovalRequested = state == StateShaping && spec.ApprovalRequested
+	return seed, nil
 }
 
 // GetBoard returns the full snapshot (03 §4).
@@ -253,6 +399,13 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 		}
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
+		}
+		// Dispatch is user-visible progress: a "started" toast (08 §5).
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+			Verb:        "started",
+			TicketTitle: updated.Title,
+		}}); err != nil {
+			return fmt.Errorf("board: append activity.toast: %w", err)
 		}
 		bound = true
 		return nil

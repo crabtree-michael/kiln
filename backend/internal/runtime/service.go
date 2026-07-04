@@ -62,6 +62,13 @@ const (
 	topicNotifySend   = "notify.send"
 	topicPullEvaluate = "pull.evaluate"
 	topicBoardUpdated = "board.updated"
+	// feed.updated / activity.toast are the 08 §7 additions. feed.updated is
+	// emitted by both the board (state transitions) and the runtime itself
+	// (notification post/retract/seen — the second outbox writer); either way
+	// the runtime re-assembles the feed and fans it out. activity.toast is
+	// board-emitted and carries a ToastPayload.
+	topicFeedUpdated   = "feed.updated"
+	topicActivityToast = "activity.toast"
 )
 
 // systemErrorMessage is the user-visible reply when a brain pass exhausts its
@@ -80,15 +87,19 @@ var errUnknownTopic = errors.New("runtime: unknown outbox topic")
 // and the wiring that routes claimed entries to the ports above. Constructed
 // at the composition root (04 §8).
 type Service struct {
-	store    Store
-	messages MessageStore
-	brain    Brain
-	puller   Puller
-	blocker  Blocker
-	agents   AgentRuntime
-	notifier Notifier
-	pusher   SnapshotPusher
-	sayer    SayPusher
+	store          Store
+	messages       MessageStore
+	brain          Brain
+	puller         Puller
+	blocker        Blocker
+	agents         AgentRuntime
+	notifier       Notifier
+	pusher         SnapshotPusher
+	sayer          SayPusher
+	notifications  NotificationStore
+	boardReader    BoardReader
+	feedPusher     FeedPusher
+	activityPusher ActivityPusher
 
 	// The two workers Workers() builds, retained so anything that commits a
 	// queue row can nudge the matching worker (04 §5). nil until Workers runs.
@@ -96,21 +107,29 @@ type Service struct {
 	outboxWorker *Worker
 }
 
-// NewService assembles the runtime over its ports.
+// NewService assembles the runtime over its ports. The 08 §7 ports
+// (notifications, boardReader, feedPusher, activityPusher) are appended after
+// the original 04/07 ports so the composition root updates a single call site.
 func NewService(
 	store Store, messages MessageStore, brain Brain, puller Puller, blocker Blocker,
 	agents AgentRuntime, notifier Notifier, pusher SnapshotPusher, sayer SayPusher,
+	notifications NotificationStore, boardReader BoardReader, feedPusher FeedPusher,
+	activityPusher ActivityPusher,
 ) *Service {
 	return &Service{
-		store:    store,
-		messages: messages,
-		brain:    brain,
-		puller:   puller,
-		blocker:  blocker,
-		agents:   agents,
-		notifier: notifier,
-		pusher:   pusher,
-		sayer:    sayer,
+		store:          store,
+		messages:       messages,
+		brain:          brain,
+		puller:         puller,
+		blocker:        blocker,
+		agents:         agents,
+		notifier:       notifier,
+		pusher:         pusher,
+		sayer:          sayer,
+		notifications:  notifications,
+		boardReader:    boardReader,
+		feedPusher:     feedPusher,
+		activityPusher: activityPusher,
 	}
 }
 
@@ -185,6 +204,97 @@ func (s *Service) Workers(clock Clock) (*Worker, *Worker) {
 	return events, outbox
 }
 
+// Feed assembles the absolute feed snapshot (08 §3): board-derived blocker and
+// proposal cards, then brain-authored update/preview cards newest-first, plus
+// the header summary counts. Backs GET /api/feed and every feed SSE push. The
+// card order is strict — blockers, then proposals, then updates — because the
+// client renders one ordered list and pins blockers on top.
+func (s *Service) Feed(ctx context.Context) (FeedSnapshot, error) {
+	view, err := s.boardReader.BoardView(ctx)
+	if err != nil {
+		return FeedSnapshot{}, fmt.Errorf("runtime: feed board view: %w", err)
+	}
+	unseen, err := s.notifications.UnseenNotifications(ctx)
+	if err != nil {
+		return FeedSnapshot{}, fmt.Errorf("runtime: feed unseen notifications: %w", err)
+	}
+
+	cards := make([]FeedCard, 0, len(view.Blocked)+len(view.Proposals)+len(unseen))
+	for _, t := range view.Blocked {
+		id := t.ID
+		cards = append(cards, FeedCard{
+			Kind: "blocker", ID: "blocker:" + t.ID, Label: t.Title,
+			Body: t.BlockedReason, TicketID: &id, CreatedAt: t.UpdatedAt,
+		})
+	}
+	for _, t := range view.Proposals {
+		id := t.ID
+		cards = append(cards, FeedCard{
+			Kind: "proposal", ID: "proposal:" + t.ID, Label: t.Title,
+			Body: t.Body, TicketID: &id, CreatedAt: t.UpdatedAt,
+		})
+	}
+	for _, n := range unseen {
+		nid := n.ID
+		card := FeedCard{
+			Kind: string(n.Kind), ID: fmt.Sprintf("update:%d", n.ID),
+			Body: n.Body, TicketID: n.TicketID, NotificationID: &nid,
+			CreatedAt: n.CreatedAt,
+		}
+		if n.Kind == KindPreview {
+			card.ImageURL = n.ImageURL
+		}
+		cards = append(cards, card)
+	}
+
+	summary := FeedSummary{
+		BlockerCount: len(view.Blocked),
+		UpdateCount:  len(unseen),
+		StreamCount:  view.WorkingCount + view.BlockedCount,
+		Building:     view.WorkingCount,
+		Idle:         view.BlockedCount,
+	}
+	// UnseenNotifications is newest-first, so the first row is the last word.
+	if len(unseen) > 0 {
+		at := unseen[0].CreatedAt
+		summary.LastWordAt = &at
+	}
+
+	return FeedSnapshot{Summary: summary, Cards: cards}, nil
+}
+
+// PostNotification is the brain-facing port for post_update / preview (08 §3,
+// 06 tool set): persist a brain-authored notification and (in the same tx)
+// append a feed.updated row so the live feed re-renders. Delegates to the
+// store; the returned Notification is dropped here because the brain tool
+// handler needs only success/failure.
+func (s *Service) PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) error {
+	if _, err := s.notifications.PostNotification(ctx, kind, body, ticketID, imageURL); err != nil {
+		return fmt.Errorf("runtime: post notification: %w", err)
+	}
+	return nil
+}
+
+// RetractNotification is the brain-facing port for retract_update (08 §3):
+// stamp the row retracted and append feed.updated in one tx. Delegates to the
+// store.
+func (s *Service) RetractNotification(ctx context.Context, id int64) error {
+	if err := s.notifications.RetractNotification(ctx, id); err != nil {
+		return fmt.Errorf("runtime: retract notification: %w", err)
+	}
+	return nil
+}
+
+// MarkSeen is the api-facing port for POST /api/feed/seen (08 §3): stamp every
+// still-unseen notification up to the client's high-water id, and append
+// feed.updated in one tx. Delegates to the store.
+func (s *Service) MarkSeen(ctx context.Context, lastID int64) error {
+	if err := s.notifications.MarkSeen(ctx, lastID); err != nil {
+		return fmt.Errorf("runtime: mark seen: %w", err)
+	}
+	return nil
+}
+
 // nudgeEvents wakes the events worker if it has been built (04 §5). No-op
 // before Workers runs, so ingestion still works (the poll fallback catches
 // the row) during startup.
@@ -198,10 +308,25 @@ func (s *Service) nudgeEvents() {
 // (04 §4, §6), typed from the raw Entry.
 func (s *Service) handleEvent(ctx context.Context, e Entry) error {
 	ev := Event{ID: e.ID, Type: EventType(e.Kind), Payload: e.Payload, CreatedAt: e.CreatedAt}
+	// Bracket the brain pass with a thinking activity event (08 §4): On=true
+	// before, On=false after. This is the events queue only — the spinner
+	// tracks a decision step, not an outbox delivery. A failed push must not
+	// derail the brain pass, so activity errors are logged and dropped.
+	s.pushThinking(ctx, true)
+	defer s.pushThinking(ctx, false)
 	if err := s.brain.HandleEvent(ctx, ev); err != nil {
 		return fmt.Errorf("runtime: brain pass for event %d: %w", e.ID, err)
 	}
 	return nil
+}
+
+// pushThinking fans out a thinking activity event, self-healing on error (08
+// §4): the spinner is ephemeral, so a lost push is cosmetic and must never
+// fail the brain pass it brackets.
+func (s *Service) pushThinking(ctx context.Context, on bool) {
+	if err := s.activityPusher.PushActivity(ctx, ActivityEvent{Kind: "thinking", On: &on}); err != nil {
+		slog.Error("runtime: push thinking activity", "on", on, "err", err)
+	}
 }
 
 // deadLetterEvent handles an exhausted event (04 §3's last row): log at error
@@ -230,6 +355,10 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 		return wrapOutbox("notify send", s.notifier.Send(ctx, e.Payload))
 	case topicBoardUpdated:
 		return wrapOutbox("push board", s.pusher.PushBoard(ctx))
+	case topicFeedUpdated:
+		return s.handleFeedUpdated(ctx)
+	case topicActivityToast:
+		return s.handleActivityToast(ctx, e)
 	default:
 		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
 	}
@@ -263,6 +392,47 @@ func (s *Service) blockOnDeliveryFailure(ctx context.Context, e Entry, cause err
 	}
 	slog.Error("runtime: agent.send dead-lettered, ticket blocked",
 		"id", e.ID, "ticket", p.TicketID, "err", cause)
+	return nil
+}
+
+// toastPayload is the activity.toast outbox payload (08 §4, §7), mirroring the
+// board's ToastPayload by value — this module never imports internal/board.
+type toastPayload struct {
+	Verb        string `json:"verb"`
+	TicketTitle string `json:"ticket_title"`
+}
+
+// handleFeedUpdated realizes the feed.updated topic (08 §3, §7): re-assemble
+// the absolute feed and fan it out. Emitted by both the board (state
+// transitions) and the runtime itself (notification mutations). Self-heals —
+// a failed assembly or push logs-and-drops (like board.updated) rather than
+// wedging the outbox, since the next emission re-renders from scratch.
+func (s *Service) handleFeedUpdated(ctx context.Context) error {
+	snap, err := s.Feed(ctx)
+	if err != nil {
+		slog.Error("runtime: feed.updated assemble", "err", err)
+		return nil
+	}
+	if err := s.feedPusher.PushFeed(ctx, snap); err != nil {
+		slog.Error("runtime: feed.updated push", "err", err)
+	}
+	return nil
+}
+
+// handleActivityToast realizes the activity.toast topic (08 §4, §7): decode
+// the board-emitted verb + ticket title and fan out a toast activity event.
+// Self-heals — a decode or push failure logs-and-drops (the toast is
+// ephemeral, so a lost one is cosmetic).
+func (s *Service) handleActivityToast(ctx context.Context, e Entry) error {
+	var p toastPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		slog.Error("runtime: activity.toast decode", "id", e.ID, "err", err)
+		return nil
+	}
+	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle}
+	if err := s.activityPusher.PushActivity(ctx, ev); err != nil {
+		slog.Error("runtime: activity.toast push", "id", e.ID, "err", err)
+	}
 	return nil
 }
 

@@ -1,0 +1,460 @@
+/* Primary screen styling (08 §F). Plain CSS keyed off `data-role`/`data-*` —
+   never classNames — same discipline as App.css, so this file can change freely
+   without touching component markup or the DOM snapshots. Palette + type are
+   lifted from the `Kiln Voice Screen` design reference (states 4a–4d / 5a /
+   6a–6b): ember red oklch(0.55 0.2 26), warm paper background, Space Grotesk /
+   IBM Plex Mono / Instrument Serif (loaded via <link> in index.html). Rendered
+   full-viewport and mobile-first — the design's phone frame was only the mockup
+   canvas. Scoped under [data-role="primary-screen"] so it never clobbers the
+   /debug (07) client's dark App.css. */
+
+/* The primary screen owns the whole page canvas: paint the paper background on
+   the body so the area outside the centered max-width column (the letterbox on
+   wide viewports) is paper too, not the /debug client's global dark App.css
+   body. :has scopes it to the `/` route only. */
+body:has([data-role='primary-screen']) {
+  background: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+}
+
+[data-role='primary-screen'] {
+  --ember: oklch(0.55 0.2 26);
+  --ember-strong: oklch(0.5 0.2 27);
+  --ember-soft: oklch(0.58 0.2 27 / 0.4);
+  --ink: oklch(0.24 0.012 40);
+  --ink-soft: oklch(0.42 0.012 40);
+  --muted: oklch(0.56 0.01 40);
+  --faint: oklch(0.64 0.01 40);
+  --hairline: oklch(0.91 0.006 40);
+  --hairline-faint: oklch(0.94 0.004 40);
+  --surface: oklch(0.994 0.003 40);
+  --paper: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
+     (its overflow-y:auto) with the dock pinned, rather than growing the page. */
+  height: 100dvh;
+  margin: 0 auto;
+  max-width: 520px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-role='primary-screen'] * {
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- feed region */
+
+[data-role='feed'] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 26px 8px;
+}
+
+[data-role='feed-header'] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 24px;
+}
+
+[data-role='kiln-mark'] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+[data-role='kiln-glyph'] {
+  width: 23px;
+  height: 23px;
+  border-radius: 7px 7px 5px 5px;
+  background: linear-gradient(160deg, oklch(0.62 0.21 29), var(--ember-strong));
+  box-shadow: 0 3px 9px oklch(0.58 0.2 27 / 0.45);
+}
+
+[data-role='kiln-wordmark'] {
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ember);
+}
+
+[data-role='feed-status'] {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+[data-role='primary-screen'][data-connection-state='reconnecting'] [data-role='feed-status'] {
+  opacity: 0.55;
+}
+
+[data-role='backlog'] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------- cards */
+
+[data-role='feed-card'] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px 0;
+  border-top: 1px solid var(--hairline-faint);
+}
+
+[data-role='backlog-slot']:first-child [data-role='feed-card'] {
+  border-top: none;
+  padding-top: 0;
+}
+
+[data-role='feed-card-head'] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+[data-role='feed-card-dot'] {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ember-strong);
+  box-shadow: 0 0 11px oklch(0.58 0.2 27 / 0.85);
+}
+
+[data-role='feed-card-label'] {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+[data-role='feed-card-tag'] {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: oklch(0.4 0.012 40);
+}
+
+[data-role='feed-card-age'] {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+[data-role='feed-card-body'] {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: oklch(0.26 0.012 40);
+}
+
+[data-role='feed-card-image'] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 16px;
+  border: 1px solid oklch(0.9 0.006 40);
+  box-shadow: 0 12px 30px -20px rgba(70, 28, 20, 0.3);
+}
+
+/* blocker — the loudest card, pinned on top (08 §2) */
+[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-label'],
+[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-tag'] {
+  color: var(--ember);
+}
+
+[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-body'] {
+  font-weight: 500;
+  font-size: 18px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
+  color: oklch(0.42 0.14 27);
+}
+
+/* proposal — a shaped decision awaiting Accept (08 §5) */
+[data-role='feed-card'][data-kind='proposal'] [data-role='feed-card-body'] {
+  font-weight: 500;
+  font-size: 16.5px;
+  color: var(--ink);
+}
+
+[data-role='feed-card-actions'] {
+  display: flex;
+}
+
+[data-role='proposal-accept'] {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: oklch(0.985 0.004 40);
+  background: linear-gradient(160deg, oklch(0.62 0.21 29), var(--ember-strong));
+  border: none;
+  border-radius: 10px;
+  padding: 9px 22px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px oklch(0.58 0.2 27 / 0.28);
+}
+
+[data-role='proposal-accept']:active {
+  transform: translateY(1px);
+}
+
+/* lead update card (no divider above it) reads a touch louder */
+[data-role='feed-card'][data-kind='update']:first-of-type [data-role='feed-card-body'],
+[data-role='feed-card'][data-kind='preview']:first-of-type [data-role='feed-card-body'] {
+  color: oklch(0.24 0.012 40);
+}
+
+/* --------------------------------------------------------------- divider */
+
+[data-role='feed-divider'] {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 17px 0 3px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* --------------------------------------------------------- all-clear state */
+
+[data-role='feed-empty'] {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+  padding: 24px 16px 40px;
+}
+
+[data-role='feed-empty-mark'] {
+  width: 64px;
+  height: 64px;
+  border-radius: 19px 19px 14px 14px;
+  background: linear-gradient(160deg, oklch(0.63 0.21 29), var(--ember-strong));
+  box-shadow: 0 10px 26px oklch(0.58 0.2 27 / 0.35);
+}
+
+[data-role='feed-empty-title'] {
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+[data-role='feed-empty-body'] {
+  margin: 0;
+  max-width: 280px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: oklch(0.52 0.01 40);
+}
+
+[data-role='feed-empty-status'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+[data-role='feed-empty-pulse'] {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(0.55 0.01 40);
+}
+
+/* --------------------------------------------------------------- activity */
+
+[data-role='activity-row'] {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 26px;
+}
+
+[data-role='activity-row']:not(:empty) {
+  padding: 6px 26px 12px;
+}
+
+[data-role='thinking-indicator'] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+[data-role='thinking-spinner'] {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid oklch(0.58 0.2 27 / 0.22);
+  border-top-color: var(--ember);
+  animation: kiln-spin 0.7s linear infinite;
+}
+
+[data-role='thinking-text'] {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ember);
+}
+
+[data-role='toast-pill'] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  background: var(--surface);
+  border: 1.5px solid var(--ember-soft);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px -12px oklch(0.58 0.2 27 / 0.3);
+  white-space: nowrap;
+}
+
+[data-role='toast-text'] {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: oklch(0.3 0.012 40);
+}
+
+[data-role='toast-title'] {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  color: oklch(0.52 0.19 26);
+}
+
+[data-role='say-pill'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 10px 12px 10px 16px;
+  background: var(--surface);
+  border: 1.5px solid var(--ember-soft);
+  border-radius: 14px;
+  box-shadow: 0 8px 20px -12px oklch(0.58 0.2 27 / 0.3);
+}
+
+[data-role='say-text'] {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+[data-role='say-dismiss'] {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--faint);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+[data-role='say-dismiss']:hover {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------- dock */
+
+[data-role='dock'] {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 14px 26px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--hairline);
+}
+
+[data-role='dock-talk'] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+[data-role='dock-mic'] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1.5px solid oklch(0.86 0.006 40);
+  box-shadow: 0 6px 16px rgba(70, 28, 20, 0.08);
+}
+
+[data-role='dock-mic-capsule'] {
+  width: 9px;
+  height: 13px;
+  border-radius: 5px;
+  background: oklch(0.5 0.01 40);
+}
+
+[data-role='dock-mic-arc'] {
+  width: 15px;
+  height: 7px;
+  border: 1.5px solid oklch(0.5 0.01 40);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+
+[data-role='dock-mic-stem'] {
+  width: 1.5px;
+  height: 2.5px;
+  background: oklch(0.5 0.01 40);
+}
+
+[data-role='dock-label'] {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+@keyframes kiln-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='thinking-spinner'] {
+    animation: none;
+  }
+}

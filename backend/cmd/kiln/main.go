@@ -50,6 +50,7 @@ type Config struct {
 	HTTPAddr        string // KILN_HTTP_ADDR — address the api server binds (04 §7)
 	LogLevel        string // KILN_LOG_LEVEL (docker-compose.yml)
 	WorkerCount     int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
+	DevEndpoints    bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
 }
 
 // Defaults for the composition root's configuration.
@@ -73,6 +74,7 @@ func loadConfig() Config {
 		HTTPAddr:        getenvDefault("KILN_HTTP_ADDR", defaultHTTPAddr),
 		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
 		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
+		DevEndpoints:    os.Getenv("KILN_DEV_ENDPOINTS") == "1",
 	}
 }
 

@@ -7,6 +7,72 @@ import (
 	"time"
 )
 
+// Defines values for ActivityEventKind.
+const (
+	Thinking ActivityEventKind = "thinking"
+	Toast    ActivityEventKind = "toast"
+)
+
+// Valid indicates whether the value is a known member of the ActivityEventKind enum.
+func (e ActivityEventKind) Valid() bool {
+	switch e {
+	case Thinking:
+		return true
+	case Toast:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityEventVerb.
+const (
+	Finished ActivityEventVerb = "finished"
+	Nudged   ActivityEventVerb = "nudged"
+	Queued   ActivityEventVerb = "queued"
+	Started  ActivityEventVerb = "started"
+)
+
+// Valid indicates whether the value is a known member of the ActivityEventVerb enum.
+func (e ActivityEventVerb) Valid() bool {
+	switch e {
+	case Finished:
+		return true
+	case Nudged:
+		return true
+	case Queued:
+		return true
+	case Started:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FeedCardKind.
+const (
+	Blocker  FeedCardKind = "blocker"
+	Preview  FeedCardKind = "preview"
+	Proposal FeedCardKind = "proposal"
+	Update   FeedCardKind = "update"
+)
+
+// Valid indicates whether the value is a known member of the FeedCardKind enum.
+func (e FeedCardKind) Valid() bool {
+	switch e {
+	case Blocker:
+		return true
+	case Preview:
+		return true
+	case Proposal:
+		return true
+	case Update:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	Ok HealthStatus = "ok"
@@ -67,6 +133,26 @@ func (e TicketState) Valid() bool {
 	}
 }
 
+// ActivityEvent The `activity` SSE event payload (08 §4) — ephemeral, never stored. `thinking` brackets a brain pass (renders the spinner); `toast` confirms one side-effect board transition (renders the auto-dismissing pill). Fields are keyed by `kind`, mirroring Ticket.state's enum discriminator.
+type ActivityEvent struct {
+	Kind ActivityEventKind `json:"kind"`
+
+	// On For kind=thinking — true when a pass starts, false when it ends.
+	On *bool `json:"on,omitempty"`
+
+	// TicketTitle For kind=toast — the affected ticket's title.
+	TicketTitle *string `json:"ticket_title,omitempty"`
+
+	// Verb For kind=toast — the transition: started (dispatched), nudged (new turn sent), finished (accepted to done), queued (marked ready).
+	Verb *ActivityEventVerb `json:"verb,omitempty"`
+}
+
+// ActivityEventKind defines model for ActivityEvent.Kind.
+type ActivityEventKind string
+
+// ActivityEventVerb For kind=toast — the transition: started (dispatched), nudged (new turn sent), finished (accepted to done), queued (marked ready).
+type ActivityEventVerb string
+
 // Board GetBoard's full snapshot (03 §4), grouped in render order — the `board` SSE event payload and GET /api/board's response body are the identical shape (04 D7): absolute, never a delta, so a reconnect's resync is just "render the next board event" (07 §7–§8). `ready` is in exact pull order, top-to-bottom, so the user sees what gets pulled next (03 §5, 07 §7).
 type Board struct {
 	Blocked []Ticket `json:"blocked"`
@@ -80,6 +166,68 @@ type Board struct {
 	// WorkerTotal Total worker capacity slots (03 §2.3).
 	WorkerTotal int      `json:"worker_total"`
 	Working     []Ticket `json:"working"`
+}
+
+// FeedCard One backlog item on the primary screen (08 §3). Hybrid-sourced but the client renders one list and never knows the difference: `blocker` and `proposal` are derived from board state; `update` and `preview` are brain-authored notification rows. The visible tag (Blocker/Proposal/ Update/Preview) is derived from `kind` on the client.
+type FeedCard struct {
+	Body string `json:"body"`
+
+	// CreatedAt When the card became current (blocked-at for blockers, request time for proposals, post time for notes); drives the relative age label.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id Stable render key. `blocker:<ticket_id>`, `proposal:<ticket_id>`, or `update:<notification_id>`.
+	Id string `json:"id"`
+
+	// ImageUrl Set for preview cards — the embedded render (08 §3, 4c).
+	ImageUrl *string `json:"image_url,omitempty"`
+
+	// Kind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image.
+	Kind FeedCardKind `json:"kind"`
+
+	// Label The short stream/ticket label shown above the card body (e.g. the ticket title). May be empty for an authored note with no linked ticket.
+	Label string `json:"label"`
+
+	// NotificationId Set for update/preview cards; the id the client passes to /api/feed/seen as the high-water mark (08 §3).
+	NotificationId *int64 `json:"notification_id,omitempty"`
+
+	// TicketId Set for blocker/proposal (the derived ticket); optional for authored notes.
+	TicketId *string `json:"ticket_id,omitempty"`
+}
+
+// FeedCardKind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image.
+type FeedCardKind string
+
+// FeedSeenRequest POST /api/feed/seen body (08 §3) — the seen high-water mark.
+type FeedSeenRequest struct {
+	LastNotificationId int64 `json:"last_notification_id"`
+}
+
+// FeedSnapshot GET /api/feed's body and the `feed` SSE event payload — the identical absolute shape (08 §3). `cards` is in strict order: unresolved blockers, then pending proposals, then unseen updates newest-first.
+type FeedSnapshot struct {
+	Cards []FeedCard `json:"cards"`
+
+	// Summary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, "K streams · nothing needs you" when not, "all clear" when the feed is empty; plus the all-clear detail line (building/idle/last word).
+	Summary FeedSummary `json:"summary"`
+}
+
+// FeedSummary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, "K streams · nothing needs you" when not, "all clear" when the feed is empty; plus the all-clear detail line (building/idle/last word).
+type FeedSummary struct {
+	BlockerCount int `json:"blocker_count"`
+
+	// Building Streams with a worker actively building (working).
+	Building int `json:"building"`
+
+	// Idle Active streams not currently building.
+	Idle int `json:"idle"`
+
+	// LastWordAt Timestamp of the most recent brain say/update, for "last word 6m ago".
+	LastWordAt *time.Time `json:"last_word_at,omitempty"`
+
+	// StreamCount Number of active ticket streams (working + blocked).
+	StreamCount int `json:"stream_count"`
+
+	// UpdateCount Count of unseen update/preview cards.
+	UpdateCount int `json:"update_count"`
 }
 
 // Health defines model for Health.
@@ -122,6 +270,9 @@ type SayEvent struct {
 
 // Ticket One ticket as rendered on the board (03 §2.2). Column/zone placement is derived from `state`, never carried as a separate field (03 D1).
 type Ticket struct {
+	// ApprovalRequested Set by the brain's request_approval tool on a Shaping ticket (08 §5); true iff state is shaping and the brain is seeking human approval. Surfaces the ticket as a `proposal` feed card. Cleared by mark_ready.
+	ApprovalRequested bool `json:"approval_requested"`
+
 	// BlockedReason Set iff state is blocked (03 I4); full text, shown on the card (07 §7).
 	BlockedReason *string   `json:"blocked_reason,omitempty"`
 	Body          string    `json:"body"`
@@ -148,6 +299,9 @@ type GetMessagesParams struct {
 	// Limit Maximum number of most-recent rows to return.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// PostFeedSeenJSONRequestBody defines body for PostFeedSeen for application/json ContentType.
+type PostFeedSeenJSONRequestBody = FeedSeenRequest
 
 // PostMessageJSONRequestBody defines body for PostMessage for application/json ContentType.
 type PostMessageJSONRequestBody = MessageRequest

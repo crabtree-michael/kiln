@@ -39,6 +39,9 @@ services:
       AMIKA_REPO_URL: ${AMIKA_REPO_URL:-}
       AMIKA_SNAPSHOT: ${AMIKA_SNAPSHOT:-}
       KILN_WORKER_COUNT: ${KILN_WORKER_COUNT:-}
+      # Dev/e2e only: mount POST /api/dev/tickets so a test can seed a ticket without
+      # the brain. v1 is local-only (02 §1); default on for this stack, never prod.
+      KILN_DEV_ENDPOINTS: ${KILN_DEV_ENDPOINTS:-1}
     depends_on:
       db:
         condition: service_healthy

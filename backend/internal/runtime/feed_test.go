@@ -1,0 +1,268 @@
+package runtime_test
+
+// Feed/activity unit tests (08 §3, §4, §7): Feed() assembly ordering and
+// seen filtering, the notification-op delegation, the thinking bracket around
+// a brain pass, and the feed.updated / activity.toast outbox routing.
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+)
+
+// newFeedService builds a Service with the caller's 08 §7 fakes and inert
+// 04/07 ports, for the feed/activity paths.
+func newFeedService(
+	notes runtime.NotificationStore, board runtime.BoardReader,
+	feed runtime.FeedPusher, activity runtime.ActivityPusher,
+) *runtime.Service {
+	clock := newFakeClock()
+	return runtime.NewService(
+		newFakeStore(clock), &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		notes, board, feed, activity,
+	)
+}
+
+// ---- Feed() assembly: strict order + seen filtering (08 §3) ---------------
+
+func TestService_Feed_OrdersBlockersProposalsThenUpdatesNewestFirst(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+
+	board := &fakeBoardReader{view: runtime.BoardView{
+		Blocked: []runtime.BoardTicket{
+			{ID: "b1", Title: "Blocked one", BlockedReason: "needs a key", UpdatedAt: base},
+		},
+		Proposals: []runtime.BoardTicket{
+			{ID: "p1", Title: "Proposal one", Body: "shaped plan", UpdatedAt: base.Add(time.Minute)},
+		},
+		WorkingCount: 3,
+		BlockedCount: 1,
+	}}
+	notes := &fakeNotificationStore{}
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "older", CreatedAt: base.Add(2 * time.Minute)})
+	img := "https://img/x.png"
+	newest := notes.seed(runtime.Notification{
+		Kind: runtime.KindPreview, Body: "newer", ImageURL: &img, CreatedAt: base.Add(3 * time.Minute),
+	})
+
+	svc := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{})
+	snap, err := svc.Feed(ctx)
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+
+	if len(snap.Cards) != 4 {
+		t.Fatalf("Feed returned %d cards, want 4 (1 blocker, 1 proposal, 2 updates)", len(snap.Cards))
+	}
+	if snap.Cards[0].Kind != "blocker" || snap.Cards[0].ID != "blocker:b1" {
+		t.Errorf("card[0] = %+v, want blocker:b1 first (blockers pinned on top)", snap.Cards[0])
+	}
+	if snap.Cards[0].Label != "Blocked one" || snap.Cards[0].Body != "needs a key" {
+		t.Errorf("blocker card = %+v, want Label=title Body=blocked_reason", snap.Cards[0])
+	}
+	if !snap.Cards[0].CreatedAt.Equal(base) {
+		t.Errorf("blocker CreatedAt = %v, want UpdatedAt %v", snap.Cards[0].CreatedAt, base)
+	}
+	if snap.Cards[1].Kind != "proposal" || snap.Cards[1].ID != "proposal:p1" || snap.Cards[1].Body != "shaped plan" {
+		t.Errorf("card[1] = %+v, want proposal:p1 with Body=shaped plan", snap.Cards[1])
+	}
+	// Updates newest-first: preview 'newer' before 'older'.
+	if snap.Cards[2].Kind != "preview" || snap.Cards[2].Body != "newer" {
+		t.Errorf("card[2] = %+v, want the newest (preview 'newer') first", snap.Cards[2])
+	}
+	if snap.Cards[2].ImageURL == nil || *snap.Cards[2].ImageURL != img {
+		t.Errorf("preview card ImageURL = %v, want %q", snap.Cards[2].ImageURL, img)
+	}
+	if snap.Cards[2].NotificationID == nil || *snap.Cards[2].NotificationID != newest.ID {
+		t.Errorf("preview card NotificationID = %v, want %d", snap.Cards[2].NotificationID, newest.ID)
+	}
+	if snap.Cards[3].Kind != "update" || snap.Cards[3].Body != "older" {
+		t.Errorf("card[3] = %+v, want the older update last", snap.Cards[3])
+	}
+	if snap.Cards[3].ImageURL != nil {
+		t.Errorf("update card ImageURL = %v, want nil (only previews carry an image)", snap.Cards[3].ImageURL)
+	}
+
+	// Summary.
+	s := snap.Summary
+	if s.BlockerCount != 1 || s.UpdateCount != 2 || s.StreamCount != 4 || s.Building != 3 || s.Idle != 1 {
+		t.Errorf("summary = %+v, want BlockerCount=1 UpdateCount=2 StreamCount=4 Building=3 Idle=1", s)
+	}
+	if s.LastWordAt == nil || !s.LastWordAt.Equal(base.Add(3*time.Minute)) {
+		t.Errorf("LastWordAt = %v, want the newest notification's CreatedAt %v", s.LastWordAt, base.Add(3*time.Minute))
+	}
+}
+
+func TestService_Feed_FiltersSeenAndRetractedUpdates(t *testing.T) {
+	ctx := context.Background()
+	notes := &fakeNotificationStore{}
+	seen := notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "already seen"})
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "still unseen"})
+
+	// Mark the first as seen via the high-water path.
+	if err := notes.MarkSeen(ctx, seen.ID); err != nil {
+		t.Fatalf("MarkSeen: %v", err)
+	}
+
+	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
+	snap, err := svc.Feed(ctx)
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if len(snap.Cards) != 1 || snap.Cards[0].Body != "still unseen" {
+		t.Fatalf("Feed cards = %+v, want only the still-unseen update", snap.Cards)
+	}
+	if snap.Summary.UpdateCount != 1 {
+		t.Errorf("UpdateCount = %d, want 1 (seen ones filtered)", snap.Summary.UpdateCount)
+	}
+}
+
+func TestService_Feed_EmptyHasNilLastWord(t *testing.T) {
+	snap, err := newFeedService(
+		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+	).Feed(context.Background())
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if len(snap.Cards) != 0 {
+		t.Errorf("empty Feed returned %d cards, want 0", len(snap.Cards))
+	}
+	if snap.Summary.LastWordAt != nil {
+		t.Errorf("LastWordAt = %v on an empty feed, want nil", snap.Summary.LastWordAt)
+	}
+}
+
+// ---- notification-op delegation (08 §3) -----------------------------------
+
+func TestService_PostNotification_DelegatesToStore(t *testing.T) {
+	notes := &fakeNotificationStore{}
+	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
+	if err := svc.PostNotification(context.Background(), "update", "hello", nil, nil); err != nil {
+		t.Fatalf("PostNotification: %v", err)
+	}
+	if len(notes.posts) != 1 || notes.posts[0].Body != "hello" || notes.posts[0].Kind != runtime.KindUpdate {
+		t.Errorf("store posts = %+v, want a single update 'hello'", notes.posts)
+	}
+}
+
+func TestService_MarkSeen_DelegatesHighWaterToStore(t *testing.T) {
+	notes := &fakeNotificationStore{}
+	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
+	if err := svc.MarkSeen(context.Background(), 42); err != nil {
+		t.Fatalf("MarkSeen: %v", err)
+	}
+	if len(notes.markSeenN) != 1 || notes.markSeenN[0] != 42 {
+		t.Errorf("store MarkSeen calls = %v, want a single call with lastID=42", notes.markSeenN)
+	}
+}
+
+// ---- thinking bracket around a brain pass (08 §4) -------------------------
+
+func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
+	clock := newFakeClock()
+	store := newFakeStore(clock)
+	activity := &fakeActivityPusher{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
+	)
+
+	eventsWorker, _ := svc.Workers(clock)
+	store.seed(runtime.QueueEvents, string(runtime.EventHumanMessage), []byte(`{"text":"hi"}`), 0)
+
+	stop := runWorker(t, eventsWorker)
+	defer stop()
+
+	eventually(t, func() bool { return len(activity.events()) >= 2 })
+	time.Sleep(20 * time.Millisecond)
+
+	evs := activity.events()
+	if len(evs) != 2 {
+		t.Fatalf("thinking events = %d, want exactly 2 (on then off) for one brain pass", len(evs))
+	}
+	for i, ev := range evs {
+		if ev.Kind != "thinking" || ev.On == nil {
+			t.Fatalf("event[%d] = %+v, want a thinking event with On set", i, ev)
+		}
+	}
+	if *evs[0].On != true || *evs[1].On != false {
+		t.Errorf("thinking sequence = [%v, %v], want [true, false]", *evs[0].On, *evs[1].On)
+	}
+}
+
+// ---- feed.updated / activity.toast outbox routing (08 §7) -----------------
+
+func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
+	clock := newFakeClock()
+	store := newFakeStore(clock)
+	notes := &fakeNotificationStore{}
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "note"})
+	feed := &fakeFeedPusher{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		notes, &fakeBoardReader{}, feed, &fakeActivityPusher{},
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "feed.updated", []byte(`{}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+	pushes := feed.pushes()
+	if len(pushes) < 1 {
+		t.Fatalf("PushFeed calls = %d, want >= 1", len(pushes))
+	}
+	if len(pushes[0].Cards) != 1 || pushes[0].Cards[0].Body != "note" {
+		t.Errorf("pushed feed = %+v, want the assembled note card", pushes[0])
+	}
+}
+
+func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
+	clock := newFakeClock()
+	store := newFakeStore(clock)
+	activity := &fakeActivityPusher{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "activity.toast",
+		[]byte(`{"verb":"started","ticket_title":"Build the widget"}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	eventually(t, func() bool {
+		for _, ev := range activity.events() {
+			if ev.Kind == "toast" {
+				return true
+			}
+		}
+		return false
+	})
+
+	var toast *runtime.ActivityEvent
+	for _, ev := range activity.events() {
+		if ev.Kind == "toast" {
+			e := ev
+			toast = &e
+			break
+		}
+	}
+	if toast == nil {
+		t.Fatal("no toast activity event pushed")
+	}
+	if toast.Verb != "started" || toast.TicketTitle != "Build the widget" {
+		t.Errorf("toast = %+v, want Verb=started TicketTitle='Build the widget'", *toast)
+	}
+}

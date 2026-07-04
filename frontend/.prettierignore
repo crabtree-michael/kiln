@@ -3,3 +3,5 @@ dev-dist
 coverage
 pnpm-lock.yaml
 src/schema/generated.ts
+.pnpm-store
+node_modules

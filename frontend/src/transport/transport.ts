@@ -140,7 +140,12 @@ export function openStream(handlers: StreamHandlers): StreamConnection {
     if (!isMessageEvent(event)) {
       return;
     }
-    const payload: unknown = JSON.parse(event.data);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      return;
+    }
     if (isBoard(payload)) {
       handlers.onBoard(payload);
     }
@@ -150,7 +155,12 @@ export function openStream(handlers: StreamHandlers): StreamConnection {
     if (!isMessageEvent(event)) {
       return;
     }
-    const payload: unknown = JSON.parse(event.data);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      return;
+    }
     if (isSayEvent(payload)) {
       handlers.onSay(payload);
     }
@@ -173,6 +183,9 @@ export function openStream(handlers: StreamHandlers): StreamConnection {
 /** `GET /api/board` — the same absolute snapshot shape as the `board` SSE event. */
 export async function fetchBoard(): Promise<Board> {
   const response = await fetch('/api/board');
+  if (!response.ok) {
+    throw new Error(`fetchBoard: HTTP ${String(response.status)}`);
+  }
   const payload: unknown = await response.json();
   if (!isBoard(payload)) {
     throw new Error('fetchBoard: unexpected response shape');
@@ -184,6 +197,9 @@ export async function fetchBoard(): Promise<Board> {
 export async function fetchMessages(limit?: number): Promise<Message[]> {
   const url = limit === undefined ? '/api/messages' : `/api/messages?limit=${String(limit)}`;
   const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`fetchMessages: HTTP ${String(response.status)}`);
+  }
   const payload: unknown = await response.json();
   if (!isMessageArray(payload)) {
     throw new Error('fetchMessages: unexpected response shape');
@@ -198,6 +214,9 @@ export async function postMessage(text: string): Promise<MessagePostResponse> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   });
+  if (!response.ok) {
+    throw new Error(`postMessage: HTTP ${String(response.status)}`);
+  }
   const payload: unknown = await response.json();
   if (!isMessagePostResponse(payload)) {
     throw new Error('postMessage: unexpected response shape');

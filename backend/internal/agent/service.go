@@ -142,7 +142,12 @@ func (s *Service) Run(ctx context.Context) error {
 // row, leaves ProviderTurn nil and the next StartTurn goes fresh.
 func (s *Service) markContinuation(ctx context.Context, turn *Turn) {
 	prev, found, err := s.store.LatestForWorker(ctx, turn.WorkerID)
-	if err != nil || !found {
+	if err != nil {
+		slog.WarnContext(ctx, "agent: lookup previous turn for continuation; proceeding as fresh",
+			"worker", turn.WorkerID, "err", err)
+		return
+	}
+	if !found {
 		return
 	}
 	if prev.Kind == KindSend && prev.ProviderTurn != nil && prev.ProviderTurn.Conversation != "" {

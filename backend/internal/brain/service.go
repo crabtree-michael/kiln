@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
@@ -210,7 +211,9 @@ func (s *Service) forceWrapUp(ctx context.Context, system string, messages []LLM
 	}
 	for _, call := range resp.Calls {
 		if call.Name == ToolSay {
-			s.dispatchOne(ctx, call)
+			if res, _ := s.dispatchOne(ctx, call); res.IsError {
+				slog.ErrorContext(ctx, "brain: wrap-up say failed", "err", res.Content)
+			}
 		}
 	}
 	return nil

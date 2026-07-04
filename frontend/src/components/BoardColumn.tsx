@@ -17,9 +17,8 @@ export interface BoardColumnProps {
   /** e.g. "Backlog", "Developing", "Done". */
   title: string;
   zones: BoardColumnZone[];
-  /** Forwarded to each card's `onSelect` to open its read-only detail. When
-   * omitted, cards render inert (see `TicketCard`). */
-  onSelectTicket?: (ticket: Ticket) => void;
+  /** Forwarded to each card so a click opens its detail overlay (debug view). */
+  onSelectTicket?: ((ticket: Ticket) => void) | undefined;
 }
 
 export function BoardColumn({ title, zones, onSelectTicket }: BoardColumnProps): JSX.Element {
@@ -31,11 +30,7 @@ export function BoardColumn({ title, zones, onSelectTicket }: BoardColumnProps):
           <h3>{zone.label}</h3>
           <div data-role="board-zone-tickets">
             {zone.tickets.map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                {...(onSelectTicket ? { onSelect: onSelectTicket } : {})}
-              />
+              <TicketCard key={ticket.id} ticket={ticket} onSelect={onSelectTicket} />
             ))}
           </div>
         </div>

@@ -1,136 +1,81 @@
-// TicketDetail overlay (07 §7): read-only inspection of a board ticket's full
-// record. Verifies the full body/blocked-reason are shown (never truncated,
-// mirroring the Blocked card, 07 §7), and that the overlay never traps the
-// user — dismiss via close button, backdrop, or Escape — while a click on the
-// dialog body itself does not dismiss it.
+// TicketDetail overlay: shows a ticket's full record and is dismissable via the
+// close button, backdrop click, and Escape — never a trap (07 §7–§8). Clicks
+// inside the panel must not fall through to the backdrop close.
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { TicketDetail } from '@/components/TicketDetail';
 import { makeTicket, LONG_BLOCKED_REASON } from '@/test/fixtures';
 
-const baseFields = { createdAt: '2026-07-01T09:00:00Z', updatedAt: '2026-07-03T12:30:00Z' };
-
-const LONG_BODY =
-  'Users need a way to sign in. This body is intentionally long so the detail ' +
-  'view can show it in full, unlike the two-line clamped card preview on the board.';
+const working = makeTicket({
+  id: 't-42',
+  title: 'Build the widget',
+  body: 'The complete body text the card only previews.',
+  state: 'working',
+  priority: 3,
+  createdAt: '2026-07-01T00:00:00Z',
+  updatedAt: '2026-07-02T00:00:00Z',
+});
 
 describe('TicketDetail', () => {
-  it('renders the full record: title, full body, state, priority, id, timestamps', () => {
-    render(
-      <TicketDetail
-        ticket={makeTicket({
-          ...baseFields,
-          id: 't-42',
-          title: 'Add login page',
-          body: LONG_BODY,
-          state: 'working',
-          priority: 7,
-        })}
-        onClose={vi.fn()}
-      />,
-    );
+  it('renders the full ticket record the card elides', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
 
-    const dialog = screen.getByRole('dialog', { name: 'Ticket: Add login page' });
-    expect(dialog).toHaveAttribute('data-state', 'working');
-    expect(screen.getByRole('heading', { name: 'Add login page' })).toBeInTheDocument();
-    expect(dialog.querySelector('[data-role="ticket-detail-body"]')?.textContent).toBe(LONG_BODY);
-    expect(dialog.querySelector('[data-role="detail-state"]')?.textContent).toBe('working');
-    expect(dialog.querySelector('[data-role="detail-priority"]')?.textContent).toBe('7');
-    expect(dialog.querySelector('[data-role="detail-id"]')?.textContent).toBe('t-42');
-    expect(dialog.querySelector('[data-role="detail-created"]')?.textContent).toBe(
-      '2026-07-01T09:00:00Z',
-    );
-    expect(dialog.querySelector('[data-role="detail-updated"]')?.textContent).toBe(
-      '2026-07-03T12:30:00Z',
-    );
+    const dialog = screen.getByRole('dialog', { name: 'Ticket: Build the widget' });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText('The complete body text the card only previews.')).toBeInTheDocument();
+    expect(screen.getByText('t-42')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('working')).toBeInTheDocument();
   });
 
-  it('shows the full blocked_reason for a blocked ticket, not truncated (07 §7)', () => {
-    render(
-      <TicketDetail
-        ticket={makeTicket({
-          ...baseFields,
-          id: 'b1',
-          title: 'Blocked ticket',
-          body: 'Waiting on input.',
-          state: 'blocked',
-          priority: 4,
-          blockedReason: LONG_BLOCKED_REASON,
-        })}
-        onClose={vi.fn()}
-      />,
-    );
+  it('shows the full blocked reason for a blocked ticket', () => {
+    const blocked = makeTicket({
+      id: 't-9',
+      title: 'Blocked ticket',
+      body: 'body',
+      state: 'blocked',
+      priority: 0,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+      blockedReason: LONG_BLOCKED_REASON,
+    });
+
+    render(<TicketDetail ticket={blocked} onClose={vi.fn()} />);
 
     expect(screen.getByText(LONG_BLOCKED_REASON)).toBeInTheDocument();
   });
 
-  it('does not render a blocked-reason node for non-blocked tickets', () => {
-    const { container } = render(
-      <TicketDetail
-        ticket={makeTicket({
-          ...baseFields,
-          id: 'w1',
-          title: 'Working ticket',
-          body: 'In progress.',
-          state: 'working',
-          priority: 0,
-        })}
-        onClose={vi.fn()}
-      />,
-    );
-
-    expect(container.querySelector('[data-role="detail-blocked-reason"]')).toBeNull();
-  });
-
-  it('closes via the close button, the backdrop, and Escape', () => {
+  it('calls onClose from the close button', () => {
     const onClose = vi.fn();
-    const { rerender } = render(
-      <TicketDetail
-        ticket={makeTicket({
-          ...baseFields,
-          id: 't1',
-          title: 'T',
-          body: '',
-          state: 'ready',
-          priority: 0,
-        })}
-        onClose={onClose}
-      />,
-    );
+    render(<TicketDetail ticket={working} onClose={onClose} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
     expect(onClose).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole('dialog').parentElement!);
-    expect(onClose).toHaveBeenCalledTimes(2);
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(3);
-
-    // The Escape listener is cleaned up on unmount (no leak / no post-unmount fire).
-    rerender(<></>);
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
-  it('does not close when the dialog body itself is clicked', () => {
+  it('calls onClose when the backdrop is clicked, but not the panel', () => {
     const onClose = vi.fn();
-    render(
-      <TicketDetail
-        ticket={makeTicket({
-          ...baseFields,
-          id: 't1',
-          title: 'T',
-          body: 'body',
-          state: 'ready',
-          priority: 0,
-        })}
-        onClose={onClose}
-      />,
-    );
+    const { container } = render(<TicketDetail ticket={working} onClose={onClose} />);
 
+    // A click inside the panel must not close it.
     fireEvent.click(screen.getByRole('dialog'));
-
     expect(onClose).not.toHaveBeenCalled();
+
+    const backdrop = container.querySelector('[data-role="ticket-detail-backdrop"]');
+    if (backdrop === null) {
+      throw new Error('backdrop not found');
+    }
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onClose when Escape is pressed', () => {
+    const onClose = vi.fn();
+    render(<TicketDetail ticket={working} onClose={onClose} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

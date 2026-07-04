@@ -221,10 +221,11 @@ func newProvider(cfg Config) (agent.Provider, error) {
 		return mock.New(), nil
 	case "amika":
 		return amika.New(amika.Config{
-			BaseURL:  cfg.AmikaBaseURL,
-			APIKey:   os.Getenv("AMIKA_API_KEY"),
-			RepoURL:  os.Getenv("AMIKA_REPO_URL"),
-			Snapshot: os.Getenv("AMIKA_SNAPSHOT"),
+			BaseURL:      cfg.AmikaBaseURL,
+			APIKey:       os.Getenv("AMIKA_API_KEY"),
+			RepoURL:      os.Getenv("AMIKA_REPO_URL"),
+			Snapshot:     os.Getenv("AMIKA_SNAPSHOT"),
+			ClaudeCredID: os.Getenv("AMIKA_CLAUDE_CRED_ID"),
 		}, nil), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)

@@ -1,9 +1,10 @@
-// Read-only detail overlay for a board ticket (07 §7): clicking a card opens
-// this to inspect the ticket's full record — complete body, state, priority,
-// id, timestamps, and the full blocked reason when present. Inspection only:
-// the board stays read-only, all mutation flows through the brain via chat
-// (D5). Never traps the user — dismiss via backdrop click, the close button,
-// or Escape. Holds no state of its own (02 §11); selection lives in `Board`.
+// Ticket detail overlay (debug view). Opening a board card shows the ticket's
+// full record — everything the card elides: the complete body, priority,
+// timestamps, id, and (when blocked) the full blocked reason. This is read-only
+// inspection layered over the read-only board (D5); it never mutates state, so
+// there is no edit affordance here. Dismiss is deliberately low-friction —
+// backdrop click, the close button, or Escape — never a trap the user cannot
+// get out of (07 §7–§8).
 import { useEffect, type JSX } from 'react';
 import type { Ticket } from '@/components/TicketCard';
 
@@ -12,59 +13,65 @@ export interface TicketDetailProps {
   onClose: () => void;
 }
 
+/** A labelled row in the metadata list, omitted entirely when the value is null. */
+function MetaRow({ label, value }: { label: string; value: string | null }): JSX.Element | null {
+  if (value === null) {
+    return null;
+  }
+  return (
+    <div data-role="detail-row">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
 export function TicketDetail({ ticket, onClose }: TicketDetailProps): JSX.Element {
+  // Escape closes the overlay from anywhere (07 §8 — never trap the user).
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
+    function handleKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
         onClose();
       }
-    };
-    document.addEventListener('keydown', onKeyDown);
+    }
+    document.addEventListener('keydown', handleKey);
     return () => {
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', handleKey);
     };
   }, [onClose]);
 
   return (
     <div data-role="ticket-detail-backdrop" onClick={onClose}>
-      <div
+      <section
         role="dialog"
         aria-modal="true"
         aria-label={`Ticket: ${ticket.title}`}
         data-role="ticket-detail"
         data-state={ticket.state}
+        // Clicks inside the panel must not fall through to the backdrop's close.
         onClick={(event) => {
           event.stopPropagation();
         }}
       >
         <header data-role="ticket-detail-header">
-          <h2>{ticket.title}</h2>
-          <button type="button" data-role="ticket-detail-close" aria-label="Close" onClick={onClose}>
+          <h2 data-role="ticket-detail-title">{ticket.title}</h2>
+          <button
+            type="button"
+            data-role="ticket-detail-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
             ×
           </button>
         </header>
 
         <dl data-role="ticket-detail-meta">
-          <div>
-            <dt>State</dt>
-            <dd data-role="detail-state">{ticket.state}</dd>
-          </div>
-          <div>
-            <dt>Priority</dt>
-            <dd data-role="detail-priority">{ticket.priority}</dd>
-          </div>
-          <div>
-            <dt>ID</dt>
-            <dd data-role="detail-id">{ticket.id}</dd>
-          </div>
-          <div>
-            <dt>Created</dt>
-            <dd data-role="detail-created">{ticket.created_at}</dd>
-          </div>
-          <div>
-            <dt>Updated</dt>
-            <dd data-role="detail-updated">{ticket.updated_at}</dd>
-          </div>
+          <MetaRow label="State" value={ticket.state} />
+          <MetaRow label="Priority" value={String(ticket.priority)} />
+          <MetaRow label="ID" value={ticket.id} />
+          <MetaRow label="Created" value={ticket.created_at} />
+          <MetaRow label="Updated" value={ticket.updated_at} />
+          <MetaRow label="Ready" value={ticket.ready_at ?? null} />
         </dl>
 
         {ticket.state === 'blocked' && ticket.blocked_reason != null && (
@@ -72,7 +79,7 @@ export function TicketDetail({ ticket, onClose }: TicketDetailProps): JSX.Elemen
         )}
 
         <div data-role="ticket-detail-body">{ticket.body}</div>
-      </div>
+      </section>
     </div>
   );
 }

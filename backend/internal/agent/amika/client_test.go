@@ -141,6 +141,9 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 			if body.AutoDeleteInterval != autoDeleteOff {
 				t.Errorf("auto_delete_interval = %d, want %d (OFF)", body.AutoDeleteInterval, autoDeleteOff)
 			}
+			if body.AgentCredentials != nil {
+				t.Errorf("agent_credentials = %+v, want omitted when no ClaudeCredID", body.AgentCredentials)
+			}
 			writeJSON(t, w, http.StatusAccepted, sandbox{ID: sbID9, Name: body.Name, State: "provisioning"})
 		},
 	})
@@ -151,6 +154,27 @@ func TestCreateWorkerSendsConventionBody(t *testing.T) {
 	}
 	if want := (agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID9}); got != want {
 		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// A set ClaudeCredID attaches the org agent credential to every created sandbox —
+// without it, API-key-created sandboxes can't run the agent ("Agent command failed").
+func TestCreateWorkerAttachesAgentCredential(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k", Agent: DefaultAgent, ClaudeCredID: "cred-123"}, map[route]http.HandlerFunc{
+		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			var body createSandboxRequest
+			decodeBody(t, r, &body)
+			if len(body.AgentCredentials) != 1 {
+				t.Fatalf("agent_credentials = %+v, want exactly one entry", body.AgentCredentials)
+			}
+			if got := body.AgentCredentials[0]; got.Kind != DefaultAgent || got.ID != "cred-123" {
+				t.Errorf("agent_credentials[0] = %+v, want {Kind:%s ID:cred-123}", got, DefaultAgent)
+			}
+			writeJSON(t, w, http.StatusAccepted, sandbox{ID: sbID9, Name: body.Name})
+		},
+	})
+	if _, err := c.CreateWorker(context.Background(), agent.WorkerName("w1")); err != nil {
+		t.Fatalf("CreateWorker: %v", err)
 	}
 }
 

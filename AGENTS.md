@@ -26,6 +26,13 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
   app — LLM, Amika, and database credentials. Let the app/config loader read it; never print its
   contents to the transcript.
 
+- **Multiple agents in the same worktree**. You may be working with other agents. Only commit your work.
+
+## Useful Context
+
+- **Not in production** This app is not used by anyone. No need to add feature flags or support backward comptability at this stage
+- **Commit to main** Because the app is light in development committing to main is OK. 
+
 ## Skills
 
 Canonical skills live in `.agents/skills` (symlinked into `.claude/skills` and `.codex/skills`).

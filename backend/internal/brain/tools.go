@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
@@ -343,6 +344,12 @@ func (s *Service) doCreateTicket(ctx context.Context, call ToolCall) (ToolResult
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
 	}
+	// title is required non-empty (board enforces it too, via ErrEmptyTitle, but
+	// with an exact "" test that a whitespace-only title slips past). body is
+	// intentionally optional at the board, so it is not guarded here.
+	if res, ok := requireField(call.ID, ToolCreateTicket, fieldTitle, in.Title); !ok {
+		return res, true
+	}
 	t, err := s.board.CreateTicket(ctx, in.Title, in.Body)
 	return ticketResult(call.ID, t, err), false
 }
@@ -371,6 +378,11 @@ func (s *Service) doSendToAgent(ctx context.Context, call ToolCall) (ToolResult,
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
 	}
+	// An empty instruction would wake the agent with nothing to act on; the
+	// board does not guard it, so reject it here (see requireField).
+	if res, ok := requireField(call.ID, ToolSendToAgent, "instruction", in.Instruction); !ok {
+		return res, true
+	}
 	t, err := s.board.SendToAgent(ctx, board.TicketID(in.ID), in.Instruction)
 	return ticketResult(call.ID, t, err), false
 }
@@ -379,6 +391,12 @@ func (s *Service) doMarkBlocked(ctx context.Context, call ToolCall) (ToolResult,
 	var in MarkBlockedInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
+	}
+	// reason is the whole point of a blocker card — the decision the user must
+	// make. An empty one is a "needs you" card with nothing to act on. The board
+	// stores it verbatim without guarding, so reject it here (see requireField).
+	if res, ok := requireField(call.ID, ToolMarkBlocked, "reason", in.Reason); !ok {
+		return res, true
 	}
 	t, err := s.board.MarkBlocked(ctx, board.TicketID(in.ID), in.Reason)
 	return ticketResult(call.ID, t, err), false
@@ -397,6 +415,11 @@ func (s *Service) doSay(ctx context.Context, call ToolCall) (ToolResult, bool) {
 	var in SayInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
+	}
+	// An empty message is nothing to show the user; reject it rather than push a
+	// blank line into the transcript (see requireField).
+	if res, ok := requireField(call.ID, ToolSay, "text", in.Text); !ok {
+		return res, true
 	}
 	if err := s.say.Say(ctx, in.Text); err != nil {
 		return errorResult(call.ID, err), false
@@ -417,6 +440,13 @@ func (s *Service) doPostUpdate(ctx context.Context, call ToolCall) (ToolResult, 
 	var in PostUpdateInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
+	}
+	// body is required, but an omitted/empty/whitespace-only value parses
+	// cleanly to "" and would post a card with a header and timestamp but no
+	// text — the brain gets "ok" and believes it posted, while the user sees an
+	// empty update (08 §7). See requireField.
+	if res, ok := requireField(call.ID, ToolPostUpdate, fieldBody, in.Body); !ok {
+		return res, true
 	}
 	kind := notifKindUpdate
 	if in.ImageURL != nil {
@@ -458,5 +488,28 @@ func errorResult(id string, err error) ToolResult {
 // wording from the Board API's typed errors so the model can tell an
 // argument-shape problem from a precondition failure.
 func malformedResult(id string, err error) ToolResult {
-	return ToolResult{ToolCallID: id, Content: fmt.Sprintf("invalid tool arguments: %v", err), IsError: true}
+	return malformedResultMsg(id, err.Error())
+}
+
+// malformedResultMsg is malformedResult for a reason that is a plain string
+// rather than an error value — used by requireField, whose per-tool/field
+// message is composed dynamically and so is not a static sentinel error.
+func malformedResultMsg(id, reason string) ToolResult {
+	return ToolResult{ToolCallID: id, Content: "invalid tool arguments: " + reason, IsError: true}
+}
+
+// requireField guards a required free-text tool argument. An omitted, empty, or
+// whitespace-only value parses cleanly to "" (the model dropped the field, sent
+// blanks, or used the wrong key — e.g. post_update's "body" vs say's "text"), so
+// json.Unmarshal reports no error, yet passing it through is never valid: an
+// empty update or blocker card shows a header with no text, an empty instruction
+// wakes an agent with nothing to do. Treated as malformed (06 §8) so the pass
+// re-prompts rather than silently succeeding; the message names the tool and
+// field so a wrong-key call self-corrects. ok is false when the value is blank,
+// in which case the returned ToolResult is the malformed feedback to send back.
+func requireField(id string, tool ToolName, field, value string) (ToolResult, bool) {
+	if strings.TrimSpace(value) != "" {
+		return ToolResult{}, true
+	}
+	return malformedResultMsg(id, fmt.Sprintf("%s requires a non-empty %q field", tool, field)), false
 }

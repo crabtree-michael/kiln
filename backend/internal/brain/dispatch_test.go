@@ -248,6 +248,88 @@ func TestDispatch_PostUpdate_RoutesToNotificationStore(t *testing.T) {
 	}
 }
 
+// TestDispatch_PostUpdate_EmptyBodyRejected pins that post_update with an empty
+// body is rejected as a malformed call (06 §8) rather than silently posting a
+// bodyless card. "body" is a required field; an empty value — whether the model
+// omitted it, sent whitespace, or put its prose under the wrong key (e.g. "text",
+// which the sibling say tool uses) — must come back as an error ToolResult and
+// must NOT reach NotificationStore.PostNotification. Otherwise the brain is told
+// "ok", believes it posted, and the user sees a header + timestamp with no text.
+func TestDispatch_PostUpdate_EmptyBodyRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		input []byte
+	}{
+		{name: "body omitted", input: []byte(`{"ticket": "t-1"}`)},
+		{name: "body empty string", input: []byte(`{"body": ""}`)},
+		{name: "body whitespace only", input: []byte(`{"body": "   \n\t"}`)},
+		{name: "prose under wrong key", input: []byte(`{"text": "build is green"}`)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := &fakeNotifications{}
+			svc := newTestServiceN(&fakeBoard{}, &fakeSay{}, fn, &fakeConvo{}, &scriptedLLM{})
+
+			call := brain.ToolCall{ID: "pu-empty", Name: brain.ToolPostUpdate, Input: tc.input}
+			result := svc.Dispatch(context.Background(), call)
+
+			if !result.IsError {
+				t.Fatalf("ToolResult.IsError = false, want true for empty-body post_update")
+			}
+			if posts := fn.posted(); len(posts) != 0 {
+				t.Errorf("empty-body post_update must not reach PostNotification; recorded %v", posts)
+			}
+		})
+	}
+}
+
+// TestDispatch_RequiredTextFields_RejectEmpty pins that every required free-text
+// tool argument — say's text, create_ticket's title, send_to_agent's
+// instruction, mark_blocked's reason — is rejected when omitted, empty, or
+// whitespace-only (see requireField). Such a value parses cleanly to "", so it
+// is not a JSON error; it must still come back as an error ToolResult and never
+// reach the board or Say — the same silent-empty gap that produced bodyless
+// update cards. create_ticket's body is intentionally optional (the board allows
+// it), so it is not covered here.
+func TestDispatch_RequiredTextFields_RejectEmpty(t *testing.T) {
+	cases := []struct {
+		name  string
+		tool  brain.ToolName
+		input string
+	}{
+		{"say text omitted", brain.ToolSay, `{}`},
+		{"say text whitespace", brain.ToolSay, `{"text": "  \n"}`},
+		{"create_ticket title omitted", brain.ToolCreateTicket, `{"body": "b"}`},
+		{"create_ticket title whitespace", brain.ToolCreateTicket, `{"title": " \t", "body": "b"}`},
+		{"send_to_agent instruction omitted", brain.ToolSendToAgent, `{"id": "t-1"}`},
+		{"send_to_agent instruction empty", brain.ToolSendToAgent, `{"id": "t-1", "instruction": ""}`},
+		{"mark_blocked reason omitted", brain.ToolMarkBlocked, `{"id": "t-1"}`},
+		{"mark_blocked reason whitespace", brain.ToolMarkBlocked, `{"id": "t-1", "reason": "   "}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fb := &fakeBoard{}
+			fs := &fakeSay{}
+			svc := newTestService(fb, fs, &fakeConvo{}, &scriptedLLM{})
+
+			call := brain.ToolCall{ID: "req-empty", Name: tc.tool, Input: []byte(tc.input)}
+			result := svc.Dispatch(context.Background(), call)
+
+			if !result.IsError {
+				t.Fatalf("ToolResult.IsError = false, want true for %s with empty required field", tc.tool)
+			}
+			if calls := fb.recordedCalls(); len(calls) != 0 {
+				t.Errorf("empty required field must not reach the board; recorded %v", calls)
+			}
+			if said := fs.said(); len(said) != 0 {
+				t.Errorf("empty required field must not reach Say; said %v", said)
+			}
+		})
+	}
+}
+
 // TestDispatch_RetractUpdate_RoutesToNotificationStore pins retract_update's
 // mapping (08 §7): notification_id reaches NotificationStore.RetractNotification.
 func TestDispatch_RetractUpdate_RoutesToNotificationStore(t *testing.T) {

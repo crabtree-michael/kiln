@@ -27,7 +27,8 @@ export type VoiceAction =
   | { type: 'denied' }
   | { type: 'background' } // visibilitychange -> hidden (09 §3)
   | { type: 'foreground' } // visibilitychange -> visible
-  | { type: 'commitConsumed' }; // the store POSTed the pending commit
+  | { type: 'commitConsumed' } // the store POSTed the pending commit successfully
+  | { type: 'commitFailed' }; // the POST failed — keep the finalized text on screen
 
 export interface VoiceState {
   micState: MicState;
@@ -67,6 +68,13 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
     case 'foreground':
       return state;
     case 'commitConsumed':
+      // A sent utterance clears back to the idle transcript so stale text can't
+      // linger or flash back (09 §4): both the on-screen ink and the one-tick
+      // commit are dropped.
+      return { ...state, settledText: '', commit: undefined };
+    case 'commitFailed':
+      // The POST failed: keep the finalized text visible so the user can just
+      // speak again (09 §4); only drop the one-tick commit.
       return { ...state, commit: undefined };
     default:
       return state;

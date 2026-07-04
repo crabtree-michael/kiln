@@ -141,6 +141,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/voice/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a short-lived AssemblyAI streaming token (09 §6).
+         * @description The client calls this, then opens AssemblyAI's Universal-Streaming WebSocket directly with the returned token — audio never transits the Kiln backend, and the real API key never leaves /backend (09 §2, 02 §2). Thin handler over the STT-provider port; the concrete AssemblyAI client lives in infra and is wired at the composition root. Token expiry is <= 10 min (09 §6).
+         */
+        post: operations["postVoiceToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream": {
         parameters: {
             query?: never;
@@ -236,6 +256,16 @@ export interface components {
             text: string;
             /** Format: date-time */
             at: string;
+        };
+        /** @description POST /api/voice/token's 200 body (09 §2, §6): a short-lived AssemblyAI Universal-Streaming token and its absolute expiry. The client opens the STT WebSocket with `token` and refreshes proactively before `expires_at`. */
+        VoiceToken: {
+            /** @description The temporary AssemblyAI streaming token (bearer for the wss connection). */
+            token: string;
+            /**
+             * Format: date-time
+             * @description Absolute expiry (backend-computed from the provider's redemption window).
+             */
+            expires_at: string;
         };
         /** @description One backlog item on the primary screen (08 §3). Hybrid-sourced but the client renders one list and never knows the difference: `blocker` and `proposal` are derived from board state; `update` and `preview` are brain-authored notification rows. The visible tag (Blocker/Proposal/ Update/Preview) is derived from `kind` on the client. */
         FeedCard: {
@@ -463,6 +493,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MessagePostResponse"];
                 };
+            };
+        };
+    };
+    postVoiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A temporary streaming token and its absolute expiry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceToken"];
+                };
+            };
+            /** @description The STT provider failed to mint a token. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -32,6 +32,11 @@ type BoardView struct {
 	Proposals    []BoardTicket
 	WorkingCount int
 	BlockedCount int
+	// TicketTitles maps every current ticket id to its title, so a
+	// ticket-tagged update/preview note can render the linked ticket's title
+	// as its card label (08 §3 — "ticket title for board cards"). Nil/absent
+	// entries leave the label empty, which is valid for a note with no ticket.
+	TicketTitles map[string]string
 }
 
 // BoardReader is the runtime's read-only port onto board state for feed

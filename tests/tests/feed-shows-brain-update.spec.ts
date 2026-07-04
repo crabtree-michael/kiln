@@ -74,6 +74,14 @@ test('a brain-authored update appears in the feed, then drains once seen', async
     .filter({ hasText: tag });
   await expect(updateCard, `no update card carrying ${tag} reached the feed`).toBeVisible();
 
+  // Signal 1b (body renders): the tag must render in the card's BODY element, not
+  // merely somewhere in the card. This pins the post_update body → feed-card-body
+  // path so a regression that drops the body text (empty/hidden `<p>`) is caught
+  // even though the card shell still appears.
+  const updateBody = updateCard.locator('[data-role="feed-card-body"]');
+  await expect(updateBody, `update card body did not render the ${tag} text`).toBeVisible();
+  await expect(updateBody).toContainText(tag);
+
   // Signal 2 (drain): the card rendered on a visible screen, so the client acked
   // /api/feed/seen; the server must now exclude it from the assembled snapshot (08 D2).
   // We assert on the SERVER snapshot (GET /api/feed) — that directly verifies seen high-

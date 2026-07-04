@@ -248,6 +248,12 @@ func (s *Service) Feed(ctx context.Context) (FeedSnapshot, error) {
 			Body: n.Body, TicketID: n.TicketID, NotificationID: &nid,
 			CreatedAt: n.CreatedAt,
 		}
+		// A ticket-tagged note renders the linked ticket's title as its label,
+		// mirroring blocker/proposal cards (08 §3). A note with no ticket keeps
+		// an empty label, which the client renders headless-but-legible.
+		if n.TicketID != nil {
+			card.Label = view.TicketTitles[*n.TicketID]
+		}
 		if n.Kind == KindPreview {
 			card.ImageURL = n.ImageURL
 		}

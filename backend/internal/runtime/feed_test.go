@@ -121,6 +121,33 @@ func TestService_Feed_FiltersSeenAndRetractedUpdates(t *testing.T) {
 	}
 }
 
+func TestService_Feed_TicketTaggedUpdateGetsTicketTitleLabel(t *testing.T) {
+	ctx := context.Background()
+	board := &fakeBoardReader{view: runtime.BoardView{
+		TicketTitles: map[string]string{"t-9": "Rate limiting"},
+	}}
+	notes := &fakeNotificationStore{}
+	tid := "t-9"
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "shipped the limiter", TicketID: &tid})
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "standalone note"})
+
+	snap, err := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{}).Feed(ctx)
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if len(snap.Cards) != 2 {
+		t.Fatalf("Feed returned %d cards, want 2 updates", len(snap.Cards))
+	}
+	// Newest-first: the standalone note (no ticket) keeps an empty label; the
+	// ticket-tagged note renders the linked ticket's title.
+	if snap.Cards[0].Body != "standalone note" || snap.Cards[0].Label != "" {
+		t.Errorf("card[0] = %+v, want the standalone note with an empty label", snap.Cards[0])
+	}
+	if snap.Cards[1].Body != "shipped the limiter" || snap.Cards[1].Label != "Rate limiting" {
+		t.Errorf("card[1] = %+v, want the ticket-tagged note labelled with the ticket title", snap.Cards[1])
+	}
+}
+
 func TestService_Feed_EmptyHasNilLastWord(t *testing.T) {
 	snap, err := newFeedService(
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},

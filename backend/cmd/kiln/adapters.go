@@ -83,6 +83,16 @@ func (a *boardViewAdapter) BoardView(ctx context.Context) (runtime.BoardView, er
 	view := runtime.BoardView{
 		WorkingCount: len(snap.Working),
 		BlockedCount: len(snap.Blocked),
+		TicketTitles: make(map[string]string),
+	}
+	// Index every current ticket's title by id so a ticket-tagged update/preview
+	// note can render the linked ticket's title as its label (08 §3).
+	for _, group := range [][]board.Ticket{
+		snap.Shaping, snap.Ready, snap.Blocked, snap.Working, snap.Done,
+	} {
+		for _, t := range group {
+			view.TicketTitles[string(t.ID)] = t.Title
+		}
 	}
 	for _, t := range snap.Blocked {
 		reason := ""

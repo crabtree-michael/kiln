@@ -1,7 +1,7 @@
 # Kiln — Voice Pipeline (v1)
 
 **Date:** 2026-07-04
-**Status:** Proposed
+**Status:** Accepted
 **Scope:** v1, single project, single user
 **Relationship to `01`–`08`:** Fills the voice slot `07` deferred — but narrower than
 promised. **Kiln does not speak.** This spec amends `01` §3: the pipeline is

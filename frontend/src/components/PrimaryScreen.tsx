@@ -4,9 +4,11 @@
 // 08 §F selector surface live in the presentational tree; this file is only the
 // wiring seam (stores → props, Accept → transport).
 import { useCallback, type JSX } from 'react';
+import { BoardProvider } from '@/stores/board-store';
 import { FeedProvider } from '@/stores/feed-store';
 import { ActivityProvider } from '@/stores/activity-store';
 import { VoiceProvider } from '@/voice/voice-store';
+import { useBoardStore } from '@/stores/board-context';
 import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
 import { acceptTicket } from '@/transport/transport';
@@ -14,6 +16,7 @@ import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 
 function PrimaryScreenBody(): JSX.Element {
   const { feed, connectionState } = useFeedStore();
+  const { board } = useBoardStore();
   const { thinking, pill, dismiss } = useActivityStore();
 
   const onAccept = useCallback((ticketId: string): void => {
@@ -25,6 +28,7 @@ function PrimaryScreenBody(): JSX.Element {
   return (
     <PrimaryScreenView
       feed={feed}
+      board={board}
       connectionState={connectionState}
       thinking={thinking}
       pill={pill}
@@ -36,12 +40,14 @@ function PrimaryScreenBody(): JSX.Element {
 
 export function PrimaryScreen(): JSX.Element {
   return (
-    <FeedProvider>
-      <ActivityProvider>
-        <VoiceProvider>
-          <PrimaryScreenBody />
-        </VoiceProvider>
-      </ActivityProvider>
-    </FeedProvider>
+    <BoardProvider>
+      <FeedProvider>
+        <ActivityProvider>
+          <VoiceProvider>
+            <PrimaryScreenBody />
+          </VoiceProvider>
+        </ActivityProvider>
+      </FeedProvider>
+    </BoardProvider>
   );
 }

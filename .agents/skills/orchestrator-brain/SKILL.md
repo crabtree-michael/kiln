@@ -19,7 +19,8 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
       override.
 - [x] Input contract → 06 §3: fresh context per pass — full board snapshot + last 20
       transcript messages + the event (agent output truncated ~8k head+tail). System
-      prompt is a versioned Go template (D7).
+      prompt is a Go template in the repo (D7; a single unversioned prompt — versioning
+      was removed by user decision).
 - [x] Tools → 06 §4: seven — create_ticket, shape_ticket, mark_ready, send_to_agent,
       mark_blocked, accept_to_done, say. No pull (03 I6), no notify (deferred to 10),
       no board read (state is injected, D3).
@@ -47,15 +48,14 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
 
 ## Common footguns
 
-- Editing a shipped `systemPromptV*` const in place. Prompt versions are append-only:
-  add `systemPromptV(N+1)`, register it in `promptTemplates`, bump
-  `CurrentPromptVersion`, and update `TestCurrentPromptVersion_IsV*` in
-  `dispatch_test.go` (it pins the shipped version number + tool-name presence, never
-  literal prose — 06 D7).
+- Re-introducing prompt versioning. There is one `systemPrompt` const in `prompt.go`
+  (versioning existed and was removed by user decision — git history has v1/v2). Edit
+  it in place; `TestSystemPrompt_HasFeedToolGuidance` in `dispatch_test.go` pins
+  tool-name presence, never literal prose (06 D7).
 
 ## Potential gotchas
 
-- The prompt is written to 08's interaction model (v3): the user sees the *feed*, not
+- The prompt is written to 08's interaction model: the user sees the *feed*, not
   the board — routine board actions already emit mechanical toasts (08 §4), so the
   prompt forbids narrating them with `say`/`post_update`. Keep new prompt prose
   consistent with that surface (one ephemeral `say` pill, no chat history, feed drains

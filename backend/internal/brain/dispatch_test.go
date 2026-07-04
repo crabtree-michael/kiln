@@ -42,21 +42,17 @@ func TestToolSet_IsExactlyTenToolsInFixedOrder(t *testing.T) {
 	}
 }
 
-// TestCurrentPromptVersion_IsV3 pins the shipped prompt version: v3 recasts
-// the prose around 08's interaction model (the feed as the product surface),
-// keeping the 08 §5/§7 feed-tool guidance. It asserts tool-name presence, not
+// TestSystemPrompt_HasFeedToolGuidance pins that the shipped prompt keeps
+// the 08 §5/§7 feed-tool guidance. It asserts tool-name presence, not
 // literal prose (06 D7).
-func TestCurrentPromptVersion_IsV3(t *testing.T) {
-	if brain.CurrentPromptVersion != 3 {
-		t.Fatalf("CurrentPromptVersion = %d, want 3", brain.CurrentPromptVersion)
-	}
-	got, err := brain.RenderSystemPrompt(brain.CurrentPromptVersion, brain.PromptData{Role: "Kiln"})
+func TestSystemPrompt_HasFeedToolGuidance(t *testing.T) {
+	got, err := brain.RenderSystemPrompt(brain.PromptData{Role: "Kiln"})
 	if err != nil {
-		t.Fatalf("RenderSystemPrompt(v3): %v", err)
+		t.Fatalf("RenderSystemPrompt: %v", err)
 	}
 	for _, tool := range []string{"request_approval", "post_update", "retract_update"} {
 		if !strings.Contains(got, tool) {
-			t.Errorf("v3 prompt is missing the 08 feed-tool guidance for %s:\n%s", tool, got)
+			t.Errorf("system prompt is missing the 08 feed-tool guidance for %s:\n%s", tool, got)
 		}
 	}
 }

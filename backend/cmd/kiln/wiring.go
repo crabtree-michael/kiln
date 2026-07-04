@@ -145,7 +145,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	brainSvc := brain.NewService(
 		boardSvc, boardSvc, rtSvc, rtSvc, &convoAdapter{rt: rtSvc},
 		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),
-		brain.Config{Model: cfg.BrainModel}, brain.CurrentPromptVersion,
+		brain.Config{Model: cfg.BrainModel},
 	)
 	brainPort.inner = brainSvc // close the runtime↔brain cycle.
 

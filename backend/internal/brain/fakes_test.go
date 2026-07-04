@@ -334,7 +334,7 @@ func newTestServiceN(
 ) *brain.Service {
 	return brain.NewService(
 		board, board, say, notifications, convo, llm,
-		brain.Config{Model: brain.DefaultModel}, brain.CurrentPromptVersion,
+		brain.Config{Model: brain.DefaultModel},
 	)
 }
 

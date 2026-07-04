@@ -194,6 +194,25 @@ func TestHandleMessage_TooLongText_Returns400(t *testing.T) {
 	}
 }
 
+func TestHandleMessage_OversizedBody_Returns413AndDoesNotPost(t *testing.T) {
+	poster := &fakeMessagePoster{}
+	ts := newTestServer(&fakeBoardReader{}, poster, &fakeMessagesReader{})
+	defer ts.Close()
+
+	// A raw JSON body well past the 64 KiB cap: the server must reject it
+	// before buffering it whole, without ever reaching the port.
+	body := append([]byte(`{"text":"`), bytes.Repeat([]byte("x"), 128<<10)...)
+	body = append(body, []byte(`"}`)...)
+	resp := doPost(t, ts.URL+"/api/message", body)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413 for a body over the size cap", resp.StatusCode)
+	}
+	if poster.callCount() != 0 {
+		t.Errorf("PostMessage called %d times for an oversized body, want 0", poster.callCount())
+	}
+}
+
 func TestHandleMessage_MalformedJSON_Returns400(t *testing.T) {
 	poster := &fakeMessagePoster{}
 	ts := newTestServer(&fakeBoardReader{}, poster, &fakeMessagesReader{})

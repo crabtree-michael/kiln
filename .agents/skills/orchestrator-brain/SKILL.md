@@ -47,8 +47,16 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
 
 ## Common footguns
 
-_(Accumulate: mistakes agents predictably make in this module.)_
+- Editing a shipped `systemPromptV*` const in place. Prompt versions are append-only:
+  add `systemPromptV(N+1)`, register it in `promptTemplates`, bump
+  `CurrentPromptVersion`, and update `TestCurrentPromptVersion_IsV*` in
+  `dispatch_test.go` (it pins the shipped version number + tool-name presence, never
+  literal prose — 06 D7).
 
 ## Potential gotchas
 
-_(Accumulate: non-obvious traps and edge cases.)_
+- The prompt is written to 08's interaction model (v3): the user sees the *feed*, not
+  the board — routine board actions already emit mechanical toasts (08 §4), so the
+  prompt forbids narrating them with `say`/`post_update`. Keep new prompt prose
+  consistent with that surface (one ephemeral `say` pill, no chat history, feed drains
+  toward "All clear") rather than the `/debug` board view.

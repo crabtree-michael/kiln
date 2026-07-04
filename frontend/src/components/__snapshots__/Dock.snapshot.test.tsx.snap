@@ -1,0 +1,220 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Dock snapshots > Denied 1`] = `
+<div>
+  <div
+    data-dock-state="denied"
+    data-role="dock"
+  >
+    <div
+      data-role="dock-controls"
+    >
+      <button
+        aria-label="Talk"
+        aria-pressed="false"
+        data-dock-state="denied"
+        data-role="dock-talk"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          data-role="dock-mic"
+        >
+          <span
+            data-role="dock-mic-capsule"
+          />
+          <span
+            data-role="dock-mic-arc"
+          />
+          <span
+            data-role="dock-mic-stem"
+          />
+        </span>
+        <span
+          data-role="dock-label"
+        >
+          Tap to enable mic
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Dock snapshots > Listening with a live transcript (settled + ghosted tail + caret) 1`] = `
+<div>
+  <div
+    data-dock-state="listening"
+    data-role="dock"
+  >
+    <div
+      data-dock-state="listening"
+      data-role="dock-transcript"
+    >
+      <span
+        data-role="dock-settled"
+      >
+        Ship the login screen.
+      </span>
+      <span
+        data-ghost="true"
+        data-role="dock-tail"
+      >
+        and wire up
+      </span>
+      <span
+        aria-hidden="true"
+        data-role="dock-caret"
+      >
+        |
+      </span>
+    </div>
+    <div
+      data-role="dock-controls"
+    >
+      <button
+        aria-label="Talk"
+        aria-pressed="true"
+        data-dock-state="listening"
+        data-role="dock-talk"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          data-role="dock-mic"
+        >
+          <span
+            data-role="dock-mic-capsule"
+          />
+          <span
+            data-role="dock-mic-arc"
+          />
+          <span
+            data-role="dock-mic-stem"
+          />
+        </span>
+        <span
+          data-role="dock-label"
+        >
+          Listening…
+        </span>
+      </button>
+      <button
+        aria-label="Cancel"
+        data-role="dock-cancel"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+        >
+          ×
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Dock snapshots > Paused 1`] = `
+<div>
+  <div
+    data-dock-state="paused"
+    data-role="dock"
+  >
+    <div
+      data-role="dock-controls"
+    >
+      <button
+        aria-label="Talk"
+        aria-pressed="false"
+        data-dock-state="paused"
+        data-role="dock-talk"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          data-role="dock-mic"
+        >
+          <span
+            data-role="dock-mic-capsule"
+          />
+          <span
+            data-role="dock-mic-arc"
+          />
+          <span
+            data-role="dock-mic-stem"
+          />
+        </span>
+        <span
+          data-role="dock-label"
+        >
+          Tap to talk
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §5) 1`] = `
+<div>
+  <div
+    data-dock-state="retry"
+    data-role="dock"
+  >
+    <div
+      data-dock-state="retry"
+      data-role="dock-transcript"
+    >
+      <span
+        data-ghost="true"
+        data-role="dock-tail"
+      >
+        half a thought
+      </span>
+    </div>
+    <div
+      data-role="dock-controls"
+    >
+      <button
+        aria-label="Talk"
+        aria-pressed="false"
+        data-dock-state="retry"
+        data-role="dock-talk"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          data-role="dock-mic"
+        >
+          <span
+            data-role="dock-mic-capsule"
+          />
+          <span
+            data-role="dock-mic-arc"
+          />
+          <span
+            data-role="dock-mic-stem"
+          />
+        </span>
+        <span
+          data-role="dock-label"
+        >
+          Tap to retry
+        </span>
+      </button>
+      <button
+        aria-label="Cancel"
+        data-role="dock-cancel"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+        >
+          ×
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+`;

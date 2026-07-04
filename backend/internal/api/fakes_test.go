@@ -8,10 +8,23 @@ package api_test
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
+
+// fakeVoiceTokenMinter is api.VoiceTokenMinter (09 §6 POST /api/voice/token):
+// a canned token/expiry or an injected mint error.
+type fakeVoiceTokenMinter struct {
+	token string
+	exp   time.Time
+	err   error
+}
+
+func (f *fakeVoiceTokenMinter) MintStreamingToken(context.Context) (string, time.Time, error) {
+	return f.token, f.exp, f.err
+}
 
 // fakeBoardReader is api.BoardReader: a single configurable snapshot,
 // returned to every caller (GET /api/board and the hub's board pushes

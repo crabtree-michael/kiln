@@ -1,0 +1,235 @@
+// The AssemblyAI Universal-Streaming provider client (09 §7) — the ONLY file
+// that knows AssemblyAI's wire protocol. It wires the mic to the socket
+// (getUserMedia → AudioContext → the PCM16 downsample worklet → binary WS
+// frames) and decodes AssemblyAI's JSON messages back to the neutral
+// `VoiceProviderEvent`s the commit machine consumes. Audio never transits our
+// backend (09 §2); the socket is opened directly with a backend-minted temp
+// token.
+//
+// The pure `decodeAssemblyMessage` is split out and unit-tested; the socket/mic
+// plumbing has no branch worth testing without a real browser, so tests mock at
+// the store boundary instead (09 §8).
+import pcmWorkletUrl from '@/voice/pcm-worklet.ts?url';
+import type { VoiceProviderEvent } from '@/voice/commit-machine';
+import type { VoiceToken } from '@/transport/transport';
+
+// The processor name registered inside `pcm-worklet.ts`. Kept as a local literal
+// (not imported) because importing that module here would run its top-level
+// `registerProcessor` call on the main thread, where that global does not exist.
+const PCM_WORKLET_NAME = 'pcm16-downsample';
+
+// AssemblyAI's streaming WebSocket host (09 §2). The client sends binary PCM16
+// mono 16 kHz frames and receives Begin/Turn JSON messages.
+const WS_BASE = 'wss://streaming.assemblyai.com/v3/ws';
+
+export interface StartVoiceStreamOptions {
+  /** Mints a fresh short-lived streaming token (`POST /api/voice/token`). */
+  getToken: () => Promise<VoiceToken>;
+  /** Receives every decoded provider event (open/partial/final/error/close). */
+  onEvent: (event: VoiceProviderEvent) => void;
+  /** Mic permission was denied (NotAllowedError) — distinct from a transient
+   *  socket error so the store can enter Denied rather than Retry (09 §3, §5). */
+  onDenied?: () => void;
+}
+
+export interface VoiceStream {
+  /** Sends Terminate, closes the socket, and stops the mic + AudioContext. */
+  stop: () => void;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isNotAllowedError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotAllowedError';
+}
+
+/**
+ * Decodes one AssemblyAI Universal-Streaming message to a neutral provider
+ * event (09 §7). `Begin` → open; a `Turn` with `end_of_turn && turn_is_formatted`
+ * is the formatted final (→ commit); any other `Turn` with a transcript is a
+ * still-forming partial. Anything unrecognised (or non-JSON) → `null`. Pure and
+ * exported so it is the unit-test target for the provider protocol.
+ */
+export function decodeAssemblyMessage(data: string): VoiceProviderEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) {
+    return null;
+  }
+  if (parsed.type === 'Begin') {
+    return { kind: 'open' };
+  }
+  if (parsed.type === 'Turn') {
+    const transcript = parsed.transcript;
+    if (typeof transcript !== 'string') {
+      return null;
+    }
+    const isFinal = parsed.end_of_turn === true && parsed.turn_is_formatted === true;
+    return isFinal ? { kind: 'final', text: transcript } : { kind: 'partial', text: transcript };
+  }
+  return null;
+}
+
+/**
+ * Opens the mic + AssemblyAI socket and streams PCM16 to it, decoding every
+ * message through `onEvent`. Returns synchronously with a `stop()`; the async
+ * setup (permission, token, audio graph, socket) runs in the background and
+ * respects a `stop()` that lands mid-setup. Mic-permission denial routes to
+ * `onDenied`; every other failure surfaces as an `error` event so the store's
+ * one-reconnect-then-Retry policy (09 §5) can act on it.
+ */
+export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream {
+  // `stop()` may land during any of the async setup awaits below. `stopped` is
+  // read through `isStopped()` so each check sees plain `boolean` — read as a
+  // bare local it would be narrowed to its last literal and the mid-setup guards
+  // would look like dead code to the type-checker.
+  const session = { stopped: false };
+  const isStopped = (): boolean => session.stopped;
+  let socket: WebSocket | null = null;
+  let mediaStream: MediaStream | null = null;
+  let audioContext: AudioContext | null = null;
+  let workletNode: AudioWorkletNode | null = null;
+  let sourceNode: MediaStreamAudioSourceNode | null = null;
+
+  function teardown(): void {
+    session.stopped = true;
+    if (socket !== null) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'Terminate' }));
+      }
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
+      socket = null;
+    }
+    if (workletNode !== null) {
+      workletNode.port.onmessage = null;
+      workletNode.disconnect();
+      workletNode = null;
+    }
+    if (sourceNode !== null) {
+      sourceNode.disconnect();
+      sourceNode = null;
+    }
+    if (mediaStream !== null) {
+      for (const track of mediaStream.getTracks()) {
+        track.stop();
+      }
+      mediaStream = null;
+    }
+    if (audioContext !== null) {
+      void audioContext.close();
+      audioContext = null;
+    }
+  }
+
+  function stopTracks(stream: MediaStream): void {
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
+  }
+
+  async function init(): Promise<void> {
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+    } catch (error) {
+      if (isNotAllowedError(error)) {
+        options.onDenied?.();
+      } else {
+        options.onEvent({ kind: 'error' });
+      }
+      return;
+    }
+    if (isStopped()) {
+      stopTracks(stream);
+      return;
+    }
+    mediaStream = stream;
+
+    let token: VoiceToken;
+    try {
+      token = await options.getToken();
+    } catch {
+      options.onEvent({ kind: 'error' });
+      teardown();
+      return;
+    }
+    if (isStopped()) {
+      teardown();
+      return;
+    }
+
+    try {
+      const context = new AudioContext();
+      audioContext = context;
+      await context.audioWorklet.addModule(pcmWorkletUrl);
+      if (isStopped()) {
+        teardown();
+        return;
+      }
+      const node = new AudioWorkletNode(context, PCM_WORKLET_NAME);
+      workletNode = node;
+      const source = context.createMediaStreamSource(stream);
+      sourceNode = source;
+      source.connect(node);
+      // Intentionally NOT connected to `context.destination` — the user must not
+      // hear their own mic echoed back. The worklet's job is only to emit PCM.
+      node.port.onmessage = (event: MessageEvent): void => {
+        const buffer: unknown = event.data;
+        if (
+          buffer instanceof ArrayBuffer &&
+          socket !== null &&
+          socket.readyState === WebSocket.OPEN
+        ) {
+          socket.send(buffer);
+        }
+      };
+    } catch {
+      options.onEvent({ kind: 'error' });
+      teardown();
+      return;
+    }
+
+    const query = new URLSearchParams({
+      sample_rate: '16000',
+      encoding: 'pcm_s16le',
+      format_turns: 'true',
+      token: token.token,
+    });
+    const ws = new WebSocket(`${WS_BASE}?${query.toString()}`);
+    ws.binaryType = 'arraybuffer';
+    socket = ws;
+    ws.onmessage = (event: MessageEvent): void => {
+      const raw: unknown = event.data;
+      if (typeof raw !== 'string') {
+        return;
+      }
+      const decoded = decodeAssemblyMessage(raw);
+      if (decoded !== null) {
+        options.onEvent(decoded);
+      }
+    };
+    ws.onerror = (): void => {
+      options.onEvent({ kind: 'error' });
+    };
+    ws.onclose = (): void => {
+      if (!isStopped()) {
+        options.onEvent({ kind: 'close' });
+      }
+    };
+  }
+
+  void init();
+
+  return { stop: teardown };
+}

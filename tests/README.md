@@ -36,6 +36,23 @@ so the brain hits the **real LLM** (02 §4a, §1).
   dequeues it into `brain.HandleEvent`, and the brain moves the ticket to **done or
   blocked** — the assertion. Needs `KILN_DEV_ENDPOINTS=1` on the stack (docker-compose
   defaults it on) and a free worker; also reaches Developing (real Amika, bills money).
+- `tests/voice-token-mints.spec.ts` — the **voice STT path** (09 §8), **gated**: it only
+  runs with `KILN_VOICE_SMOKE=1` (real AssemblyAI; never in `make check`). It mints a token
+  via the backend (`POST /api/voice/token`) and opens the **real AssemblyAI streaming
+  socket** with it, asserting a `Begin` frame — proving the whole credential path
+  (the key never leaves the backend, yet the client's socket authenticates) with **no
+  audio asset**. A second assertion streams a canned clip and asserts the utterance lands
+  as a `human.message`; it runs only when `KILN_VOICE_SAMPLE=/path/to/clip.pcm` (raw PCM16
+  mono 16 kHz) is set. Needs `ASSEMBLYAI_API_KEY` on the **backend** (repo-root `.env`);
+  the test itself never sees the key. No Amika, no sandboxes — nothing to clean up.
+- `tests/voice-mic-to-brain.spec.ts` — the **full voice loop in a real browser** (09 §8),
+  **gated** (`KILN_VOICE_SMOKE=1`) and isolated in the Playwright **`voice` project**, which
+  launches Chromium with a **fake microphone** fed by `fixtures/this-is-a-test.wav` (a `say`-
+  synthesized clip, padded with silence). Opening the app runs the real frontend pipeline
+  (mic-on-by-default → worklet → AssemblyAI socket → commit machine); the spoken "This is a
+  test" lands as a `human.message` and the brain runs a turn (a `kiln` reply appears). Needs
+  `ASSEMBLYAI_API_KEY` + a brain key on the backend; no Amika. Run it with
+  `KILN_VOICE_SMOKE=1 pnpm exec playwright test --project=voice`.
 
 ## Target frontend
 
@@ -70,6 +87,16 @@ Playwright's `baseURL` is the frontend under test:
    make e2e
    # against a different client:
    KILN_E2E_BASE_URL=https://kiln.example.app make e2e
+   ```
+
+   The gated voice smoke (`voice-token-mints`) is skipped unless you opt in. Bring the
+   stack up with `ASSEMBLYAI_API_KEY` set on the backend (repo-root `.env`), then:
+
+   ```sh
+   # token mint + real socket auth (no audio asset needed):
+   KILN_VOICE_SMOKE=1 make e2e
+   # also exercise STT -> human.message with a canned clip (raw PCM16 mono 16 kHz):
+   KILN_VOICE_SMOKE=1 KILN_VOICE_SAMPLE=/path/to/clip.pcm make e2e
    ```
 
 ## Notes

@@ -6,6 +6,7 @@
 import { useCallback, type JSX } from 'react';
 import { FeedProvider } from '@/stores/feed-store';
 import { ActivityProvider } from '@/stores/activity-store';
+import { VoiceProvider } from '@/voice/voice-store';
 import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
 import { acceptTicket } from '@/transport/transport';
@@ -37,7 +38,9 @@ export function PrimaryScreen(): JSX.Element {
   return (
     <FeedProvider>
       <ActivityProvider>
-        <PrimaryScreenBody />
+        <VoiceProvider>
+          <PrimaryScreenBody />
+        </VoiceProvider>
       </ActivityProvider>
     </FeedProvider>
   );

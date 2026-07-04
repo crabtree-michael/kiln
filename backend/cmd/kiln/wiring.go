@@ -25,6 +25,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/voice/assemblyai"
 )
 
 // errBadConfig marks a fatal misconfiguration at startup (e.g. an unknown
@@ -148,7 +149,14 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	)
 	brainPort.inner = brainSvc // close the runtime↔brain cycle.
 
-	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub)
+	// STT token minter (09 §6): the api handler mints a short-lived AssemblyAI
+	// streaming token; the browser opens the STT socket directly, so the key
+	// never leaves the backend (02 §2).
+	voiceMinter := assemblyai.New(assemblyai.Config{
+		APIKey:  cfg.AssemblyAIAPIKey,
+		BaseURL: cfg.AssemblyAIBaseURL,
+	})
+	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
 	if cfg.DevEndpoints {
 		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
 		// post a feed notification (POST /api/dev/notifications), both without the

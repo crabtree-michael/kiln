@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
@@ -85,6 +86,15 @@ type NotificationPoster interface {
 	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) error
 }
 
+// VoiceTokenMinter is the api's port onto the STT provider's temporary-token
+// mint (09 §6): a short-lived AssemblyAI streaming token the client uses to
+// open the STT socket directly, so the real API key never leaves the backend
+// (09 §2, 02 §2). One method, so tests fake it trivially and a provider swap
+// touches one adapter. Satisfied by *voice/assemblyai.Client.
+type VoiceTokenMinter interface {
+	MintStreamingToken(ctx context.Context) (token string, expiresAt time.Time, err error)
+}
+
 // Server owns the 04 §7 / 07 §4 endpoint set:
 //
 //	GET  /api/stream   — SSE: full board snapshot on connect, then one board
@@ -106,6 +116,7 @@ type Server struct {
 	feed     FeedReader
 	seen     SeenAcker
 	hub      *Hub
+	voice    VoiceTokenMinter
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 }
@@ -113,9 +124,12 @@ type Server struct {
 // NewServer wires the routes over their ports and the hub.
 func NewServer(
 	boards BoardReader, poster MessagePoster, messages MessagesReader,
-	feed FeedReader, seen SeenAcker, hub *Hub,
+	feed FeedReader, seen SeenAcker, hub *Hub, voice VoiceTokenMinter,
 ) *Server {
-	return &Server{boards: boards, poster: poster, messages: messages, feed: feed, seen: seen, hub: hub}
+	return &Server{
+		boards: boards, poster: poster, messages: messages,
+		feed: feed, seen: seen, hub: hub, voice: voice,
+	}
 }
 
 // EnableDevTickets turns on the dev-only POST /api/dev/tickets route (call before
@@ -136,6 +150,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/feed", s.handleFeed)
 	mux.HandleFunc("POST /api/feed/seen", s.handleFeedSeen)
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
+	mux.HandleFunc("POST /api/voice/token", s.handleVoiceToken)
 	if s.seeder != nil {
 		mux.HandleFunc("POST /api/dev/tickets", s.handleDevCreateTicket)
 	}
@@ -331,6 +346,21 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
+}
+
+// handleVoiceToken mints a short-lived AssemblyAI streaming token (09 §6) and
+// returns it with its absolute expiry. The client opens the STT WebSocket
+// directly with this token; audio never transits our backend (09 §2). A
+// provider mint failure is a 502 — the client's one silent reconnect then
+// Retry surface handles it (09 §5).
+func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
+	token, expiresAt, err := s.voice.MintStreamingToken(r.Context())
+	if err != nil {
+		slog.Error("api: mint voice token", "err", err)
+		http.Error(w, "mint voice token", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, wire.VoiceToken{Token: token, ExpiresAt: expiresAt})
 }
 
 // findTicket locates a ticket by id across every group of a board snapshot.

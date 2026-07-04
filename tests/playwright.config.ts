@@ -13,6 +13,13 @@ dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 // deployed client). See ./README.md for the run recipe (cheap model, keys).
 const baseURL = process.env.KILN_E2E_BASE_URL ?? 'http://localhost:5173';
 
+// The canned speech clip fed to the browser's fake microphone in the voice
+// project (09 §8). `--use-file-for-fake-audio-capture` makes getUserMedia return
+// this WAV as the mic stream, so the REAL frontend pipeline (worklet → socket →
+// commit machine → Dock) runs against real AssemblyAI. `%noloop` plays it once.
+const voiceSample = new URL('./fixtures/this-is-a-test.wav', import.meta.url).pathname;
+const voiceSpec = /voice-mic-to-brain\.spec\.ts/;
+
 export default defineConfig({
   testDir: './tests',
   // Any test that reaches Developing spins up a real Amika turn; this destroys every
@@ -31,5 +38,33 @@ export default defineConfig({
     baseURL,
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    // The default suite: everything except the fake-mic voice spec (which needs
+    // the browser launched with fake-audio flags — see the `voice` project).
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: voiceSpec,
+    },
+    // The voice project: Chromium with a fake microphone fed by the canned clip.
+    // `--autoplay-policy=no-user-gesture-required` lets the VoiceProvider's
+    // AudioContext run without a click (it starts on mount); the fake-ui flag +
+    // granted permission auto-accept the getUserMedia prompt.
+    {
+      name: 'voice',
+      testMatch: voiceSpec,
+      use: {
+        ...devices['Desktop Chrome'],
+        permissions: ['microphone'],
+        launchOptions: {
+          args: [
+            '--use-fake-device-for-media-stream',
+            '--use-fake-ui-for-media-stream',
+            '--autoplay-policy=no-user-gesture-required',
+            `--use-file-for-fake-audio-capture=${voiceSample}%noloop`,
+          ],
+        },
+      },
+    },
+  ],
 });

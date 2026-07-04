@@ -294,6 +294,15 @@ type Ticket struct {
 // TicketState One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.
 type TicketState string
 
+// VoiceToken POST /api/voice/token's 200 body (09 §2, §6): a short-lived AssemblyAI Universal-Streaming token and its absolute expiry. The client opens the STT WebSocket with `token` and refreshes proactively before `expires_at`.
+type VoiceToken struct {
+	// ExpiresAt Absolute expiry (backend-computed from the provider's redemption window).
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Token The temporary AssemblyAI streaming token (bearer for the wss connection).
+	Token string `json:"token"`
+}
+
 // GetMessagesParams defines parameters for GetMessages.
 type GetMessagesParams struct {
 	// Limit Maximum number of most-recent rows to return.

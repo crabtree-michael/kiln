@@ -23,9 +23,11 @@ import (
 
 var errFakeBoardFailed = errors.New("fakeBoardReader: synthetic failure")
 
+var errFakeMintFailed = errors.New("fakeVoiceTokenMinter: synthetic mint failure")
+
 func newTestServer(boards *fakeBoardReader, poster *fakeMessagePoster, messages *fakeMessagesReader) *httptest.Server {
 	hub := api.NewHub(boards)
-	srv := api.NewServer(boards, poster, messages, &fakeFeedReader{}, &fakeSeenAcker{}, hub)
+	srv := api.NewServer(boards, poster, messages, &fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
 	return httptest.NewServer(srv.Handler())
 }
 
@@ -35,7 +37,7 @@ func newBareServer() *api.Server {
 	boards := &fakeBoardReader{}
 	return api.NewServer(
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
-		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards),
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
 }
 
@@ -387,7 +389,10 @@ func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 		},
 	}}
 	boards := &fakeBoardReader{}
-	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, feed, &fakeSeenAcker{}, api.NewHub(boards))
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		feed, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -420,7 +425,10 @@ func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 func TestHandleFeedSeen_CallsMarkSeen(t *testing.T) {
 	seen := &fakeSeenAcker{}
 	boards := &fakeBoardReader{}
-	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{}, &fakeFeedReader{}, seen, api.NewHub(boards))
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, seen, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -440,7 +448,10 @@ func TestHandleAccept_PostsSynthesizedMessageAndReturns202(t *testing.T) {
 		Shaping: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateShaping, ApprovalRequested: true}},
 	}}
 	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
-	srv := api.NewServer(boards, poster, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards))
+	srv := api.NewServer(
+		boards, poster, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -469,7 +480,10 @@ func TestHandleAccept_PostsSynthesizedMessageAndReturns202(t *testing.T) {
 func TestHandleAccept_UnknownTicketFallsBackToID(t *testing.T) {
 	boards := &fakeBoardReader{} // empty snapshot: no ticket matches.
 	poster := &fakeMessagePoster{}
-	srv := api.NewServer(boards, poster, &fakeMessagesReader{}, &fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards))
+	srv := api.NewServer(
+		boards, poster, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -480,6 +494,49 @@ func TestHandleAccept_UnknownTicketFallsBackToID(t *testing.T) {
 	}
 	if got := poster.lastText(); !strings.Contains(got, `"t-unknown"`) || !strings.Contains(got, "ticket t-unknown") {
 		t.Errorf("posted text = %q, want it to fall back to the id for both title and ticket", got)
+	}
+}
+
+// ---- POST /api/voice/token (09 §2, §6) -------------------------------------
+
+func TestVoiceToken_HappyPath(t *testing.T) {
+	exp := time.Now().Add(8 * time.Minute).UTC().Truncate(time.Second)
+	minter := &fakeVoiceTokenMinter{token: "tok-xyz", exp: exp}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), minter)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/voice/token", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var got wire.VoiceToken
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Token != "tok-xyz" {
+		t.Errorf("token = %q, want tok-xyz", got.Token)
+	}
+	if !got.ExpiresAt.Equal(exp) {
+		t.Errorf("expires_at = %v, want %v", got.ExpiresAt, exp)
+	}
+}
+
+func TestVoiceToken_MintError_Returns502(t *testing.T) {
+	minter := &fakeVoiceTokenMinter{err: errFakeMintFailed}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), minter)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/voice/token", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
 	}
 }
 

@@ -169,7 +169,7 @@ func TestSendToAgent_ResumeFromBlocked_EmitsNudgedToastAndFeedUpdated(t *testing
 	}
 }
 
-func TestSendToAgent_NewTurnFromWorking_NoToastNoFeedUpdated(t *testing.T) {
+func TestSendToAgent_NewTurnFromWorking_EmitsMessagedToastNoFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
 	store.seedWorker(worker)
@@ -179,11 +179,14 @@ func TestSendToAgent_NewTurnFromWorking_NoToastNoFeedUpdated(t *testing.T) {
 		t.Fatalf("SendToAgent: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
+	// A working→working message surfaces as an ephemeral toast only; there is no
+	// blocker card to add or remove, so no feed.updated (unlike the blocked-resume).
 	if len(emissionsWithTopic(ems, board.TopicFeedUpdated)) != 0 {
-		t.Errorf("a working→working new turn must not emit feed.updated, got: %+v", ems)
+		t.Errorf("a working→working message must not emit feed.updated, got: %+v", ems)
 	}
-	if len(emissionsWithTopic(ems, board.TopicActivityToast)) != 0 {
-		t.Errorf("a working→working new turn must not emit an activity.toast, got: %+v", ems)
+	verbs := toastVerbs(t, ems)
+	if len(verbs) != 1 || verbs[0] != "messaged" {
+		t.Errorf("a working→working message must emit exactly one messaged toast, got verbs: %v", verbs)
 	}
 }
 

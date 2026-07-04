@@ -38,6 +38,9 @@ services:
       AMIKA_BASE_URL: ${AMIKA_BASE_URL:-}
       AMIKA_REPO_URL: ${AMIKA_REPO_URL:-}
       AMIKA_SNAPSHOT: ${AMIKA_SNAPSHOT:-}
+      # Org agent-credential id attached to created sandboxes so the coding agent can
+      # authenticate (without it, API-key-created sandboxes fail "Agent command failed").
+      AMIKA_CLAUDE_CRED_ID: ${AMIKA_CLAUDE_CRED_ID:-}
       KILN_WORKER_COUNT: ${KILN_WORKER_COUNT:-}
       # Dev/e2e only: mount POST /api/dev/tickets so a test can seed a ticket without
       # the brain. v1 is local-only (02 §1); default on for this stack, never prod.

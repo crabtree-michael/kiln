@@ -76,6 +76,10 @@ type Config struct {
 	Snapshot string        // AMIKA_SNAPSHOT — snapshot every worker starts from; omitted when unset
 	Agent    string        // KILN_AGENT, default DefaultAgent
 	AutoStop time.Duration // KILN_WORKER_AUTO_STOP, default DefaultAutoStop; auto_delete stays OFF (05 D6)
+	// ClaudeCredID (AMIKA_CLAUDE_CRED_ID) is the org agent-credential id attached
+	// to every created sandbox so the coding agent can authenticate. Without it,
+	// API-key-created sandboxes get no credential and the agent command fails.
+	ClaudeCredID string
 }
 
 // APIError is v0beta1's uniform error envelope over
@@ -148,6 +152,9 @@ func (c *Client) CreateWorker(ctx context.Context, name string) (agent.ProviderW
 		Agent:              c.cfg.Agent,
 		AutoStopInterval:   autoStopInterval(c.cfg.AutoStop),
 		AutoDeleteInterval: autoDeleteOff,
+	}
+	if c.cfg.ClaudeCredID != "" {
+		req.AgentCredentials = []agentCredential{{Kind: c.cfg.Agent, ID: c.cfg.ClaudeCredID}}
 	}
 	var s sandbox
 	if err := c.do(ctx, http.MethodPost, "/sandboxes", req, &s); err != nil {

@@ -10,14 +10,26 @@ package amika
 // is on (cost control, restart on demand); auto_delete_interval is forced OFF
 // (autoDeleteOff) so Amika never yanks a worker out from under a Blocked
 // ticket (05 D6). repo_url and snapshot seed the workspace and are both
-// omitted when unset so the environment stays optional.
+// omitted when unset so the environment stays optional. agent_credentials
+// attaches the org's coding-agent credential — REQUIRED for API-key-created
+// sandboxes to run the agent (without it the agent command fails); omitted when
+// unset.
 type createSandboxRequest struct {
-	Name               string `json:"name"`
-	RepoURL            string `json:"repo_url,omitempty"`
-	Snapshot           string `json:"snapshot,omitempty"`
-	Agent              string `json:"agent,omitempty"`
-	AutoStopInterval   int    `json:"auto_stop_interval"`
-	AutoDeleteInterval int    `json:"auto_delete_interval"`
+	Name               string            `json:"name"`
+	RepoURL            string            `json:"repo_url,omitempty"`
+	Snapshot           string            `json:"snapshot,omitempty"`
+	Agent              string            `json:"agent,omitempty"`
+	AutoStopInterval   int               `json:"auto_stop_interval"`
+	AutoDeleteInterval int               `json:"auto_delete_interval"`
+	AgentCredentials   []agentCredential `json:"agent_credentials,omitempty"`
+}
+
+// agentCredential references an org agent credential to attach to a sandbox so
+// the coding agent can authenticate (05 §9). kind is the agent family ("claude");
+// id is the credential's id (AMIKA_CLAUDE_CRED_ID).
+type agentCredential struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
 }
 
 // sandbox is the subset of the Amika sandbox object we read. state drives

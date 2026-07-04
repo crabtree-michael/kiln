@@ -43,23 +43,21 @@ var version = "dev"
 // schema and the ports it feeds.
 type Config struct {
 	DatabaseURL     string // DATABASE_URL — board + runtime + agent tables (02 §3)
-	AgentMode       string // AGENT_MODE: "mock" (dev/e2e default) or "amika" (05 §9)
+	AgentMode       string // AGENT_MODE: "amika" (default) or "mock" (05 §9)
 	AmikaBaseURL    string // AMIKA_BASE_URL, when AgentMode == "amika" (05 §9)
 	AnthropicAPIKey string // ANTHROPIC_API_KEY — the brain's LLM adapter (06 §2)
 	BrainModel      string // KILN_BRAIN_MODEL, default brain.DefaultModel (06 §2)
 	HTTPAddr        string // KILN_HTTP_ADDR — address the api server binds (04 §7)
 	LogLevel        string // KILN_LOG_LEVEL (docker-compose.yml)
 	WorkerCount     int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
-	MigrationsDir   string // KILN_MIGRATIONS_DIR — base dir for module migrations
 }
 
 // Defaults for the composition root's configuration.
 const (
-	defaultAgentMode     = "mock"
-	defaultHTTPAddr      = ":8080"
-	defaultLogLevel      = "info"
-	defaultWorkerCount   = 3
-	defaultMigrationsDir = "."
+	defaultAgentMode   = "amika"
+	defaultHTTPAddr    = ":8080"
+	defaultLogLevel    = "info"
+	defaultWorkerCount = 3
 )
 
 // loadConfig reads the composition root's environment (04 §8), applying
@@ -75,7 +73,6 @@ func loadConfig() Config {
 		HTTPAddr:        getenvDefault("KILN_HTTP_ADDR", defaultHTTPAddr),
 		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
 		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
-		MigrationsDir:   getenvDefault("KILN_MIGRATIONS_DIR", defaultMigrationsDir),
 	}
 }
 

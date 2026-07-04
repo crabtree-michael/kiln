@@ -26,6 +26,9 @@ services:
       # Board state + durable event queue live in the same Postgres (02 §3).
       DATABASE_URL: postgres://kiln:kiln@db:5432/kiln?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Brain model (06 §2); unset -> backend default. Override to the cheap model
+      # for real-service runs like the e2e suite (KILN_BRAIN_MODEL=claude-haiku-4-5-...).
+      KILN_BRAIN_MODEL: ${KILN_BRAIN_MODEL:-}
       KILN_LOG_LEVEL: ${KILN_LOG_LEVEL:-info}
     depends_on:
       db:

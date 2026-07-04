@@ -33,6 +33,29 @@ largely by coding agents, so the harness — not luck — is what catches mistak
 5. Isolate parallel work via a branch/worktree off the single monorepo.
 6. Update your area's skill with anything you learned.
 
+## Running the tests
+
+The three levels run in two places. **Unit + component-integration are the commit gate** and
+run offline against fakes; **e2e is separate** and needs a live stack.
+
+- **The gate (offline, fakes):** `make check` — the wall (`lint → typecheck → test`). `make test`
+  alone runs both surfaces' unit + integration:
+  - Backend: `cd backend && go test ./...` then `go test -tags=integration ./...`.
+  - Frontend: `cd frontend && pnpm test` (Vitest).
+  Green before you commit. Never `-skip`/`xit` a check to get there.
+
+- **End-to-end (live stack, real services):** the suite lives in **`/tests`** (Playwright) and
+  drives the **real web client** against a running stack — no fakes, so the brain hits the real
+  LLM (§4a, §1). Run it deliberately, not in the commit gate:
+  1. Bring the stack up on the cheap model with a real key:
+     `KILN_BRAIN_MODEL=claude-haiku-4-5-20251001 make up` (real runs bill money — use Haiku).
+  2. First time: `cd tests && pnpm install && pnpm run install-browser`.
+  3. `make e2e` (i.e. `cd tests && pnpm test`). It targets the docker-compose frontend
+     (`http://localhost:5173`) by default; override with `KILN_E2E_BASE_URL`.
+  Any e2e that reaches Developing must destroy the Amika sandboxes it creates (`auto_delete` is
+  off — 05 D6); the current `say → ticket in Backlog` test stops before the pull, so no cleanup.
+  See `/tests/README.md` for the full recipe.
+
 ## Common footguns
 
 - Weakening or skipping a check (disabling a lint rule, `-skip`, `xit`) to get to green.

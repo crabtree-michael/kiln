@@ -37,13 +37,37 @@ const (
 	shutdownTimeout   = 15 * time.Second
 )
 
-// migrationDirs are the three modules' migration directories, relative to
-// Config.MigrationsDir, applied in dependency order (board first — the outbox
-// FK-free tables, then runtime's events/messages, then agent_turns).
-var migrationDirs = []string{
-	"internal/board/postgres/migrations",
-	"internal/runtime/postgres/migrations",
-	"internal/agent/postgres/migrations",
+// migrationSet is one module's embedded migrations plus the stable ledger-key
+// prefix recorded in schema_migrations (the original relative path, so the
+// ledger is unaffected by the move to go:embed).
+type migrationSet struct {
+	key  string // ledger-key prefix, e.g. "internal/board/postgres/migrations"
+	fsys fs.FS  // rooted at the module's .sql files
+}
+
+// moduleMigrations lists the three modules' embedded migrations in dependency
+// order (board first — the outbox's FK-free tables — then runtime's
+// events/messages, then agent_turns). Embedding (see each module's
+// migrations.go) ships them in the single static binary, so there is no
+// runtime file dependency (backend/Dockerfile).
+func moduleMigrations() ([]migrationSet, error) {
+	mods := []struct {
+		key string
+		emb fs.FS
+	}{
+		{"internal/board/postgres/migrations", boardpg.Migrations},
+		{"internal/runtime/postgres/migrations", runtimepg.Migrations},
+		{"internal/agent/postgres/migrations", agentpg.Migrations},
+	}
+	sets := make([]migrationSet, 0, len(mods))
+	for _, m := range mods {
+		sub, err := fs.Sub(m.emb, "migrations")
+		if err != nil {
+			return nil, fmt.Errorf("kiln: sub migrations %s: %w", m.key, err)
+		}
+		sets = append(sets, migrationSet{key: m.key, fsys: sub})
+	}
+	return sets, nil
 }
 
 // serve builds the full object graph and runs it until ctx is cancelled
@@ -63,7 +87,7 @@ func serve(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err = db.PingContext(ctx); err != nil {
 		return fmt.Errorf("kiln: ping db: %w", err)
 	}
-	if err = applyMigrations(ctx, db, cfg.MigrationsDir); err != nil {
+	if err = applyMigrations(ctx, db); err != nil {
 		return err
 	}
 
@@ -166,8 +190,8 @@ func (g graph) runWorker(ctx context.Context, name string, w *runtime.Worker, lo
 	}
 }
 
-// newProvider selects the agent provider by AGENT_MODE (05 §9): the in-memory
-// mock (dev/e2e default) or the Amika HTTP client.
+// newProvider selects the agent provider by AGENT_MODE (05 §9): the Amika HTTP
+// client (default) or the in-memory mock.
 func newProvider(cfg Config) (agent.Provider, error) {
 	switch cfg.AgentMode {
 	case "mock":
@@ -186,7 +210,7 @@ func newProvider(cfg Config) (agent.Provider, error) {
 // applyMigrations applies every module's migrations in order (04 §5's
 // "run migrations" startup step). A per-file ledger (schema_migrations) makes
 // it idempotent, so a restart is a no-op.
-func applyMigrations(ctx context.Context, db *sql.DB, base string) error {
+func applyMigrations(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS schema_migrations (
 			filename   text PRIMARY KEY,
@@ -194,21 +218,24 @@ func applyMigrations(ctx context.Context, db *sql.DB, base string) error {
 		)`); err != nil {
 		return fmt.Errorf("kiln: ensure migration ledger: %w", err)
 	}
-	for _, dir := range migrationDirs {
-		if err := applyMigrationDir(ctx, db, path.Join(base, dir)); err != nil {
+	sets, err := moduleMigrations()
+	if err != nil {
+		return err
+	}
+	for _, set := range sets {
+		if err := applyMigrationDir(ctx, db, set); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// applyMigrationDir applies the .sql files in one directory, in filename
-// order, skipping any already recorded in the ledger.
-func applyMigrationDir(ctx context.Context, db *sql.DB, dir string) error {
-	fsys := os.DirFS(dir)
-	entries, err := fs.ReadDir(fsys, ".")
+// applyMigrationDir applies the .sql files in one module's embedded set, in
+// filename order, skipping any already recorded in the ledger.
+func applyMigrationDir(ctx context.Context, db *sql.DB, set migrationSet) error {
+	entries, err := fs.ReadDir(set.fsys, ".")
 	if err != nil {
-		return fmt.Errorf("kiln: read migrations %s: %w", dir, err)
+		return fmt.Errorf("kiln: read migrations %s: %w", set.key, err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -218,7 +245,7 @@ func applyMigrationDir(ctx context.Context, db *sql.DB, dir string) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := applyMigrationFile(ctx, db, fsys, path.Join(dir, name), name); err != nil {
+		if err := applyMigrationFile(ctx, db, set.fsys, path.Join(set.key, name), name); err != nil {
 			return err
 		}
 	}

@@ -106,4 +106,31 @@ Scaffold-time contract choices to know (tighten or revisit at implementation):
 - A provider can lose a conversation between turns; fall back to a fresh conversation
   with the same message (context lost, workspace kept), never fail the ticket (05 §3).
 - Amika's `auto_delete_interval` must stay off — it would yank a worker out from under a
-  Blocked ticket waiting on the user overnight (05 D6).
+  Blocked ticket waiting on the user overnight (05 D6). In v0beta1 the "off" sentinel is a
+  **negative** interval (`-1`); the adapter sends `auto_delete_interval: -1`.
+
+## Adapter implementation notes (`internal/agent/amika`, v0beta1, landed)
+
+The Provider port is fully implemented over v0beta1. Where the docs are silent the adapter
+is deliberately defensive; these are the hardening points to confirm against the live API:
+
+- **State classification lives in `states.go`.** Both sandbox `state` and job `state` are
+  un-enumerated in v0beta1, so `classifyState`/`classifyJob` match known strings and fall
+  through to the safe default (sandbox → not-ready-yet, keep polling; job → keep polling
+  unless it produced a result or `is_error`). Add real values there as they're observed —
+  it's the one place to edit.
+- **`auto_stop_interval` unit is undocumented.** The adapter sends whole **minutes**
+  (`autoStopInterval`); verify the unit against a live sandbox and adjust if it's seconds.
+- **`agent_session_id` is `null` in the create-job 202 response** — the session id is only
+  assigned as the job runs. `StartTurn` records the passed conversation handle when the
+  response omits it, and continuation falls back to omitting `session_id` (Amika continues
+  the sandbox's current session) when the recorded handle is empty.
+- **Conversation-loss detection is a heuristic**: a continuation (`fresh=false`) that fails
+  with a 400/404/409 whose `error_code`/`message` mentions "session" maps to
+  `agent.ErrConversationLost`. v0beta1 documents no per-error codes — tighten
+  `isConversationLost` once the real session-not-found envelope is known.
+- **Auth is `Authorization: Bearer <AMIKA_API_KEY>`** (not documented in `llms.txt`, per
+  05 §9). Every 4xx/5xx decodes into `*APIError` (the uniform envelope); check status with
+  `errors.As`/`statusIs` (404 on delete = success, 409 on start = already-starting).
+- Tests are pure `httptest` (`client_test.go`) — no live calls, no recorded fixtures yet;
+  the manual smoke checklist (05 §10) still gates the first real-Amika run.

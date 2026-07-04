@@ -72,8 +72,8 @@ test-frontend:
 	cd $(FRONTEND) && pnpm run test
 
 .PHONY: e2e
-e2e: ## End-to-end test against the running stack (02 §4a; hits real services in v1)
-	@echo "e2e harness lands with the runtime surface area (02 §7, §14)."
+e2e: ## End-to-end test: drive the real web client against a running stack (02 §4a; hits real services)
+	cd tests && pnpm test
 
 ## ----------------------------------------------------------------------------
 ## Contract + build + run

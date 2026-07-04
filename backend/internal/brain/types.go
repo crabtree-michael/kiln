@@ -118,3 +118,20 @@ type AgentUpdate struct {
 	IsError      bool
 	At           time.Time
 }
+
+// RepoResult is the neutral outcome of one bash tool command against the
+// project clone (RepoShell.Run), mirroring internal/repo's Result by value —
+// brain cannot import internal/repo (same rule as the runtime/agent payloads
+// above), so the cmd/kiln adapter converts repo.Result → brain.RepoResult.
+// Output is the command's combined stdout+stderr; a non-zero ExitCode is a
+// normal result the model reads, not an error. TimedOut / Truncated flag a
+// wall-clock timeout or an output cap. Unavailable (with Reason) means the
+// clone could not be set up — the tool reports it instead of erroring the pass.
+type RepoResult struct {
+	Output      string
+	ExitCode    int
+	TimedOut    bool
+	Truncated   bool
+	Unavailable bool
+	Reason      string
+}

@@ -15,6 +15,13 @@ largely by coding agents, so the harness — not luck — is what catches mistak
 - **Three levels of tests.** Every module has **unit** tests and component-level
   **integration** tests; the whole system has an **end-to-end** test that exercises the real
   loop live. Test-framework choices are deferred (§14).
+- **E2e tests live in `/tests`, never in Go.** The `/tests` Playwright suite is the *only*
+  home for end-to-end tests — they drive the running stack over HTTP and the real browser, so
+  the brain hits the real LLM and real providers. A Go `_test.go` (even a build-tagged, env-
+  gated one) can only reach its own module's fakes/ports in-process; it cannot exercise the
+  live loop, and a real-service Go test also drags network/credential side effects (e.g. host
+  git credential helpers touching the OS keychain) into the unit gate. If you're tempted to
+  write a `//go:build e2e` Go test, that's the signal to write a `tests/*.spec.ts` instead.
 - **Work behind interfaces.** Each backend module talks to its neighbors through an explicit
   contract; test a service against **fakes** (in-memory repo, scripted LLM), not real infra.
   Stay inside your area's boundary.
@@ -67,6 +74,9 @@ run offline against fakes; **e2e is separate** and needs a live stack.
 - Weakening or skipping a check (disabling a lint rule, `-skip`, `xit`) to get to green.
 - Hand-editing generated types instead of the schema.
 - Reaching across a module boundary instead of through its interface.
+- Writing an end-to-end test as a Go `_test.go` (build-tagged or otherwise) instead of a
+  `tests/*.spec.ts`. E2e drives the *running stack*, not in-process fakes — it belongs in
+  `/tests`.
 
 ## Potential gotchas
 

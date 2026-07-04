@@ -92,6 +92,18 @@ type AgentInspector interface {
 	GetAgentUpdates(ctx context.Context, workerID string) (AgentUpdate, error)
 }
 
+// RepoShell is the brain's read-oriented window into the real project
+// repository (a maintained local clone). Provider-neutral — a shell command
+// string in, a neutral RepoResult out. Best-effort: a Run error or an
+// Unavailable result becomes a tool result the pass loop absorbs (06 §5),
+// never a pass failure; a non-zero exit is a normal RepoResult, not an error.
+// Satisfied structurally by a cmd/kiln adapter over *repo.Shell; brain cannot
+// import internal/repo, so there is no compile-time assertion here.
+type RepoShell interface {
+	// Run → tool bash: run command in the clone, return its combined output.
+	Run(ctx context.Context, command string) (RepoResult, error)
+}
+
 // Compile-time assertions: *board.Service is the Board API's only
 // implementation in v1 and satisfies both ports here with no adapter
 // (see doc.go and ports.go's BoardAPI comment).

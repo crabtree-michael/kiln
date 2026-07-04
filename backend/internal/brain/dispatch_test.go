@@ -15,12 +15,12 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 )
 
-// TestToolSet_IsExactlyTwelveToolsInFixedOrder pins the tool set (06 §4,
-// amended by 08 §5/§7 and the agent read tools): no pull tool, no board-read
-// tool — exactly these twelve, in this order (order matters for prompt-cache
-// friendliness and golden fixtures, 06 §4/§9). The last three are 08's feed
-// tools plus list_agents/get_agent_updates.
-func TestToolSet_IsExactlyTwelveToolsInFixedOrder(t *testing.T) {
+// TestToolSet_IsExactlyThirteenToolsInFixedOrder pins the tool set (06 §4,
+// amended by 08 §5/§7, the agent read tools, and the repo shell tool): no pull
+// tool, no board-read tool — exactly these thirteen, in this order (order
+// matters for prompt-cache friendliness and golden fixtures, 06 §4/§9).
+// list_agents/get_agent_updates follow 08's feed tools; bash is last.
+func TestToolSet_IsExactlyThirteenToolsInFixedOrder(t *testing.T) {
 	want := []brain.ToolName{
 		brain.ToolCreateTicket,
 		brain.ToolShapeTicket,
@@ -34,6 +34,7 @@ func TestToolSet_IsExactlyTwelveToolsInFixedOrder(t *testing.T) {
 		brain.ToolRetractUpdate,
 		brain.ToolListAgents,
 		brain.ToolGetAgentUpdates,
+		brain.ToolBash,
 	}
 	if len(brain.Tools) != len(want) {
 		t.Fatalf("len(Tools) = %d, want %d (%v)", len(brain.Tools), len(want), want)
@@ -56,7 +57,7 @@ func TestSystemPrompt_HasFeedToolGuidance(t *testing.T) {
 		t.Fatalf("RenderSystemPrompt: %v", err)
 	}
 	tools := []string{
-		"request_approval", "post_update", "retract_update",
+		"request_approval", "post_update", "retract_update", "bash",
 	}
 	for _, tool := range tools {
 		if !strings.Contains(got, tool) {
@@ -153,13 +154,23 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			wantMethod: "RequestApproval",
 			wantArgs:   []any{board.TicketID("t-6")},
 		},
+		{
+			name: "bash",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c9", brain.ToolBash, brain.BashInput{Command: "git fetch"})
+			},
+			wantMethod: "Run",
+			wantArgs:   []any{"git fetch"},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fb := &fakeBoard{}
 			fs := &fakeSay{}
-			svc := newTestService(fb, fs, &fakeConvo{}, &scriptedLLM{})
+			fr := &fakeRepo{}
+			svc := newTestServiceR(fb, fs, &fakeConvo{}, fr, &scriptedLLM{})
 
 			call := tc.call(t)
 			result := svc.Dispatch(context.Background(), call)
@@ -174,6 +185,13 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			if tc.wantMethod == "Say" {
 				if got := fs.said(); len(got) != 1 || got[0] != "hello" {
 					t.Errorf("fakeSay.said() = %v, want [\"hello\"]", got)
+				}
+				return
+			}
+
+			if tc.wantMethod == "Run" {
+				if fr.gotCommand != tc.wantArgs[0] {
+					t.Errorf("RepoShell.Run command = %q, want %q", fr.gotCommand, tc.wantArgs[0])
 				}
 				return
 			}
@@ -414,6 +432,53 @@ func TestDispatch_GetAgentUpdates_RoutesToInspector(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "all done") {
 		t.Errorf("Content = %q, want the latest output", result.Content)
+	}
+}
+
+// TestDispatch_Bash_RoutesToRepoShell pins bash's mapping to RepoShell.Run:
+// the command reaches the port, and the RepoResult renders into the tool
+// result — the exit-code header and the output both appear, and a non-zero
+// exit is fed back as normal (non-error) content, not a tool error.
+func TestDispatch_Bash_RoutesToRepoShell(t *testing.T) {
+	fr := &fakeRepo{result: brain.RepoResult{
+		Output:   "abc123 fix the thing",
+		ExitCode: 1,
+	}}
+	svc := newTestServiceR(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+
+	call := newToolCall(t, "bash-1", brain.ToolBash,
+		brain.BashInput{Command: "git log --oneline origin/feature"})
+	result := svc.Dispatch(context.Background(), call)
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want false — a non-zero exit is normal content (%q)", result.Content)
+	}
+	if fr.gotCommand != "git log --oneline origin/feature" {
+		t.Errorf("Run command = %q, want the bash input verbatim", fr.gotCommand)
+	}
+	if !strings.Contains(result.Content, "exit 1") {
+		t.Errorf("Content = %q, want the exit-code header", result.Content)
+	}
+	if !strings.Contains(result.Content, "abc123 fix the thing") {
+		t.Errorf("Content = %q, want the command output", result.Content)
+	}
+}
+
+// TestDispatch_Bash_UnavailableIsError pins that an Unavailable RepoResult (the
+// clone could not be set up) renders as an error tool result naming the reason,
+// rather than erroring the pass.
+func TestDispatch_Bash_UnavailableIsError(t *testing.T) {
+	fr := &fakeRepo{result: brain.RepoResult{Unavailable: true, Reason: "repo not configured"}}
+	svc := newTestServiceR(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+
+	call := newToolCall(t, "bash-2", brain.ToolBash, brain.BashInput{Command: "git status"})
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("IsError = false, want true for an unavailable repo shell")
+	}
+	if !strings.Contains(result.Content, "repo not configured") {
+		t.Errorf("Content = %q, want the unavailable reason", result.Content)
 	}
 }
 

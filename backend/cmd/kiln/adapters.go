@@ -25,13 +25,16 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
+	"github.com/crabtree-michael/kiln/backend/internal/api"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
 
@@ -197,6 +200,28 @@ func (a *agentInspectorAdapter) GetAgentUpdates(ctx context.Context, workerID st
 
 var _ brain.AgentInspector = (*agentInspectorAdapter)(nil)
 
+// repoShellAdapter bridges *repo.Shell to brain.RepoShell, converting the
+// repo module's Result to the brain's own value-copy (brain cannot import
+// internal/repo). *repo.Shell.Run never errors — a disabled shell or a failed
+// command is expressed in the Result — so this adapter always returns nil.
+type repoShellAdapter struct {
+	inner *repo.Shell
+}
+
+func (a *repoShellAdapter) Run(ctx context.Context, command string) (brain.RepoResult, error) {
+	r := a.inner.Run(ctx, command)
+	return brain.RepoResult{
+		Output:      r.Output,
+		ExitCode:    r.ExitCode,
+		TimedOut:    r.TimedOut,
+		Truncated:   r.Truncated,
+		Unavailable: r.Unavailable,
+		Reason:      r.Reason,
+	}, nil
+}
+
+var _ brain.RepoShell = (*repoShellAdapter)(nil)
+
 // workerLister is the concrete board capacity-slot read the composition root
 // backs agent.Slots with (05 §4). Satisfied by *board/postgres.Store's
 // WorkerIDs — a concrete adapter helper like ReconcileWorkers, not part of
@@ -243,3 +268,61 @@ var (
 	_ runtime.Clock = realClock{}
 	_ agent.Clock   = realClock{}
 )
+
+// resetCoordinator satisfies api.Resetter (docs/superpowers/specs/
+// 2026-07-04-debug-reset-session-design.md): the developer "fresh session"
+// reset that the /debug client fires. It is composition-root-only because it
+// spans two modules — a raw DB truncate and the agent service's worker
+// teardown — neither of which owns the other's state. tables and workers are
+// narrow ports so the ordering is unit-testable against fakes.
+type resetCoordinator struct {
+	tables  stateTruncator
+	workers workerResetter
+}
+
+// stateTruncator wipes every runtime state table (board, transcript, queue,
+// notifications) in one shot; schema_migrations is left intact.
+type stateTruncator interface {
+	TruncateState(ctx context.Context) error
+}
+
+// workerResetter tears down live agent sandboxes and clears the module's
+// in-memory worker cache. Satisfied directly by *agent.Service.
+type workerResetter interface {
+	Reset(ctx context.Context) error
+}
+
+// Reset truncates first so the board has no wanted worker slots, then tears
+// down the live sandboxes and clears the agent's in-memory cache. A bare
+// truncate would leave stale cached worker handles behind (the reason a manual
+// reset previously needed a backend restart).
+func (c *resetCoordinator) Reset(ctx context.Context) error {
+	if err := c.tables.TruncateState(ctx); err != nil {
+		return fmt.Errorf("kiln: reset truncate state: %w", err)
+	}
+	if err := c.workers.Reset(ctx); err != nil {
+		return fmt.Errorf("kiln: reset workers: %w", err)
+	}
+	return nil
+}
+
+var (
+	_ api.Resetter   = (*resetCoordinator)(nil)
+	_ workerResetter = (*agent.Service)(nil)
+	_ stateTruncator = (*dbTruncator)(nil)
+)
+
+// dbTruncator is the stateTruncator over the shared Postgres pool: one
+// TRUNCATE across every state table. RESTART IDENTITY resets sequences so a
+// fresh session starts ids from 1; CASCADE covers any FK edges between them.
+type dbTruncator struct{ db *sql.DB }
+
+const truncateStateSQL = `TRUNCATE tickets, workers, outbox, messages, events, ` +
+	`agent_turns, notifications RESTART IDENTITY CASCADE`
+
+func (t *dbTruncator) TruncateState(ctx context.Context) error {
+	if _, err := t.db.ExecContext(ctx, truncateStateSQL); err != nil {
+		return fmt.Errorf("kiln: truncate state tables: %w", err)
+	}
+	return nil
+}

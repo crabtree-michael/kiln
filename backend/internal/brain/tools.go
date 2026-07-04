@@ -21,15 +21,17 @@ const (
 	toolResultSummaryBytes = 512
 )
 
-// ToolName enumerates the twelve tools (06 §4, amended by 08 §5/§7 and the
-// agent read tools) — the brain's entire action surface. Not in the set
-// (06 §4, D3, I6): anything that pulls (03 I6, the pull is a system action,
-// never a brain decision), notify (deferred to 10 — the mechanical
-// notify.send from MarkBlocked still emits, log-only in v1), and any
-// board-read (the snapshot is already in context). 08 adds the three feed
-// tools: request_approval, post_update, retract_update. The two read tools,
-// list_agents and get_agent_updates, give the model visibility into the
-// agent runtime without it needing to import internal/agent.
+// ToolName enumerates the thirteen tools (06 §4, amended by 08 §5/§7, the
+// agent read tools, and the repo shell tool) — the brain's entire action
+// surface. Not in the set (06 §4, D3, I6): anything that pulls (03 I6, the
+// pull is a system action, never a brain decision), notify (deferred to 10 —
+// the mechanical notify.send from MarkBlocked still emits, log-only in v1),
+// and any board-read (the snapshot is already in context). 08 adds the three
+// feed tools: request_approval, post_update, retract_update. The two read
+// tools, list_agents and get_agent_updates, give the model visibility into the
+// agent runtime without it needing to import internal/agent. bash is the
+// read-oriented repo shell — a window into the real project clone to verify
+// pushed work and search the code — backed by the RepoShell port.
 type ToolName string
 
 const (
@@ -45,6 +47,7 @@ const (
 	ToolRetractUpdate   ToolName = "retract_update"
 	ToolListAgents      ToolName = "list_agents"
 	ToolGetAgentUpdates ToolName = "get_agent_updates"
+	ToolBash            ToolName = "bash"
 )
 
 // ToolDef is one tool's schema in the shape the Anthropic tool-use API
@@ -142,6 +145,12 @@ type GetAgentUpdatesInput struct {
 	WorkerID string `json:"worker_id"`
 }
 
+// BashInput — bash → RepoShell.Run(command). A shell command string run in the
+// project clone against an allowlisted set of binaries (git/gh/rg/…).
+type BashInput struct {
+	Command string `json:"command"`
+}
+
 const (
 	schemaKeyType        = "type"
 	schemaKeyDescription = "description"
@@ -159,6 +168,7 @@ const (
 	fieldImageURL       = "image_url"
 	fieldNotificationID = "notification_id"
 	fieldWorkerID       = "worker_id"
+	fieldCommand        = "command"
 
 	// notifKindUpdate/notifKindPreview are post_update's two kinds (08 §7):
 	// "preview" when an image is attached, "update" otherwise.
@@ -284,6 +294,17 @@ var Tools = []ToolDef{
 			fieldWorkerID: stringSchema("Board worker id, from list_agents or the board snapshot."),
 		}),
 	},
+	{
+		Name: ToolBash,
+		Description: "Run a shell command in a clone of the project repository. A read-oriented " +
+			"window into the real repo: use git/gh to verify an agent has pushed its work " +
+			"(fetch, then confirm its branch and commits are on the remote) before accepting " +
+			"a ticket, and rg/grep/find to search the repository for information. Only an " +
+			"allowlisted set of commands is reachable.",
+		InputSchema: objectSchema([]string{fieldCommand}, map[string]any{
+			fieldCommand: stringSchema("The shell command to run in the repo clone."),
+		}),
+	},
 }
 
 // Dispatch executes one tool call against the injected ports — the
@@ -299,6 +320,7 @@ var Tools = []ToolDef{
 //	request_approval -> BoardAPI.RequestApproval(id)                  (08 §5)
 //	post_update      -> NotificationStore.PostNotification(kind, ...) (08 §7)
 //	retract_update   -> NotificationStore.RetractNotification(id)     (08 §7)
+//	bash             -> RepoShell.Run(command)
 //
 // Never returns a Go error: a tool failure — bad arguments, a typed Board
 // API error, an unknown tool name — becomes a ToolResult with IsError set
@@ -362,6 +384,8 @@ func (s *Service) routeTool(ctx context.Context, call ToolCall) (ToolResult, boo
 		return s.doListAgents(ctx, call)
 	case ToolGetAgentUpdates:
 		return s.doGetAgentUpdates(ctx, call)
+	case ToolBash:
+		return s.doBash(ctx, call)
 	default:
 		return ToolResult{
 			ToolCallID: call.ID,
@@ -564,6 +588,47 @@ func (s *Service) doGetAgentUpdates(ctx context.Context, call ToolCall) (ToolRes
 		return errorResult(call.ID, err), false
 	}
 	return ToolResult{ToolCallID: call.ID, Content: formatUpdate(u)}, false
+}
+
+func (s *Service) doBash(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in BashInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	// An empty command is nothing to run; reject it like the other required
+	// free-text fields (see requireField).
+	if res, ok := requireField(call.ID, ToolBash, fieldCommand, in.Command); !ok {
+		return res, true
+	}
+	res, err := s.repo.Run(ctx, in.Command)
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	if res.Unavailable {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Content:    "repo inspection unavailable: " + res.Reason,
+			IsError:    true,
+		}, false
+	}
+	// A non-zero exit is NOT a tool error — feed the rendered result back as
+	// content so the model can read it (same philosophy as the board's typed
+	// errors fed back verbatim).
+	return ToolResult{ToolCallID: call.ID, Content: formatRepoResult(res)}, false
+}
+
+// formatRepoResult renders a RepoResult for the model: a header line carrying
+// the exit code (plus timed-out / truncated flags when set) followed by the
+// command's combined output.
+func formatRepoResult(res RepoResult) string {
+	head := fmt.Sprintf("exit %d", res.ExitCode)
+	if res.TimedOut {
+		head += " (timed out)"
+	}
+	if res.Truncated {
+		head += " (output truncated)"
+	}
+	return head + "\n" + res.Output
 }
 
 // formatAgents renders list_agents' result as one line per worker for the model.

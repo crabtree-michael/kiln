@@ -56,6 +56,13 @@ type Config struct {
 
 	AssemblyAIAPIKey  string // ASSEMBLYAI_API_KEY — the STT provider's token-mint credential (09 §6)
 	AssemblyAIBaseURL string // ASSEMBLYAI_BASE_URL — override the streaming host (default in-adapter)
+
+	// The brain's repo-inspection bash tool (design 2026-07-04): a maintained
+	// local clone the brain runs allowlisted git/gh/rg commands in to verify an
+	// agent's work is pushed before accept_to_done.
+	GitHubRepoURL   string // GITHUB_REPO_URL — the project repo cloned for the brain to inspect
+	GitHubAuthToken string // GITHUB_AUTH_TOKEN — token embedded into the https clone + GH_TOKEN
+	RepoDir         string // KILN_REPO_DIR — where the clone lives (default defaultRepoDir)
 }
 
 // Defaults for the composition root's configuration.
@@ -64,6 +71,7 @@ const (
 	defaultHTTPAddr    = ":8080"
 	defaultLogLevel    = "info"
 	defaultWorkerCount = 3
+	defaultRepoDir     = "/var/lib/kiln/repo"
 )
 
 // loadConfig reads the composition root's environment (04 §8), applying
@@ -83,6 +91,10 @@ func loadConfig() Config {
 
 		AssemblyAIAPIKey:  os.Getenv("ASSEMBLYAI_API_KEY"),
 		AssemblyAIBaseURL: os.Getenv("ASSEMBLYAI_BASE_URL"),
+
+		GitHubRepoURL:   os.Getenv("GITHUB_REPO_URL"),
+		GitHubAuthToken: os.Getenv("GITHUB_AUTH_TOKEN"),
+		RepoDir:         getenvDefault("KILN_REPO_DIR", defaultRepoDir),
 	}
 }
 

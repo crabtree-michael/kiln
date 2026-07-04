@@ -86,9 +86,12 @@ tested in isolation against local file-remotes (no network).
 - **`Config`**: `RepoURL`, `AuthToken`, `Dir` (clone dir), and the derived
   `allowed-bin` dir path.
 - **`New(cfg) (*Shell, error)` / boot**: ensure `Dir`; if not already a git repo,
-  `git clone --filter=blob:none <authURL> <Dir>` where `authURL` embeds the token
-  (`https://x-access-token:<token>@github.com/…`) so `git fetch` works without a
-  prompt; else leave the existing clone. Build the `allowed-bin` directory by
+  `git clone --filter=blob:none <RepoURL> <Dir>` — the clone is **unauthenticated**
+  (v1 targets a public repo), so no token is embedded in the URL and none lands in
+  the persisted `origin` remote (keeping it out of any `git remote -v` the brain runs
+  and its logs); else leave the existing clone. Authenticated/private-repo clone is a
+  later addition (`Config.AuthToken` is still carried for `gh`). Build the
+  `allowed-bin` directory by
   symlinking the resolved absolute paths of each allowlisted binary. On any
   failure, return a `*Shell` in a **disabled** state (records the reason) rather
   than an error, so wiring stays non-fatal.
@@ -203,10 +206,12 @@ the tool (name only, not prose).
 
 ## Risks / open points
 
-- **Token in remote URL** is written into the clone's `.git/config`. Acceptable
-  for a single-tenant local deployment; the clone dir is not shared. Alternative
-  (`GIT_ASKPASS`/credential helper) is deferred unless the clone dir becomes
-  shared.
+- **Unauthenticated clone (v1).** The repo is public, so the clone uses the plain
+  `RepoURL` and no token touches git — this keeps the token out of the persisted
+  `origin` remote and therefore out of any `git remote -v` the brain runs (which
+  would otherwise flow the token to the LLM and the logs). Private-repo support
+  (`GIT_ASKPASS`/credential helper reading `GH_TOKEN`, plus a token-less remote) is
+  a deliberate later addition; `Config.AuthToken` is already carried for `gh`.
 - **`gh` needs network + a valid token**; a bad token surfaces as a normal
   non-zero-exit `Result` the model can read, not a crash.
 - **Image size** grows moving off distroless; accepted as the cost of giving the

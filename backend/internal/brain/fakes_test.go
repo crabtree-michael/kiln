@@ -340,6 +340,21 @@ func (f *fakeInspector) GetAgentUpdates(_ context.Context, workerID string) (bra
 	return f.update, f.err
 }
 
+// --- fake RepoShell -------------------------------------------------------
+
+// fakeRepo is a canned brain.RepoShell for dispatch tests: it records the last
+// command it was asked to run and returns a scripted RepoResult (or err).
+type fakeRepo struct {
+	result     brain.RepoResult
+	err        error
+	gotCommand string
+}
+
+func (f *fakeRepo) Run(_ context.Context, command string) (brain.RepoResult, error) {
+	f.gotCommand = command
+	return f.result, f.err
+}
+
 // --- construction helpers -------------------------------------------------
 
 func newTestService(board *fakeBoard, say *fakeSay, convo *fakeConvo, llm *scriptedLLM) *brain.Service {
@@ -353,7 +368,7 @@ func newTestServiceN(
 	convo *fakeConvo, llm *scriptedLLM,
 ) *brain.Service {
 	return brain.NewService(
-		board, board, say, notifications, convo, &fakeInspector{}, llm,
+		board, board, say, notifications, convo, &fakeInspector{}, &fakeRepo{}, llm,
 		brain.Config{Model: brain.DefaultModel},
 	)
 }
@@ -363,7 +378,18 @@ func newTestServiceI(
 	board *fakeBoard, say *fakeSay, convo *fakeConvo, agents brain.AgentInspector, llm *scriptedLLM,
 ) *brain.Service {
 	return brain.NewService(
-		board, board, say, &fakeNotifications{}, convo, agents, llm,
+		board, board, say, &fakeNotifications{}, convo, agents, &fakeRepo{}, llm,
+		brain.Config{Model: brain.DefaultModel},
+	)
+}
+
+// newTestServiceR is newTestService with an explicit repo shell, for the bash
+// tool golden tests.
+func newTestServiceR(
+	board *fakeBoard, say *fakeSay, convo *fakeConvo, repo brain.RepoShell, llm *scriptedLLM,
+) *brain.Service {
+	return brain.NewService(
+		board, board, say, &fakeNotifications{}, convo, &fakeInspector{}, repo, llm,
 		brain.Config{Model: brain.DefaultModel},
 	)
 }

@@ -46,6 +46,14 @@ services:
       # leaves the backend (02 §2). Sourced from .env.
       ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
       KILN_WORKER_COUNT: ${KILN_WORKER_COUNT:-}
+      # The brain's repo-inspection bash tool (design 2026-07-04): the backend clones
+      # this repo at boot and runs allowlisted git/gh/rg in it so the brain can verify
+      # an agent's work is pushed before accept_to_done. Sourced from .env; unset ->
+      # the tool reports "unavailable" and nothing else breaks. KILN_REPO_DIR matches
+      # the Dockerfile's writable default.
+      GITHUB_REPO_URL: ${GITHUB_REPO_URL:-}
+      GITHUB_AUTH_TOKEN: ${GITHUB_AUTH_TOKEN:-}
+      KILN_REPO_DIR: ${KILN_REPO_DIR:-/var/lib/kiln/repo}
       # Dev/e2e only: mount POST /api/dev/tickets so a test can seed a ticket without
       # the brain. v1 is local-only (02 §1); default on for this stack, never prod.
       KILN_DEV_ENDPOINTS: ${KILN_DEV_ENDPOINTS:-1}

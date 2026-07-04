@@ -23,6 +23,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	boardpg "github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/voice/assemblyai"
@@ -142,9 +143,20 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
 
+	// The brain's repo-inspection shell (design 2026-07-04): clone the project
+	// repo once at boot; the bash tool runs allowlisted git/gh/rg in it. repo.New
+	// is non-fatal — an unconfigured/failed clone yields a disabled shell whose
+	// tool calls report "unavailable", and it logs the outcome itself.
+	repoShell := repo.New(ctx, repo.Config{
+		RepoURL:   cfg.GitHubRepoURL,
+		AuthToken: cfg.GitHubAuthToken,
+		Dir:       cfg.RepoDir,
+	})
+
 	brainSvc := brain.NewService(
 		boardSvc, boardSvc, rtSvc, rtSvc, &convoAdapter{rt: rtSvc},
 		&agentInspectorAdapter{inner: agentSvc},
+		&repoShellAdapter{inner: repoShell},
 		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),
 		brain.Config{Model: cfg.BrainModel},
 	)
@@ -158,6 +170,9 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 		BaseURL: cfg.AssemblyAIBaseURL,
 	})
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
+	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
+	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
+	server.EnableReset(&resetCoordinator{tables: &dbTruncator{db: db}, workers: agentSvc})
 	if cfg.DevEndpoints {
 		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
 		// post a feed notification (POST /api/dev/notifications), both without the

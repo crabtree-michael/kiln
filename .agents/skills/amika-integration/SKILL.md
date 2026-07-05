@@ -28,10 +28,20 @@ Swapping or adding an agent platform touches only a Provider adapter + config.
   are written once against it; Amika (`internal/agent/amika`) is one implementation.
 
 **Lifecycle (05 §4).** Pool + recreate on release: one long-lived provider worker per
-board slot, named `kiln-worker-<board-worker-uuid>` (the whole board↔provider join, D5).
-Startup reconciliation is **adopt-first**: list, match names, create only for slots with
-no live worker, destroy orphans. `agent.release` (AcceptToDone) destroys + recreates for
-a fresh workspace; dead-lettered recreates are healed by the 60 s reconciler sweep.
+board slot, named `<KILN_WORKER_PREFIX><board-worker-uuid>` (default prefix
+`kiln-worker-`; the whole board↔provider join, D5). Startup reconciliation is
+**adopt-first**: list, match names, create only for slots with no live worker, destroy
+orphans. `agent.release` (AcceptToDone) destroys + recreates for a fresh workspace;
+dead-lettered recreates are healed by the 60 s reconciler sweep.
+
+**Per-environment prefix (amended 2026-07-05).** The prefix is the instance's ownership
+scope: adopt/create/sweep/reset all stay inside it (`agent.WithWorkerPrefix` +
+`amika.Config.WorkerPrefix`, both fed by `KILN_WORKER_PREFIX` at the composition root).
+Environments sharing the Amika account MUST use distinct prefixes — with a shared one,
+each instance's orphan sweep destroys the other environments' live workers within 60 s
+(their slot uuids live in a different DB). docker-compose defaults local dev to
+`kiln-dev-worker-`; the e2e teardown (`tests/amika.ts`) follows the same env var; prod
+keeps the historical `kiln-worker-` default.
 
 **Turn machine (05 §5, §7).** Per-operation machine
 `recorded → worker_ready → turn_started → done/failed`, persisted in the module-owned
@@ -42,7 +52,8 @@ Terminal failure → error-turn event; the brain decides what it means for the t
 **Amika mapping (05 §6).** Sandboxes ↔ workers; `agent-send-jobs` (async, never sync
 `agent-send`) ↔ turns; `new_session` ⇔ first send of a conversation. `auto_stop` on,
 `auto_delete` **off**. Config: `AGENT_MODE` (`amika`/`mock`), `AMIKA_BASE_URL`,
-`AMIKA_API_KEY`, `AMIKA_REPO_URL`, `AMIKA_SNAPSHOT`, `KILN_AGENT`, `KILN_WORKER_AUTO_STOP`.
+`AMIKA_API_KEY`, `AMIKA_REPO_URL`, `AMIKA_SNAPSHOT`, `KILN_AGENT`, `KILN_WORKER_AUTO_STOP`,
+`KILN_WORKER_PREFIX` (per-environment worker-name scope; trailing `-` appended at load).
 
 **Mock (05 §8).** A mock **Provider** (not a mock of the whole module) — machinery, table,
 and event path run for real. Instant lifecycle, scripted turns, failure injection,
@@ -97,6 +108,9 @@ Scaffold-time contract choices to know (tighten or revisit at implementation):
   duplicates the pool on every deploy.
 - Trusting the provider to dedupe: v0beta1 has **no idempotency keys**; every port call
   checks `agent_turns` first.
+- Running two environments on one Amika account with the same `KILN_WORKER_PREFIX` —
+  each one's orphan sweep destroys the other's live workers (this is what killed prod
+  agents "on every deploy" before the per-env prefix landed 2026-07-05).
 
 ## Potential gotchas
 

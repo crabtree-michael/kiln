@@ -10,7 +10,7 @@
 // best-effort during a run; a fully clean slate is only guaranteed once the stack is
 // down (`make down`). See ./README.md.
 import type { FullConfig } from '@playwright/test';
-import { amikaConfig, deleteSandbox, listKilnSandboxes } from './amika';
+import { amikaConfig, deleteSandbox, listKilnSandboxes, WORKER_NAME_PREFIX } from './amika';
 
 async function globalTeardown(_config: FullConfig): Promise<void> {
   const cfg = amikaConfig();
@@ -21,7 +21,7 @@ async function globalTeardown(_config: FullConfig): Promise<void> {
 
   const sandboxes = await listKilnSandboxes(cfg);
   if (sandboxes.length === 0) {
-    console.log('[teardown] no kiln-worker-* sandboxes to delete.');
+    console.log(`[teardown] no ${WORKER_NAME_PREFIX}* sandboxes to delete.`);
     return;
   }
 
@@ -35,7 +35,7 @@ async function globalTeardown(_config: FullConfig): Promise<void> {
       failures.push(`${s.name} (${s.id}): ${(err as Error).message}`);
     }
   }
-  console.log(`[teardown] deleted ${deleted}/${sandboxes.length} kiln-worker-* sandbox(es).`);
+  console.log(`[teardown] deleted ${deleted}/${sandboxes.length} ${WORKER_NAME_PREFIX}* sandbox(es).`);
   if (failures.length > 0) {
     // A sandbox we failed to delete keeps billing — make the leak loud, don't swallow it.
     throw new Error(`[teardown] ${failures.length} sandbox(es) not deleted:\n  ${failures.join('\n  ')}`);

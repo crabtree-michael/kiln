@@ -91,6 +91,27 @@ func TestReset_DestroysKilnWorkersAndClearsCache(t *testing.T) {
 	}
 }
 
+func TestReset_ScopedToConfiguredPrefix(t *testing.T) {
+	const prefix = "kiln-e2e-worker-"
+	own := prefix + "aaaa"
+	foreign := WorkerName("bbbb") // default prefix: another environment's worker
+	provider := &resetProvider{live: []ProviderWorker{
+		{Name: own, Ref: "ro"},
+		{Name: foreign, Ref: "rf"},
+	}}
+	svc := NewService(nil, provider, nil, nil, nil, nil, WithWorkerPrefix(prefix))
+
+	if err := svc.Reset(context.Background()); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if !slices.Contains(provider.destroyed, own) {
+		t.Errorf("own-prefix worker should be destroyed, got %v", provider.destroyed)
+	}
+	if slices.Contains(provider.destroyed, foreign) {
+		t.Errorf("reset must not destroy another environment's worker %q, got %v", foreign, provider.destroyed)
+	}
+}
+
 func TestReset_ContinuesPastDestroyError(t *testing.T) {
 	kilnA, kilnB := WorkerName("aaaa"), WorkerName("bbbb")
 	provider := &resetProvider{

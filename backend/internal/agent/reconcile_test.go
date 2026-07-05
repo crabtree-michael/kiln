@@ -133,6 +133,57 @@ func TestRun_ReconcileAdoptsExistingWorkersWithoutRecreating(t *testing.T) {
 	}
 }
 
+func TestRun_ReconcileScopesSweepToConfiguredPrefix(t *testing.T) {
+	const prefix = "kiln-e2e-worker-"
+	// Live workers owned by OTHER environments sharing the Amika account: one on
+	// the default prefix, one on an explicit prod prefix. Neither matches a
+	// local slot, but neither may be swept — only own-prefix orphans are.
+	foreignDefault := agent.WorkerName("another-envs-slot")
+	foreignProd := "kiln-prod-worker-someone-elses-slot"
+	orphan := prefix + "no-such-slot"
+	provider := newReconcileProvider(
+		agent.ProviderWorker{Name: foreignDefault, Ref: "foreign-default"},
+		agent.ProviderWorker{Name: foreignProd, Ref: "foreign-prod"},
+		agent.ProviderWorker{Name: orphan, Ref: "orphan"},
+	)
+	slots := &fakeSlots{ids: []string{reconcileWorkerA}}
+	clock := testutil.NewFakeClock()
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil,
+		agent.WithWorkerPrefix(prefix))
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	// The slot is provisioned under the configured prefix and the own-prefix
+	// orphan is swept.
+	testutil.Eventually(t, func() bool { return provider.wasCreated(prefix + reconcileWorkerA) })
+	testutil.Eventually(t, func() bool { return provider.wasDestroyed(orphan) })
+
+	for _, name := range []string{foreignDefault, foreignProd} {
+		if provider.wasDestroyed(name) {
+			t.Errorf("the orphan sweep must only touch workers under this instance's own"+
+				" prefix %q, but destroyed foreign %q", prefix, name)
+		}
+	}
+}
+
+func TestListAgents_TrimsConfiguredPrefix(t *testing.T) {
+	const prefix = "kiln-e2e-worker-"
+	provider := newReconcileProvider(
+		agent.ProviderWorker{Name: prefix + reconcileWorkerA, Ref: "ra", Status: agent.RunReady},
+	)
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, nil, testutil.NewFakeClock(), nil,
+		agent.WithWorkerPrefix(prefix))
+
+	infos, err := svc.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(infos) != 1 || infos[0].WorkerID != reconcileWorkerA {
+		t.Errorf("ListAgents must derive worker ids by trimming the configured prefix, got %+v", infos)
+	}
+}
+
 func TestRun_ReconcileDestroysOrphanedWorkers(t *testing.T) {
 	validName := agent.WorkerName(reconcileWorkerA)
 	orphanName := agent.WorkerNamePrefix + "no-such-slot"

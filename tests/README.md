@@ -108,7 +108,9 @@ Playwright's `baseURL` is the frontend under test:
   cleanup. Any e2e that *does* reach Developing must destroy the sandboxes it touches
   (`auto_delete` is off by design — 05 D6).
 - **Amika cleanup is automatic** via `global-teardown.ts`: after the suite it lists the
-  account's sandboxes, filters to the `kiln-worker-*` pool, and `DELETE`s each. It reads
+  account's sandboxes, filters to this stack's own pool (`KILN_WORKER_PREFIX`, default
+  `kiln-dev-worker-` — matching the docker-compose backend; never another environment's
+  sandboxes), and `DELETE`s each. It reads
   `AMIKA_API_KEY` / `AMIKA_BASE_URL` from the repo-root `.env` (loaded by
   `playwright.config.ts`); with no key set it logs and skips (e.g. a mock-provider stack).
   Sandbox names are stable slot uuids (a fixed pool of `KILN_WORKER_COUNT`), so a run's

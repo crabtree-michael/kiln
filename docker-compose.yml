@@ -37,6 +37,11 @@ services:
       # API, so the backend needs the key + provider config from .env; unset vars fall
       # back to the backend's own defaults (getenvDefault treats empty as unset).
       AGENT_MODE: ${AGENT_MODE:-}
+      # Per-environment worker-name scope (05 §4, amended 2026-07-05). Local dev
+      # defaults to kiln-dev-worker- so this stack's reconciler never adopts or
+      # destroys another environment's sandboxes (e.g. prod's kiln-worker-*) on
+      # the shared Amika account — and vice versa.
+      KILN_WORKER_PREFIX: ${KILN_WORKER_PREFIX:-kiln-dev-worker-}
       AMIKA_API_KEY: ${AMIKA_API_KEY:-}
       AMIKA_BASE_URL: ${AMIKA_BASE_URL:-}
       AMIKA_REPO_URL: ${AMIKA_REPO_URL:-}

@@ -29,8 +29,10 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
+	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
 
@@ -52,6 +54,7 @@ type Config struct {
 	HTTPAddr        string // KILN_HTTP_ADDR — address the api server binds (04 §7)
 	LogLevel        string // KILN_LOG_LEVEL (docker-compose.yml)
 	WorkerCount     int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
+	WorkerPrefix    string // KILN_WORKER_PREFIX — per-environment provider worker-name scope (05 §4)
 	DevEndpoints    bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
 
 	AssemblyAIAPIKey  string // ASSEMBLYAI_API_KEY — the STT provider's token-mint credential (09 §6)
@@ -79,6 +82,20 @@ const (
 	defaultRepoDir     = "/var/lib/kiln/repo"
 )
 
+// resolveWorkerPrefix reads KILN_WORKER_PREFIX — the per-environment scope for
+// provider-side worker names (05 §4, amended 2026-07-05). Instances sharing one
+// Amika account (prod, local dev, e2e) must each own a distinct prefix, or one
+// instance's orphan sweep destroys another's live agents. A missing trailing
+// dash is appended so the prefix never fuses with the slot uuid; unset falls
+// back to the historical shared default.
+func resolveWorkerPrefix() string {
+	p := getenvDefault("KILN_WORKER_PREFIX", agent.WorkerNamePrefix)
+	if !strings.HasSuffix(p, "-") {
+		p += "-"
+	}
+	return p
+}
+
 // resolveHTTPAddr honors a platform-provided PORT (Render/Heroku convention)
 // when set, otherwise KILN_HTTP_ADDR, otherwise the default. PORT wins so a
 // managed host can assign and route to the bind port without app changes.
@@ -102,6 +119,7 @@ func loadConfig() Config {
 		HTTPAddr:        resolveHTTPAddr(),
 		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
 		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
+		WorkerPrefix:    resolveWorkerPrefix(),
 		DevEndpoints:    os.Getenv("KILN_DEV_ENDPOINTS") == "1",
 
 		AssemblyAIAPIKey:  os.Getenv("ASSEMBLYAI_API_KEY"),

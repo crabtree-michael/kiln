@@ -83,6 +83,11 @@ type Config struct {
 	// to every created sandbox so the coding agent can authenticate. Without it,
 	// API-key-created sandboxes get no credential and the agent command fails.
 	ClaudeCredID string
+	// WorkerPrefix (KILN_WORKER_PREFIX, default agent.WorkerNamePrefix) scopes
+	// which sandboxes ListWorkers reports as this instance's — per-environment
+	// isolation on a shared Amika account (05 §4, amended 2026-07-05). Must match
+	// the prefix the Service builds names with (agent.WithWorkerPrefix).
+	WorkerPrefix string
 }
 
 // APIError is v0beta1's uniform error envelope over
@@ -125,12 +130,16 @@ func New(cfg Config, hc *http.Client) *Client {
 	if cfg.Agent == "" {
 		cfg.Agent = DefaultAgent
 	}
+	if cfg.WorkerPrefix == "" {
+		cfg.WorkerPrefix = agent.WorkerNamePrefix
+	}
 	return &Client{cfg: cfg, hc: hc}
 }
 
-// ListWorkers lists every sandbox and keeps the ones this module owns
-// (WorkerNamePrefix). GET /sandboxes accepts no local state — adoption is pure
-// list-and-match (05 §4, D5).
+// ListWorkers lists every sandbox and keeps the ones this instance owns
+// (Config.WorkerPrefix — per-environment scope on a shared account). GET
+// /sandboxes accepts no local state — adoption is pure list-and-match
+// (05 §4, D5).
 func (c *Client) ListWorkers(ctx context.Context) ([]agent.ProviderWorker, error) {
 	var list []sandbox
 	if err := c.do(ctx, http.MethodGet, "/sandboxes", nil, &list); err != nil {
@@ -138,7 +147,7 @@ func (c *Client) ListWorkers(ctx context.Context) ([]agent.ProviderWorker, error
 	}
 	out := make([]agent.ProviderWorker, 0, len(list))
 	for _, s := range list {
-		if strings.HasPrefix(s.Name, agent.WorkerNamePrefix) {
+		if strings.HasPrefix(s.Name, c.cfg.WorkerPrefix) {
 			out = append(out, agent.ProviderWorker{
 				Name:   s.Name,
 				Ref:    s.ID,

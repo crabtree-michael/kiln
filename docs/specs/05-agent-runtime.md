@@ -118,8 +118,17 @@ best effort; never fails the ticket for it.
 ## 4. Worker lifecycle — pool + recreate on release
 
 **Pool.** Each board worker slot has one long-lived provider worker, named
-deterministically `kiln-worker-<board-worker-uuid>`. The name is the whole
+deterministically `<prefix><board-worker-uuid>`, where `<prefix>` is
+`KILN_WORKER_PREFIX` (default `kiln-worker-`). The name is the whole
 board↔provider join — no shared registry (§10, D5).
+
+**Per-environment scope (amended 2026-07-05).** The prefix is the instance's ownership
+claim: adoption, creation, the orphan sweep, and the dev reset all operate strictly
+within it. Environments sharing one provider account (prod, local dev, e2e) MUST each
+run a distinct prefix — with a shared prefix, each instance's reconciler sees the other
+environments' workers as orphans (their slot uuids live in a different database) and
+destroys them within one sweep, killing live agents. Local dev defaults to
+`kiln-dev-worker-` via docker-compose; prod keeps the historical default.
 
 **Startup reconciliation — adopt first, create only what's missing.** On boot and every
 60 s (self-healing):
@@ -127,7 +136,8 @@ board↔provider join — no shared registry (§10, D5).
 1. `ListWorkers`, match names against current board slots.
 2. **Adopt** every match — a previous deploy's workers are ours; never duplicate.
 3. `CreateWorker` only for slots with no live worker.
-4. Extra `kiln-worker-*` entries matching no slot (capacity was reduced) are destroyed.
+4. Extra own-prefix entries matching no slot (capacity was reduced) are destroyed —
+   never entries under another environment's prefix.
 
 **Recycle on release.** `AcceptToDone` emits `agent.release` (`03` §7.1); the executor
 destroys and recreates the slot's worker so the next ticket gets a fresh workspace without
@@ -255,7 +265,9 @@ Config (composition root, `04` §8): `AGENT_MODE` (`amika`/`mock`), `AMIKA_BASE_
 (default `https://app.amika.dev/api/v0beta1`), `AMIKA_API_KEY` (secret, never leaves
 `/backend` — `02` §2), `AMIKA_REPO_URL`, `AMIKA_SNAPSHOT` (optional; a default
 snapshot every worker starts from, omitted when unset), `KILN_AGENT` (default
-`claude`), `KILN_WORKER_AUTO_STOP` (default 30 min).
+`claude`), `KILN_WORKER_AUTO_STOP` (default 30 min), `KILN_WORKER_PREFIX` (default
+`kiln-worker-`; the per-environment worker-name scope — §4, amended 2026-07-05; a
+missing trailing `-` is appended at load).
 
 ## 10. Testing & decision log
 

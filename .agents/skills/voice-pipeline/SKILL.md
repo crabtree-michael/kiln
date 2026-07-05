@@ -46,7 +46,10 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
 
 ## AssemblyAI protocol (verified live 2026-07)
 
-- **Client WebSocket:** `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&token=<t>`.
+- **Client WebSocket:** `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&speech_model=universal-streaming-english&token=<t>`.
+  `speech_model=universal-streaming-english` **pins English** — the v3 default (`universal-3-5-pro`)
+  is multilingual and natively code-switches, so ambiguous/accented audio would leak non-English
+  transcripts. The English-only model never code-switches.
 - Client sends **binary PCM16 mono 16 kHz** frames; closes with `{"type":"Terminate"}`.
 - Receives `{"type":"Begin",...}` then `{"type":"Turn", transcript, end_of_turn, turn_is_formatted, words[]}`.
 - **Commit trigger = a `Turn` with `end_of_turn && turn_is_formatted`** (the formatted final)

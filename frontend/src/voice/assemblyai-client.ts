@@ -23,6 +23,14 @@ const PCM_WORKLET_NAME = 'pcm16-downsample';
 // mono 16 kHz frames and receives Begin/Turn JSON messages.
 const WS_BASE = 'wss://streaming.assemblyai.com/v3/ws';
 
+// Pin transcription to the English-only speech model. The v3 default is
+// `universal-3-5-pro`, a multilingual model that natively code-switches across
+// ~18 languages, so ambiguous or accented audio can come back as another
+// language. `universal-streaming-english` transcribes English exclusively — no
+// code-switching — which is what Kiln wants (users type/speak to the brain in
+// English). See AssemblyAI Universal-Streaming `speech_model` options.
+const SPEECH_MODEL_ENGLISH = 'universal-streaming-english';
+
 export interface StartVoiceStreamOptions {
   /** Mints a fresh short-lived streaming token (`POST /api/voice/token`). */
   getToken: () => Promise<VoiceToken>;
@@ -251,6 +259,7 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
       sample_rate: '16000',
       encoding: 'pcm_s16le',
       format_turns: 'true',
+      speech_model: SPEECH_MODEL_ENGLISH,
       token: token.token,
     });
     const ws = new WebSocket(`${WS_BASE}?${query.toString()}`);

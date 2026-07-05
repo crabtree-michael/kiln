@@ -3,7 +3,7 @@
 // fixture data and never touch the live stores. `PrimaryScreen` (the composing
 // wrapper) bridges the feed + activity stores into these props, mirroring how
 // `App` bridges its stores into `Board`/`ChatPanel`.
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import type {
   Board,
   ConnectionState,
@@ -12,7 +12,9 @@ import type {
   FeedSummary,
 } from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
+import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
+import { TicketDetail } from '@/components/TicketDetail';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
@@ -60,6 +62,24 @@ function dividerIndex(cards: FeedCard[]): number {
   return precededByLead ? firstUpdate : -1;
 }
 
+/** The full ticket a proposal card points at, looked up in the board snapshot by
+ * id (08 §5). Proposals are Shaping tickets, but every bucket is scanned so a
+ * ticket that moves state between the click and the render still resolves.
+ * Returns null before the first board snapshot lands or if the id is gone. */
+function findTicket(board: Board | null, id: string | null): Ticket | null {
+  if (board === null || id === null) {
+    return null;
+  }
+  const all: Ticket[] = [
+    ...board.shaping,
+    ...board.ready,
+    ...board.blocked,
+    ...board.working,
+    ...board.done,
+  ];
+  return all.find((ticket) => ticket.id === id) ?? null;
+}
+
 export function PrimaryScreenView({
   feed,
   board = null,
@@ -74,6 +94,13 @@ export function PrimaryScreenView({
   const cards = feed?.cards ?? [];
   const isEmpty = cards.length === 0;
   const divider = dividerIndex(cards);
+
+  // Which proposal's full ticket is open in the click-through detail overlay
+  // (08 §5). View-only state held here, mirroring how Board owns its selected
+  // ticket. The id is resolved against the live board each render, so the
+  // overlay drains on its own if the ticket leaves the board (e.g. after Accept).
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  const openTicket = findTicket(board, openTicketId);
 
   return (
     <div data-role="primary-screen" data-connection-state={connectionState}>
@@ -109,7 +136,12 @@ export function PrimaryScreenView({
             cards.map((card, index) => (
               <div key={card.id} data-role="backlog-slot">
                 {index === divider && <div data-role="feed-divider">While you were away</div>}
-                <FeedCardItem card={card} now={now} onAccept={onAccept} />
+                <FeedCardItem
+                  card={card}
+                  now={now}
+                  onAccept={onAccept}
+                  onOpenDetail={setOpenTicketId}
+                />
               </div>
             ))
           )}
@@ -125,6 +157,19 @@ export function PrimaryScreenView({
         <ActivityRow thinking={thinking} toasts={toasts} onDismiss={onDismiss} />
         <Dock />
       </div>
+
+      {openTicket !== null && (
+        <TicketDetail
+          ticket={openTicket}
+          onClose={() => {
+            setOpenTicketId(null);
+          }}
+          onAccept={(ticketId) => {
+            onAccept(ticketId);
+            setOpenTicketId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

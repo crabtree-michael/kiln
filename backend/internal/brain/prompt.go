@@ -129,6 +129,13 @@ IDEMPOTENCY
   "invalid transition" error, treat that action as already done: verify against
   the board snapshot and continue. Never retry the same call — the error means
   the state you wanted is already in place.
+
+TICKET DESCRIPTION
+- Focus ticket descriptions on product changes. Do not suggest how the code can change. 
+The coding agents are better than this and your prompt will skew them in potentially the
+wrong direction.
+- Flush out product details with the user where they are not clear. 
+- Flush out technical direction if it is not clear or inconsistent.
 `
 
 var systemPromptTemplate = template.Must(template.New("system").Parse(systemPrompt))

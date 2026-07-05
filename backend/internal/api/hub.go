@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -173,13 +174,16 @@ func (h *Hub) PushActivity(_ context.Context, ev runtime.ActivityEvent) error {
 func (h *Hub) writeInitialSnapshot(ctx context.Context, w io.Writer, flusher http.Flusher) bool {
 	snap, err := h.boards.GetBoard(ctx)
 	if err != nil {
+		slog.ErrorContext(ctx, "api: initial snapshot: get board", "err", err)
 		return false
 	}
 	data, err := json.Marshal(boardToWire(snap))
 	if err != nil {
+		slog.ErrorContext(ctx, "api: initial snapshot: marshal board", "err", err)
 		return false
 	}
 	if err := writeFrame(w, sseFrame{event: eventBoard, data: data}); err != nil {
+		slog.ErrorContext(ctx, "api: initial snapshot: write frame", "err", err)
 		return false
 	}
 	flusher.Flush()

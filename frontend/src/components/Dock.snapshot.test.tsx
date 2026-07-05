@@ -19,7 +19,6 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     micState: 'listening',
     settledText: '',
     tailText: '',
-    pendingSend: false,
     pause: noop,
     resume: noop,
     cancel: noop,
@@ -40,12 +39,11 @@ describe('Dock snapshots', () => {
     expect(container).toMatchSnapshot();
   });
 
-  it('Listening with an armed send (grace window open -> send button shown)', () => {
+  it('Listening with settled ink only (send + X flank the mic)', () => {
     mockVoiceValue = stubVoice({
       micState: 'listening',
       settledText: 'Ship the login screen.',
       tailText: '',
-      pendingSend: true,
     });
     const { container } = render(<Dock />);
     expect(container).toMatchSnapshot();

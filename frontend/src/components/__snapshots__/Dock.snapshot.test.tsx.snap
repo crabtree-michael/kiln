@@ -77,6 +77,23 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
       data-role="dock-controls"
     >
       <button
+        aria-label="Send"
+        data-role="dock-send"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          height="22"
+          viewBox="0 0 24 24"
+          width="22"
+        >
+          <path
+            d="M12 4l-8 8h5v8h6v-8h5z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+      <button
         aria-label="Talk"
         aria-pressed="true"
         data-dock-state="listening"
@@ -122,7 +139,7 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
 </div>
 `;
 
-exports[`Dock snapshots > Listening with an armed send (grace window open -> send button shown) 1`] = `
+exports[`Dock snapshots > Listening with settled ink only (send + X flank the mic) 1`] = `
 <div>
   <div
     data-dock-state="listening"
@@ -154,12 +171,12 @@ exports[`Dock snapshots > Listening with an armed send (grace window open -> sen
       >
         <svg
           aria-hidden="true"
-          height="18"
+          height="22"
           viewBox="0 0 24 24"
-          width="18"
+          width="22"
         >
           <path
-            d="M2 21l21-9L2 3v7l15 2-15 2v7z"
+            d="M12 4l-8 8h5v8h6v-8h5z"
             fill="currentColor"
           />
         </svg>
@@ -192,6 +209,17 @@ exports[`Dock snapshots > Listening with an armed send (grace window open -> sen
           data-role="dock-label"
         >
           Listening…
+        </span>
+      </button>
+      <button
+        aria-label="Cancel"
+        data-role="dock-cancel"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+        >
+          ×
         </span>
       </button>
     </div>
@@ -264,6 +292,23 @@ exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §
     <div
       data-role="dock-controls"
     >
+      <button
+        aria-label="Send"
+        data-role="dock-send"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          height="22"
+          viewBox="0 0 24 24"
+          width="22"
+        >
+          <path
+            d="M12 4l-8 8h5v8h6v-8h5z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
       <button
         aria-label="Talk"
         aria-pressed="false"

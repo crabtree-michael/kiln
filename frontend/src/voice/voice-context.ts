@@ -18,12 +18,9 @@ export interface VoiceStoreValue {
   resume: () => void;
   /** The X → discard the un-committed utterance client-side (09 §4). */
   cancel: () => void;
-  /** True while an end-of-turn final is armed and holding through the grace
-   *  window (09 §4) — i.e. there is transcribed input pending to send. Drives
-   *  the dock's send button visibility. */
-  pendingSend: boolean;
-  /** The send button → fire the armed send immediately, skipping the
-   *  post-turn-end grace window (09 §4). A no-op unless `pendingSend`. */
+  /** The send button → commit whatever transcript is on screen now, without
+   *  waiting for an end-of-turn final (09 §4). A no-op when nothing is shown; the
+   *  dock gates its visibility on there being transcript text. */
   sendNow: () => void;
   /** Current mic input loudness as a raw RMS (0..~1); the dock samples this each
    *  animation frame to size the volume orb (09 §3). 0 when not listening. */

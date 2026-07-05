@@ -9,10 +9,16 @@ import {
   fetchMessages,
   postMessage,
   openStream,
+  fetchMe,
+  putSettings,
+  putProject,
+  postVerify,
+  postLogout,
   type Board,
   type SayEvent,
   type ConnectionState,
   type StreamHandlers,
+  type Me,
 } from '@/transport/transport';
 import { makeBoard, makeTicket } from '@/test/fixtures';
 
@@ -163,6 +169,146 @@ describe('transport', () => {
       expect(init?.method).toBe('POST');
       expect(init?.body).toBe(JSON.stringify({ text: 'build the widget' }));
       expect(result).toEqual(response);
+    });
+  });
+
+  function makeMe(): Me {
+    return {
+      user: {
+        github_login: 'octocat',
+        display_name: 'Octocat',
+        avatar_url: 'https://example.com/a.png',
+      },
+      settings: {
+        anthropic_api_key: { set: false, tail: '' },
+        amika_api_key: { set: false, tail: '' },
+        github_auth_token: { set: true, tail: 'abcd' },
+        amika_base_url: '',
+        amika_claude_cred_id: '',
+      },
+    };
+  }
+
+  describe('fetchMe (GET /api/me)', () => {
+    it('resolves the account view on 200', async () => {
+      const me = makeMe();
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(me))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await fetchMe();
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/me');
+      expect(result).toEqual(me);
+    });
+
+    it('resolves null on 401 rather than throwing (no valid session)', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 401 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await fetchMe();
+
+      expect(result).toBeNull();
+    });
+
+    it('throws on an unexpected response shape', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ nope: true }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchMe()).rejects.toThrow('unexpected response shape');
+    });
+  });
+
+  describe('putSettings (PUT /api/settings)', () => {
+    it('PUTs the body to /api/settings and resolves the refreshed Me', async () => {
+      const me = makeMe();
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(me))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await putSettings({ anthropic_api_key: 'sk-new' });
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/settings');
+      expect(init?.method).toBe('PUT');
+      expect(init?.body).toBe(JSON.stringify({ anthropic_api_key: 'sk-new' }));
+      expect(result).toEqual(me);
+    });
+
+    it('throws on a non-2xx response', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 400 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(putSettings({})).rejects.toThrow('HTTP 400');
+    });
+  });
+
+  describe('putProject (PUT /api/project)', () => {
+    it('PUTs the body to /api/project and resolves the refreshed Me', async () => {
+      const me = makeMe();
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(me))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await putProject({ name: 'proj', repo_url: 'https://github.com/a/b' });
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/project');
+      expect(init?.method).toBe('PUT');
+      expect(result).toEqual(me);
+    });
+  });
+
+  describe('postVerify (POST /api/settings/verify)', () => {
+    it('POSTs to /api/settings/verify and resolves the checks', async () => {
+      const response = {
+        checks: [{ name: 'anthropic' as const, status: 'ok' as const, message: 'reachable' }],
+      };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(response))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await postVerify();
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/settings/verify');
+      expect(init?.method).toBe('POST');
+      expect(result).toEqual(response);
+    });
+  });
+
+  describe('postLogout (POST /auth/logout)', () => {
+    it('POSTs to /auth/logout', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null)),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await postLogout();
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/auth/logout');
+      expect(init?.method).toBe('POST');
+    });
+
+    it('throws on a non-2xx response', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 500 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(postLogout()).rejects.toThrow('HTTP 500');
     });
   });
 

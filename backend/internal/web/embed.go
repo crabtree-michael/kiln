@@ -43,11 +43,27 @@ func Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if upath := strings.TrimPrefix(path.Clean(r.URL.Path), "/"); upath != "" && isFile(sub, upath) {
+		upath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if upath != "" && isFile(sub, upath) {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		// Root and any unknown non-asset path resolve to the SPA entry point.
+		// A path that carries a file extension but resolved to no embedded file is
+		// a stale/renamed static asset, not a client route — almost always a
+		// previously-cached client (browser HTTP cache or an old service-worker
+		// precache) requesting a hashed bundle from a superseded deploy. Answer an
+		// honest 404 rather than the HTML shell: serving index.html in place of a
+		// missing `.css`/`.js` makes the browser reject it on MIME mismatch and
+		// silently drop the stylesheet — the page renders fully unstyled — or fail
+		// the entry module script outright. A 404 lets the client/SW fail cleanly
+		// and re-fetch the current shell. Client routes ("/", "/debug") are
+		// extensionless, so they still fall through to the SPA entry below.
+		if path.Ext(upath) != "" {
+			http.NotFound(w, r)
+			return
+		}
+		// Root and any unknown extensionless (client-route) path resolve to the
+		// SPA entry point.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		if _, err := w.Write(index); err != nil {

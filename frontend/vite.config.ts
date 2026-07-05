@@ -41,6 +41,17 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Self-destroying SW (recovery mechanism). The app is an online-only,
+      // SSE-driven dashboard, and per the web-client spec the PWA/offline surface
+      // is deferred to specs 09/10 — so precaching the app shell buys nothing here
+      // and actively caused an outage: a previously-installed client kept serving
+      // a stale precached `index.html` whose hashed CSS/JS no longer exist after a
+      // deploy, so the page rendered unstyled. `selfDestroying` ships a worker that
+      // unregisters itself and clears every cache on the client's next visit, after
+      // which the app loads straight from the always-consistent (no-cache) server.
+      // This auto-recovers already-installed clients with no manual clear. A real,
+      // purpose-built service worker returns when notifications (09/10) need one.
+      selfDestroying: true,
       workbox: {
         // Never precache source maps: they are upload-only artifacts (deleted
         // after upload) and must not be cached by — or shipped in — the SW.

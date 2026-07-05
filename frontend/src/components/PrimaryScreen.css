@@ -905,6 +905,10 @@ body:has([data-role='primary-screen']) {
   background: transparent;
   border: none;
   cursor: pointer;
+  /* Suppress the mobile tap-highlight box; the pressed-shadow on the glyph
+     (below) is the press affordance instead. */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 [data-role='dock-cancel'] {
@@ -940,7 +944,18 @@ body:has([data-role='primary-screen']) {
   border-radius: 50%;
   background: var(--surface);
   border: 1.5px solid oklch(0.86 0.006 40);
+  /* At rest the glyph sits slightly elevated on a drop shadow. On press the
+     shadow collapses and the glyph pushes down, reading as a physical button
+     press; it springs back on release. */
   box-shadow: 0 6px 16px rgba(70, 28, 20, 0.08);
+  transition:
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+[data-role='dock-talk']:active [data-role='dock-mic'] {
+  transform: translateY(3px);
+  box-shadow: 0 1px 3px rgba(70, 28, 20, 0.1);
 }
 
 [data-role='dock-mic-orb'] {

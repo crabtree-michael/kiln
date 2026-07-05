@@ -21,7 +21,10 @@ services:
 
   backend:
     build:
-      context: ./backend
+      # The backend Dockerfile REQUIRES the repo root as context since 5357d05
+      # (it copies frontend/ too, to embed the SPA — see the note at its top).
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       # Board state + durable event queue live in the same Postgres (02 §3).
       DATABASE_URL: postgres://kiln:kiln@db:5432/kiln?sslmode=disable

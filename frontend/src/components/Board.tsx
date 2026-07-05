@@ -2,12 +2,8 @@
 // (Shaping over Ready), Developing (Blocked above Working), Done — plus the
 // capacity chip. Board is read-only: no drag-and-drop, all mutation flows
 // through chat (D5). Reads from the board store; `connectionState` also
-// drives the "dim while reconnecting" treatment (07 §8).
-//
-// Debug view: clicking a card opens a read-only detail overlay for that
-// ticket. Selection is local view state only — it opens/closes an overlay and
-// never mutates the board (D5 still holds: the board stays drag-free and every
-// state change flows through the brain).
+// drives the "dim while reconnecting" treatment (07 §8), left to the
+// solution phase's styling.
 import { useState, type JSX } from 'react';
 import { useBoardStore } from '@/stores/board-context';
 import type { ConnectionState } from '@/transport/transport';
@@ -18,8 +14,9 @@ import type { Ticket } from '@/components/TicketCard';
 
 export function Board(): JSX.Element {
   const { board, connectionState } = useBoardStore();
-  // Which ticket's detail overlay is open (null = none).
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  // Which ticket's read-only detail is open (07 §7). Local view state only;
+  // the client holds no authoritative state (02 §11).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const backlogZones: BoardColumnZone[] = [
     { label: 'Shaping', tickets: board?.shaping ?? [] },
@@ -31,6 +28,16 @@ export function Board(): JSX.Element {
   ];
   const doneZones: BoardColumnZone[] = [{ label: 'Done', tickets: board?.done ?? [] }];
 
+  // Re-derive the open ticket from the live board each render so the detail
+  // reflects incoming `board` snapshots; if it left the board, close.
+  const selectedTicket =
+    selectedId != null
+      ? (allTickets(board).find((ticket) => ticket.id === selectedId) ?? null)
+      : null;
+  const onSelectTicket = (ticket: Ticket): void => {
+    setSelectedId(ticket.id);
+  };
+
   return (
     <section aria-label="Board" data-role="board" data-connection-state={connectionState}>
       <div data-role="board-toolbar">
@@ -40,24 +47,26 @@ export function Board(): JSX.Element {
         </span>
       </div>
       <div data-role="board-columns">
-        <BoardColumn title="Backlog" zones={backlogZones} onSelectTicket={setSelectedTicket} />
-        <BoardColumn
-          title="Developing"
-          zones={developingZones}
-          onSelectTicket={setSelectedTicket}
-        />
-        <BoardColumn title="Done" zones={doneZones} onSelectTicket={setSelectedTicket} />
+        <BoardColumn title="Backlog" zones={backlogZones} onSelectTicket={onSelectTicket} />
+        <BoardColumn title="Developing" zones={developingZones} onSelectTicket={onSelectTicket} />
+        <BoardColumn title="Done" zones={doneZones} onSelectTicket={onSelectTicket} />
       </div>
-      {selectedTicket !== null && (
+      {selectedTicket != null && (
         <TicketDetail
           ticket={selectedTicket}
           onClose={() => {
-            setSelectedTicket(null);
+            setSelectedId(null);
           }}
         />
       )}
     </section>
   );
+}
+
+/** All tickets across every zone, in column order. */
+function allTickets(board: ReturnType<typeof useBoardStore>['board']): Ticket[] {
+  if (board == null) return [];
+  return [...board.shaping, ...board.ready, ...board.blocked, ...board.working, ...board.done];
 }
 
 /** Visible connected/reconnecting indicator (07 §8) alongside the capacity chip. */

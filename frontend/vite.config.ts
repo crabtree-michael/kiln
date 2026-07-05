@@ -19,9 +19,11 @@ const sentryPlugins =
   sentryAuthToken !== undefined && sentryAuthToken.length > 0
     ? [
         sentryVitePlugin({
-          org: 'macmail',
+          org: 'kiln-5p',
           project: 'kiln-frontend',
-          url: 'https://de.sentry.io',
+          // US-region orgs are served from sentry.io (the token's embedded host);
+          // forcing us.sentry.io here makes sentry-cli 401 on upload.
+          url: 'https://sentry.io',
           authToken: sentryAuthToken,
           sourcemaps: {
             // Symbolication maps are upload-only: delete them once Sentry has

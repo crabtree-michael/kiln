@@ -97,15 +97,22 @@ func TestService_Feed_OrdersBlockersProposalsThenUpdatesNewestFirst(t *testing.T
 	}
 }
 
-func TestService_Feed_FiltersSeenAndRetractedUpdates(t *testing.T) {
+// Retained history (08 D2′): seen updates STAY in the feed as history — only
+// retracted ones drop out. UpdateCount still counts unseen (the "new" ones), and
+// LastSeenNotificationID marks the last-seen divider boundary.
+func TestService_Feed_RetainsSeenUpdatesFiltersOnlyRetracted(t *testing.T) {
 	ctx := context.Background()
 	notes := &fakeNotificationStore{}
 	seen := notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "already seen"})
+	retracted := notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "withdrawn"})
 	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "still unseen"})
 
-	// Mark the first as seen via the high-water path.
+	// Mark the first as seen via the high-water path, and retract the second.
 	if err := notes.MarkSeen(ctx, seen.ID); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
+	}
+	if err := notes.RetractNotification(ctx, retracted.ID); err != nil {
+		t.Fatalf("RetractNotification: %v", err)
 	}
 
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
@@ -113,11 +120,85 @@ func TestService_Feed_FiltersSeenAndRetractedUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Feed: %v", err)
 	}
-	if len(snap.Cards) != 1 || snap.Cards[0].Body != "still unseen" {
-		t.Fatalf("Feed cards = %+v, want only the still-unseen update", snap.Cards)
+	// Both the seen and the unseen update remain (newest-first); the retracted one is gone.
+	if len(snap.Cards) != 2 {
+		t.Fatalf("Feed cards = %+v, want 2 (seen retained + unseen), retracted filtered", snap.Cards)
+	}
+	if snap.Cards[0].Body != "still unseen" || snap.Cards[1].Body != "already seen" {
+		t.Fatalf("Feed cards = %+v, want [still unseen, already seen] newest-first", snap.Cards)
 	}
 	if snap.Summary.UpdateCount != 1 {
-		t.Errorf("UpdateCount = %d, want 1 (seen ones filtered)", snap.Summary.UpdateCount)
+		t.Errorf("UpdateCount = %d, want 1 (only the unseen one is 'new')", snap.Summary.UpdateCount)
+	}
+	if snap.Summary.LastSeenNotificationID == nil || *snap.Summary.LastSeenNotificationID != seen.ID {
+		t.Errorf("LastSeenNotificationID = %v, want the seen high-water %d", snap.Summary.LastSeenNotificationID, seen.ID)
+	}
+	if snap.HasMoreHistory {
+		t.Errorf("HasMoreHistory = true, want false (only 2 retained rows, well under a page)")
+	}
+}
+
+// The snapshot carries only the newest page; HasMoreHistory flags that older
+// retained updates exist to page in via FeedHistory (08 D2′).
+func TestService_Feed_PagesNewestAndFlagsMoreHistory(t *testing.T) {
+	ctx := context.Background()
+	notes := &fakeNotificationStore{}
+	// Seed one more than a page so the newest page leaves history behind.
+	total := 35 // feedPageSize (30) + 5
+	for i := 0; i < total; i++ {
+		notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "n"})
+	}
+
+	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
+	snap, err := svc.Feed(ctx)
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if len(snap.Cards) != 30 {
+		t.Fatalf("Feed returned %d update cards, want the newest page of 30", len(snap.Cards))
+	}
+	if !snap.HasMoreHistory {
+		t.Errorf("HasMoreHistory = false, want true (35 retained rows > one 30 page)")
+	}
+	// UpdateCount is the total unseen, not just the page.
+	if snap.Summary.UpdateCount != total {
+		t.Errorf("UpdateCount = %d, want %d (all unseen, page-independent)", snap.Summary.UpdateCount, total)
+	}
+}
+
+// FeedHistory is keyset-paged: cards older than `before`, newest-first, with a
+// has-more flag; it never returns board-derived cards (08 D2′).
+func TestService_FeedHistory_KeysetPagesOlderUpdates(t *testing.T) {
+	ctx := context.Background()
+	notes := &fakeNotificationStore{}
+	var ids []int64
+	for i := 0; i < 5; i++ {
+		ids = append(ids, notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "n"}).ID)
+	}
+	// A blocker in the board view must NOT leak into a history page.
+	board := &fakeBoardReader{view: runtime.BoardView{
+		Blocked: []runtime.BoardTicket{{ID: "b1", Title: "Blocked"}},
+	}}
+	svc := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{})
+
+	// Page of 2 older than the 4th id (ids[3]) -> ids[2], ids[1] newest-first, more remains.
+	cards, hasMore, err := svc.FeedHistory(ctx, ids[3], 2)
+	if err != nil {
+		t.Fatalf("FeedHistory: %v", err)
+	}
+	if len(cards) != 2 {
+		t.Fatalf("FeedHistory returned %d cards, want the 2-card page", len(cards))
+	}
+	for _, c := range cards {
+		if c.Kind != "update" {
+			t.Errorf("history card kind = %q, want only update/preview (no board cards)", c.Kind)
+		}
+	}
+	if cards[0].NotificationID == nil || *cards[0].NotificationID != ids[2] {
+		t.Errorf("history[0] id = %v, want ids[2]=%d (newest below the cursor)", cards[0].NotificationID, ids[2])
+	}
+	if !hasMore {
+		t.Errorf("hasMore = false, want true (ids[0] still remains below the page)")
 	}
 }
 

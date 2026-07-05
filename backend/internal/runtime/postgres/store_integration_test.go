@@ -321,6 +321,103 @@ func TestIntegration_MarkSeen_StampsUpToHighWaterAndEmitsFeedUpdated(t *testing.
 	}
 }
 
+// RecentNotifications retains seen rows (08 D2′) — only retracted ones drop —
+// newest-first, and its bool flags an older page beyond the limit.
+func TestIntegration_RecentNotifications_RetainsSeenTrimsPageFlagsMore(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	n1, _ := store.PostNotification(ctx, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
+	n3, _ := store.PostNotification(ctx, "update", "three", nil, nil)
+	retr, _ := store.PostNotification(ctx, "update", "gone", nil, nil)
+
+	// Seen up to n2, and retract the fourth. Seen rows must stay; retracted must go.
+	if err := store.MarkSeen(ctx, n2.ID); err != nil {
+		t.Fatalf("MarkSeen: %v", err)
+	}
+	if err := store.RetractNotification(ctx, retr.ID); err != nil {
+		t.Fatalf("RetractNotification: %v", err)
+	}
+
+	// Full page: all three unretracted, newest-first (seen retained).
+	got, more, err := store.RecentNotifications(ctx, 30)
+	if err != nil {
+		t.Fatalf("RecentNotifications: %v", err)
+	}
+	if more {
+		t.Errorf("hasMore = true, want false (3 rows under the 30 page)")
+	}
+	if len(got) != 3 || got[0].ID != n3.ID || got[1].ID != n2.ID || got[2].ID != n1.ID {
+		t.Fatalf("recent = %+v, want [n3,n2,n1] newest-first with seen retained", got)
+	}
+
+	// Small page trims to the newest and flags more remaining.
+	page, more, err := store.RecentNotifications(ctx, 2)
+	if err != nil {
+		t.Fatalf("RecentNotifications(2): %v", err)
+	}
+	if len(page) != 2 || page[0].ID != n3.ID || page[1].ID != n2.ID || !more {
+		t.Fatalf("page = %+v more=%v, want [n3,n2] with more=true", page, more)
+	}
+}
+
+// HistoryBefore keyset-pages older unretracted rows, newest-first.
+func TestIntegration_HistoryBefore_KeysetPagesOlder(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	n1, _ := store.PostNotification(ctx, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
+	n3, _ := store.PostNotification(ctx, "update", "three", nil, nil)
+
+	got, more, err := store.HistoryBefore(ctx, n3.ID, 1)
+	if err != nil {
+		t.Fatalf("HistoryBefore: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != n2.ID || !more {
+		t.Fatalf("history before n3 (limit 1) = %+v more=%v, want [n2] more=true", got, more)
+	}
+
+	got, more, err = store.HistoryBefore(ctx, n2.ID, 10)
+	if err != nil {
+		t.Fatalf("HistoryBefore: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != n1.ID || more {
+		t.Fatalf("history before n2 = %+v more=%v, want [n1] more=false", got, more)
+	}
+}
+
+// LastSeenID is the seen high-water; UnseenCount counts the unseen, unretracted.
+func TestIntegration_LastSeenID_And_UnseenCount(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	// Nothing seen yet.
+	if id, err := store.LastSeenID(ctx); err != nil || id != nil {
+		t.Fatalf("LastSeenID on empty = (%v, %v), want (nil, nil)", id, err)
+	}
+
+	store.PostNotification(ctx, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
+	store.PostNotification(ctx, "update", "three", nil, nil)
+
+	if err := store.MarkSeen(ctx, n2.ID); err != nil {
+		t.Fatalf("MarkSeen: %v", err)
+	}
+	id, err := store.LastSeenID(ctx)
+	if err != nil || id == nil || *id != n2.ID {
+		t.Fatalf("LastSeenID = (%v, %v), want %d", id, err, n2.ID)
+	}
+	count, err := store.UnseenCount(ctx)
+	if err != nil || count != 1 {
+		t.Fatalf("UnseenCount = (%d, %v), want 1 (only the newest is unseen)", count, err)
+	}
+}
+
 // ---- events queue: claim ordering, mark done/retry/dead (04 §2-§3) --------
 
 func TestIntegration_ClaimNextDue_OrdersByIDAndIncrementsAttempts(t *testing.T) {

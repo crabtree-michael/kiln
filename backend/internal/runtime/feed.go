@@ -72,15 +72,26 @@ type FeedSummary struct {
 	Building     int        // working
 	Idle         int        // blocked
 	LastWordAt   *time.Time // newest notification's created_at, or nil
+	// LastSeenNotificationID is the persistent seen high-water mark (08 D2′):
+	// the greatest notification id the user has acked. It marks the last-seen
+	// divider boundary — update/preview cards with a greater NotificationID are
+	// new since last visit; those at or below it are retained history. Nil when
+	// nothing has ever been seen.
+	LastSeenNotificationID *int64
 }
 
 // FeedSnapshot is GET /api/feed's body and the feed SSE event payload — the
-// identical absolute shape (08 §3). Cards are in strict order: unresolved
-// blockers, then pending proposals, then unseen updates newest-first. Runtime
+// identical absolute shape (08 §3, D2′). Cards are in strict order: unresolved
+// blockers, then pending proposals, then updates newest-first (seen and unseen —
+// retained history). Cards carries only the NEWEST PAGE of updates;
+// HasMoreHistory signals older ones are pageable via FeedHistory. Runtime
 // domain type; the api package maps it to wire.FeedSnapshot.
 type FeedSnapshot struct {
 	Summary FeedSummary
 	Cards   []FeedCard
+	// HasMoreHistory is true when retained update/preview history exists older
+	// than the oldest update card in Cards — page it in via FeedHistory (08 D2′).
+	HasMoreHistory bool
 }
 
 // ActivityEvent is the ephemeral activity SSE payload (08 §4), never stored.

@@ -211,22 +211,37 @@ func (s *Service) Workers(clock Clock) (*Worker, *Worker) {
 	return events, outbox
 }
 
-// Feed assembles the absolute feed snapshot (08 §3): board-derived blocker and
-// proposal cards, then brain-authored update/preview cards newest-first, plus
-// the header summary counts. Backs GET /api/feed and every feed SSE push. The
-// card order is strict — blockers, then proposals, then updates — because the
-// client renders one ordered list and pins blockers on top.
+// feedPageSize is how many update/preview cards the feed snapshot carries in its
+// newest page (08 D2′). History older than this pages in via FeedHistory, so a
+// long-retained backlog doesn't ship in one snapshot. Also the default
+// history-page size; the api clamps an explicit ?limit within [1, 100].
+const feedPageSize = 30
+
+// Feed assembles the absolute feed snapshot (08 §3, D2′): board-derived blocker
+// and proposal cards, then the newest page of brain-authored update/preview
+// cards — seen AND unseen (retained history), newest-first — plus the header
+// summary counts and the last-seen divider boundary. Backs GET /api/feed and
+// every feed SSE push. The card order is strict — blockers, then proposals, then
+// updates — because the client renders one ordered list and pins blockers on top.
 func (s *Service) Feed(ctx context.Context) (FeedSnapshot, error) {
 	view, err := s.boardReader.BoardView(ctx)
 	if err != nil {
 		return FeedSnapshot{}, fmt.Errorf("runtime: feed board view: %w", err)
 	}
-	unseen, err := s.notifications.UnseenNotifications(ctx)
+	recent, hasMoreHistory, err := s.notifications.RecentNotifications(ctx, feedPageSize)
 	if err != nil {
-		return FeedSnapshot{}, fmt.Errorf("runtime: feed unseen notifications: %w", err)
+		return FeedSnapshot{}, fmt.Errorf("runtime: feed recent notifications: %w", err)
+	}
+	unseenCount, err := s.notifications.UnseenCount(ctx)
+	if err != nil {
+		return FeedSnapshot{}, fmt.Errorf("runtime: feed unseen count: %w", err)
+	}
+	lastSeen, err := s.notifications.LastSeenID(ctx)
+	if err != nil {
+		return FeedSnapshot{}, fmt.Errorf("runtime: feed last seen id: %w", err)
 	}
 
-	cards := make([]FeedCard, 0, len(view.Blocked)+len(view.Proposals)+len(unseen))
+	cards := make([]FeedCard, 0, len(view.Blocked)+len(view.Proposals)+len(recent))
 	for _, t := range view.Blocked {
 		id := t.ID
 		cards = append(cards, FeedCard{
@@ -241,39 +256,67 @@ func (s *Service) Feed(ctx context.Context) (FeedSnapshot, error) {
 			Body: t.Body, TicketID: &id, CreatedAt: t.UpdatedAt,
 		})
 	}
-	for _, n := range unseen {
-		nid := n.ID
-		card := FeedCard{
-			Kind: string(n.Kind), ID: fmt.Sprintf("update:%d", n.ID),
-			Body: n.Body, TicketID: n.TicketID, NotificationID: &nid,
-			CreatedAt: n.CreatedAt,
-		}
-		// A ticket-tagged note renders the linked ticket's title as its label,
-		// mirroring blocker/proposal cards (08 §3). A note with no ticket keeps
-		// an empty label, which the client renders headless-but-legible.
-		if n.TicketID != nil {
-			card.Label = view.TicketTitles[*n.TicketID]
-		}
-		if n.Kind == KindPreview {
-			card.ImageURL = n.ImageURL
-		}
-		cards = append(cards, card)
+	for _, n := range recent {
+		cards = append(cards, notificationToCard(n, view.TicketTitles))
 	}
 
 	summary := FeedSummary{
-		BlockerCount: len(view.Blocked),
-		UpdateCount:  len(unseen),
-		StreamCount:  view.WorkingCount + view.BlockedCount,
-		Building:     view.WorkingCount,
-		Idle:         view.BlockedCount,
+		BlockerCount:           len(view.Blocked),
+		UpdateCount:            unseenCount,
+		StreamCount:            view.WorkingCount + view.BlockedCount,
+		Building:               view.WorkingCount,
+		Idle:                   view.BlockedCount,
+		LastSeenNotificationID: lastSeen,
 	}
-	// UnseenNotifications is newest-first, so the first row is the last word.
-	if len(unseen) > 0 {
-		at := unseen[0].CreatedAt
+	// RecentNotifications is newest-first, so the first row is the last word.
+	if len(recent) > 0 {
+		at := recent[0].CreatedAt
 		summary.LastWordAt = &at
 	}
 
-	return FeedSnapshot{Summary: summary, Cards: cards}, nil
+	return FeedSnapshot{Summary: summary, Cards: cards, HasMoreHistory: hasMoreHistory}, nil
+}
+
+// FeedHistory assembles one older page of retained update/preview history
+// (08 D2′): notification-backed cards with id < before, newest-first, plus
+// whether a further page remains. Board-derived blocker/proposal cards are never
+// paged. Ticket-tagged notes take their label from current board titles, exactly
+// like Feed. Backs GET /api/feed/history.
+func (s *Service) FeedHistory(ctx context.Context, before int64, limit int) ([]FeedCard, bool, error) {
+	view, err := s.boardReader.BoardView(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("runtime: feed history board view: %w", err)
+	}
+	notes, hasMore, err := s.notifications.HistoryBefore(ctx, before, limit)
+	if err != nil {
+		return nil, false, fmt.Errorf("runtime: feed history notifications: %w", err)
+	}
+	cards := make([]FeedCard, 0, len(notes))
+	for _, n := range notes {
+		cards = append(cards, notificationToCard(n, view.TicketTitles))
+	}
+	return cards, hasMore, nil
+}
+
+// notificationToCard maps a brain-authored notification row to its feed card
+// (08 §3), shared by Feed's newest page and FeedHistory's older pages. A
+// ticket-tagged note renders the linked ticket's current title as its label
+// (titles from the board view); a note with no ticket keeps an empty label,
+// which the client renders headless-but-legible.
+func notificationToCard(n Notification, titles map[string]string) FeedCard {
+	nid := n.ID
+	card := FeedCard{
+		Kind: string(n.Kind), ID: fmt.Sprintf("update:%d", n.ID),
+		Body: n.Body, TicketID: n.TicketID, NotificationID: &nid,
+		CreatedAt: n.CreatedAt,
+	}
+	if n.TicketID != nil {
+		card.Label = titles[*n.TicketID]
+	}
+	if n.Kind == KindPreview {
+		card.ImageURL = n.ImageURL
+	}
+	return card
 }
 
 // PostNotification is the brain-facing port for post_update / preview (08 §3,

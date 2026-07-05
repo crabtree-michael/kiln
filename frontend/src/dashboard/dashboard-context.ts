@@ -3,7 +3,12 @@
 // this file carries the account-view shape, the context, and the consumer
 // hook (11 §5, §9), mirroring `stores/chat-context.ts`.
 import { createStoreContext } from '@/stores/create-store-context';
-import type { Me, ProjectUpdateRequest, SettingsUpdateRequest, VerifyCheck } from '@/transport/transport';
+import type {
+  Me,
+  ProjectUpdateRequest,
+  SettingsUpdateRequest,
+  VerifyCheck,
+} from '@/transport/transport';
 
 /**
  * `loading`: the initial `GET /api/me` is in flight (mount, or right after

@@ -20,7 +20,11 @@ vi.mock('@/transport/transport', () => ({
 
 function makeMe(overrides: Partial<Me> = {}): Me {
   return {
-    user: { github_login: 'octocat', display_name: 'Octocat', avatar_url: 'https://example.com/a.png' },
+    user: {
+      github_login: 'octocat',
+      display_name: 'Octocat',
+      avatar_url: 'https://example.com/a.png',
+    },
     settings: {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
@@ -41,12 +45,12 @@ function Probe(): JSX.Element {
       <div data-testid="error">{store.error ?? 'none'}</div>
       <div data-testid="verifying">{String(store.verifying)}</div>
       <div data-testid="login">{store.me?.user.github_login ?? 'none'}</div>
-      <div data-testid="checks">{store.verifyChecks === null ? 'none' : String(store.verifyChecks.length)}</div>
+      <div data-testid="checks">
+        {store.verifyChecks === null ? 'none' : String(store.verifyChecks.length)}
+      </div>
       <button
         type="button"
-        onClick={() =>
-          void store.saveSettings({ anthropic_api_key: 'sk-new' })
-        }
+        onClick={() => void store.saveSettings({ anthropic_api_key: 'sk-new' })}
       >
         save-settings
       </button>

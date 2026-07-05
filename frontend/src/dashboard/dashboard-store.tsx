@@ -105,7 +105,18 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       runVerify,
       signOut,
     }),
-    [phase, me, saving, error, verifying, verifyChecks, saveSettings, saveProject, runVerify, signOut],
+    [
+      phase,
+      me,
+      saving,
+      error,
+      verifying,
+      verifyChecks,
+      saveSettings,
+      saveProject,
+      runVerify,
+      signOut,
+    ],
   );
 
   return <DashboardStoreContext.Provider value={value}>{children}</DashboardStoreContext.Provider>;

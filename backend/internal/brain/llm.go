@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -121,6 +122,7 @@ type LLM interface {
 type Adapter struct {
 	Config Config
 	client anthropic.Client
+	logger *slog.Logger // nil → slog.Default(); see log()
 }
 
 var _ LLM = (*Adapter)(nil)
@@ -139,22 +141,70 @@ func NewAdapterWithClient(cfg Config, opts ...option.RequestOption) *Adapter {
 }
 
 // Do runs one round of the pass's conversation against the Anthropic API.
+//
+// Two prompt-caching breakpoints are placed (06 §5 cost/latency envelope).
+// Prompt caching is a prefix match over the rendered request (tools → system →
+// messages), so the placement follows the two reuse boundaries the brain has:
+//
+//   - The system block carries a breakpoint. tools render before system, so
+//     this caches the whole fixed prefix (the 14-tool schema + the static
+//     system prompt) as one unit. That prefix is byte-identical every pass —
+//     the prompt template interpolates only the constant Role, and Tools is a
+//     fixed slice — so back-to-back passes read it instead of re-billing it.
+//   - The last content block of the conversation carries a breakpoint
+//     (markConversationBreakpoint). Within one pass the bounded tool loop
+//     re-sends a growing conversation up to MaxToolRounds times; each round's
+//     breakpoint lets the next round read everything through the prior round.
+//
+// Two breakpoints is well under the 4-per-request ceiling. Caching is
+// transparent to the scripted-fake golden suite (06 §9) — only this live
+// Adapter builds MessageNewParams, so the commit gate is unaffected.
 func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
+	messages := toSDKMessages(req.Messages)
+	markConversationBreakpoint(messages)
+
 	params := anthropic.MessageNewParams{
 		Model:     a.model(),
 		MaxTokens: maxOutputTokens,
-		Messages:  toSDKMessages(req.Messages),
+		Messages:  messages,
 		Tools:     toSDKTools(req.Tools),
 	}
 	if req.System != "" {
-		params.System = []anthropic.TextBlockParam{{Text: req.System}}
+		params.System = []anthropic.TextBlockParam{{
+			Text:         req.System,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}}
 	}
 
 	msg, err := a.client.Messages.New(ctx, params)
 	if err != nil {
 		return LLMResponse{}, fmt.Errorf("brain: anthropic messages.new: %w", err)
 	}
+	a.logUsage(ctx, msg.Usage)
 	return fromSDKMessage(msg), nil
+}
+
+// logUsage emits one round's token usage so the live eval set can confirm
+// cache hit rates. cache_read_input_tokens staying at zero across a pass's
+// later rounds means a silent invalidator crept into the prefix (a volatile
+// system prompt, non-deterministic tool ordering). input_tokens is the
+// uncached remainder only — the true prompt size is the sum of all three.
+func (a *Adapter) logUsage(ctx context.Context, u anthropic.Usage) {
+	a.log().LogAttrs(ctx, slog.LevelDebug, "brain: llm round usage",
+		slog.Int64("input_tokens", u.InputTokens),
+		slog.Int64("output_tokens", u.OutputTokens),
+		slog.Int64("cache_read_input_tokens", u.CacheReadInputTokens),
+		slog.Int64("cache_creation_input_tokens", u.CacheCreationInputTokens),
+	)
+}
+
+// log returns the adapter's logger, defaulting to slog.Default() so the
+// composition-root and live-eval constructors need not set one.
+func (a *Adapter) log() *slog.Logger {
+	if a.logger != nil {
+		return a.logger
+	}
+	return slog.Default()
 }
 
 // model resolves the model id (06 §2): Config.Model, else the KILN_BRAIN_MODEL
@@ -201,6 +251,31 @@ func toSDKMessages(msgs []LLMMessage) []anthropic.MessageParam {
 		out = append(out, anthropic.NewUserMessage(blocks...))
 	}
 	return out
+}
+
+// markConversationBreakpoint sets a cache-control breakpoint on the last
+// content block of the last message, so within a pass each round reads the
+// conversation prefix the previous round wrote (see Do). The last message is
+// always a user turn — the round-1 context block (OfText), later rounds' tool
+// results (OfToolResult), or the forced wrap-up text (OfText) — so those are
+// the only variants handled; anything else is left unmarked rather than
+// guessed at. A round appends at most a handful of blocks, well inside the
+// 20-block cache lookback window, so the incremental reads never miss.
+func markConversationBreakpoint(msgs []anthropic.MessageParam) {
+	if len(msgs) == 0 {
+		return
+	}
+	blocks := msgs[len(msgs)-1].Content
+	if len(blocks) == 0 {
+		return
+	}
+	last := &blocks[len(blocks)-1]
+	switch {
+	case last.OfText != nil:
+		last.OfText.CacheControl = anthropic.NewCacheControlEphemeralParam()
+	case last.OfToolResult != nil:
+		last.OfToolResult.CacheControl = anthropic.NewCacheControlEphemeralParam()
+	}
 }
 
 // toSDKTools maps the fixed tool set (tools.go) onto the SDK's tool params.

@@ -2,7 +2,7 @@
 // `.ts` module (no components) so the presentational `.tsx` files stay clean of
 // react-refresh/only-export-components warnings, and so the header-status /
 // relative-age logic is unit-testable on its own.
-import type { Board, FeedCard, FeedSummary } from '@/transport/transport';
+import type { AgentStatus, Board, FeedCard, FeedSummary } from '@/transport/transport';
 import type { ToastVerb } from '@/stores/activity-context';
 
 function plural(count: number, word: string): string {
@@ -53,47 +53,68 @@ export function streamDetail(summary: FeedSummary, now: number = Date.now()): st
   return `${base} · last word ${relativeAge(summary.last_word_at, now)} ago`;
 }
 
+/** The real session running-state of a stream (amended 2026-07-05): the actual
+ * status of the underlying agent session, joined from `board.agents` — not a
+ * hardcoded guess from the ticket's board column. A stopped/errored session is
+ * now visibly distinct from one actively building. */
+export type StreamState = AgentStatus['status'];
+
 /** One active stream, broken out for the header dropdown (08 §2). The collapsed
- * header only carries the aggregate counts (`building`/`idle`); this expands
- * them per-stream from the same board state the counts are derived from —
- * `building` = working tickets, `idle` = blocked tickets (see the backend's
- * FeedSummary: Building = WorkingCount, Idle = BlockedCount). */
+ * header carries only the aggregate counts (`building`/`idle`); this expands
+ * them per-stream, using each worker's real session status where the board
+ * reports one and falling back to the ticket's column while a first status is
+ * still in flight. */
 export interface StreamStatus {
   /** The ticket id — a stable render key. */
   id: string;
   /** The ticket title shown as the stream label. */
   label: string;
-  /** `building` (worker actively building) or `idle` (blocked, awaiting you). */
-  status: 'building' | 'idle';
-  /** The blocker reason for an idle/blocked stream, when one is set. */
+  /** The real underlying session state (building/idle/stopped/errored/starting). */
+  status: StreamState;
+  /** The blocker reason for a blocked stream, when one is set. */
   reason: string | null;
 }
 
-/** Break the board's active streams out per-stream, building first then idle —
- * the same order the header counts them (08 §2). Returns [] before the first
- * board snapshot lands. */
+/** Break the board's active streams out per-stream, working first then blocked —
+ * the same order the header counts them (08 §2). Each stream's status is its
+ * bound worker's real session state from `board.agents`, keyed by ticket id;
+ * before a status has arrived it falls back to the board-column default
+ * (`building` for working, `idle` for blocked) so the row is never blank.
+ * Returns [] before the first board snapshot lands. */
 export function streamStatuses(board: Board | null): StreamStatus[] {
   if (board === null) {
     return [];
   }
-  const building: StreamStatus[] = board.working.map((ticket) => ({
+  const byTicket = new Map<string, StreamState>(
+    board.agents.map((agent) => [agent.ticket_id, agent.status]),
+  );
+  const working: StreamStatus[] = board.working.map((ticket) => ({
     id: ticket.id,
     label: ticket.title,
-    status: 'building',
+    status: byTicket.get(ticket.id) ?? 'building',
     reason: null,
   }));
-  const idle: StreamStatus[] = board.blocked.map((ticket) => ({
+  const blocked: StreamStatus[] = board.blocked.map((ticket) => ({
     id: ticket.id,
     label: ticket.title,
-    status: 'idle',
+    status: byTicket.get(ticket.id) ?? 'idle',
     reason: ticket.blocked_reason ?? null,
   }));
-  return [...building, ...idle];
+  return [...working, ...blocked];
 }
 
 /** The uppercase state chip shown on a stream row in the header dropdown. */
-export function streamStatusLabel(status: StreamStatus['status']): string {
-  return status === 'building' ? 'Building' : 'Idle';
+const STREAM_STATE_LABEL: Record<StreamState, string> = {
+  building: 'Building',
+  idle: 'Idle',
+  stopped: 'Stopped',
+  errored: 'Errored',
+  starting: 'Starting',
+};
+
+/** The uppercase state chip shown on a stream row in the header dropdown. */
+export function streamStatusLabel(status: StreamState): string {
+  return STREAM_STATE_LABEL[status];
 }
 
 /** The short uppercase tag shown on each card kind. */

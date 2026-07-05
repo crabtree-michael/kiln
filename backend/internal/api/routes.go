@@ -43,6 +43,26 @@ type BoardReader interface {
 	GetBoard(ctx context.Context) (board.Snapshot, error)
 }
 
+// AgentInspector is the api's read seam onto live worker status, joined into
+// the board snapshot for the Streams view (amended 2026-07-05). Satisfied by a
+// cmd/kiln adapter over *agent.Service — the api never imports internal/agent,
+// so AgentInfo mirrors the agent module's shape by value (same rule the brain
+// follows). Optional: a nil inspector yields an empty agents array (the board
+// still renders).
+type AgentInspector interface {
+	ListAgents(ctx context.Context) ([]AgentInfo, error)
+}
+
+// AgentInfo is one live worker's status joined to its most-recent ticket
+// binding — the api-local mirror of agent.AgentInfo (amended 2026-07-05).
+// Status is the neutral running state (building|idle|stopped|errored|starting);
+// TicketID is "" for an idle-pool worker.
+type AgentInfo struct {
+	WorkerID string
+	TicketID string
+	Status   string
+}
+
 // MessagePoster is the api's port onto the runtime's transactional message
 // ingestion (07 §3–§4, amending 04 §7's POST /api/message): append the user
 // transcript row and enqueue the human.message event {text} in one
@@ -335,13 +355,13 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 // handleBoard returns the full board snapshot (04 §7), the same shape the
 // stream's board event carries.
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
-	snap, err := s.boards.GetBoard(r.Context())
+	bw, err := s.hub.boardWire(r.Context())
 	if err != nil {
 		slog.Error("api: get board", "err", err)
 		http.Error(w, "read board", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, boardToWire(snap))
+	writeJSON(w, http.StatusOK, bw)
 }
 
 // handleMessage decodes {text}, validates its bounds (schema MessageRequest),
@@ -512,9 +532,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-// boardToWire maps a board.Snapshot onto the generated wire.Board (04 D7): the
-// identical shape backs GET /api/board and the board SSE event.
-func boardToWire(s board.Snapshot) wire.Board {
+// boardToWire maps a board.Snapshot plus the joined live-worker statuses onto
+// the generated wire.Board (04 D7): the identical shape backs GET /api/board
+// and the board SSE event. agents is the Streams view's real session status,
+// joined server-side (amended 2026-07-05).
+func boardToWire(s board.Snapshot, agents []wire.AgentStatus) wire.Board {
 	return wire.Board{
 		Shaping:     ticketsToWire(s.Shaping),
 		Ready:       ticketsToWire(s.Ready),
@@ -523,7 +545,32 @@ func boardToWire(s board.Snapshot) wire.Board {
 		Done:        ticketsToWire(s.Done),
 		WorkerTotal: s.WorkerTotal,
 		WorkerFree:  s.WorkerFree,
+		Agents:      agents,
 	}
+}
+
+// agentStatuses reads the live-worker statuses and maps them to the wire shape,
+// always returning a non-nil slice so the JSON is an array (never null). It is
+// best-effort: a nil inspector or a read failure yields an empty array — the
+// board still renders, Streams just shows nothing new (amended 2026-07-05).
+func agentStatuses(ctx context.Context, inspector AgentInspector) []wire.AgentStatus {
+	if inspector == nil {
+		return []wire.AgentStatus{}
+	}
+	infos, err := inspector.ListAgents(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "api: list agents for board", "err", err)
+		return []wire.AgentStatus{}
+	}
+	out := make([]wire.AgentStatus, 0, len(infos))
+	for _, a := range infos {
+		out = append(out, wire.AgentStatus{
+			WorkerId: a.WorkerID,
+			TicketId: a.TicketID,
+			Status:   wire.AgentStatusStatus(a.Status),
+		})
+	}
+	return out
 }
 
 // ticketsToWire maps a ticket group, always returning a non-nil slice so the

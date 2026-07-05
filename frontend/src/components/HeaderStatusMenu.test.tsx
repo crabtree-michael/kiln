@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
-import { makeBoard, makeFeedSummary, makeTicket } from '@/test/fixtures';
+import { makeAgentStatus, makeBoard, makeFeedSummary, makeTicket } from '@/test/fixtures';
 
 const baseFields = { createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' };
 
@@ -60,6 +60,56 @@ describe('HeaderStatusMenu', () => {
     expect(within(rows[2]!).getByText('Idle')).toBeInTheDocument();
     // The blocker reason rides along on the idle row.
     expect(screen.getByText('Which gateway should we bill through?')).toBeInTheDocument();
+  });
+
+  it('shows each stream real session status from board.agents, overriding the column default', () => {
+    // The Streams view must reflect the actual agent session state, not a
+    // hardcoded "building" derived from the board column (amended 2026-07-05):
+    // w1 has silently stopped, w2 is genuinely building, and b1 (blocked, no
+    // agent entry) falls back to idle.
+    const withAgents = makeBoard({
+      working: [
+        makeTicket({
+          ...baseFields,
+          id: 'w1',
+          title: 'Auth',
+          body: '',
+          state: 'working',
+          priority: 0,
+        }),
+        makeTicket({
+          ...baseFields,
+          id: 'w2',
+          title: 'Search',
+          body: '',
+          state: 'working',
+          priority: 0,
+        }),
+      ],
+      blocked: [
+        makeTicket({
+          ...baseFields,
+          id: 'b1',
+          title: 'Billing',
+          body: '',
+          state: 'blocked',
+          priority: 0,
+        }),
+      ],
+      agents: [makeAgentStatus('w1', 'stopped'), makeAgentStatus('w2', 'building')],
+    });
+    render(<HeaderStatusMenu summary={summary} board={withAgents} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    // w1's dead sandbox is visibly distinct from a building one.
+    expect(rows[0]).toHaveAttribute('data-status', 'stopped');
+    expect(within(rows[0]!).getByText('Stopped')).toBeInTheDocument();
+    expect(rows[1]).toHaveAttribute('data-status', 'building');
+    expect(within(rows[1]!).getByText('Building')).toBeInTheDocument();
+    // b1 has no agent entry, so it falls back to the blocked-column default.
+    expect(rows[2]).toHaveAttribute('data-status', 'idle');
   });
 
   it('toggles closed on a second click', () => {

@@ -90,4 +90,10 @@ type TurnCompleted struct {
 const (
 	PollInterval      = 2 * time.Second  // advance every non-terminal machine
 	ReconcileInterval = 60 * time.Second // adopt/create/destroy pool sweep; heals dead-lettered recreates
+	// LivenessInterval is how often the status loop re-reads worker liveness so a
+	// silently auto-stopped session becomes visible in Streams without a nudge
+	// (amended 2026-07-05). Faster than reconcile (a status the user watches),
+	// slower than the turn poller (liveness moves in seconds, not sub-seconds);
+	// one ListWorkers call per tick regardless of pool size.
+	LivenessInterval = 10 * time.Second
 )

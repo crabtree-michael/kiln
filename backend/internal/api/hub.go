@@ -53,6 +53,7 @@ type client struct {
 // same per-client streams as board events, distinguished by SSE event name.
 type Hub struct {
 	boards BoardReader
+	agents AgentInspector // may be nil; set post-construction via SetAgentInspector
 
 	mu      sync.Mutex
 	clients map[*client]struct{}
@@ -62,6 +63,13 @@ type Hub struct {
 func NewHub(boards BoardReader) *Hub {
 	return &Hub{boards: boards, clients: make(map[*client]struct{})}
 }
+
+// SetAgentInspector late-binds the live-worker status source joined into every
+// board snapshot (amended 2026-07-05). Late because the agent service is built
+// after the hub at the composition root, and the hub is what the agent's
+// liveness loop nudges to re-push — a construction cycle broken here rather than
+// with an empty adapter. Nil (never called) leaves the agents array empty.
+func (h *Hub) SetAgentInspector(a AgentInspector) { h.agents = a }
 
 // The hub satisfies every runtime push port: board/say snapshots (04/07) and
 // the 08 feed/activity fan-out.
@@ -119,11 +127,11 @@ func (h *Hub) ServeStream(w http.ResponseWriter, r *http.Request) {
 // PushBoard implements runtime.SnapshotPusher (04 §2): read one fresh
 // snapshot, send it to every connected stream.
 func (h *Hub) PushBoard(ctx context.Context) error {
-	snap, err := h.boards.GetBoard(ctx)
+	bw, err := h.boardWire(ctx)
 	if err != nil {
 		return fmt.Errorf("api: push board: %w", err)
 	}
-	data, err := json.Marshal(boardToWire(snap))
+	data, err := json.Marshal(bw)
 	if err != nil {
 		return fmt.Errorf("api: marshal board event: %w", err)
 	}
@@ -168,14 +176,25 @@ func (h *Hub) PushActivity(_ context.Context, ev runtime.ActivityEvent) error {
 	return nil
 }
 
+// boardWire reads one fresh snapshot and joins the live-worker statuses onto it
+// (amended 2026-07-05) — the single shape behind GET /api/board, the connect
+// snapshot, and every board push.
+func (h *Hub) boardWire(ctx context.Context) (wire.Board, error) {
+	snap, err := h.boards.GetBoard(ctx)
+	if err != nil {
+		return wire.Board{}, fmt.Errorf("api: get board: %w", err)
+	}
+	return boardToWire(snap, agentStatuses(ctx, h.agents)), nil
+}
+
 // writeInitialSnapshot sends the connect-time board event (04 §7). It returns
 // false if the snapshot could not be read or written, so ServeStream can bail.
 func (h *Hub) writeInitialSnapshot(ctx context.Context, w io.Writer, flusher http.Flusher) bool {
-	snap, err := h.boards.GetBoard(ctx)
+	bw, err := h.boardWire(ctx)
 	if err != nil {
 		return false
 	}
-	data, err := json.Marshal(boardToWire(snap))
+	data, err := json.Marshal(bw)
 	if err != nil {
 		return false
 	}

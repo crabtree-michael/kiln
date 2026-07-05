@@ -72,7 +72,7 @@ func TestReset_DestroysKilnWorkersAndClearsCache(t *testing.T) {
 		{Name: kilnB, Ref: "rb"},
 		{Name: "unrelated-sandbox", Ref: "ru"}, // not kiln-worker-*: must be left alone
 	}}
-	svc := NewService(nil, provider, nil, nil, nil)
+	svc := NewService(nil, provider, nil, nil, nil, nil)
 	svc.putWorker(ProviderWorker{Name: kilnA, Ref: "ra"})
 	svc.putWorker(ProviderWorker{Name: kilnB, Ref: "rb"})
 
@@ -97,7 +97,7 @@ func TestReset_ContinuesPastDestroyError(t *testing.T) {
 		live:   []ProviderWorker{{Name: kilnA}, {Name: kilnB}},
 		failOn: kilnA,
 	}
-	svc := NewService(nil, provider, nil, nil, nil)
+	svc := NewService(nil, provider, nil, nil, nil, nil)
 
 	if err := svc.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset should be best-effort, got err: %v", err)

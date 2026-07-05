@@ -427,7 +427,7 @@ func TestDispatch_NotificationErrorFedBack(t *testing.T) {
 // AgentInspector.ListAgents (06 §4 amended).
 func TestDispatch_ListAgents_RoutesToInspector(t *testing.T) {
 	fi := &fakeInspector{list: []brain.AgentInfo{
-		{WorkerID: workerW1, TicketID: "tkt-1", Status: brain.AgentWorking},
+		{WorkerID: workerW1, TicketID: "tkt-1", Status: brain.AgentBuilding},
 		{WorkerID: "w-2", Status: brain.AgentIdle},
 	}}
 	svc := newTestServiceI(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fi, &scriptedLLM{})
@@ -448,7 +448,7 @@ func TestDispatch_ListAgents_RoutesToInspector(t *testing.T) {
 // mapping to AgentInspector.GetAgentUpdates(worker_id) (06 §4 amended).
 func TestDispatch_GetAgentUpdates_RoutesToInspector(t *testing.T) {
 	fi := &fakeInspector{update: brain.AgentUpdate{
-		WorkerID: workerW1, Status: brain.AgentWorking, LatestOutput: "all done",
+		WorkerID: workerW1, Status: brain.AgentBuilding, LatestOutput: "all done",
 	}}
 	svc := newTestServiceI(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fi, &scriptedLLM{})
 

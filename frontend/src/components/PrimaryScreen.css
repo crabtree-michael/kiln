@@ -48,6 +48,10 @@ body:has([data-role='primary-screen']) {
   --ink-soft: oklch(0.42 0.012 40);
   --muted: oklch(0.56 0.01 40);
   --faint: oklch(0.64 0.01 40);
+  /* Stream session-status accents (amended 2026-07-05): amber = starting,
+     red = errored. `building` reuses --ember; `stopped`/`idle` stay neutral. */
+  --amber: oklch(0.7 0.15 75);
+  --danger: oklch(0.53 0.22 25);
   --hairline: oklch(0.91 0.006 40);
   --hairline-faint: oklch(0.94 0.004 40);
   --surface: oklch(0.994 0.003 40);
@@ -247,6 +251,26 @@ body:has([data-role='primary-screen']) {
   animation: kiln-status-pulse 1.6s ease-in-out infinite;
 }
 
+/* starting — session provisioning: amber, static (only `building` pulses, so
+   the actively-working stream is the one that draws the eye). */
+[data-role='header-status-row'][data-status='starting'] [data-role='header-status-dot'] {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px oklch(0.7 0.15 75 / 0.16);
+}
+
+/* stopped — session auto-stopped/not running: a hollow, dimmed dot, distinct
+   from idle's flat faint fill so a dead session reads as deliberately off. */
+[data-role='header-status-row'][data-status='stopped'] [data-role='header-status-dot'] {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+
+/* errored — terminal session failure: solid red, no pulse. */
+[data-role='header-status-row'][data-status='errored'] [data-role='header-status-dot'] {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px oklch(0.53 0.22 25 / 0.16);
+}
+
 [data-role='header-status-label'] {
   min-width: 0;
   font-size: 13px;
@@ -267,6 +291,14 @@ body:has([data-role='primary-screen']) {
 
 [data-role='header-status-row'][data-status='building'] [data-role='header-status-state'] {
   color: var(--ember);
+}
+
+[data-role='header-status-row'][data-status='starting'] [data-role='header-status-state'] {
+  color: var(--amber);
+}
+
+[data-role='header-status-row'][data-status='errored'] [data-role='header-status-state'] {
+  color: var(--danger);
 }
 
 [data-role='header-status-reason'] {

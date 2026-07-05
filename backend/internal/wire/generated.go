@@ -49,6 +49,33 @@ func (e ActivityEventVerb) Valid() bool {
 	}
 }
 
+// Defines values for AgentStatusStatus.
+const (
+	Building AgentStatusStatus = "building"
+	Errored  AgentStatusStatus = "errored"
+	Idle     AgentStatusStatus = "idle"
+	Starting AgentStatusStatus = "starting"
+	Stopped  AgentStatusStatus = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the AgentStatusStatus enum.
+func (e AgentStatusStatus) Valid() bool {
+	switch e {
+	case Building:
+		return true
+	case Errored:
+		return true
+	case Idle:
+		return true
+	case Starting:
+		return true
+	case Stopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FeedCardKind.
 const (
 	Blocker  FeedCardKind = "blocker"
@@ -153,12 +180,25 @@ type ActivityEventKind string
 // ActivityEventVerb For kind=toast — the transition: started (dispatched), nudged (new turn sent), finished (accepted to done), queued (marked ready).
 type ActivityEventVerb string
 
+// AgentStatus One live worker's real underlying session status, joined to its most-recent ticket binding (amended 2026-07-05). This is the actual agent/session running state — distinct from a ticket's board-column placement — so the Streams view can show a stopped or errored session instead of a hardcoded "building". worker_id is the board slot uuid; ticket_id is "" for an idle-pool worker that never ran a send.
+type AgentStatus struct {
+	// Status building = alive with a turn in flight; idle = alive, no turn; stopped = session auto-stopped/not running; errored = terminal session failure; starting = session provisioning, not reachable yet.
+	Status   AgentStatusStatus `json:"status"`
+	TicketId string            `json:"ticket_id"`
+	WorkerId string            `json:"worker_id"`
+}
+
+// AgentStatusStatus building = alive with a turn in flight; idle = alive, no turn; stopped = session auto-stopped/not running; errored = terminal session failure; starting = session provisioning, not reachable yet.
+type AgentStatusStatus string
+
 // Board GetBoard's full snapshot (03 §4), grouped in render order — the `board` SSE event payload and GET /api/board's response body are the identical shape (04 D7): absolute, never a delta, so a reconnect's resync is just "render the next board event" (07 §7–§8). `ready` is in exact pull order, top-to-bottom, so the user sees what gets pulled next (03 §5, 07 §7).
 type Board struct {
-	Blocked []Ticket `json:"blocked"`
-	Done    []Ticket `json:"done"`
-	Ready   []Ticket `json:"ready"`
-	Shaping []Ticket `json:"shaping"`
+	// Agents Live workers with their real session status, joined server-side for the Streams view (amended 2026-07-05). Absolute like the rest of the snapshot; empty before the first worker is live. Keyed to tickets by ticket_id.
+	Agents  []AgentStatus `json:"agents"`
+	Blocked []Ticket      `json:"blocked"`
+	Done    []Ticket      `json:"done"`
+	Ready   []Ticket      `json:"ready"`
+	Shaping []Ticket      `json:"shaping"`
 
 	// WorkerFree Free (non-busy) worker slots — the capacity chip (07 §7).
 	WorkerFree int `json:"worker_free"`

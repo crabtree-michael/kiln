@@ -226,6 +226,48 @@ func (a *agentInspectorAdapter) GetAgentUpdates(ctx context.Context, workerID st
 
 var _ brain.AgentInspector = (*agentInspectorAdapter)(nil)
 
+// agentStatusAdapter bridges *agent.Service to api.AgentInspector, converting
+// the agent module's neutral AgentInfo to the api's own value-copy (the api
+// never imports internal/agent). inner is set after agent.Service is built,
+// resolving the api-hub↔agent cycle (the hub is the agent's board refresher).
+// No provider handle crosses. Amended 2026-07-05 for the Streams view's real
+// session status.
+type agentStatusAdapter struct{ inner *agent.Service }
+
+func (a *agentStatusAdapter) ListAgents(ctx context.Context) ([]api.AgentInfo, error) {
+	infos, err := a.inner.ListAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list agents for board: %w", err)
+	}
+	out := make([]api.AgentInfo, len(infos))
+	for i, in := range infos {
+		out[i] = api.AgentInfo{
+			WorkerID: in.WorkerID,
+			TicketID: in.TicketID,
+			Status:   string(in.Status),
+		}
+	}
+	return out, nil
+}
+
+var _ api.AgentInspector = (*agentStatusAdapter)(nil)
+
+// boardRefreshAdapter satisfies agent.BoardRefresher over *api.Hub: the agent's
+// liveness loop nudges the hub to re-push the board when a silent auto-stop
+// changes a worker's status, so Streams updates without a manual nudge (amended
+// 2026-07-05). A thin wrapper because the port's RefreshBoard and the hub's
+// PushBoard are the same operation under different names.
+type boardRefreshAdapter struct{ hub *api.Hub }
+
+func (a *boardRefreshAdapter) RefreshBoard(ctx context.Context) error {
+	if err := a.hub.PushBoard(ctx); err != nil {
+		return fmt.Errorf("kiln: refresh board: %w", err)
+	}
+	return nil
+}
+
+var _ agent.BoardRefresher = (*boardRefreshAdapter)(nil)
+
 // repoShellAdapter bridges *repo.Shell to brain.RepoShell, converting the
 // repo module's Result to the brain's own value-copy (brain cannot import
 // internal/repo). *repo.Shell.Run never errors — a disabled shell or a failed

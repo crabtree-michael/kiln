@@ -60,10 +60,13 @@ func (c *Cipher) Decrypt(box []byte) (string, error) {
 	return string(plain), nil
 }
 
+// tailLen is the fingerprint length shown by the API (11 §3 D7).
+const tailLen = 4
+
 // Tail is the last-4 fingerprint shown by the API ("configured · …x4Kd").
 func Tail(s string) string {
-	if len(s) <= 4 {
+	if len(s) <= tailLen {
 		return s
 	}
-	return s[len(s)-4:]
+	return s[len(s)-tailLen:]
 }

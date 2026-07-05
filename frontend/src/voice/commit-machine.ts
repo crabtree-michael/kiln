@@ -28,12 +28,19 @@ export type VoiceAction =
   | { type: 'background' } // visibilitychange -> hidden (09 §3)
   | { type: 'foreground' } // visibilitychange -> visible
   | { type: 'commitConsumed' } // the store POSTed the pending commit successfully
-  | { type: 'commitFailed' }; // the POST failed — keep the finalized text on screen
+  | { type: 'commitFailed' } // the POST failed — keep the finalized text on screen
+  | { type: 'commitDelayElapsed' }; // the post-turn-end grace window closed — fire the armed send
 
 export interface VoiceState {
   micState: MicState;
   settledText: string; // committed/finalized text, in ink
   tailText: string; // still-forming partial, ghosted
+  /** An end-of-turn final that is armed to POST but held through the post-turn-end
+   *  grace window (09 §4): the store runs a `COMMIT_DELAY_MS` timer off this and
+   *  dispatches `commitDelayElapsed` when it closes. Resumed speech (a partial),
+   *  a pause, the X, or a failure clears it, cancelling the send before it fires.
+   *  Explicitly `| undefined` so the reducer can clear it. */
+  pending?: string | undefined;
   /** Set for one tick when an utterance is ready to POST; the store consumes it.
    *  Explicitly `| undefined` so the reducer can clear it under
    *  `exactOptionalPropertyTypes` (02 §4b strictness). */
@@ -50,17 +57,17 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
     case 'provider':
       return onProviderEvent(state, action.event);
     case 'providerFailed':
-      // Preserve any un-committed transcript on screen (09 §5).
-      return { ...state, micState: 'retry', commit: undefined };
+      // Preserve any un-committed transcript on screen (09 §5); drop the armed send.
+      return { ...state, micState: 'retry', pending: undefined, commit: undefined };
     case 'pause':
-      return { ...state, micState: 'paused', tailText: '', commit: undefined };
+      return { ...state, micState: 'paused', tailText: '', pending: undefined, commit: undefined };
     case 'resume':
-      return { ...state, micState: 'listening', commit: undefined };
+      return { ...state, micState: 'listening', pending: undefined, commit: undefined };
     case 'cancel':
       // The X discards the un-committed utterance; nothing was sent (09 §4).
-      return { ...state, tailText: '', commit: undefined };
+      return { ...state, tailText: '', pending: undefined, commit: undefined };
     case 'denied':
-      return { ...state, micState: 'denied', tailText: '', commit: undefined };
+      return { ...state, micState: 'denied', tailText: '', pending: undefined, commit: undefined };
     case 'background':
       // The store closes the socket; the desired state is unchanged so
       // foregrounding resumes it. An explicit pause stays paused.
@@ -76,6 +83,14 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       // The POST failed: keep the finalized text visible so the user can just
       // speak again (09 §4); only drop the one-tick commit.
       return { ...state, commit: undefined };
+    case 'commitDelayElapsed':
+      // The post-turn-end grace window closed with the send still armed: promote
+      // the held `pending` text to the one-tick `commit` the store POSTs. A no-op
+      // if resumed speech (or a cancel) already cleared `pending` mid-window.
+      if (state.pending === undefined) {
+        return state;
+      }
+      return { ...state, pending: undefined, commit: state.pending };
     default:
       return state;
   }
@@ -91,14 +106,18 @@ function onProviderEvent(state: VoiceState, event: VoiceProviderEvent): VoiceSta
     case 'open':
       return { ...state, micState: 'listening' };
     case 'partial':
-      return { ...state, micState: 'listening', tailText: event.text };
+      // Resumed speech within the grace window cancels the armed send (a pause
+      // that read as end-of-turn was a false alarm): drop `pending`, keep listening.
+      return { ...state, micState: 'listening', tailText: event.text, pending: undefined };
     case 'final': {
       const text = event.text.trim();
       if (text === '') {
         // Empty/whitespace finals never post (09 §4).
         return { ...state, tailText: '' };
       }
-      return { ...state, settledText: text, tailText: '', commit: text };
+      // Arm the send but hold it: the store times the post-turn-end grace window
+      // and dispatches `commitDelayElapsed` to actually commit (09 §4).
+      return { ...state, settledText: text, tailText: '', pending: text };
     }
     case 'error':
       return state; // the store decides reconnect-then-retry; no state change here

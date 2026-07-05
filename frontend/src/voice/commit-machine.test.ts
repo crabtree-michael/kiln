@@ -2,17 +2,24 @@ import { describe, it, expect } from 'vitest';
 import { initialVoiceState, voiceReducer } from '@/voice/commit-machine';
 
 describe('commit machine', () => {
-  it('partials then formatted final -> exactly one commit', () => {
+  it('partials then formatted final -> armed pending, commit only after the grace window', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
     s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'hello wor' } });
     expect(s.tailText).toBe('hello wor');
+    expect(s.pending).toBeUndefined();
     expect(s.commit).toBeUndefined();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'hello world' } });
     s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Hello, world.' } });
-    expect(s.commit).toBe('Hello, world.');
+    // The final arms the send but holds it — nothing POSTs yet (09 §4).
+    expect(s.pending).toBe('Hello, world.');
+    expect(s.commit).toBeUndefined();
     expect(s.settledText).toBe('Hello, world.');
     expect(s.tailText).toBe('');
+    // The grace window closes with the send still armed -> exactly one commit.
+    s = voiceReducer(s, { type: 'commitDelayElapsed' });
+    expect(s.pending).toBeUndefined();
+    expect(s.commit).toBe('Hello, world.');
     // next tick: a successful POST clears the transcript back to idle so stale
     // text can't linger (09 §4)
     s = voiceReducer(s, { type: 'commitConsumed' });
@@ -21,11 +28,36 @@ describe('commit machine', () => {
     expect(s.tailText).toBe('');
   });
 
+  it('resumed speech within the grace window cancels the armed send', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Hello there.' } });
+    expect(s.pending).toBe('Hello there.');
+    // A mid-thought pause was misread as end-of-turn; the user keeps talking.
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'and one more thing' } });
+    expect(s.pending).toBeUndefined(); // send cancelled
+    expect(s.tailText).toBe('and one more thing');
+    expect(s.micState).toBe('listening');
+    // A late timer firing must not resurrect the cancelled send.
+    s = voiceReducer(s, { type: 'commitDelayElapsed' });
+    expect(s.commit).toBeUndefined();
+  });
+
+  it('commitDelayElapsed with nothing armed is a no-op', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'commitDelayElapsed' });
+    expect(s.commit).toBeUndefined();
+    expect(s.pending).toBeUndefined();
+  });
+
   it('failed commit keeps the finalized text on screen for a retry', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
     s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+    s = voiceReducer(s, { type: 'commitDelayElapsed' }); // grace window closes -> commit
     expect(s.settledText).toBe('Ship it.');
+    expect(s.commit).toBe('Ship it.');
     // POST failed: drop the one-tick commit but keep the ink visible (09 §4)
     s = voiceReducer(s, { type: 'commitFailed' });
     expect(s.commit).toBeUndefined();

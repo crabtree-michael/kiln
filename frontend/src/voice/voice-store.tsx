@@ -29,6 +29,11 @@ export interface VoiceProviderProps {
 // proactive reconnect beats waiting for the socket to fail on an expired token.
 const REFRESH_BUFFER_MS = 30_000;
 
+// Post-turn-end grace window (09 §4): hold an armed end-of-turn final this long
+// before actually POSTing it, so a mid-thought pause misread as turn-end doesn't
+// send. Resumed speech within the window cancels the send. Tune here.
+const COMMIT_DELAY_MS = 10_000;
+
 export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const [state, dispatch] = useReducer(voiceReducer, undefined, initialVoiceState);
 
@@ -135,6 +140,23 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       stopStream();
     };
   }, [startStream, stopStream]);
+
+  // Grace-window effect (09 §4): an end-of-turn final arms `pending` rather than
+  // committing outright. Hold it COMMIT_DELAY_MS, then dispatch `commitDelayElapsed`
+  // to promote it to a real commit. If the user keeps talking, a fresh partial
+  // clears `pending` (or a new final re-arms it), which re-runs this effect and the
+  // cleanup cancels the timer — so a pause misread as turn-end never sends.
+  useEffect(() => {
+    if (state.pending === undefined) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      dispatch({ type: 'commitDelayElapsed' });
+    }, COMMIT_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [state.pending]);
 
   // Commit effect (09 §4): a finalized utterance is POSTed to the unchanged
   // /api/message seam. On success the transcript clears back to idle

@@ -160,6 +160,35 @@ describe('Dock', () => {
     expect(root?.getAttribute('style') ?? '').toContain('--dock-overlay-height');
   });
 
+  // As text streams in the transcript can overflow its cap (`max-height: 28vh`,
+  // `overflow-y: auto`); text flows top-to-bottom so the newest words sit at the
+  // bottom. The dock re-pins `scrollTop` to `scrollHeight` on every settled/tail
+  // update so the latest words stay in view without manual scrolling.
+  it('auto-scrolls the transcript to the bottom as text streams in', () => {
+    // jsdom reports 0 for layout metrics, so stand in a growing scrollHeight.
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(600);
+    try {
+      mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'first words' });
+      const { container, rerender } = render(<Dock />);
+      const transcript = container.querySelector<HTMLElement>('[data-role="dock-transcript"]');
+      expect(transcript?.scrollTop).toBe(600);
+
+      // A new partial streams in: the tail grows and the pin re-runs to the new bottom.
+      scrollHeight.mockReturnValue(900);
+      mockVoiceValue = stubVoice({
+        micState: 'listening',
+        settledText: 'first words',
+        tailText: 'still going',
+      });
+      rerender(<Dock />);
+      expect(transcript?.scrollTop).toBe(900);
+    } finally {
+      scrollHeight.mockRestore();
+    }
+  });
+
   it('leaves no overlay offset when collapsed, so the hub sits on the dock', () => {
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
     const { container } = render(

@@ -29,15 +29,29 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   const [verifying, setVerifying] = useState(false);
   const [verifyChecks, setVerifyChecks] = useState<VerifyCheck[] | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
+  // Shared by the mount effect and `signOut`'s re-fetch: passes through
+  // `loading` while `GET /api/me` is in flight (the documented phase
+  // contract), then lands on `signed-out`/`ready`. Saves deliberately do NOT
+  // go through here — they swap in the returned `Me` directly, so a save
+  // never flashes a loading state. `isCancelled` lets the mount effect drop
+  // the result after unmount (chat-store's `cancelled`-flag pattern).
+  const load = useCallback(async (isCancelled?: () => boolean): Promise<void> => {
+    setPhase('loading');
     const account = await fetchMe();
+    if (isCancelled?.() === true) {
+      return;
+    }
     setMe(account);
     setPhase(account === null ? 'signed-out' : 'ready');
   }, []);
 
   // Load the account view on mount (11 §5).
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   const saveSettings = useCallback(async (body: SettingsUpdateRequest): Promise<void> => {

@@ -269,4 +269,48 @@ describe('DashboardProvider', () => {
       expect(screen.getByTestId('phase').textContent).toBe('signed-out');
     });
   });
+
+  it('signOut passes through loading while the re-fetch is in flight', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValueOnce(makeMe());
+    vi.mocked(transport.postLogout).mockResolvedValue(undefined);
+
+    render(
+      <DashboardProvider>
+        <Probe />
+      </DashboardProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('ready');
+    });
+
+    // Hold the sign-out re-fetch open so the intermediate phase is observable.
+    let resolveRefetch: ((me: Me | null) => void) | undefined;
+    vi.mocked(transport.fetchMe).mockImplementationOnce(
+      () =>
+        new Promise<Me | null>((resolve) => {
+          resolveRefetch = resolve;
+        }),
+    );
+
+    act(() => {
+      fireEvent.click(screen.getByText('sign-out'));
+    });
+
+    // Immediately after signOut is invoked — postLogout resolved, fetchMe
+    // pending — the phase must read 'loading', not jump straight to
+    // 'signed-out' (the documented phase contract).
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('loading');
+    });
+    expect(screen.getByTestId('login').textContent).toBe('octocat');
+
+    act(() => {
+      resolveRefetch?.(null);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('signed-out');
+    });
+    expect(screen.getByTestId('login').textContent).toBe('none');
+  });
 });

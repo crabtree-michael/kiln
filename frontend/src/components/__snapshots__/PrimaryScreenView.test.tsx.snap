@@ -698,11 +698,23 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                 1m
               </span>
             </div>
-            <p
-              data-role="feed-card-body"
+            <button
+              aria-label="Open ticket: Login Redesign"
+              data-role="feed-card-open"
+              type="button"
             >
-              Rework the login screen to a single-column layout with inline validation.
-            </p>
+              <span
+                data-role="feed-card-body"
+              >
+                Rework the login screen to a single-column layout with inline validation.
+              </span>
+              <span
+                aria-hidden="true"
+                data-role="feed-card-open-hint"
+              >
+                Read full ticket
+              </span>
+            </button>
             <div
               data-role="feed-card-actions"
             >

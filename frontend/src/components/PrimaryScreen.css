@@ -421,6 +421,51 @@
   border-radius: var(--radius-sm);
 }
 
+/* proposal digest: the clamped body is a click-through to the full ticket detail
+   (08 §5). Button reset so it reads as plain body copy, with a quiet ember "read
+   full ticket" hint under the body that warms on hover/focus. */
+[data-role='feed-card-open'] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+[data-role='feed-card-open'] [data-role='feed-card-body'] {
+  transition: color 0.12s ease;
+}
+
+[data-role='feed-card-open-hint'] {
+  align-self: flex-start;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ember);
+}
+
+[data-role='feed-card-open-hint']::after {
+  content: ' ›';
+}
+
+[data-role='feed-card-open']:hover [data-role='feed-card-body'] {
+  color: var(--ember);
+}
+
+[data-role='feed-card-open']:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
 [data-role='feed-card-image'] {
   display: block;
   width: 100%;

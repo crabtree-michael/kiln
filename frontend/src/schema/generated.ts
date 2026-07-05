@@ -89,10 +89,30 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Full feed snapshot for the primary screen (08 §3).
-         * @description The same absolute snapshot the `feed` SSE event carries — for initial render before /api/stream attaches, or a manual resync (08 §3, mirroring 04 D7). Assembled server-side (08 §7): derived blocker/proposal cards from board state joined with unseen, unretracted brain-authored update/ preview notifications, in strict order (blockers -> proposals -> updates newest-first). Never a delta.
+         * Full feed snapshot for the primary screen (08 §3, D2′).
+         * @description The same absolute snapshot the `feed` SSE event carries — for initial render before /api/stream attaches, or a manual resync (08 §3, mirroring 04 D7). Assembled server-side (08 §7): derived blocker/proposal cards from board state joined with the NEWEST PAGE of unretracted brain-authored update/preview notifications — seen AND unseen (08 D2′, retained history), in strict order (blockers -> proposals -> updates newest-first). `summary.last_seen_notification_id` marks the last-seen divider boundary and `has_more_history` signals older updates are pageable via /api/feed/history. Never a delta.
          */
         get: operations["getFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feed/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One older page of retained update/preview history (08 §3, D2′).
+         * @description Keyset pagination over retained (unretracted) update/preview notifications, newest-first, older than the `before` cursor — the "Show earlier updates" affordance (08 §3, D2′). Blockers and proposals are board-derived and never paged; this returns only notification-backed cards. Mirrors the /api/messages `limit` convention. `before` omitted means start from the newest (rarely needed — GET /api/feed already carries the first page). `has_more` signals another page remains.
+         */
+        get: operations["getFeedHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -112,7 +132,7 @@ export interface paths {
         put?: never;
         /**
          * Ack that update cards up to a high-water mark were seen (08 §3).
-         * @description Inbox-drains semantics (08 D2): stamps seen_at on every unseen notification with id <= last_notification_id; seen updates drop out of subsequent feed snapshots. Blockers and proposals ignore seen entirely. Fired by the client when update cards render on a foregrounded, visible screen (08 §3).
+         * @description Retained-history semantics (08 D2′): stamps seen_at on every unseen notification with id <= last_notification_id, advancing the persistent last-seen high-water mark. Seen updates STAY in the feed as history below the last-seen divider (they no longer drop out); the mark only moves the divider on the next visit. Blockers and proposals ignore seen entirely. Fired by the client when update cards render on a foregrounded, visible screen (08 §3).
          */
         post: operations["postFeedSeen"];
         delete?: never;
@@ -310,11 +330,24 @@ export interface components {
              * @description Timestamp of the most recent brain say/update, for "last word 6m ago".
              */
             last_word_at?: string | null;
+            /**
+             * Format: int64
+             * @description The persistent seen high-water mark (08 D2′): the greatest notification id the user has acked. Update/preview cards with a greater notification_id are "new since last visit" (above the last-seen divider); those at or below it are retained history (below it). Null when nothing has ever been seen. The client freezes this at the first snapshot of a session so marking-seen-on-view doesn't move the divider mid-session.
+             */
+            last_seen_notification_id?: number | null;
         };
-        /** @description GET /api/feed's body and the `feed` SSE event payload — the identical absolute shape (08 §3). `cards` is in strict order: unresolved blockers, then pending proposals, then unseen updates newest-first. */
+        /** @description GET /api/feed's body and the `feed` SSE event payload — the identical absolute shape (08 §3, D2′). `cards` is in strict order: unresolved blockers, then pending proposals, then updates newest-first (seen and unseen — retained history). `cards` carries only the NEWEST PAGE of updates; `has_more_history` signals older ones are pageable via /api/feed/history. */
         FeedSnapshot: {
             summary: components["schemas"]["FeedSummary"];
             cards: components["schemas"]["FeedCard"][];
+            /** @description True when retained update/preview history exists older than the oldest update card in `cards` — page it in via GET /api/feed/history (08 D2′). */
+            has_more_history: boolean;
+        };
+        /** @description One older page of retained update/preview history (GET /api/feed/history — 08 §3, D2′): notification-backed cards only, newest-first, older than the request's `before` cursor. Board-derived blocker/proposal cards are never paged. */
+        FeedHistoryPage: {
+            cards: components["schemas"]["FeedCard"][];
+            /** @description True when another older page remains beyond this one. */
+            has_more: boolean;
         };
         /** @description POST /api/feed/seen body (08 §3) — the seen high-water mark. */
         FeedSeenRequest: {
@@ -447,6 +480,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedSnapshot"];
+                };
+            };
+        };
+    };
+    getFeedHistory: {
+        parameters: {
+            query?: {
+                /** @description Exclusive upper-bound notification id; returns cards with id < before. Omit for the newest page. */
+                before?: number;
+                /** @description Page size (default 30, bounds 1–100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One older page of update/preview cards, newest-first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedHistoryPage"];
                 };
             };
         };

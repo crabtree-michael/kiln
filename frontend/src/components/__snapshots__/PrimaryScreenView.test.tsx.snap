@@ -81,7 +81,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
           <span
             data-role="feed-empty-title"
           >
-            Nothing needs you right now.
+            All good.
           </span>
           <div
             data-role="feed-empty-status"

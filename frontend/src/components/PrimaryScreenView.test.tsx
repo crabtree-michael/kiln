@@ -284,7 +284,7 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    expect(screen.getByText('Nothing needs you right now.')).toHaveAttribute(
+    expect(screen.getByText('All good.')).toHaveAttribute(
       'data-role',
       'feed-empty-title',
     );

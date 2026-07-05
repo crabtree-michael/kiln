@@ -95,45 +95,49 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
       </div>
     </section>
     <div
-      data-role="activity-row"
-    />
-    <div
-      data-dock-state="listening"
-      data-role="dock"
+      data-role="dock-region"
     >
       <div
-        data-role="dock-controls"
+        data-role="activity-row"
+      />
+      <div
+        data-dock-state="listening"
+        data-role="dock"
       >
-        <button
-          aria-label="Talk"
-          aria-pressed="true"
-          data-dock-state="listening"
-          data-role="dock-talk"
-          type="button"
+        <div
+          data-role="dock-controls"
         >
-          <span
-            aria-hidden="true"
-            data-role="dock-mic"
+          <button
+            aria-label="Talk"
+            aria-pressed="true"
+            data-dock-state="listening"
+            data-role="dock-talk"
+            type="button"
           >
             <span
-              data-role="dock-mic-orb"
-            />
+              aria-hidden="true"
+              data-role="dock-mic"
+            >
+              <span
+                data-role="dock-mic-orb"
+              />
+              <span
+                data-role="dock-mic-capsule"
+              />
+              <span
+                data-role="dock-mic-arc"
+              />
+              <span
+                data-role="dock-mic-stem"
+              />
+            </span>
             <span
-              data-role="dock-mic-capsule"
-            />
-            <span
-              data-role="dock-mic-arc"
-            />
-            <span
-              data-role="dock-mic-stem"
-            />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
-        </button>
+              data-role="dock-label"
+            >
+              Listening…
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -351,45 +355,49 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
       </div>
     </section>
     <div
-      data-role="activity-row"
-    />
-    <div
-      data-dock-state="listening"
-      data-role="dock"
+      data-role="dock-region"
     >
       <div
-        data-role="dock-controls"
+        data-role="activity-row"
+      />
+      <div
+        data-dock-state="listening"
+        data-role="dock"
       >
-        <button
-          aria-label="Talk"
-          aria-pressed="true"
-          data-dock-state="listening"
-          data-role="dock-talk"
-          type="button"
+        <div
+          data-role="dock-controls"
         >
-          <span
-            aria-hidden="true"
-            data-role="dock-mic"
+          <button
+            aria-label="Talk"
+            aria-pressed="true"
+            data-dock-state="listening"
+            data-role="dock-talk"
+            type="button"
           >
             <span
-              data-role="dock-mic-orb"
-            />
+              aria-hidden="true"
+              data-role="dock-mic"
+            >
+              <span
+                data-role="dock-mic-orb"
+              />
+              <span
+                data-role="dock-mic-capsule"
+              />
+              <span
+                data-role="dock-mic-arc"
+              />
+              <span
+                data-role="dock-mic-stem"
+              />
+            </span>
             <span
-              data-role="dock-mic-capsule"
-            />
-            <span
-              data-role="dock-mic-arc"
-            />
-            <span
-              data-role="dock-mic-stem"
-            />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
-        </button>
+              data-role="dock-label"
+            >
+              Listening…
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -537,45 +545,49 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
       </div>
     </section>
     <div
-      data-role="activity-row"
-    />
-    <div
-      data-dock-state="listening"
-      data-role="dock"
+      data-role="dock-region"
     >
       <div
-        data-role="dock-controls"
+        data-role="activity-row"
+      />
+      <div
+        data-dock-state="listening"
+        data-role="dock"
       >
-        <button
-          aria-label="Talk"
-          aria-pressed="true"
-          data-dock-state="listening"
-          data-role="dock-talk"
-          type="button"
+        <div
+          data-role="dock-controls"
         >
-          <span
-            aria-hidden="true"
-            data-role="dock-mic"
+          <button
+            aria-label="Talk"
+            aria-pressed="true"
+            data-dock-state="listening"
+            data-role="dock-talk"
+            type="button"
           >
             <span
-              data-role="dock-mic-orb"
-            />
+              aria-hidden="true"
+              data-role="dock-mic"
+            >
+              <span
+                data-role="dock-mic-orb"
+              />
+              <span
+                data-role="dock-mic-capsule"
+              />
+              <span
+                data-role="dock-mic-arc"
+              />
+              <span
+                data-role="dock-mic-stem"
+              />
+            </span>
             <span
-              data-role="dock-mic-capsule"
-            />
-            <span
-              data-role="dock-mic-arc"
-            />
-            <span
-              data-role="dock-mic-stem"
-            />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
-        </button>
+              data-role="dock-label"
+            >
+              Listening…
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -695,45 +707,49 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
       </div>
     </section>
     <div
-      data-role="activity-row"
-    />
-    <div
-      data-dock-state="listening"
-      data-role="dock"
+      data-role="dock-region"
     >
       <div
-        data-role="dock-controls"
+        data-role="activity-row"
+      />
+      <div
+        data-dock-state="listening"
+        data-role="dock"
       >
-        <button
-          aria-label="Talk"
-          aria-pressed="true"
-          data-dock-state="listening"
-          data-role="dock-talk"
-          type="button"
+        <div
+          data-role="dock-controls"
         >
-          <span
-            aria-hidden="true"
-            data-role="dock-mic"
+          <button
+            aria-label="Talk"
+            aria-pressed="true"
+            data-dock-state="listening"
+            data-role="dock-talk"
+            type="button"
           >
             <span
-              data-role="dock-mic-orb"
-            />
+              aria-hidden="true"
+              data-role="dock-mic"
+            >
+              <span
+                data-role="dock-mic-orb"
+              />
+              <span
+                data-role="dock-mic-capsule"
+              />
+              <span
+                data-role="dock-mic-arc"
+              />
+              <span
+                data-role="dock-mic-stem"
+              />
+            </span>
             <span
-              data-role="dock-mic-capsule"
-            />
-            <span
-              data-role="dock-mic-arc"
-            />
-            <span
-              data-role="dock-mic-stem"
-            />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
-        </button>
+              data-role="dock-label"
+            >
+              Listening…
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -909,45 +925,49 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
       </div>
     </section>
     <div
-      data-role="activity-row"
-    />
-    <div
-      data-dock-state="listening"
-      data-role="dock"
+      data-role="dock-region"
     >
       <div
-        data-role="dock-controls"
+        data-role="activity-row"
+      />
+      <div
+        data-dock-state="listening"
+        data-role="dock"
       >
-        <button
-          aria-label="Talk"
-          aria-pressed="true"
-          data-dock-state="listening"
-          data-role="dock-talk"
-          type="button"
+        <div
+          data-role="dock-controls"
         >
-          <span
-            aria-hidden="true"
-            data-role="dock-mic"
+          <button
+            aria-label="Talk"
+            aria-pressed="true"
+            data-dock-state="listening"
+            data-role="dock-talk"
+            type="button"
           >
             <span
-              data-role="dock-mic-orb"
-            />
+              aria-hidden="true"
+              data-role="dock-mic"
+            >
+              <span
+                data-role="dock-mic-orb"
+              />
+              <span
+                data-role="dock-mic-capsule"
+              />
+              <span
+                data-role="dock-mic-arc"
+              />
+              <span
+                data-role="dock-mic-stem"
+              />
+            </span>
             <span
-              data-role="dock-mic-capsule"
-            />
-            <span
-              data-role="dock-mic-arc"
-            />
-            <span
-              data-role="dock-mic-stem"
-            />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
-        </button>
+              data-role="dock-label"
+            >
+              Listening…
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

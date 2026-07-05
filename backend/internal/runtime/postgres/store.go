@@ -400,7 +400,7 @@ func (s *Store) LastSeenID(ctx context.Context) (*int64, error) {
 		return nil, fmt.Errorf("runtime/postgres: query last seen id: %w", err)
 	}
 	if !id.Valid {
-		return nil, nil
+		return nil, nil //nolint:nilnil // (nil, nil) is the intended "nothing seen yet" signal (08 D2′), not an error.
 	}
 	v := id.Int64
 	return &v, nil

@@ -29,7 +29,9 @@ function isUpdateCard(card: FeedCard): boolean {
 
 /** An update/preview card with a usable numeric notification_id, narrowed. */
 function updateId(card: FeedCard): number | null {
-  return isUpdateCard(card) && typeof card.notification_id === 'number' ? card.notification_id : null;
+  return isUpdateCard(card) && typeof card.notification_id === 'number'
+    ? card.notification_id
+    : null;
 }
 
 /** The smallest notification_id currently accumulated — the keyset cursor for
@@ -276,7 +278,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   }, [applySnapshot]);
 
   const value = useMemo<FeedStoreValue>(
-    () => ({ feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory }),
+    () => ({
+      feed,
+      connectionState,
+      lastSeenId,
+      hasMoreHistory,
+      loadingMoreHistory,
+      loadMoreHistory,
+    }),
     [feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory],
   );
 

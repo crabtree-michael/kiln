@@ -179,7 +179,10 @@ describe('FeedProvider', () => {
 
   it('acks unseen update cards with the high-water id when the screen is visible (08 §3)', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
-      makeFeedSnapshot({ summary: { update_count: 2 }, cards: [update(7, 'newer'), update(5, 'older')] }),
+      makeFeedSnapshot({
+        summary: { update_count: 2 },
+        cards: [update(7, 'newer'), update(5, 'older')],
+      }),
     );
 
     render(
@@ -196,7 +199,9 @@ describe('FeedProvider', () => {
 
   it('does NOT ack while hidden, then acks once the screen becomes visible', async () => {
     setVisibility('hidden');
-    vi.mocked(transport.fetchFeed).mockResolvedValue(makeFeedSnapshot({ cards: [update(9, 'while away')] }));
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(9, 'while away')] }),
+    );
 
     render(
       <FeedProvider>
@@ -266,15 +271,22 @@ describe('FeedProvider', () => {
     // flags older history remains. The retained id 3 (below the floor) must NOT
     // be dropped — it stays as history.
     capturedHandlers?.onFeed?.(
-      makeFeedSnapshot({ cards: [update(6, 'f'), update(5, 'e'), update(4, 'd')], hasMoreHistory: true }),
+      makeFeedSnapshot({
+        cards: [update(6, 'f'), update(5, 'e'), update(4, 'd')],
+        hasMoreHistory: true,
+      }),
     );
     await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:6,update:5,update:4,update:3');
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe(
+        'update:6,update:5,update:4,update:3',
+      );
     });
   });
 
   it('drops a retracted update when a complete snapshot no longer carries it (08 D2′)', async () => {
-    vi.mocked(transport.fetchFeed).mockResolvedValue(makeFeedSnapshot({ cards: [update(5, 'e'), update(4, 'd')] }));
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(5, 'e'), update(4, 'd')] }),
+    );
 
     render(
       <FeedProvider>
@@ -314,7 +326,9 @@ describe('FeedProvider', () => {
     screen.getByTestId('load-more').click();
 
     await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8,update:7,update:6');
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe(
+        'update:9,update:8,update:7,update:6',
+      );
     });
     // The keyset cursor is the oldest held id (8) with the default page size.
     expect(transport.fetchFeedHistory).toHaveBeenCalledWith(8, 30);

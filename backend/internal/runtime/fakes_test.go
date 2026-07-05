@@ -731,14 +731,14 @@ func (f *fakeNotificationStore) HistoryBefore(
 func (f *fakeNotificationStore) LastSeenID(_ context.Context) (*int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var max *int64
+	var maxID *int64
 	for i := range f.rows {
-		if f.rows[i].SeenAt != nil && (max == nil || f.rows[i].ID > *max) {
+		if f.rows[i].SeenAt != nil && (maxID == nil || f.rows[i].ID > *maxID) {
 			id := f.rows[i].ID
-			max = &id
+			maxID = &id
 		}
 	}
-	return max, nil
+	return maxID, nil
 }
 
 func (f *fakeNotificationStore) UnseenCount(_ context.Context) (int, error) {

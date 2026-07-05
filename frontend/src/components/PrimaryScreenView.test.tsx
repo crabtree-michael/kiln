@@ -131,7 +131,12 @@ describe('PrimaryScreenView', () => {
     // (at/below) — the divider falls just before update:20.
     renderView(
       makeFeedSnapshot({
-        summary: { blocker_count: 1, update_count: 1, stream_count: 5, last_seen_notification_id: 20 },
+        summary: {
+          blocker_count: 1,
+          update_count: 1,
+          stream_count: 5,
+          last_seen_notification_id: 20,
+        },
         cards: [blockerCard, ...updateCards],
       }),
       { lastSeenId: 20 },
@@ -158,7 +163,9 @@ describe('PrimaryScreenView', () => {
 
   it('does not render the divider when every update is newer than the boundary (08 D2′)', () => {
     // last-seen below the oldest shown update → nothing is "history" yet.
-    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), { lastSeenId: 5 });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      lastSeenId: 5,
+    });
     expect(screen.queryByText('Earlier')).toBeNull();
   });
 

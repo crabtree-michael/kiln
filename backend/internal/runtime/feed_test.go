@@ -145,7 +145,7 @@ func TestService_Feed_PagesNewestAndFlagsMoreHistory(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	// Seed one more than a page so the newest page leaves history behind.
 	total := 35 // feedPageSize (30) + 5
-	for i := 0; i < total; i++ {
+	for range total {
 		notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "n"})
 	}
 
@@ -171,8 +171,8 @@ func TestService_Feed_PagesNewestAndFlagsMoreHistory(t *testing.T) {
 func TestService_FeedHistory_KeysetPagesOlderUpdates(t *testing.T) {
 	ctx := context.Background()
 	notes := &fakeNotificationStore{}
-	var ids []int64
-	for i := 0; i < 5; i++ {
+	ids := make([]int64, 0, 5)
+	for range 5 {
 		ids = append(ids, notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "n"}).ID)
 	}
 	// A blocker in the board view must NOT leak into a history page.

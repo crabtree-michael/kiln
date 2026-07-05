@@ -494,7 +494,9 @@ func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 func TestHandleFeedHistory_PagesOlderUpdates(t *testing.T) {
 	nid := int64(40)
 	feed := &fakeFeedReader{
-		history:     []runtime.FeedCard{{Kind: "update", ID: "update:40", Body: "older", NotificationID: &nid, CreatedAt: time.Now()}},
+		history: []runtime.FeedCard{
+			{Kind: "update", ID: "update:40", Body: "older", NotificationID: &nid, CreatedAt: time.Now()},
+		},
 		historyMore: true,
 	}
 	boards := &fakeBoardReader{}

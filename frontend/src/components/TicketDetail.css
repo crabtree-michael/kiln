@@ -10,7 +10,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   padding: 0.75rem;
 }
 
@@ -19,15 +19,15 @@
   max-width: 32rem;
   max-height: 85dvh;
   overflow-y: auto;
-  background: var(--kiln-surface);
-  border: 1px solid var(--kiln-border);
-  border-radius: 0.6rem;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   padding: 0.75rem 0.9rem 1rem;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-overlay);
 }
 
 [data-role='ticket-detail'][data-state='blocked'] {
-  border-color: var(--kiln-blocked);
+  border-color: var(--danger);
 }
 
 [data-role='ticket-detail-header'] {
@@ -49,10 +49,10 @@
   height: 1.9rem;
   line-height: 1;
   font-size: 1.2rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--kiln-border);
-  background: var(--kiln-surface-raised);
-  color: var(--kiln-text);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-raised);
+  color: var(--text-body);
   cursor: pointer;
 }
 
@@ -69,9 +69,9 @@
 }
 
 [data-role='ticket-detail-meta'] dt {
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-caps);
   font-size: 0.7rem;
 }
 
@@ -83,10 +83,10 @@
 [data-role='detail-blocked-reason'] {
   margin: 0.6rem 0 0;
   padding: 0.4rem 0.6rem;
-  border-radius: 0.4rem;
-  background: var(--kiln-blocked-bg);
-  border: 1px solid var(--kiln-blocked);
-  color: var(--kiln-danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  color: var(--danger);
   font-weight: 600;
   white-space: pre-wrap;
 }
@@ -94,7 +94,7 @@
 [data-role='ticket-detail-body'] {
   margin-top: 0.7rem;
   padding-top: 0.7rem;
-  border-top: 1px solid var(--kiln-border);
+  border-top: 1px solid var(--border-default);
   font-size: 0.9rem;
   white-space: pre-wrap;
 }
@@ -112,10 +112,10 @@
   font-size: 0.9rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--kiln-surface);
-  background: var(--kiln-accent);
+  color: var(--text-on-accent);
+  background: var(--accent);
   border: none;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-pill);
   padding: 0.55rem 1.4rem;
   cursor: pointer;
 }

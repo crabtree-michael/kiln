@@ -1,58 +1,18 @@
-/* Plain CSS, no framework (07 §5 D4). Mobile-first: base rules target a
-   narrow viewport; `@media (min-width: 720px)` widens the layout for larger
-   screens. Selectors key off the existing `data-*` attributes the components
-   already render (`data-state`, `data-status`, `data-emphasis`,
-   `data-connection-state`) rather than new classNames, so this file can
-   change freely without touching component markup or its DOM snapshots. */
+/* Debug shell styling (07, `/debug`). Plain CSS, no framework (07 §5 D4).
+   Mobile-first: base rules target a narrow viewport; `@media (min-width:
+   720px)` widens the layout for larger screens. Selectors key off the existing
+   `data-*` attributes the components already render (`data-state`,
+   `data-status`, `data-emphasis`, `data-connection-state`) rather than new
+   classNames, so this file can change freely without touching component markup
+   or its DOM snapshots.
 
-:root {
-  /* Light by default: the primary (08) screen at `/` is the light "paper"
-     surface, and this is what drives the UA-painted regions (safe-area insets,
-     overscroll) — a global `dark` here made the browser letterbox the notch /
-     home-indicator strips black even on the light screen. The debug shell opts
-     back into dark below. The `--kiln-*` vars stay defined here but are only
-     consumed by the debug (`.app-shell`) selectors, so keeping them global is
-     harmless. */
-  color-scheme: light;
-  --kiln-bg: #0b0b0f;
-  --kiln-surface: #16161d;
-  --kiln-surface-raised: #1e1e28;
-  --kiln-border: #2c2c38;
-  --kiln-text: #e8e8ef;
-  --kiln-text-dim: #9a9aab;
-  --kiln-accent: #5b8cff;
-  --kiln-ready: #3fa9f5;
-  --kiln-working: #f5a623;
-  --kiln-done: #3fcf8e;
-  --kiln-blocked: #ff4d4f;
-  --kiln-blocked-bg: #3a1416;
-  --kiln-danger: #ff6b6b;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: var(--kiln-bg);
-  color: var(--kiln-text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-}
-
-/* The debug shell (07, `/debug`) is legitimately dark — opt its root back into
-   a dark color-scheme so its UA-painted regions (safe-area insets, form
-   controls, scrollbars) stay dark to match. Scoped via `:has` to the debug
-   route only, so the light primary screen is unaffected. `ThemeColorSync`
-   (main.tsx) makes the system chrome follow suit. */
-:root:has(.app-shell) {
-  color-scheme: dark;
-}
+   Colors are the Kiln semantic tokens (src/styles/tokens.css). The /debug
+   route always renders under `data-theme="dark"` (src/theme.ts forces it), so
+   this shell is "Kiln at night": warm charcoal surfaces, fire accent. Status
+   colors follow the design system's meaning — fire = "you're needed"
+   (blocked), ember = caution (working), glaze = all-clear (done), neutral
+   ink = ready. Base element styles (body font/color/background, color-scheme)
+   live in tokens.css, keyed off data-theme. */
 
 .app-shell {
   display: flex;
@@ -63,7 +23,7 @@ body {
 .app-header {
   flex: 0 0 auto;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--kiln-border);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -80,15 +40,15 @@ body {
   flex: 0 0 auto;
   padding: 0.25rem 0.6rem;
   font-size: 0.8rem;
-  color: var(--kiln-danger);
+  color: var(--danger);
   background: transparent;
-  border: 1px solid var(--kiln-border);
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .reset-session-button:hover:not(:disabled) {
-  border-color: var(--kiln-danger);
+  border-color: var(--danger);
 }
 
 .reset-session-button:disabled {
@@ -100,14 +60,14 @@ body {
   flex: 3 1 0;
   min-height: 0;
   overflow-y: auto;
-  border-bottom: 1px solid var(--kiln-border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .app-notifications-region {
   flex: 2 1 0;
   min-height: 0;
   display: flex;
-  border-bottom: 1px solid var(--kiln-border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .app-notifications-region > * {
@@ -133,7 +93,7 @@ body {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.5rem;
-  transition: opacity 200ms ease;
+  transition: opacity var(--duration-base) ease;
 }
 
 [data-role='board'][data-connection-state='reconnecting'] {
@@ -150,28 +110,28 @@ body {
 [data-role='connection-chip'] {
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--kiln-border);
-  color: var(--kiln-text-dim);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
 }
 
 [data-role='connection-chip'][data-connection-state='connected'] {
-  color: var(--kiln-done);
-  border-color: var(--kiln-done);
+  color: var(--calm);
+  border-color: var(--calm);
 }
 
 [data-role='connection-chip'][data-connection-state='reconnecting'] {
-  color: var(--kiln-working);
-  border-color: var(--kiln-working);
+  color: var(--warn);
+  border-color: var(--warn);
 }
 
 [data-role='capacity-chip'] {
   font-size: 0.85rem;
   font-weight: 600;
   padding: 0.15rem 0.6rem;
-  border-radius: 999px;
-  background: var(--kiln-surface-raised);
-  border: 1px solid var(--kiln-border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
 }
 
 [data-role='board-columns'] {
@@ -185,9 +145,9 @@ body {
 [data-role='board-column'] {
   flex: 0 0 82%;
   scroll-snap-align: start;
-  background: var(--kiln-surface);
-  border: 1px solid var(--kiln-border);
-  border-radius: 0.5rem;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   padding: 0.5rem;
   min-width: 0;
 }
@@ -195,9 +155,9 @@ body {
 [data-role='board-column'] > h2 {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
 }
 
 [data-role='board-zone'] {
@@ -207,7 +167,7 @@ body {
 [data-role='board-zone'] > h3 {
   margin: 0 0 0.3rem;
   font-size: 0.8rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
 }
 
 [data-role='board-zone-tickets'] {
@@ -217,26 +177,27 @@ body {
 }
 
 /* Blocked is the loudest surface on the page in v1 (07 §7 — push is
-   deferred, so this zone is the notification surface). */
+   deferred, so this zone is the notification surface). Fire = "you're
+   needed". */
 [data-role='board-zone'][data-emphasis='loud'] {
-  background: var(--kiln-blocked-bg);
-  border: 1px solid var(--kiln-blocked);
-  border-radius: 0.4rem;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
   padding: 0.4rem 0.4rem 0.1rem;
 }
 
 [data-role='board-zone'][data-emphasis='loud'] > h3 {
-  color: var(--kiln-blocked);
+  color: var(--danger);
   font-weight: 700;
 }
 
 /* --- Ticket cards --- */
 
 [data-role='ticket-card'] {
-  background: var(--kiln-surface-raised);
-  border: 1px solid var(--kiln-border);
-  border-left: 4px solid var(--kiln-text-dim);
-  border-radius: 0.35rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--radius-sm);
   padding: 0.45rem 0.6rem;
 }
 
@@ -248,7 +209,7 @@ body {
 [data-role='ticket-card'] [data-role='body-preview'] {
   margin: 0;
   font-size: 0.8rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -256,30 +217,32 @@ body {
   -webkit-box-orient: vertical;
 }
 
+/* Status accents (design-file semantics): ready = neutral, working = ember
+   caution, done = glaze all-clear, blocked = fire. */
 [data-role='ticket-card'][data-state='ready'] {
-  border-left-color: var(--kiln-ready);
+  border-left-color: var(--border-strong);
 }
 
 [data-role='ticket-card'][data-state='working'] {
-  border-left-color: var(--kiln-working);
+  border-left-color: var(--warn);
 }
 
 [data-role='ticket-card'][data-state='done'] {
-  border-left-color: var(--kiln-done);
+  border-left-color: var(--calm);
   opacity: 0.75;
 }
 
 [data-role='ticket-card'][data-state='blocked'] {
-  border-left-color: var(--kiln-blocked);
-  border-color: var(--kiln-blocked);
-  background: var(--kiln-blocked-bg);
-  box-shadow: 0 0 0 1px var(--kiln-blocked);
+  border-left-color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: 0 0 0 1px var(--danger);
 }
 
 [data-role='ticket-card'] [data-role='blocked-reason'] {
   margin: 0.35rem 0 0;
   font-size: 0.8rem;
-  color: var(--kiln-danger);
+  color: var(--danger);
   font-weight: 600;
   white-space: pre-wrap;
 }
@@ -298,7 +261,7 @@ body {
 [data-role='notifications-empty'] {
   margin: 0.5rem;
   font-size: 0.85rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
 }
 
 [data-role='notifications-list'] {
@@ -311,15 +274,15 @@ body {
 }
 
 [data-role='notification-item'] {
-  background: var(--kiln-surface-raised);
-  border: 1px solid var(--kiln-border);
-  border-left: 4px solid var(--kiln-accent);
-  border-radius: 0.35rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-sm);
   padding: 0.45rem 0.6rem;
 }
 
 [data-role='notification-item'][data-kind='preview'] {
-  border-left-color: var(--kiln-ready);
+  border-left-color: var(--calm);
 }
 
 [data-role='notification-head'] {
@@ -338,27 +301,27 @@ body {
 [data-role='notification-tag'] {
   font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--kiln-accent);
+  letter-spacing: var(--tracking-caps);
+  color: var(--accent);
 }
 
 [data-role='notification-age'] {
   font-size: 0.7rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
 }
 
 [data-role='notification-body'] {
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
   white-space: pre-wrap;
 }
 
 [data-role='notification-image'] {
   margin-top: 0.4rem;
   max-width: 100%;
-  border-radius: 0.3rem;
-  border: 1px solid var(--kiln-border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
 }
 
 /* --- Chat panel --- */
@@ -367,7 +330,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid var(--kiln-border);
+  border-top: 1px solid var(--border-default);
 }
 
 [data-role='chat-transcript'] {
@@ -385,17 +348,18 @@ body {
 [data-role='chat-message'] {
   max-width: 85%;
   padding: 0.4rem 0.6rem;
-  border-radius: 0.6rem;
-  background: var(--kiln-surface-raised);
-  border: 1px solid var(--kiln-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
   align-self: flex-start;
 }
 
 [data-role='chat-message'] [data-role='chat-message-role'] {
   display: block;
   font-size: 0.7rem;
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
 }
 
 [data-role='chat-message'] [data-role='chat-message-text'] {
@@ -408,9 +372,9 @@ body {
    is set directly on the `<li>` for exactly this (07 §7). */
 [data-role='chat-message'][data-message-role='user'] {
   align-self: flex-end;
-  background: var(--kiln-accent);
-  color: #0b0b0f;
-  border-color: var(--kiln-accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
 }
 
 [data-role='chat-message'][data-message-role='user'] [data-role='chat-message-role'],
@@ -427,18 +391,18 @@ body {
 }
 
 [data-role='chat-message'][data-status='failed'] {
-  border-color: var(--kiln-danger);
-  background: var(--kiln-blocked-bg);
+  border-color: var(--danger);
+  background: var(--danger-soft);
 }
 
 [data-role='chat-message'] button {
   margin-top: 0.3rem;
   font-size: 0.75rem;
   padding: 0.2rem 0.5rem;
-  border-radius: 0.3rem;
-  border: 1px solid var(--kiln-danger);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--danger);
   background: transparent;
-  color: var(--kiln-danger);
+  color: var(--danger);
   cursor: pointer;
 }
 
@@ -447,25 +411,25 @@ body {
   display: flex;
   gap: 0.4rem;
   padding: 0.5rem;
-  border-top: 1px solid var(--kiln-border);
+  border-top: 1px solid var(--border-default);
 }
 
 [data-role='chat-panel'] form input {
   flex: 1 1 auto;
   min-width: 0;
   padding: 0.4rem 0.6rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--kiln-border);
-  background: var(--kiln-surface);
-  color: var(--kiln-text);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-body);
 }
 
 [data-role='chat-panel'] form button {
   padding: 0.4rem 0.9rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--kiln-accent);
-  background: var(--kiln-accent);
-  color: #0b0b0f;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-weight: 600;
   cursor: pointer;
 }
@@ -487,11 +451,11 @@ body {
 }
 
 [data-role='ticket-card'][data-interactive='true']:hover {
-  border-color: var(--kiln-accent);
+  border-color: var(--accent);
 }
 
 [data-role='ticket-card'][data-interactive='true']:focus-visible {
-  outline: 2px solid var(--kiln-accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

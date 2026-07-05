@@ -20,7 +20,6 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     micState: 'listening',
     settledText: '',
     tailText: '',
-    pendingSend: false,
     pause: vi.fn(),
     resume: vi.fn(),
     cancel: vi.fn(),
@@ -99,43 +98,38 @@ describe('Dock', () => {
     expect(tail).toHaveAttribute('data-ghost', 'true');
   });
 
-  it('shows the X and calls cancel while there is an un-committed tail', () => {
+  it('shows the send + X whenever there is transcript text, and forwards taps', () => {
     const cancel = vi.fn();
-    mockVoiceValue = stubVoice({ micState: 'listening', tailText: 'never mind', cancel });
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({ micState: 'listening', tailText: 'never mind', cancel, sendNow });
     render(<Dock />);
-    const x = screen.getByRole('button', { name: 'Cancel' });
-    fireEvent.click(x);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(sendNow).toHaveBeenCalledTimes(1);
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the X when there is no un-committed tail', () => {
+  it('shows the send + X with only settled ink (no interim tail)', () => {
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'Committed.', tailText: '' });
     render(<Dock />);
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
-  it('shows the send button and calls sendNow while a send is armed', () => {
-    const sendNow = vi.fn();
-    mockVoiceValue = stubVoice({
-      micState: 'listening',
-      settledText: 'Ship it.',
-      tailText: '',
-      pendingSend: true,
-      sendNow,
-    });
+  it('keeps the send + X available while paused (the "stuck" case)', () => {
+    // Stop-listening froze the transcript; send/X must stay usable regardless of
+    // mic state so the user can still send or clear it (09 §4, items 1 & 4).
+    mockVoiceValue = stubVoice({ micState: 'paused', tailText: 'stuck text' });
     render(<Dock />);
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(sendNow).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
-  it('hides the send button when no send is armed', () => {
-    mockVoiceValue = stubVoice({
-      micState: 'listening',
-      tailText: 'still talking',
-      pendingSend: false,
-    });
+  it('hides the send + X when there is no transcript at all', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
     render(<Dock />);
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 
   it('idle after send: no transcript region, mic controls intact', () => {

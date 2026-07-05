@@ -227,11 +227,18 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   }, []);
 
   const sendNow = useCallback((): void => {
-    // The send button fires the armed end-of-turn final immediately, skipping the
-    // grace window; the commit effect POSTs it exactly as if the window had
-    // elapsed (09 §4). A no-op unless a send is armed.
+    // The send button commits whatever transcript is on screen right now, without
+    // waiting for an end-of-turn final (09 §4); the commit effect POSTs it. When
+    // we're still listening, restart the stream so the words we just sent don't
+    // come back in a trailing final and double-post — a fresh socket begins a
+    // clean turn. When paused (the "stuck" case) there's no socket to restart.
     dispatch({ type: 'sendNow' });
-  }, []);
+    if (micStateRef.current === 'listening') {
+      reconnectedRef.current = false;
+      stopStream();
+      startStream();
+    }
+  }, [stopStream, startStream]);
 
   // Live mic loudness for the dock's volume orb (09 §3). Reads the current
   // stream's AnalyserNode each call; 0 while no stream is up (paused/denied/
@@ -243,24 +250,13 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       micState: state.micState,
       settledText: state.settledText,
       tailText: state.tailText,
-      pendingSend: state.pending !== undefined,
       pause,
       resume,
       cancel,
       sendNow,
       getLevel,
     }),
-    [
-      state.micState,
-      state.settledText,
-      state.tailText,
-      state.pending,
-      pause,
-      resume,
-      cancel,
-      sendNow,
-      getLevel,
-    ],
+    [state.micState, state.settledText, state.tailText, pause, resume, cancel, sendNow, getLevel],
   );
 
   return <VoiceStoreContext.Provider value={value}>{children}</VoiceStoreContext.Provider>;

@@ -25,7 +25,6 @@ vi.mock('@/voice/voice-context', async (importOriginal) => {
       micState: 'listening' as const,
       settledText: '',
       tailText: '',
-      pendingSend: false,
       pause: vi.fn(),
       resume: vi.fn(),
       cancel: vi.fn(),

@@ -46,7 +46,7 @@ describe('commit machine', () => {
     expect(s.commit).toBeUndefined();
   });
 
-  it('sendNow fires the armed send immediately, skipping the grace window', () => {
+  it('sendNow commits the on-screen final immediately, skipping the grace window', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
     s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
@@ -58,7 +58,32 @@ describe('commit machine', () => {
     expect(s.commit).toBe('Ship it.');
   });
 
-  it('sendNow with nothing armed is a no-op', () => {
+  it('sendNow commits the interim tail without waiting for a final', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, {
+      type: 'provider',
+      event: { kind: 'partial', text: 'buy milk and eggs' },
+    });
+    // No final has landed — only a ghosted tail — yet send fires what is shown.
+    expect(s.pending).toBeUndefined();
+    s = voiceReducer(s, { type: 'sendNow' });
+    expect(s.commit).toBe('buy milk and eggs');
+    expect(s.settledText).toBe('buy milk and eggs');
+    expect(s.tailText).toBe('');
+  });
+
+  it('sendNow commits settled ink + a resumed tail as one utterance', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'and deploy' } });
+    // A final settled, then the user kept talking (tail) — send takes both.
+    s = voiceReducer(s, { type: 'sendNow' });
+    expect(s.commit).toBe('Ship it. and deploy');
+  });
+
+  it('sendNow with nothing on screen is a no-op', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
     s = voiceReducer(s, { type: 'sendNow' });
@@ -66,27 +91,31 @@ describe('commit machine', () => {
     expect(s.pending).toBeUndefined();
   });
 
-  it('stopping the mic (pause) fires the armed send, then stops listening', () => {
+  it('stopping the mic (pause) only stops — it does not auto-send', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
     s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
     expect(s.pending).toBe('Ship it.');
-    // Tapping the mic to stop = send now + stop, in one action.
+    // Tapping the mic to stop just pauses; the armed send is dropped (its timer
+    // must not fire while paused), but the finalized text stays on screen so the
+    // user can still send it (send button) or clear it (X).
     s = voiceReducer(s, { type: 'pause' });
     expect(s.micState).toBe('paused');
     expect(s.pending).toBeUndefined();
-    expect(s.commit).toBe('Ship it.');
+    expect(s.commit).toBeUndefined();
+    expect(s.settledText).toBe('Ship it.');
   });
 
-  it('stopping the mic with nothing armed just stops (no commit)', () => {
+  it('stopping the mic preserves a still-forming tail (the "stuck" case)', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
     s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'half a thought' } });
-    // A still-forming tail is discarded on stop, nothing is sent.
+    // Stopping mid-utterance leaves the interim on screen (the socket is closed,
+    // so it can no longer finalize) — the user sends or clears it manually.
     s = voiceReducer(s, { type: 'pause' });
     expect(s.micState).toBe('paused');
     expect(s.commit).toBeUndefined();
-    expect(s.tailText).toBe('');
+    expect(s.tailText).toBe('half a thought');
   });
 
   it('commitDelayElapsed with nothing armed is a no-op', () => {
@@ -125,6 +154,17 @@ describe('commit machine', () => {
     expect(s.commit).toBeUndefined();
     expect(s.tailText).toBe('');
     expect(s.micState).toBe('listening');
+  });
+
+  it('X clears settled ink too (wipes a frozen "stuck" transcript)', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+    s = voiceReducer(s, { type: 'pause' }); // stop listening -> settled ink frozen on screen
+    expect(s.settledText).toBe('Ship it.');
+    s = voiceReducer(s, { type: 'cancel' });
+    expect(s.settledText).toBe('');
+    expect(s.commit).toBeUndefined();
   });
 
   it('socket drop -> retry, preserves un-committed transcript', () => {

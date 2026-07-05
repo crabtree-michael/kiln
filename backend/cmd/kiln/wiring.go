@@ -24,6 +24,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	boardpg "github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
@@ -50,11 +51,11 @@ type migrationSet struct {
 	fsys fs.FS  // rooted at the module's .sql files
 }
 
-// moduleMigrations lists the three modules' embedded migrations in dependency
+// moduleMigrations lists the four modules' embedded migrations in dependency
 // order (board first — the outbox's FK-free tables — then runtime's
-// events/messages, then agent_turns). Embedding (see each module's
-// migrations.go) ships them in the single static binary, so there is no
-// runtime file dependency (backend/Dockerfile).
+// events/messages, then agent_turns, then identity's users/sessions/config).
+// Embedding (see each module's migrations.go) ships them in the single static
+// binary, so there is no runtime file dependency (backend/Dockerfile).
 func moduleMigrations() ([]migrationSet, error) {
 	mods := []struct {
 		key string
@@ -63,6 +64,7 @@ func moduleMigrations() ([]migrationSet, error) {
 		{"internal/board/postgres/migrations", boardpg.Migrations},
 		{"internal/runtime/postgres/migrations", runtimepg.Migrations},
 		{"internal/agent/postgres/migrations", agentpg.Migrations},
+		{"internal/identity/postgres/migrations", identitypg.Migrations},
 	}
 	sets := make([]migrationSet, 0, len(mods))
 	for _, m := range mods {

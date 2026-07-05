@@ -213,3 +213,42 @@ func (g *fakeGitHub) FetchUser(_ context.Context, accessToken string) (githubapi
 }
 
 var _ identity.GitHub = (*fakeGitHub)(nil)
+
+// fakeVerifier is an in-memory identity.Verifier double: it always reports
+// "ok" and records the exact arguments each method was called with, so
+// service tests can assert Verify decrypts secrets and resolves the repo URL
+// before handing them to the verifier.
+type fakeVerifier struct {
+	mu sync.Mutex
+
+	gotAnthropicKey string
+	gotAmikaBaseURL string
+	gotAmikaKey     string
+	gotRepoURL      string
+	gotRepoToken    string
+}
+
+func (v *fakeVerifier) VerifyAnthropic(_ context.Context, apiKey string) identity.CheckResult {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.gotAnthropicKey = apiKey
+	return identity.CheckResult{Status: "ok"}
+}
+
+func (v *fakeVerifier) VerifyAmika(_ context.Context, baseURL, apiKey string) identity.CheckResult {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.gotAmikaBaseURL = baseURL
+	v.gotAmikaKey = apiKey
+	return identity.CheckResult{Status: "ok"}
+}
+
+func (v *fakeVerifier) VerifyRepo(_ context.Context, repoURL, token string) identity.CheckResult {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.gotRepoURL = repoURL
+	v.gotRepoToken = token
+	return identity.CheckResult{Status: "ok"}
+}
+
+var _ identity.Verifier = (*fakeVerifier)(nil)

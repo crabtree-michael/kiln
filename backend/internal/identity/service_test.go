@@ -451,6 +451,85 @@ func TestUpsertProjectCreatesThenUpdates(t *testing.T) {
 	}
 }
 
+// ---- Verify (11 §4) ---------------------------------------------------
+
+// wantSkippedStatus/wantSkipped are the CheckResult fields every unconfigured
+// credential group reports.
+const (
+	wantSkippedStatus = "skipped"
+	wantSkipped       = "not configured"
+)
+
+func TestVerifySkipsUnconfigured(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc.SetVerifier(&fakeVerifier{})
+	u := mustDevSignIn(t, svc, "verify-fresh-user")
+
+	checks, err := svc.Verify(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	want := []identity.CheckResult{
+		{Name: "anthropic", Status: wantSkippedStatus, Message: wantSkipped},
+		{Name: "amika", Status: wantSkippedStatus, Message: wantSkipped},
+		{Name: "repo", Status: wantSkippedStatus, Message: wantSkipped},
+	}
+	if len(checks) != len(want) {
+		t.Fatalf("checks = %+v, want %d entries", checks, len(want))
+	}
+	for i, c := range checks {
+		if c != want[i] {
+			t.Fatalf("checks[%d] = %+v, want %+v", i, c, want[i])
+		}
+	}
+}
+
+func TestVerifyRunsConfigured(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	verifier := &fakeVerifier{}
+	svc.SetVerifier(verifier)
+	u := mustDevSignIn(t, svc, "verify-configured-user")
+
+	const anthropicKey = "sk-ant-liveKey1"
+	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
+		AnthropicKey: anthropicKey,
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	if _, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:    testProjectName,
+		RepoURL: testProjectRepoURL,
+	}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
+
+	checks, err := svc.Verify(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if len(checks) != 3 {
+		t.Fatalf("checks = %+v, want 3 entries", checks)
+	}
+	if checks[0].Name != "anthropic" || checks[0].Status != "ok" {
+		t.Fatalf("anthropic check = %+v, want {Name:anthropic Status:ok}", checks[0])
+	}
+	if checks[1].Name != "amika" || checks[1].Status != wantSkippedStatus {
+		t.Fatalf("amika check = %+v, want skipped (no amika key set)", checks[1])
+	}
+	if checks[2].Name != "repo" || checks[2].Status != "ok" {
+		t.Fatalf("repo check = %+v, want {Name:repo Status:ok}", checks[2])
+	}
+
+	if verifier.gotAnthropicKey != anthropicKey {
+		t.Fatalf("verifier got anthropic key %q, want the decrypted %q", verifier.gotAnthropicKey, anthropicKey)
+	}
+	if verifier.gotRepoURL != testProjectRepoURL {
+		t.Fatalf("verifier got repo URL %q, want %q", verifier.gotRepoURL, testProjectRepoURL)
+	}
+}
+
 func TestUpsertProjectValidates(t *testing.T) {
 	store := newFakeStore()
 	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)

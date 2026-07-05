@@ -27,6 +27,14 @@ const (
 	// maxPositiveInt63 masks off the sign bit so a DevSignIn-derived GitHub
 	// id (an fnv64a hash) always fits int64 as a positive value.
 	maxPositiveInt63 = 0x7fffffffffffffff
+
+	// verifyCheckCount is the fixed number of checks Verify always returns
+	// (anthropic, amika, repo — 11 §4).
+	verifyCheckCount = 3
+
+	// statusSkipped is the CheckResult.Status for an unconfigured credential
+	// group (no verifier wired in, or the group has no secret/repo set).
+	statusSkipped = "skipped"
 )
 
 // GitHub is the service's port onto the OAuth provider — satisfied directly
@@ -37,13 +45,23 @@ type GitHub interface {
 	FetchUser(ctx context.Context, accessToken string) (githubapi.GitHubUser, error)
 }
 
+// Verifier is the service's port onto live connection checks — satisfied by
+// *verify.Verifier (the consumer declares the interface, 02 §2). Every method
+// reports its outcome as a CheckResult and never returns a Go error.
+type Verifier interface {
+	VerifyAnthropic(ctx context.Context, apiKey string) CheckResult
+	VerifyAmika(ctx context.Context, baseURL, apiKey string) CheckResult
+	VerifyRepo(ctx context.Context, repoURL, token string) CheckResult
+}
+
 // Service is identity's domain service (11 §2–§4): login, sessions, config.
 type Service struct {
-	store   Store
-	cipher  *Cipher
-	gh      GitHub
-	allowed map[string]bool
-	now     func() time.Time
+	store    Store
+	cipher   *Cipher
+	gh       GitHub
+	verifier Verifier
+	allowed  map[string]bool
+	now      func() time.Time
 }
 
 func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) *Service {
@@ -223,6 +241,67 @@ func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectU
 		return Project{}, fmt.Errorf("identity: upsert project: %w", err)
 	}
 	return p, nil
+}
+
+// SetVerifier injects the live-check adapter (nil-safe: without it every
+// check reports skipped). Setter, not constructor arg, to keep NewService's
+// signature stable for tests that don't verify.
+func (s *Service) SetVerifier(v Verifier) { s.verifier = v }
+
+// Verify runs live checks for each configured credential group; unconfigured
+// groups report "skipped" (11 §4). Order is fixed: anthropic, amika, repo.
+func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, error) {
+	cfg, err := s.store.GetUserConfig(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("identity: verify: %w", err)
+	}
+	anthropicKey := s.decrypt(cfg.AnthropicKeyEnc)
+	amikaKey := s.decrypt(cfg.AmikaKeyEnc)
+	ghToken := s.decrypt(cfg.GitHubTokenEnc)
+	repoURL := ""
+	if p, err := s.store.GetProjectByOwner(ctx, userID); err == nil {
+		repoURL = p.RepoURL
+	}
+	checks := make([]CheckResult, 0, verifyCheckCount)
+	checks = append(checks, s.check(ctx, "anthropic", anthropicKey != "", func(ctx context.Context) CheckResult {
+		return s.verifier.VerifyAnthropic(ctx, anthropicKey)
+	}))
+	checks = append(checks, s.check(ctx, "amika", amikaKey != "", func(ctx context.Context) CheckResult {
+		return s.verifier.VerifyAmika(ctx, cfg.AmikaBaseURL, amikaKey)
+	}))
+	checks = append(checks, s.check(ctx, "repo", repoURL != "", func(ctx context.Context) CheckResult {
+		return s.verifier.VerifyRepo(ctx, repoURL, ghToken)
+	}))
+	return checks, nil
+}
+
+// check runs one live check when its credential group is configured and a
+// verifier is wired in; otherwise it reports "skipped" without touching the
+// network.
+func (s *Service) check(
+	ctx context.Context, name string, configured bool, run func(context.Context) CheckResult,
+) CheckResult {
+	if !configured || s.verifier == nil {
+		return CheckResult{Name: name, Status: statusSkipped, Message: "not configured"}
+	}
+	res := run(ctx)
+	res.Name = name
+	return res
+}
+
+// decrypt is nil-safe (an unset ciphertext yields "") and swallows a
+// corrupt/undecryptable ciphertext to "" too — Verify then reports that
+// credential group as unconfigured rather than surfacing a decrypt error,
+// mirroring secretStatus's own set-but-unreadable handling.
+func (s *Service) decrypt(enc []byte) string {
+	if len(enc) == 0 {
+		return ""
+	}
+	plain, err := s.cipher.Decrypt(enc)
+	if err != nil {
+		return ""
+	}
+	return plain
 }
 
 func (s *Service) upsertFromGitHub(ctx context.Context, gh githubapi.GitHubUser) (User, error) {

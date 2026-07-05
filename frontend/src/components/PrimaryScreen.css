@@ -629,7 +629,13 @@ body:has([data-role='primary-screen']) {
    Rendered as an overlay anchored to the dock's top edge (bottom:100%) so a long
    utterance grows UPWARD over the feed rather than adding dock height and
    reflowing the empty-state / backlog. Bounded to 28vh; older lines scroll off
-   the top, fading into the feed via the background gradient. */
+   the top edge, which is a solid --surface boundary against the feed.
+
+   The panel is fully opaque (solid --surface, no fade-to-transparent) and sits
+   above the feed (z-index) so the feed content scrolling underneath is occluded
+   rather than showing through. The top edge doubles as the separator between the
+   transcript and the activity feed above it — a crisp solid line in the panel's
+   own surface colour, not a gradient fade. */
 [data-role='dock-transcript'] {
   position: absolute;
   left: 0;
@@ -643,7 +649,7 @@ body:has([data-role='primary-screen']) {
   font-size: 15px;
   line-height: 1.5;
   color: var(--ink);
-  background: linear-gradient(to top, var(--surface) 68%, oklch(0.97 0.006 40 / 0));
+  background: var(--surface);
 }
 
 [data-role='dock-settled'] {

@@ -77,6 +77,20 @@ export function Dock(): JSX.Element {
     };
   }, [hasTranscript]);
 
+  // Keep the latest words in view as text streams in. The transcript grows
+  // upward but scrolls internally (`overflow-y: auto`, `max-height: 28vh`), and
+  // text flows top-to-bottom, so the newest words land at the bottom. Once the
+  // content exceeds the cap the container stops auto-tracking, so on every
+  // settled/tail update we re-pin `scrollTop` to the bottom — a no-op while the
+  // transcript is short enough not to overflow.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el === null) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+  }, [settledText, tailText]);
+
   return (
     <div data-role="dock" data-dock-state={micState}>
       {hasTranscript && (

@@ -305,6 +305,12 @@ export async function postMessage(text: string): Promise<MessagePostResponse> {
 /** `GET /api/feed` — the same absolute snapshot shape as the `feed` SSE event (08 §3). */
 export async function fetchFeed(): Promise<FeedSnapshot> {
   const response = await fetch('/api/feed');
+  if (!response.ok) {
+    // A transient 5xx returns a plain-text body ("read feed"), so surface the
+    // status as the error rather than letting `response.json()` throw an opaque
+    // parse error — the caller retries/resyncs on any thrown error.
+    throw new Error(`fetchFeed: HTTP ${String(response.status)}`);
+  }
   const payload: unknown = await response.json();
   if (!isFeedSnapshot(payload)) {
     throw new Error('fetchFeed: unexpected response shape');

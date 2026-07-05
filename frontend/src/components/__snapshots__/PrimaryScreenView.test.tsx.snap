@@ -84,10 +84,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
           >
             <span
               aria-hidden="true"
+              data-active="true"
               data-role="feed-empty-pulse"
             />
             <span>
-              3 building · 2 idle · last word 6m ago
+              3 building · last word 6m ago
             </span>
           </div>
         </div>

@@ -41,9 +41,11 @@ export function relativeAge(iso: string, now: number = Date.now()): string {
   return `${days.toString()}d`;
 }
 
-/** The all-clear detail line (08 §2 / 4d): "3 building · 2 idle · last word 6m ago". */
+/** The all-clear detail line (08 §2 / 4d): "3 building · last word 6m ago". Only
+ * the building count is shown — the idle count is deliberately omitted so the
+ * all-clear state stays focused on what's actively moving. */
 export function streamDetail(summary: FeedSummary, now: number = Date.now()): string {
-  const base = `${summary.building.toString()} building · ${summary.idle.toString()} idle`;
+  const base = `${summary.building.toString()} building`;
   if (summary.last_word_at == null) {
     return base;
   }

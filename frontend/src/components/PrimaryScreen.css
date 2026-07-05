@@ -32,6 +32,9 @@ body:has([data-role='primary-screen']) {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  /* Positioning context for the bottom overlays (toast stack + live transcript),
+     which are anchored to the dock but float above the feed. */
+  position: relative;
   /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
      (its overflow-y:auto) with the dock pinned, rather than growing the page. */
   height: 100dvh;
@@ -460,13 +463,35 @@ body:has([data-role='primary-screen']) {
 
 /* --------------------------------------------------------------- activity */
 
-[data-role='activity-row'] {
+/* The in-flow bottom anchor. Its height equals the dock's, because the toast
+   stack and the transcript are pulled out of flow (below) — so the two overlays
+   grow/shrink freely without ever resizing this region or reflowing the feed. */
+[data-role='dock-region'] {
+  position: relative;
   flex-shrink: 0;
+}
+
+/* The toast stack floats above the dock as an overlay (bottom:100% of the dock
+   region = the dock's top edge) rather than sitting in flow. A multi-line toast
+   therefore grows UPWARD over the feed instead of pushing the empty-state count
+   or the backlog list up. */
+[data-role='activity-row'] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 0;
   padding: 0 26px;
+  /* Let taps fall through the empty margins to the feed; the pills re-enable
+     pointer events for their own dismiss button. */
+  pointer-events: none;
+}
+
+[data-role='activity-row'] > * {
+  pointer-events: auto;
 }
 
 [data-role='activity-row']:not(:empty) {
@@ -588,10 +613,10 @@ body:has([data-role='primary-screen']) {
 [data-role='dock'] {
   flex-shrink: 0;
   display: flex;
-  /* Stack the live transcript ABOVE the controls row. The dock is pinned to the
-     bottom of the screen (the feed takes the remaining flex space), so as the
-     transcript gains lines the panel grows UPWARD into the feed rather than
-     pushing the mic down. */
+  /* Positioning context for the live-transcript overlay (below). The dock itself
+     holds only the controls row now, so its height is stable — the mic never
+     moves as the transcript grows. */
+  position: relative;
   flex-direction: column;
   align-items: center;
   gap: 12px;
@@ -600,17 +625,25 @@ body:has([data-role='primary-screen']) {
 }
 
 /* Live transcript (09 §4): settled words in ink, the still-forming tail ghosted,
-   a caret at the leading edge — the spans flow inline as one centred line. Bottom-
-   anchored and bounded so a long utterance grows upward but never swallows the
-   whole feed; older lines scroll off the top. */
+   a caret at the leading edge — the spans flow inline as one centred line.
+   Rendered as an overlay anchored to the dock's top edge (bottom:100%) so a long
+   utterance grows UPWARD over the feed rather than adding dock height and
+   reflowing the empty-state / backlog. Bounded to 28vh; older lines scroll off
+   the top, fading into the feed via the background gradient. */
 [data-role='dock-transcript'] {
-  width: 100%;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 5;
   max-height: 28vh;
   overflow-y: auto;
+  padding: 14px 26px 12px;
   text-align: center;
   font-size: 15px;
   line-height: 1.5;
   color: var(--ink);
+  background: linear-gradient(to top, var(--surface) 68%, oklch(0.97 0.006 40 / 0));
 }
 
 [data-role='dock-settled'] {

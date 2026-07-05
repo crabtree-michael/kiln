@@ -116,8 +116,15 @@ export function PrimaryScreenView({
         </div>
       </section>
 
-      <ActivityRow thinking={thinking} toasts={toasts} onDismiss={onDismiss} />
-      <Dock />
+      {/* The dock region is the in-flow bottom anchor; its height is exactly the
+          dock's, because the activity row (toasts) and the live transcript are
+          both lifted out of flow as overlays that grow UPWARD over the feed (see
+          PrimaryScreen.css). That keeps a multi-line toast or a long transcript
+          from shrinking the flex:1 feed and reflowing the empty state / backlog. */}
+      <div data-role="dock-region">
+        <ActivityRow thinking={thinking} toasts={toasts} onDismiss={onDismiss} />
+        <Dock />
+      </div>
     </div>
   );
 }

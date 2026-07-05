@@ -626,6 +626,17 @@ body:has([data-role='primary-screen']) {
 
 [data-role='activity-row']:not(:empty) {
   padding: 6px 26px 12px;
+  /* Share the dock's opaque paper tone so the thinking indicator and toasts read
+     as part of the app's own surface — a continuous band with the transcript/dock
+     below — rather than bare text floating over the feed scrolling underneath. This
+     is the same occluding fill the dock + live transcript use (see --paper-flat),
+     so the whole bottom region reads as one paper surface in the app's background,
+     not a panel over the page. Scoped to the non-empty state: an empty row stays
+     0-height and paints nothing over the feed. Only the fill is added here — the
+     row's geometry (absolute, grown upward via --dock-overlay-height as the
+     transcript grows) is untouched, so the existing push/layout behavior is
+     unchanged. */
+  background: var(--paper-flat);
 }
 
 /* The notification stack: several live toasts list vertically, newest at the

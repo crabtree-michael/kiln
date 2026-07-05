@@ -5,11 +5,14 @@
 // touching the transport or stores directly.
 //
 // Every kind shares one scannable layout: a left-aligned head (type · bolded
-// ticket name · age) over a normal-weight body clamped to five lines. Long
-// bodies get a quiet "tap to see more" affordance that expands the text in place
-// — uniformly across update, proposal, and blocker cards, so nothing hides
-// behind a click-through to another surface (08 goal: readable without leaving
-// the feed). Proposals keep their inline Accept as a sibling of the body.
+// ticket name · age) over a normal-weight body clamped to five lines. For
+// update/blocker/preview cards a long body gets a quiet "tap to see more"
+// affordance that expands the text in place. Proposal cards instead make the
+// clamped body a click-through button (`feed-card-open`) that opens the full
+// ticket detail overlay (08 §5) — the whole shaped ticket (title, full body,
+// actions) is one tap away rather than dumped in the feed. The inline Accept
+// stays a *sibling* of that button — never nested — so tapping Accept accepts
+// without also opening the detail.
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { FeedCard } from '@/transport/transport';
@@ -77,12 +80,32 @@ export interface FeedCardItemProps {
   now: number;
   /** Called with the proposal's ticket id when Accept is tapped (08 §5). */
   onAccept: (ticketId: string) => void;
+  /** Called with the proposal's ticket id when the card body is tapped to open
+   * the full ticket detail (08 §5). Omitted → the body renders inline/collapsible
+   * with no click-through (non-proposal kinds, or presentational tests with no
+   * board to resolve the ticket against). */
+  onOpenDetail?: (ticketId: string) => void;
 }
 
-export function FeedCardItem({ card, now, onAccept }: FeedCardItemProps): JSX.Element {
+export function FeedCardItem({
+  card,
+  now,
+  onAccept,
+  onOpenDetail,
+}: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
+  // A proposal card is a digest that opens the full ticket detail on tap (08 §5).
+  // Narrow on the callback and id directly (not a derived boolean) so TypeScript
+  // knows both are defined inside the handler — no optional chain, which the lint
+  // gate rejects as unnecessary (mirrors TicketCard's onSelect).
+  const openDetail =
+    card.kind === 'proposal' && ticketId != null && onOpenDetail !== undefined
+      ? () => {
+          onOpenDetail(ticketId);
+        }
+      : null;
 
   return (
     <article data-role="feed-card" data-kind={card.kind}>
@@ -92,7 +115,21 @@ export function FeedCardItem({ card, now, onAccept }: FeedCardItemProps): JSX.El
         <span data-role="feed-card-label">{card.label}</span>
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>
-      <FeedCardBody body={card.body} />
+      {openDetail !== null ? (
+        <button
+          type="button"
+          data-role="feed-card-open"
+          aria-label={`Open ticket: ${card.label}`}
+          onClick={openDetail}
+        >
+          <span data-role="feed-card-body">{card.body}</span>
+          <span data-role="feed-card-open-hint" aria-hidden="true">
+            Read full ticket
+          </span>
+        </button>
+      ) : (
+        <FeedCardBody body={card.body} />
+      )}
       {card.kind === 'preview' && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />
       )}

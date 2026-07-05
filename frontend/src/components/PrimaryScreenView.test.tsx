@@ -5,7 +5,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
-import { makeFeedCard, makeFeedSnapshot } from '@/test/fixtures';
+import { makeBoard, makeFeedCard, makeFeedSnapshot, makeTicket } from '@/test/fixtures';
 import { acceptTicket } from '@/transport/transport';
 
 /**
@@ -320,37 +320,74 @@ describe('PrimaryScreenView', () => {
     expect(onAccept).toHaveBeenCalledWith('t-x');
   });
 
-  it('renders the full proposal body inline in normal-weight body copy, not a truncated digest', () => {
-    const longBody = `${'A'.repeat(300)} tail`;
+  it('opens the full ticket detail overlay when a proposal card body is tapped (08 §5)', () => {
     const proposal = makeFeedCard({
       kind: 'proposal',
-      id: 'proposal:t-long',
-      label: 'Long Proposal',
-      body: longBody,
-      ticketId: 't-long',
+      id: 'proposal:t-login',
+      label: 'Login Redesign',
+      body: 'Rework the login screen to a single-column layout with inline validation.',
+      ticketId: 't-login',
       createdAt: minutesAgo(1),
     });
-    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] }));
-    // The whole body is present in the feed's `feed-card-body` (the five-line
-    // clamp is visual only — the full text stays in the DOM, expandable in
-    // place). No ellipsis digest, and no click-through to another surface.
-    const body = document.querySelector('[data-role="feed-card-body"]');
-    expect(body?.tagName).toBe('P');
-    expect(body?.textContent ?? '').toBe(longBody);
-    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
-    expect(screen.queryByText('Read full ticket')).toBeNull();
+    // The full ticket the card points at — its body carries the whole shaped
+    // spec the feed digest clamps away, so the overlay shows more than the card.
+    const ticket = makeTicket({
+      id: 't-login',
+      title: 'Login Redesign',
+      body: `${'Rework the login screen to a single-column layout with inline validation. '.repeat(6)}Full acceptance criteria follow.`,
+      state: 'shaping',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    const onAccept = vi.fn();
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] })}
+        board={makeBoard({ shaping: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={onAccept}
+        now={NOW}
+      />,
+    );
+    // Nothing open until the card is tapped.
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // The proposal body is a click-through button (not an inline paragraph),
+    // with the quiet "Read full ticket" hint.
+    const open = screen.getByRole('button', { name: 'Open ticket: Login Redesign' });
+    expect(open).toHaveAttribute('data-role', 'feed-card-open');
+    expect(screen.getByText('Read full ticket')).toBeInTheDocument();
+
+    fireEvent.click(open);
+
+    // The full ticket detail overlay opens, showing the full ticket body — the
+    // whole record the feed digest elides, same surface every state gets.
+    const dialog = screen.getByRole('dialog', { name: 'Ticket: Login Redesign' });
+    expect(within(dialog).getByText(ticket.body)).toHaveAttribute(
+      'data-role',
+      'ticket-detail-body',
+    );
+
+    // Accepting from the overlay flows the ticket id up and drains the overlay.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept' }));
+    expect(onAccept).toHaveBeenCalledWith('t-login');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('shows no "tap to see more" affordance when a card body fits within the clamp', () => {
-    const proposal = makeFeedCard({
-      kind: 'proposal',
-      id: 'proposal:t-short',
+    const update = makeFeedCard({
+      kind: 'update',
+      id: 'update:short',
       label: 'Short',
       body: 'A short body that fits.',
-      ticketId: 't-short',
+      notificationId: 5,
       createdAt: minutesAgo(1),
     });
-    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] }));
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }));
     expect(document.querySelector('[data-role="feed-card-more"]')).toBeNull();
   });
 

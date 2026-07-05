@@ -622,15 +622,30 @@ body:has([data-role='primary-screen']) {
   display: flex;
   align-items: center;
   gap: 9px;
+  /* Never exceed the activity row's inner width (its 26px side padding is the
+     mobile safe margin). Without this a long ticket title grew the pill wider
+     than the screen; the text now clamps to 2 lines instead (see toast-text). */
+  max-width: 100%;
   padding: 9px 14px;
   background: var(--surface);
   border: 1.5px solid var(--ember-soft);
   border-radius: 12px;
   box-shadow: 0 8px 20px -12px oklch(0.58 0.2 27 / 0.3);
-  white-space: nowrap;
+}
+
+[data-role='toast-icon'] {
+  flex-shrink: 0;
 }
 
 [data-role='toast-text'] {
+  /* min-width:0 lets this flex child shrink below its content so the clamp can
+     bite; the -webkit-box clamp caps it at 2 lines and ellipsizes the rest. */
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   font-size: 12.5px;
   font-weight: 500;
   color: oklch(0.3 0.012 40);
@@ -655,6 +670,14 @@ body:has([data-role='primary-screen']) {
 }
 
 [data-role='say-text'] {
+  /* Match toast-text: shrink within the pill and cap at 2 lines with ellipsis
+     so a long `say` never grows the card unbounded in height. */
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;

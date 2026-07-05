@@ -8,12 +8,36 @@
    canvas. Scoped under [data-role="primary-screen"] so it never clobbers the
    /debug (07) client's dark App.css. */
 
-/* The primary screen owns the whole page canvas: paint the paper background on
-   the body so the area outside the centered max-width column (the letterbox on
-   wide viewports) is paper too, not the /debug client's global dark App.css
-   body. :has scopes it to the `/` route only. */
+/* The primary screen owns the whole page canvas. Paint the paper background on
+   the ROOT (html) as well as the body, because that is what fills the safe-area
+   insets — the status-bar / home-indicator strips that `viewport-fit=cover`
+   extends the page under. In an installed / standalone PWA those OS-padding
+   strips take the *root element's* background; body-background propagation and
+   the `theme-color` meta don't reach them, so with no html background they fell
+   back to the UA canvas colour — black under the old global `color-scheme: dark`
+   and then plain white once ticket 11d3db88 flipped that to `light`. Painting
+   the real paper gradient on the root makes the strips continue the screen's
+   own background. The body paint additionally covers the letterbox outside the
+   centered max-width column on wide viewports. `:has` scopes both to `/` only.
+
+   `--paper` is defined here on the root and inherited by the body and the
+   primary-screen boxes, so the page-level paint has ONE source of truth rather
+   than three copies of the gradient that can drift apart (the recurring failure
+   this ticket chain keeps hitting). The gradient is sized to each box's own
+   full-viewport area, so root + screen read as one continuous surface behind
+   the strips. */
+html:has([data-role='primary-screen']) {
+  --paper: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+  /* Solid sRGB paper fallback UNDER the gradient (flat base ≈ #f3efee, the same
+     tone as the `theme-color` meta + PWA manifest). If the gradient ever fails to
+     paint an inset strip, the fallback keeps it paper rather than letting it snap
+     back to the UA canvas white — the exact regression this ticket reports. */
+  background-color: #f3efee;
+  background-image: var(--paper);
+}
+
 body:has([data-role='primary-screen']) {
-  background: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+  background: var(--paper);
 }
 
 [data-role='primary-screen'] {
@@ -27,7 +51,8 @@ body:has([data-role='primary-screen']) {
   --hairline: oklch(0.91 0.006 40);
   --hairline-faint: oklch(0.94 0.004 40);
   --surface: oklch(0.994 0.003 40);
-  --paper: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+  /* `--paper` (the gradient painted below) is defined once on the root html above
+     and inherits down here — see the safe-area note at the top of this file. */
   /* The flat base tone of the paper gradient — the colour it settles to away from
      the top-centre highlight, i.e. the lower screen where the dock lives. Used as
      an OPAQUE fill for overlays that must occlude the feed yet still read as the

@@ -1,4 +1,8 @@
 # pnpm build-script allowlist. esbuild ships a native binary via a postinstall
 # build that Vite/Vitest need; everything else stays blocked (supply-chain safety).
+# @sentry/cli's postinstall is a no-op here: its platform binary is delivered by
+# an optional dependency (`@sentry/cli-<platform>`), so the source-map upload CLI
+# resolves without running any build script — kept blocked, like everything else.
 allowBuilds:
+  '@sentry/cli': false
   esbuild: true

@@ -178,7 +178,7 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			name: "say",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c10", brain.ToolSay, brain.SayInput{Text: "hello"})
+				return newToolCall(t, "c10", brain.ToolSay, brain.SayInput{Text: sayHello})
 			},
 			wantMethod: "Say",
 		},
@@ -211,7 +211,7 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			}
 
 			if tc.wantMethod == "Say" {
-				if got := fs.said(); len(got) != 1 || got[0] != "hello" {
+				if got := fs.said(); len(got) != 1 || got[0] != sayHello {
 					t.Errorf("fakeSay.said() = %v, want [\"hello\"]", got)
 				}
 				return

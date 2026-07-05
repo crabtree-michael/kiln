@@ -95,7 +95,12 @@ export interface FeedCardItemProps {
   seen?: boolean;
 }
 
-export function FeedCardItem({ card, now, onAccept, seen = false }: FeedCardItemProps): JSX.Element {
+export function FeedCardItem({
+  card,
+  now,
+  onAccept,
+  seen = false,
+}: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;

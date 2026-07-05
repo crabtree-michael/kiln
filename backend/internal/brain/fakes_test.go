@@ -28,6 +28,7 @@ const (
 	methodMarkReady   = "MarkReady"
 	methodShapeTicket = "ShapeTicket"
 	workerW1          = "w-1"
+	sayHello          = "hello"
 )
 
 // --- scripted LLM -----------------------------------------------------

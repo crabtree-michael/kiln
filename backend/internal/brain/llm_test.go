@@ -26,6 +26,8 @@ const (
 	pathMessages  = "/v1/messages"
 	modelOverride = "claude-test-model"
 	callID1       = "call-1"
+	keyType       = "type"
+	keyText       = "text"
 )
 
 // asMap and asSlice narrow a decoded-JSON any to the expected shape, failing
@@ -96,7 +98,7 @@ func newAdapterAgainst(t *testing.T, cfg brain.Config, respStatus int, respBody 
 func message(stopReason string, content ...map[string]any) map[string]any {
 	return map[string]any{
 		"id":            "msg_1",
-		"type":          "message",
+		keyType:         "message",
 		"role":          "assistant",
 		"model":         modelOverride,
 		"content":       content,
@@ -107,11 +109,11 @@ func message(stopReason string, content ...map[string]any) map[string]any {
 }
 
 func textBlock(text string) map[string]any {
-	return map[string]any{"type": "text", "text": text}
+	return map[string]any{keyType: keyText, keyText: text}
 }
 
 func toolUseBlock(id, name string, input map[string]any) map[string]any {
-	return map[string]any{"type": "tool_use", "id": id, "name": name, "input": input}
+	return map[string]any{keyType: "tool_use", "id": id, "name": name, "input": input}
 }
 
 func TestDoMapsTextResponse(t *testing.T) {
@@ -140,7 +142,7 @@ func TestDoMapsToolUseResponse(t *testing.T) {
 	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
 		message("tool_use",
 			textBlock("thinking"),
-			toolUseBlock(callID1, string(brain.ToolGetTicket), map[string]any{"id": "t-1"}),
+			toolUseBlock(callID1, string(brain.ToolGetTicket), map[string]any{"id": ticketT1}),
 		))
 
 	resp, err := adapter.Do(context.Background(), brain.LLMRequest{})
@@ -169,8 +171,8 @@ func TestDoMapsToolUseResponse(t *testing.T) {
 	if err := json.Unmarshal(got.Input, &input); err != nil {
 		t.Fatalf("unmarshal Calls[0].Input %q: %v", got.Input, err)
 	}
-	if input.ID != "t-1" {
-		t.Errorf("Calls[0].Input.id = %q, want %q", input.ID, "t-1")
+	if input.ID != ticketT1 {
+		t.Errorf("Calls[0].Input.id = %q, want %q", input.ID, ticketT1)
 	}
 }
 
@@ -211,7 +213,7 @@ func TestDoSendsSystemAndModel(t *testing.T) {
 
 	if _, err := adapter.Do(context.Background(), brain.LLMRequest{
 		System:   "the fixed system prompt",
-		Messages: []brain.LLMMessage{{Role: brain.LLMRoleUser, Text: "hello"}},
+		Messages: []brain.LLMMessage{{Role: brain.LLMRoleUser, Text: sayHello}},
 	}); err != nil {
 		t.Fatalf("Do: unexpected error: %v", err)
 	}
@@ -224,8 +226,8 @@ func TestDoSendsSystemAndModel(t *testing.T) {
 		t.Fatalf("request system = %v, want one block", stub.lastBody["system"])
 	}
 	block := asMap(t, "system block", system[0])
-	if block["text"] != "the fixed system prompt" {
-		t.Errorf("system block text = %v, want %q", block["text"], "the fixed system prompt")
+	if block[keyText] != "the fixed system prompt" {
+		t.Errorf("system block text = %v, want %q", block[keyText], "the fixed system prompt")
 	}
 }
 
@@ -313,7 +315,7 @@ func TestDoEncodesConversation(t *testing.T) {
 		t.Fatalf("messages[0].content = %v, want 1 block", first["content"])
 	}
 	fb := asMap(t, "messages[0] block", firstBlocks[0])
-	if fb["type"] != "text" || fb["text"] != "the context block" {
+	if fb[keyType] != keyText || fb[keyText] != "the context block" {
 		t.Errorf("messages[0] block = %v, want text 'the context block'", fb)
 	}
 
@@ -326,14 +328,15 @@ func TestDoEncodesConversation(t *testing.T) {
 	if len(asstBlocks) != 2 {
 		t.Fatalf("messages[1].content = %v, want 2 blocks (text + tool_use)", asst["content"])
 	}
-	if b0 := asMap(t, "messages[1] block 0", asstBlocks[0]); b0["type"] != "text" || b0["text"] != "I'll mark it ready" {
+	b0 := asMap(t, "messages[1] block 0", asstBlocks[0])
+	if b0[keyType] != keyText || b0[keyText] != "I'll mark it ready" {
 		t.Errorf("messages[1] block 0 = %v, want assistant text", asstBlocks[0])
 	}
 	tu := asMap(t, "messages[1] block 1", asstBlocks[1])
-	if tu["type"] != "tool_use" || tu["id"] != callID1 || tu["name"] != string(brain.ToolGetTicket) {
+	if tu[keyType] != "tool_use" || tu["id"] != callID1 || tu["name"] != string(brain.ToolGetTicket) {
 		t.Errorf("messages[1] block 1 = %v, want tool_use get_ticket call-1", tu)
 	}
-	if input := asMap(t, "messages[1] tool_use input", tu["input"]); input["id"] != "t-1" {
+	if input := asMap(t, "messages[1] tool_use input", tu["input"]); input["id"] != ticketT1 {
 		t.Errorf("messages[1] tool_use input = %v, want id t-1", tu["input"])
 	}
 
@@ -344,7 +347,7 @@ func TestDoEncodesConversation(t *testing.T) {
 		t.Fatalf("messages[2].content = %v, want 1 block", usr["content"])
 	}
 	tr := asMap(t, "messages[2] block", usrBlocks[0])
-	if tr["type"] != "tool_result" || tr["tool_use_id"] != callID1 {
+	if tr[keyType] != "tool_result" || tr["tool_use_id"] != callID1 {
 		t.Errorf("messages[2] block = %v, want tool_result for call-1", tr)
 	}
 }
@@ -384,8 +387,8 @@ func TestDoEncodesTools(t *testing.T) {
 			t.Errorf("tool %q description = %v, want %q", def.Name, wire["description"], def.Description)
 		}
 		schema := asMap(t, "tool input_schema", wire["input_schema"])
-		if schema["type"] != "object" {
-			t.Errorf("tool %q input_schema.type = %v, want object", def.Name, schema["type"])
+		if schema[keyType] != "object" {
+			t.Errorf("tool %q input_schema.type = %v, want object", def.Name, schema[keyType])
 		}
 		if _, hasProps := schema["properties"]; !hasProps {
 			t.Errorf("tool %q input_schema missing properties", def.Name)
@@ -397,7 +400,7 @@ func TestDoEncodesTools(t *testing.T) {
 // and an empty LLMResponse.
 func TestDoWrapsAPIError(t *testing.T) {
 	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusInternalServerError,
-		map[string]any{"type": "error", "error": map[string]any{"type": "api_error", "message": "boom"}})
+		map[string]any{keyType: "error", "error": map[string]any{keyType: "api_error", "message": "boom"}})
 
 	resp, err := adapter.Do(context.Background(), brain.LLMRequest{})
 	if err == nil {

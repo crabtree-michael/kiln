@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	"github.com/crabtree-michael/kiln/backend/internal/wire"
 )
@@ -150,6 +151,19 @@ type VoiceTokenMinter interface {
 	MintStreamingToken(ctx context.Context) (token string, expiresAt time.Time, err error)
 }
 
+// Authenticator is the api's port onto the GitHub OAuth + cookie-session
+// lifecycle (11 §2): start the dance, complete it against the allowlist,
+// mint/resolve/revoke a session. Satisfied directly by *identity.Service —
+// no adapter — mirroring how BoardReader etc. are satisfied directly by
+// their domain services.
+type Authenticator interface {
+	LoginURL(state string) string
+	CompleteLogin(ctx context.Context, code string) (identity.User, error)
+	CreateSession(ctx context.Context, userID string) (string, time.Time, error)
+	ResolveSession(ctx context.Context, token string) (identity.User, error)
+	Logout(ctx context.Context, token string) error
+}
+
 // Server owns the 04 §7 / 07 §4 endpoint set:
 //
 //	GET  /api/stream   — SSE: full board snapshot on connect, then one board
@@ -175,6 +189,7 @@ type Server struct {
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
+	auth     Authenticator      // non-nil ⇒ the /auth/github/* + /auth/logout routes are mounted (11 §2)
 
 	version    string                      // release string surfaced by GET /healthz
 	healthPing func(context.Context) error // non-nil ⇒ GET /healthz is mounted
@@ -204,6 +219,16 @@ func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes 
 // dev seed routes it is wired unconditionally at the composition root — the
 // /debug "Reset session" button relies on it always being present.
 func (s *Server) EnableReset(r Resetter) { s.resetter = r }
+
+// EnableIdentity turns on the GitHub OAuth + cookie-session routes (11 §2):
+// GET /auth/github/login, GET /auth/github/callback, POST /auth/logout
+// (call before Handler). Mounted outside /api, ahead of the SPA catch-all.
+//
+// Controller decision: the brief's signature also takes an AccountService
+// second parameter, but that port is defined by a later task; this task
+// declares EnableIdentity with only the Authenticator it can satisfy today,
+// and the later task extends the signature once AccountService exists.
+func (s *Server) EnableIdentity(auth Authenticator) { s.auth = auth }
 
 // EnableHealthz turns on GET /healthz (call before Handler): a liveness+DB probe
 // returning 200 {status:ok, version} when ping succeeds, 503 {status:degraded}
@@ -240,6 +265,11 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.resetter != nil {
 		mux.HandleFunc("POST /api/dev/reset", s.handleReset)
+	}
+	if s.auth != nil {
+		mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
+		mux.HandleFunc("GET /auth/github/callback", s.handleAuthCallback)
+		mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	}
 	if s.healthPing != nil {
 		mux.HandleFunc("GET /healthz", s.handleHealthz)

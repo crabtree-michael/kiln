@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
 
@@ -238,4 +239,83 @@ func (f *fakeNotificationPoster) posted() []devNote {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]devNote(nil), f.calls...)
+}
+
+// fakeAuth is api.Authenticator (11 §2 GitHub OAuth + cookie sessions): a
+// scripted double covering the whole login/session/logout lifecycle, with
+// call recording so the route tests can assert what reached the port.
+type fakeAuth struct {
+	mu sync.Mutex
+
+	loginURL string // base URL LoginURL appends "?state=" onto
+
+	completeLoginUser  identity.User
+	completeLoginErr   error
+	completeLoginCalls []string // codes CompleteLogin was called with, in order
+
+	sessionToken     string
+	sessionExpires   time.Time
+	createSessionErr error
+
+	resolveUser identity.User
+	resolveErr  error
+
+	logoutErr   error
+	logoutCalls []string // tokens Logout was called with, in order
+}
+
+func (f *fakeAuth) LoginURL(state string) string {
+	return f.loginURL + "?state=" + state
+}
+
+func (f *fakeAuth) CompleteLogin(_ context.Context, code string) (identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.completeLoginCalls = append(f.completeLoginCalls, code)
+	return f.completeLoginUser, f.completeLoginErr
+}
+
+func (f *fakeAuth) CreateSession(_ context.Context, _ string) (string, time.Time, error) {
+	return f.sessionToken, f.sessionExpires, f.createSessionErr
+}
+
+func (f *fakeAuth) ResolveSession(_ context.Context, _ string) (identity.User, error) {
+	return f.resolveUser, f.resolveErr
+}
+
+func (f *fakeAuth) Logout(_ context.Context, token string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logoutCalls = append(f.logoutCalls, token)
+	return f.logoutErr
+}
+
+func (f *fakeAuth) completeLoginCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.completeLoginCalls)
+}
+
+func (f *fakeAuth) lastCompleteLoginCode() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.completeLoginCalls) == 0 {
+		return ""
+	}
+	return f.completeLoginCalls[len(f.completeLoginCalls)-1]
+}
+
+func (f *fakeAuth) logoutCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.logoutCalls)
+}
+
+func (f *fakeAuth) lastLogoutToken() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.logoutCalls) == 0 {
+		return ""
+	}
+	return f.logoutCalls[len(f.logoutCalls)-1]
 }

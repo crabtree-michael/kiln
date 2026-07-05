@@ -1001,13 +1001,25 @@ body:has([data-role='primary-screen']) {
 }
 
 [data-role='dock-mic-orb'] {
-  /* The mic "listening" glow (09 §3): an ember ring behind the mic glyph that
-     breathes while recording. Reuses the streams-dropdown "building" pulse
-     language (`kiln-status-pulse` / the `[data-status='building']` dot): same
-     ember hue and 1.6s ease-in-out breathing, scaled up for the 54px button so
-     the mic reads as visually consistent with an actively-building stream.
-     Absolutely positioned so it never shifts the glyph's layout, painted first
-     so the glyph stays on top. Idle → no box-shadow, invisible. */
+  /* The red mic-input "listening" glow (09 §3): a soft halo behind the mic
+     glyph. Absolutely positioned so it never shifts the glyph's layout, and
+     painted first so the glyph stays on top.
+
+     While listening (see the `[data-dock-state='listening']` rule below) it runs
+     one breathing pulse — the resting "building glow" rhythm reused from the
+     streams-dropdown `[data-status='building']` dot, so the mic reads as
+     visually consistent with an actively-building stream — carrying two layers:
+
+       • a gradient FILL whose darkness/saturation tracks live mic loudness
+         (`--mic-level`, 0..1, written each frame by the dock): louder speech
+         pulls the gradient down in lightness and up in chroma so the glow reads
+         as more intense, then eases back toward the resting red as the level
+         falls (the dock's volume smoother releases slowly); and
+       • an ember-ring box-shadow that breathes with the same pulse, scaled up
+         for the 54px button.
+
+     Non-listening → not animated → invisible (opacity 0, no box-shadow). */
+  --mic-level: 0;
   position: absolute;
   inset: 0;
   margin: auto;
@@ -1015,26 +1027,44 @@ body:has([data-role='primary-screen']) {
   height: 100%;
   border-radius: 50%;
   pointer-events: none;
+  background: radial-gradient(
+    circle,
+    oklch(calc(0.63 - var(--mic-level) * 0.2) calc(0.2 + var(--mic-level) * 0.07) 25 / 0.6) 0%,
+    oklch(calc(0.63 - var(--mic-level) * 0.2) calc(0.2 + var(--mic-level) * 0.07) 25 / 0.3) 55%,
+    oklch(0.6 0.22 25 / 0) 72%
+  );
+  opacity: 0;
+  transform: scale(1);
+  /* A short linear transition micro-smooths the step between rAF samples so the
+     darkness shift reads as continuous rather than stepped. */
+  transition: background 0.09s linear;
 }
 
+/* Active/listening only: run the breathing pulse. Its opacity/scale carry the
+   rhythm (the timing language); `--mic-level` rides along so a louder voice also
+   swells the halo, the gradient darkening does the intensity work, and the
+   ember-ring box-shadow breathes on the same beat. */
 [data-role='dock-talk'][data-dock-state='listening'] [data-role='dock-mic-orb'] {
-  animation: kiln-mic-glow 1.6s ease-in-out infinite;
+  animation: kiln-mic-glow 2.4s ease-in-out infinite;
 }
 
 @keyframes kiln-mic-glow {
   0%,
   100% {
+    opacity: calc(0.28 + var(--mic-level) * 0.55);
+    transform: scale(calc(1 + var(--mic-level) * 0.6));
     box-shadow:
       0 0 0 4px oklch(0.58 0.2 27 / 0.18),
       0 0 14px 3px oklch(0.58 0.2 27 / 0.14);
   }
   50% {
+    opacity: calc(0.46 + var(--mic-level) * 0.55);
+    transform: scale(calc(1.08 + var(--mic-level) * 0.6));
     box-shadow:
       0 0 0 7px oklch(0.58 0.2 27 / 0.06),
       0 0 22px 6px oklch(0.58 0.2 27 / 0.06);
   }
 }
-
 [data-role='dock-mic-capsule'] {
   width: 9px;
   height: 13px;
@@ -1082,10 +1112,19 @@ body:has([data-role='primary-screen']) {
     animation: none;
   }
 
-  /* Drop the breathing motion but keep a static ember ring so the listening
-     state stays visible (mirrors the building dot's reduced-motion handling). */
+  /* Reduced motion: drop the breathing pulse and scaling for motion-sensitive
+     users, but keep both static tells so the listening state stays visible — the
+     orb's volume-darkness feedback (its darkness still tracks the mic level) and
+     a static ember ring (mirrors the building dot's reduced-motion handling). */
+  [data-role='dock-mic-orb'] {
+    transform: none;
+    transition: none;
+  }
+
   [data-role='dock-talk'][data-dock-state='listening'] [data-role='dock-mic-orb'] {
     animation: none;
+    opacity: calc(0.4 + var(--mic-level) * 0.45);
+    transform: none;
     box-shadow:
       0 0 0 4px oklch(0.58 0.2 27 / 0.18),
       0 0 14px 3px oklch(0.58 0.2 27 / 0.14);

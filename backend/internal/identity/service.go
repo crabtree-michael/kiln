@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -136,6 +137,94 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	return nil
 }
 
+// Me assembles the account view: fingerprints only, never secret values (11 §3 D7).
+func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return Me{}, fmt.Errorf("identity: me: %w", err)
+	}
+	cfg, err := s.store.GetUserConfig(ctx, userID)
+	if err != nil {
+		return Me{}, fmt.Errorf("identity: me: %w", err)
+	}
+	me := Me{User: user, Settings: MeSettings{
+		AnthropicKey:      s.secretStatus(cfg.AnthropicKeyEnc),
+		AmikaKey:          s.secretStatus(cfg.AmikaKeyEnc),
+		GitHubToken:       s.secretStatus(cfg.GitHubTokenEnc),
+		AmikaBaseURL:      cfg.AmikaBaseURL,
+		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
+	}}
+	proj, err := s.store.GetProjectByOwner(ctx, userID)
+	switch {
+	case err == nil:
+		me.Project = &proj
+	case errors.Is(err, ErrNotFound): // onboarding not done yet
+	default:
+		return Me{}, fmt.Errorf("identity: me: %w", err)
+	}
+	return me, nil
+}
+
+// UpdateSettings merges non-empty fields over the stored row (read-modify-write;
+// empty = unchanged — recorded deviation, no clear operation in phase 1).
+func (s *Service) UpdateSettings(ctx context.Context, userID string, upd SettingsUpdate) error {
+	cfg, err := s.store.GetUserConfig(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("identity: update settings: %w", err)
+	}
+	cfg.UserID = userID
+	if err := s.mergeSecret(&cfg.AnthropicKeyEnc, upd.AnthropicKey); err != nil {
+		return err
+	}
+	if err := s.mergeSecret(&cfg.AmikaKeyEnc, upd.AmikaKey); err != nil {
+		return err
+	}
+	if err := s.mergeSecret(&cfg.GitHubTokenEnc, upd.GitHubToken); err != nil {
+		return err
+	}
+	if upd.AmikaBaseURL != "" {
+		cfg.AmikaBaseURL = upd.AmikaBaseURL
+	}
+	if upd.AmikaClaudeCredID != "" {
+		cfg.AmikaClaudeCredID = upd.AmikaClaudeCredID
+	}
+	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("identity: update settings: %w", err)
+	}
+	return nil
+}
+
+// minWorkerCount and maxWorkerCount mirror the DB's CHECK (worker_count
+// between 1 and 10); defaultWorkerCount is used when the caller omits it.
+const (
+	minWorkerCount     = 1
+	maxWorkerCount     = 10
+	defaultWorkerCount = 3
+)
+
+// UpsertProject creates or updates the caller's project (one per owner in
+// phase 1), validating required fields and the worker-count range.
+func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectUpdate) (Project, error) {
+	if upd.WorkerCount == 0 {
+		upd.WorkerCount = defaultWorkerCount
+	}
+	if upd.Name == "" || upd.RepoURL == "" || upd.WorkerCount < minWorkerCount || upd.WorkerCount > maxWorkerCount {
+		return Project{}, ErrInvalidProject
+	}
+	p, err := s.store.UpsertProject(ctx, Project{
+		OwnerUserID:   userID,
+		Name:          upd.Name,
+		RepoURL:       upd.RepoURL,
+		AmikaSnapshot: upd.AmikaSnapshot,
+		BrainModel:    upd.BrainModel,
+		WorkerCount:   upd.WorkerCount,
+	})
+	if err != nil {
+		return Project{}, fmt.Errorf("identity: upsert project: %w", err)
+	}
+	return p, nil
+}
+
 func (s *Service) upsertFromGitHub(ctx context.Context, gh githubapi.GitHubUser) (User, error) {
 	u, err := s.store.UpsertUser(ctx, User{
 		GitHubID:    gh.ID,
@@ -147,6 +236,29 @@ func (s *Service) upsertFromGitHub(ctx context.Context, gh githubapi.GitHubUser)
 		return User{}, fmt.Errorf("identity: upsert user: %w", err)
 	}
 	return u, nil
+}
+
+func (s *Service) secretStatus(enc []byte) SecretStatus {
+	if len(enc) == 0 {
+		return SecretStatus{}
+	}
+	plain, err := s.cipher.Decrypt(enc)
+	if err != nil { // wrong master key / corrupt row: surface as set-but-unreadable
+		return SecretStatus{Set: true, Tail: "????"}
+	}
+	return SecretStatus{Set: true, Tail: Tail(plain)}
+}
+
+func (s *Service) mergeSecret(dst *[]byte, plaintext string) error {
+	if plaintext == "" {
+		return nil
+	}
+	enc, err := s.cipher.Encrypt(plaintext)
+	if err != nil {
+		return fmt.Errorf("identity: encrypt secret: %w", err)
+	}
+	*dst = enc
+	return nil
 }
 
 func hashToken(token string) string {

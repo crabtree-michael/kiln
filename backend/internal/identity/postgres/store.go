@@ -51,6 +51,19 @@ func (s *Store) UpsertUser(ctx context.Context, u identity.User) (identity.User,
 	return out, nil
 }
 
+// GetUser returns ErrNotFound for an unknown id.
+func (s *Store) GetUser(ctx context.Context, id string) (identity.User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1`, id)
+	u, err := scanUser(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return identity.User{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return identity.User{}, fmt.Errorf("identity/postgres: get user: %w", err)
+	}
+	return u, nil
+}
+
 // InsertSession persists a new session row.
 func (s *Store) InsertSession(ctx context.Context, sess identity.Session) error {
 	if _, err := s.db.ExecContext(ctx, `

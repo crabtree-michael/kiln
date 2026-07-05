@@ -52,6 +52,18 @@ func (s *fakeStore) UpsertUser(_ context.Context, u identity.User) (identity.Use
 	return u, nil
 }
 
+// GetUser returns ErrNotFound for an unknown id.
+func (s *fakeStore) GetUser(_ context.Context, id string) (identity.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return identity.User{}, identity.ErrNotFound
+}
+
 func (s *fakeStore) InsertSession(_ context.Context, sess identity.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

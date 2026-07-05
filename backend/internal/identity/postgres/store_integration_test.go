@@ -168,6 +168,18 @@ func TestUpsertUserFindsOrCreates(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("users row count for github_id=42 = %d, want 1 (find-or-create must not duplicate)", count)
 	}
+
+	byID, err := store.GetUser(ctx, updated.ID)
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	if byID.ID != updated.ID || byID.GitHubLogin != "octocat-renamed" || byID.DisplayName != "Renamed Cat" {
+		t.Fatalf("GetUser = %+v, want %+v", byID, updated)
+	}
+
+	if _, err := store.GetUser(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("GetUser unknown id: err = %v, want ErrNotFound", err)
+	}
 }
 
 // ---- Session lifecycle: insert, resolve joined, touch extends, delete -----

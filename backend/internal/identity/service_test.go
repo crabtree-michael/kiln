@@ -5,6 +5,7 @@ package identity_test
 // no real Postgres or GitHub involved.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -273,5 +274,196 @@ func TestDevSignInBypassesAllowlist(t *testing.T) {
 	}
 	if u2.ID != u.ID {
 		t.Fatalf("second DevSignIn user ID = %q, want %q (find-or-create)", u2.ID, u.ID)
+	}
+}
+
+// ---- Me / UpdateSettings / UpsertProject (11 §3-§4) ------------------------
+
+// testProjectName and testProjectRepoURL are shared across the UpsertProject
+// tests below (goconst).
+const (
+	testProjectName    = "kiln"
+	testProjectRepoURL = "https://github.com/x/y"
+)
+
+func mustDevSignIn(t *testing.T, svc *identity.Service, login string) identity.User {
+	t.Helper()
+	u, err := svc.DevSignIn(context.Background(), login)
+	if err != nil {
+		t.Fatalf("DevSignIn: %v", err)
+	}
+	return u
+}
+
+func TestMeEmpty(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "fresh-user")
+
+	me, err := svc.Me(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if me.Project != nil {
+		t.Fatalf("Project = %+v, want nil before onboarding", me.Project)
+	}
+	for name, got := range map[string]identity.SecretStatus{
+		"AnthropicKey": me.Settings.AnthropicKey,
+		"AmikaKey":     me.Settings.AmikaKey,
+		"GitHubToken":  me.Settings.GitHubToken,
+	} {
+		if got != (identity.SecretStatus{}) {
+			t.Fatalf("%s = %+v, want zero-value SecretStatus", name, got)
+		}
+	}
+	if me.Settings.AmikaBaseURL != "" || me.Settings.AmikaClaudeCredID != "" {
+		t.Fatalf("clear fields not empty: %+v", me.Settings)
+	}
+}
+
+func TestUpdateSettingsWriteAndStatus(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "settings-user")
+
+	err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
+		AnthropicKey: "sk-ant-abcx4Kd",
+		AmikaBaseURL: "https://api.amika.dev",
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+
+	me, err := svc.Me(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if want := (identity.SecretStatus{Set: true, Tail: "x4Kd"}); me.Settings.AnthropicKey != want {
+		t.Fatalf("AnthropicKey = %+v, want %+v", me.Settings.AnthropicKey, want)
+	}
+	if me.Settings.AmikaBaseURL != "https://api.amika.dev" {
+		t.Fatalf("AmikaBaseURL = %q, want round-tripped clear value", me.Settings.AmikaBaseURL)
+	}
+	if me.Settings.AmikaKey != (identity.SecretStatus{}) {
+		t.Fatalf("AmikaKey = %+v, want unset", me.Settings.AmikaKey)
+	}
+
+	cfg, ok := store.configs[u.ID]
+	if !ok {
+		t.Fatal("no config row stored")
+	}
+	if bytes.Contains(cfg.AnthropicKeyEnc, []byte("sk-ant-abcx4Kd")) {
+		t.Fatal("stored bytes contain the plaintext secret — must be encrypted")
+	}
+}
+
+func TestUpdateSettingsPartialMerge(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "partial-user")
+
+	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
+		AnthropicKey: "sk-ant-firstWXYZ",
+	}); err != nil {
+		t.Fatalf("UpdateSettings first: %v", err)
+	}
+	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
+		AmikaKey: "amk-999zZ",
+	}); err != nil {
+		t.Fatalf("UpdateSettings second: %v", err)
+	}
+
+	me, err := svc.Me(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if want := (identity.SecretStatus{Set: true, Tail: "WXYZ"}); me.Settings.AnthropicKey != want {
+		t.Fatalf("AnthropicKey = %+v, want unchanged %+v", me.Settings.AnthropicKey, want)
+	}
+	if want := (identity.SecretStatus{Set: true, Tail: "99zZ"}); me.Settings.AmikaKey != want {
+		t.Fatalf("AmikaKey = %+v, want %+v", me.Settings.AmikaKey, want)
+	}
+}
+
+func TestUpdateSettingsOverwrite(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "overwrite-user")
+
+	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
+		AnthropicKey: "aaaa1111",
+	}); err != nil {
+		t.Fatalf("UpdateSettings first: %v", err)
+	}
+	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
+		AnthropicKey: "bbbb2222",
+	}); err != nil {
+		t.Fatalf("UpdateSettings overwrite: %v", err)
+	}
+
+	me, err := svc.Me(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if want := (identity.SecretStatus{Set: true, Tail: "2222"}); me.Settings.AnthropicKey != want {
+		t.Fatalf("AnthropicKey = %+v, want %+v", me.Settings.AnthropicKey, want)
+	}
+}
+
+func TestUpsertProjectCreatesThenUpdates(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "project-user")
+
+	created, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:    testProjectName,
+		RepoURL: testProjectRepoURL,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject create: %v", err)
+	}
+	if created.WorkerCount != 3 {
+		t.Fatalf("WorkerCount = %d, want defaulted 3", created.WorkerCount)
+	}
+
+	me, err := svc.Me(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if me.Project == nil {
+		t.Fatal("Project = nil, want non-nil after UpsertProject")
+	}
+
+	updated, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:        testProjectName,
+		RepoURL:     testProjectRepoURL,
+		BrainModel:  "claude-haiku-4-5-20251001",
+		WorkerCount: 5,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject update: %v", err)
+	}
+	if updated.ID != created.ID {
+		t.Fatalf("second UpsertProject id = %q, want %q (same project)", updated.ID, created.ID)
+	}
+	if updated.BrainModel != "claude-haiku-4-5-20251001" || updated.WorkerCount != 5 {
+		t.Fatalf("UpsertProject update did not persist fields: %+v", updated)
+	}
+}
+
+func TestUpsertProjectValidates(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "invalid-project-user")
+
+	cases := []identity.ProjectUpdate{
+		{Name: "", RepoURL: testProjectRepoURL, WorkerCount: 3},
+		{Name: testProjectName, RepoURL: "", WorkerCount: 3},
+		{Name: testProjectName, RepoURL: testProjectRepoURL, WorkerCount: 11},
+	}
+	for _, upd := range cases {
+		if _, err := svc.UpsertProject(context.Background(), u.ID, upd); !errors.Is(err, identity.ErrInvalidProject) {
+			t.Fatalf("UpsertProject(%+v) err = %v, want ErrInvalidProject", upd, err)
+		}
 	}
 }

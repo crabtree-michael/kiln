@@ -86,6 +86,30 @@ the `kiln-backend` project was created during setup and `.env` updated to its re
 - Prod: push `main` → Render auto-deploys → `/healthz` green → **board + SSE load from a
   phone** at the public URL (the one human-only check).
 
+## Status (2026-07-05) — deployed
+
+Live at **https://kiln-iubn.onrender.com** (Render Virginia). Resources:
+`srv-d953nmcvikkc73d8aq60` (web) + `dpg-d953mf8js32c73fc5ogg-a` (Postgres 16,
+basic_256mb). Provisioned via the Render API (headless), not a Blueprint apply.
+Verified in prod: `/healthz` 200, embedded SPA, `/debug` fallback, `/api/stream`
+SSE. Backend Sentry ingestion confirmed end-to-end (`kiln-backend`). App honors
+Render's `PORT`.
+
+## Known follow-ups
+- **Frontend source maps not uploading** — the Render build runs `@sentry/vite-plugin`
+  but the upload 401s: the provided `SENTRY_AUTH_TOKEN` authenticates (403 on the org
+  API = recognized) but lacks upload scope. Frontend errors still *capture*; stack
+  traces stay minified until a token with `project:releases`+`project:write` is set in
+  `.env` + Render. Non-fatal (build succeeds). Expected to be resolved in the US-Sentry
+  migration below.
+- **Sentry is EU (`de`), app is US** — org region is immutable; user will create a
+  US-region Sentry org later (new DSNs/tokens; update `.env`, Render env, and the
+  hardcoded `org`/`project`/`url` in `frontend/vite.config.ts`).
+- **Sentry `release` is `dev`** — no `VERSION` build arg is passed; wire
+  `RENDER_GIT_COMMIT` for release correlation.
+- Setup created the `kiln-backend` Sentry project (the original `SENTRY_BACKEND_DSN`
+  was stale) and corrected `.env`.
+
 ## Out of scope (phase 4)
 `sentinel.yml`, `backup.yml`, healthchecks.io, ntfy, `production-ops` skill,
 `mcp-grafana`, any CI gate.

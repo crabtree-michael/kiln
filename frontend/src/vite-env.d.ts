@@ -17,3 +17,20 @@ interface ImportMetaEnv {
    */
   readonly VITE_RELEASE?: string;
 }
+
+// The W3C Audio Session API (https://www.w3.org/TR/audio-session/). Not in the
+// DOM lib types because it is not Baseline — only Safari 16.4+ implements it. We
+// use it to declare a `play-and-record` session so iOS lets other apps' audio
+// (music, podcasts) keep playing (ducked) while the mic is live, instead of
+// interrupting it. `audioSession` is optional so feature-detection stays honest
+// on every other browser, where it is simply absent (no polyfill, no-op).
+type AudioSessionType =
+  'auto' | 'playback' | 'transient' | 'transient-solo' | 'ambient' | 'play-and-record';
+
+interface AudioSession {
+  type: AudioSessionType;
+}
+
+interface Navigator {
+  readonly audioSession?: AudioSession;
+}

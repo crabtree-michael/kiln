@@ -68,6 +68,46 @@ Listening ends automatically when the app is backgrounded or the tab hidden
 automatically on return to the foreground (it re-enters the default state). A paused
 mic stays paused across background/foreground; pausing is the user's explicit choice.
 
+### 3a. Background audio coexistence
+
+Capturing the mic must **not** silence other apps' audio (music, a podcast). Instead the
+device should let it keep playing — **ducked** (lowered) while the mic is live, matching
+Siri / Voice Memos — which is also the cleaner input for STT (§10, D5).
+
+Kiln is a PWA (`07`; native packaging deferred to `10`), so the audio session is only
+controllable through what the browser exposes:
+
+- **iOS Safari (16.4+)** is the platform that hard-stops other audio: WebKit's default
+recording session is exclusive. The client declares a `play-and-record`
+[Audio Session](https://www.w3.org/TR/audio-session/) (`navigator.audioSession.type`)
+**before** `getUserMedia` so the platform coexists with — and ducks — other audio rather
+than interrupting it. This is the only web knob for it; the exact duck-vs-mix outcome is
+the platform's to decide, not ours.
+- **Android Chrome / everything else** does not implement the Audio Session API and does
+not hard-stop other audio on capture — `navigator.audioSession` is absent and the call
+no-ops (feature-detected).
+
+`echoCancellation` stays on for cleaner STT; if on-device testing shows it re-forces an
+exclusive session and still stops music, the fallback is to drop it to `false` (trading
+some echo when the user is on speaker).
+
+Because the runtime behavior is platform-decided and cannot be asserted from code or an
+automated browser test, the acceptance gate is a **real-device checklist** (both must
+pass before this ships):
+
+- [ ] **iPhone (Safari 16.4+):** start Spotify/Apple Music playing → open Kiln (mic
+auto-starts) → music **keeps playing, ducked** (not stopped/muted).
+- [ ] **iPhone:** speak while music plays → the utterance transcribes and commits
+correctly (STT is not degraded by the background audio).
+- [ ] **iPhone:** pause the mic / background the app → music returns to full volume; the
+mic does not remain holding the audio session.
+- [ ] **iPhone (headphones/BT):** output routing is not yanked to the built-in speaker
+when the mic engages.
+- [ ] **Android (Chrome):** music keeps playing while the mic is active and STT works
+(confirms the no-op path did not regress the already-milder default).
+- [ ] **Regression:** the default gate (`pnpm run check`) stays green; the gated browser
+E2E (fake mic) still lands a `human.message`.
+
 ## 4. Transcript & utterance commit
 
 While Listening, the dock renders the live transcript per the `Kiln Voice Screen`
@@ -166,6 +206,7 @@ gate.
 | D2  | Client streams to AssemblyAI directly with a backend-minted temp token.                                                                                                                            | Proxy audio through the backend over WS.              | Keeps the backend SSE+POST only (`04` D6) and off the audio hot path; the temp token preserves the credential boundary (`02` §2).                 |
 | D3  | Mic on by default at app open; "Tap to talk" only after explicit pause (or Blocked/Retry).                                                                                                         | Tap-to-start each session.                            | User decision. The product moment is "open the app and talk" (`01` §2 step 9–10); a mandatory tap taxes every session.                            |
 | D4  | Utterance commit via AssemblyAI auto end-of-turn; X cancels pre-commit.                                                                                                                            | Tap-to-stop-and-send; hybrid grace-window coalescing. | User decision. Hands-free matches the design; mis-fires are cheap (`01` §7 confirmation) and hybrid coalescing is client state we don't need yet. |
+| D5  | Mic capture must not silence other apps' audio — duck (not full-stop, not full-volume) via a `play-and-record` Audio Session on iOS; no-op elsewhere (§3a).                                          | Full-stop (status quo); full-volume mix; native wrapper with `AVAudioSession` control. | Ducking matches Siri/Voice Memos and is the cleanest STT input. Duck-vs-mix is ultimately platform-decided; a native wrapper (real `.duckOthers` control) waits on `10` packaging. |
 
 
 **Open questions (owned elsewhere or later):** PWA-vs-wrapped-native packaging — gated

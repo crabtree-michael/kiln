@@ -9,7 +9,7 @@
 // The pure `decodeAssemblyMessage` is split out and unit-tested; the socket/mic
 // plumbing has no branch worth testing without a real browser, so tests mock at
 // the store boundary instead (09 §8).
-import pcmWorkletUrl from '@/voice/pcm-worklet.ts?url';
+import pcmWorkletUrl from '@/voice/pcm-worklet.ts?worker&url';
 import type { VoiceProviderEvent } from '@/voice/commit-machine';
 import type { VoiceToken } from '@/transport/transport';
 import { computeRms } from '@/voice/volume-meter';

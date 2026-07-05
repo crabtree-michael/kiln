@@ -5,10 +5,15 @@
 // sample_rate=16000). Complete frames are posted to the main thread as a
 // transferred ArrayBuffer; `assemblyai-client` forwards each as a binary WS frame.
 //
-// This module is loaded via `addModule(new URL('./pcm-worklet.ts', ...))`, so it
-// executes in `AudioWorkletGlobalScope`, not the DOM. That scope's globals
+// `assemblyai-client` imports this file with Vite's `?worker&url` suffix, so Vite
+// bundles it (rolling in the `pcm-batch` import) and transpiles it to a real,
+// self-contained `.js` asset, then hands `addModule` that asset's URL. A plain
+// `?url` import would NOT work: Vite would emit the raw `.ts` source as a
+// `data:video/mp2t` URL (bare imports + TS syntax + a non-JS MIME), which
+// `addModule` rejects with "Unable to load a worklet's module". It runs in
+// `AudioWorkletGlobalScope`, not the DOM, so that scope's globals
 // (`AudioWorkletProcessor`, `registerProcessor`, `sampleRate`) are not in the
-// DOM lib, so we declare exactly the slice we use rather than reaching for `any`
+// DOM lib and we declare exactly the slice we use rather than reaching for `any`
 // (02 §4b: no `any`, no `as`).
 //
 // The decimate-and-batch logic lives in the pure `pcm-batch` module so it can be

@@ -100,7 +100,7 @@ func TestRun_ReconcileCreatesOnlyMissingWorkers(t *testing.T) {
 	provider := newReconcileProvider() // no live workers at all
 	slots := &fakeSlots{ids: []string{reconcileWorkerA, reconcileWorkerB}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock)
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()
@@ -116,7 +116,7 @@ func TestRun_ReconcileAdoptsExistingWorkersWithoutRecreating(t *testing.T) {
 	provider := newReconcileProvider(agent.ProviderWorker{Name: existingName, Ref: "already-provisioned"})
 	slots := &fakeSlots{ids: []string{reconcileWorkerA, reconcileWorkerB}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock)
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()
@@ -142,7 +142,7 @@ func TestRun_ReconcileDestroysOrphanedWorkers(t *testing.T) {
 	)
 	slots := &fakeSlots{ids: []string{reconcileWorkerA}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock)
+	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()

@@ -61,6 +61,17 @@ type Clock interface {
 	After(d time.Duration) <-chan time.Time
 }
 
+// BoardRefresher lets the status loop ask the client-facing layer to re-push
+// the board snapshot when a *silent* liveness change — e.g. a sandbox
+// auto-stop, which fires no event — means the rendered Streams status is now
+// stale (amended 2026-07-05). It is a fire-and-forget nudge: a missed push
+// self-heals on the next liveness change or the next board.updated. The agent
+// module never imports the api layer; the composition root satisfies this with
+// the SSE hub. Optional — a nil refresher just skips the nudge.
+type BoardRefresher interface {
+	RefreshBoard(ctx context.Context) error
+}
+
 // Service is the provider-agnostic core (05 §9): it implements the
 // AgentRuntime consumer contract the runtime's outbox worker calls (05 §2.1;
 // the port shape is runtime.AgentRuntime, matched structurally — this module
@@ -69,25 +80,33 @@ type Clock interface {
 // port. Constructed at the composition root (05 §9); AGENT_MODE selects the
 // real or mock Provider there.
 type Service struct {
-	store    Store
-	provider Provider
-	events   EventEnqueuer
-	slots    Slots
-	clock    Clock
+	store     Store
+	provider  Provider
+	events    EventEnqueuer
+	slots     Slots
+	clock     Clock
+	refresher BoardRefresher // may be nil (05 §9): no board push nudge on liveness change
 
 	mu      sync.Mutex
 	workers map[string]ProviderWorker // provider-worker cache keyed by name
+
+	statusMu   sync.Mutex             // guards lastStatus only — never held across a ListAgents call
+	lastStatus map[string]AgentStatus // worker id → last-pushed status, for the liveness diff
 }
 
-// NewService assembles the agent runtime over its ports.
-func NewService(store Store, provider Provider, events EventEnqueuer, slots Slots, clock Clock) *Service {
+// NewService assembles the agent runtime over its ports. refresher is optional
+// (nil disables the liveness push nudge — e.g. in tests that do not exercise it).
+func NewService(
+	store Store, provider Provider, events EventEnqueuer, slots Slots, clock Clock, refresher BoardRefresher,
+) *Service {
 	return &Service{
-		store:    store,
-		provider: provider,
-		events:   events,
-		slots:    slots,
-		clock:    clock,
-		workers:  map[string]ProviderWorker{},
+		store:     store,
+		provider:  provider,
+		events:    events,
+		slots:     slots,
+		clock:     clock,
+		refresher: refresher,
+		workers:   map[string]ProviderWorker{},
 	}
 }
 
@@ -166,6 +185,7 @@ func (s *Service) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	wg.Go(func() { s.loop(ctx, PollInterval, s.pollOnce) })
 	wg.Go(func() { s.loop(ctx, ReconcileInterval, s.reconcile) })
+	wg.Go(func() { s.loop(ctx, LivenessInterval, s.refreshStatuses) })
 	wg.Wait()
 	return nil
 }
@@ -182,14 +202,12 @@ func (s *Service) ListAgents(ctx context.Context) ([]AgentInfo, error) {
 	out := make([]AgentInfo, 0, len(live))
 	for _, w := range live {
 		workerID := strings.TrimPrefix(w.Name, WorkerNamePrefix)
-		info := AgentInfo{WorkerID: workerID, Status: AgentIdle}
+		info := AgentInfo{WorkerID: workerID, Status: statusFor(w.Status, false)}
 		if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found {
 			info.UpdatedAt = prev.UpdatedAt
 			if prev.Kind == KindSend {
 				info.TicketID = prev.TicketID
-				if isRunning(prev.Phase) {
-					info.Status = AgentWorking
-				}
+				info.Status = statusFor(w.Status, isRunning(prev.Phase))
 			}
 		}
 		out = append(out, info)
@@ -197,21 +215,49 @@ func (s *Service) ListAgents(ctx context.Context) ([]AgentInfo, error) {
 	return out, nil
 }
 
+// statusFor folds provider liveness (RunStatus) with turn activity into the
+// AgentStatus the brain and Streams see (05 §2, amended). Liveness dominates: a
+// stopped/errored/starting session is reported as such regardless of a possibly
+// stale in-flight turn row; only a ready worker distinguishes building (turn in
+// flight) from idle. An empty RunStatus — a provider that does not report
+// liveness — is treated as ready, preserving the pre-liveness working|idle
+// behaviour.
+func statusFor(run RunStatus, turnRunning bool) AgentStatus {
+	switch run {
+	case RunStopped:
+		return AgentStopped
+	case RunErrored:
+		return AgentErrored
+	case RunStarting:
+		return AgentStarting
+	case RunReady:
+		// A live worker: distinguished by turn activity below.
+	}
+	// RunReady, or "" from a provider that reports no liveness: fall back to the
+	// turn-derived building|idle.
+	if turnRunning {
+		return AgentBuilding
+	}
+	return AgentIdle
+}
+
 // GetAgentUpdates returns one worker's status plus its latest completed output
 // (05 §2) — backs the brain's get_agent_updates tool. An unknown/never-created
 // worker is an empty idle update, not an error (best-effort read, 05 D2).
 func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUpdate, error) {
 	u := AgentUpdate{WorkerID: workerID, Status: AgentIdle}
+	turnRunning := false
 	if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found && prev.Kind == KindSend {
-		if isRunning(prev.Phase) {
-			u.Status = AgentWorking
-		}
+		turnRunning = isRunning(prev.Phase)
 		u.IsError = prev.Phase == PhaseFailed
 	}
 	w, err := s.resolveWorker(ctx, WorkerName(workerID))
 	if err != nil {
 		return AgentUpdate{}, fmt.Errorf("agent: get agent updates: %w", err)
 	}
+	// Fold liveness with turn activity (statusFor); a not-live worker has an
+	// empty RunStatus, degrading to the turn-derived building|idle.
+	u.Status = statusFor(w.Status, turnRunning)
 	if w == (ProviderWorker{}) {
 		return u, nil // worker not live yet — status only
 	}
@@ -250,6 +296,49 @@ func (s *Service) Reset(ctx context.Context) error {
 	s.workers = map[string]ProviderWorker{}
 	s.mu.Unlock()
 	return nil
+}
+
+// refreshStatuses re-reads every worker's composed status and, when any has
+// changed since the last tick, nudges the board to re-push so Streams reflects
+// the new liveness (amended 2026-07-05). This is what surfaces a *silent*
+// auto-stop: nothing else emits an event when a sandbox stops. One ListAgents
+// (⇒ one ListWorkers) call per tick; the push only fires on a real change.
+func (s *Service) refreshStatuses(ctx context.Context) {
+	infos, err := s.ListAgents(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: liveness refresh", "err", err)
+		return
+	}
+	if !s.statusChanged(infos) || s.refresher == nil {
+		return
+	}
+	if err := s.refresher.RefreshBoard(ctx); err != nil {
+		slog.WarnContext(ctx, "agent: refresh board after liveness change", "err", err)
+	}
+}
+
+// statusChanged swaps in the current per-worker status set and reports whether
+// it differs from the previous tick (added, removed, or changed status). Holds
+// statusMu only — never the worker mutex — and never across a provider/store
+// call, so it cannot deadlock with ListAgents.
+func (s *Service) statusChanged(infos []AgentInfo) bool {
+	next := make(map[string]AgentStatus, len(infos))
+	for _, in := range infos {
+		next[in.WorkerID] = in.Status
+	}
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	changed := len(next) != len(s.lastStatus)
+	if !changed {
+		for id, st := range next {
+			if s.lastStatus[id] != st {
+				changed = true
+				break
+			}
+		}
+	}
+	s.lastStatus = next
+	return changed
 }
 
 // markContinuation stamps turn with the prior conversation handle when this

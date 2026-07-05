@@ -14,6 +14,7 @@ import type { components } from '@/schema/generated';
 
 export type Ticket = components['schemas']['Ticket'];
 export type Board = components['schemas']['Board'];
+export type AgentStatus = components['schemas']['AgentStatus'];
 export type Message = components['schemas']['Message'];
 export type MessagePostResponse = components['schemas']['MessagePostResponse'];
 export type SayEvent = components['schemas']['SayEvent'];

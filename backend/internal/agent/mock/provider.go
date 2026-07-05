@@ -57,6 +57,12 @@ type Provider struct {
 	// failure decrements it.
 	FailStartTurns int
 
+	// StatusByName overrides a live worker's reported liveness in ListWorkers
+	// (05 §8 test knob); a name with no entry reports RunReady, matching the
+	// mock's instant, always-up lifecycle. Lets inspector/poll tests drive the
+	// stopped/errored/starting states without a real sandbox.
+	StatusByName map[string]agent.RunStatus
+
 	mu         sync.Mutex
 	workers    map[string]bool             // live worker names
 	convs      map[string]map[string]bool  // worker name → live conversation ids
@@ -83,7 +89,11 @@ func (p *Provider) ListWorkers(_ context.Context) ([]agent.ProviderWorker, error
 	p.init()
 	out := make([]agent.ProviderWorker, 0, len(p.workers))
 	for name := range p.workers {
-		out = append(out, agent.ProviderWorker{Name: name, Ref: name})
+		status := agent.RunReady
+		if s, ok := p.StatusByName[name]; ok {
+			status = s
+		}
+		out = append(out, agent.ProviderWorker{Name: name, Ref: name, Status: status})
 	}
 	return out, nil
 }
@@ -161,6 +171,19 @@ func (p *Provider) ReadLatestOutput(_ context.Context, w agent.ProviderWorker) (
 	defer p.mu.Unlock()
 	p.init()
 	return p.lastOutput[w.Name], nil
+}
+
+// SetWorkerStatus overrides a live worker's reported liveness under the lock,
+// so a test can flip a running sandbox to stopped/errored mid-loop without
+// racing ListWorkers (05 §8 test knob; amended 2026-07-05).
+func (p *Provider) SetWorkerStatus(name string, status agent.RunStatus) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	if p.StatusByName == nil {
+		p.StatusByName = map[string]agent.RunStatus{}
+	}
+	p.StatusByName[name] = status
 }
 
 // SeedLatestOutput presets a worker's latest output so inspector tests can read

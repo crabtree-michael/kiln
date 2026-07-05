@@ -112,8 +112,11 @@ type Update struct {
 type AgentStatus string
 
 const (
-	AgentWorking AgentStatus = "working"
-	AgentIdle    AgentStatus = "idle"
+	AgentBuilding AgentStatus = "building" // alive + a turn in flight
+	AgentIdle     AgentStatus = "idle"     // alive + no turn
+	AgentStopped  AgentStatus = "stopped"  // session auto-stopped / not running
+	AgentErrored  AgentStatus = "errored"  // terminal session failure
+	AgentStarting AgentStatus = "starting" // session provisioning
 )
 
 type AgentInfo struct {

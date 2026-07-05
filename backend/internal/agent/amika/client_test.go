@@ -92,9 +92,9 @@ func TestListWorkersFiltersPrefixAndMapsID(t *testing.T) {
 				t.Errorf("auth header = %q, want Bearer k", got)
 			}
 			writeJSON(t, w, http.StatusOK, []sandbox{
-				{ID: sbID, Name: agent.WorkerName("worker-a")},
+				{ID: sbID, Name: agent.WorkerName("worker-a"), State: "running"},
 				{ID: "sb-2", Name: "someone-elses-sandbox"},
-				{ID: "sb-3", Name: agent.WorkerName("worker-b")},
+				{ID: "sb-3", Name: agent.WorkerName("worker-b"), State: "paused"},
 			})
 		},
 	})
@@ -103,9 +103,11 @@ func TestListWorkersFiltersPrefixAndMapsID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListWorkers: %v", err)
 	}
+	// Status is classified from each sandbox's state (running → ready, paused →
+	// stopped) — the liveness surfaced for the Streams view (amended 2026-07-05).
 	want := []agent.ProviderWorker{
-		{Name: agent.WorkerName("worker-a"), Ref: sbID},
-		{Name: agent.WorkerName("worker-b"), Ref: "sb-3"},
+		{Name: agent.WorkerName("worker-a"), Ref: sbID, Status: agent.RunReady},
+		{Name: agent.WorkerName("worker-b"), Ref: "sb-3", Status: agent.RunStopped},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d workers, want %d: %+v", len(got), len(want), got)

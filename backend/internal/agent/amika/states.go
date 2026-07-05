@@ -4,6 +4,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/crabtree-michael/kiln/backend/internal/agent"
 )
 
 // v0beta1 does NOT enumerate sandbox `state` or job `state` values (05 §6,
@@ -69,6 +71,25 @@ func classifyState(state string) sandboxPhase {
 	default: // provisioning or unknown ⇒ not ready, keep polling
 		return sbProvisioning
 	}
+}
+
+// runStatus promotes the internal sandbox phase to the provider-neutral
+// agent.RunStatus that ListWorkers surfaces for liveness (05 §2, amended
+// 2026-07-05). The same phase WorkerReady consumes as a wake/ready decision is
+// now also reported, so a silently auto-stopped sandbox is visible without a
+// nudge.
+func runStatus(p sandboxPhase) agent.RunStatus {
+	switch p {
+	case sbReady:
+		return agent.RunReady
+	case sbStopped:
+		return agent.RunStopped
+	case sbErrored:
+		return agent.RunErrored
+	case sbProvisioning:
+		return agent.RunStarting
+	}
+	return agent.RunStarting // unreachable: keeps not-ready-yet the safe default
 }
 
 func norm(s string) string { return strings.ToLower(strings.TrimSpace(s)) }

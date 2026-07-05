@@ -139,7 +139,11 @@ func (c *Client) ListWorkers(ctx context.Context) ([]agent.ProviderWorker, error
 	out := make([]agent.ProviderWorker, 0, len(list))
 	for _, s := range list {
 		if strings.HasPrefix(s.Name, agent.WorkerNamePrefix) {
-			out = append(out, agent.ProviderWorker{Name: s.Name, Ref: s.ID})
+			out = append(out, agent.ProviderWorker{
+				Name:   s.Name,
+				Ref:    s.ID,
+				Status: runStatus(classifyState(s.State)),
+			})
 		}
 	}
 	return out, nil

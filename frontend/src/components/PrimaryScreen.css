@@ -213,6 +213,26 @@
   animation: kiln-status-pulse var(--pulse-duration) ease-in-out infinite;
 }
 
+/* starting — session provisioning: warn amber, static (only `building` pulses,
+   so the actively-working stream is the one that draws the eye). */
+[data-role='header-status-row'][data-status='starting'] [data-role='header-status-dot'] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+
+/* stopped — session auto-stopped/not running: a hollow, dimmed dot, distinct
+   from idle's flat faint fill so a dead session reads as deliberately off. */
+[data-role='header-status-row'][data-status='stopped'] [data-role='header-status-dot'] {
+  background: var(--surface-card);
+  box-shadow: inset 0 0 0 1.5px var(--text-faint);
+}
+
+/* errored — terminal session failure: solid red, no pulse. */
+[data-role='header-status-row'][data-status='errored'] [data-role='header-status-dot'] {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
 [data-role='header-status-label'] {
   min-width: 0;
   font-size: 13px;
@@ -233,6 +253,14 @@
 
 [data-role='header-status-row'][data-status='building'] [data-role='header-status-state'] {
   color: var(--accent);
+}
+
+[data-role='header-status-row'][data-status='starting'] [data-role='header-status-state'] {
+  color: var(--warn);
+}
+
+[data-role='header-status-row'][data-status='errored'] [data-role='header-status-state'] {
+  color: var(--danger);
 }
 
 [data-role='header-status-reason'] {

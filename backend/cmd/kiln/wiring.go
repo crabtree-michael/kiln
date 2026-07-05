@@ -135,9 +135,17 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	agentEvents := &agentEventAdapter{}
 	brainPort := &brainAdapter{}
 
+	// The agent runtime nudges the hub to re-push the board when a silent
+	// liveness change (e.g. a sandbox auto-stop) makes the Streams status stale
+	// (amended 2026-07-05). The hub already exists, so the refresher is direct;
+	// the reverse edge (hub reading agent status) is late-bound below.
 	agentSvc := agent.NewService(
 		agentpg.New(db), provider, agentEvents, &slotsAdapter{store: boardStore}, clock,
+		&boardRefreshAdapter{hub: hub},
 	)
+	// Close the hub↔agent cycle: the board snapshot now carries each live
+	// worker's real session status for the Streams view.
+	hub.SetAgentInspector(&agentStatusAdapter{inner: agentSvc})
 
 	rtSvc := runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), brainPort, boardSvc,

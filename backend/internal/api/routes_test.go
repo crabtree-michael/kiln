@@ -131,6 +131,72 @@ func TestHandleBoard_ReturnsSnapshotAsWireBoard(t *testing.T) {
 	}
 }
 
+// fakeAgentInspector is the api's live-worker status source for the board join.
+type fakeAgentInspector struct {
+	infos []api.AgentInfo
+	err   error
+}
+
+func (f *fakeAgentInspector) ListAgents(context.Context) ([]api.AgentInfo, error) {
+	return f.infos, f.err
+}
+
+// The board snapshot carries each live worker's real session status, keyed to
+// its ticket, for the Streams view (amended 2026-07-05).
+func TestHandleBoard_JoinsAgentStatuses(t *testing.T) {
+	const ticketID = "t-9"
+	boards := &fakeBoardReader{snapshot: board.Snapshot{
+		Working:     []board.Ticket{{ID: ticketID, Title: "building one", State: board.StateWorking}},
+		WorkerTotal: 2, WorkerFree: 1,
+	}}
+	hub := api.NewHub(boards)
+	hub.SetAgentInspector(&fakeAgentInspector{infos: []api.AgentInfo{
+		{WorkerID: "w-1", TicketID: ticketID, Status: "stopped"},
+	}})
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/board")
+	defer closeBody(t, resp)
+	var got wire.Board
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Agents) != 1 {
+		t.Fatalf("Agents = %+v, want one joined status", got.Agents)
+	}
+	if got.Agents[0].TicketId != ticketID || got.Agents[0].Status != wire.AgentStatusStatus("stopped") {
+		t.Errorf("Agents[0] = %+v, want ticket %s status stopped", got.Agents[0], ticketID)
+	}
+}
+
+// A failing status read must not blank the board — Streams just shows nothing
+// new; the board still renders (amended 2026-07-05, best-effort join).
+func TestHandleBoard_AgentInspectorError_BoardStillRenders(t *testing.T) {
+	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 1}}
+	hub := api.NewHub(boards)
+	hub.SetAgentInspector(&fakeAgentInspector{err: errFakeBoardFailed})
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/board")
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a status-read failure must not fail the board)", resp.StatusCode)
+	}
+	var got wire.Board
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Agents) != 0 {
+		t.Errorf("Agents = %+v, want empty on inspector failure", got.Agents)
+	}
+}
+
 func TestHandleBoard_StoreError_Returns5xx(t *testing.T) {
 	boards := &fakeBoardReader{err: errFakeBoardFailed}
 	ts := newTestServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{})

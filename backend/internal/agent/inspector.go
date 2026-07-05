@@ -11,16 +11,23 @@ type TurnOutput struct {
 	At     time.Time
 }
 
-// AgentStatus is the neutral busy/free state the brain sees (05 §2). v1 is
-// working|idle, derived from agent_turns; provider liveness beyond this is not
-// surfaced (a pooled worker is up unless auto-stopped).
+// AgentStatus is the neutral running state the brain and the Streams view see
+// (05 §2, amended 2026-07-05). It composes two independent facts: provider
+// liveness (RunStatus, from ListWorkers) and turn activity (from agent_turns).
+// Liveness dominates — a stopped/errored/starting sandbox reads as such
+// regardless of any stale in-flight turn row; only a live worker distinguishes
+// building (a turn in flight) from idle. This is what makes a silently
+// auto-stopped session visible in Streams without a manual nudge.
 //
 //nolint:revive // name fixed by 05 §2's list_agents/get_agent_updates contract, not a stutter accident
 type AgentStatus string
 
 const (
-	AgentWorking AgentStatus = "working" // a send turn is in flight
-	AgentIdle    AgentStatus = "idle"    // no turn running (done/released/none)
+	AgentBuilding AgentStatus = "building" // alive + a send turn in flight
+	AgentIdle     AgentStatus = "idle"     // alive + no turn (done/released/none)
+	AgentStopped  AgentStatus = "stopped"  // session auto-stopped / not running
+	AgentErrored  AgentStatus = "errored"  // terminal session/provisioning failure
+	AgentStarting AgentStatus = "starting" // session provisioning, not reachable yet
 )
 
 // AgentInfo is one running worker as list_agents reports it (05 §2). WorkerID is

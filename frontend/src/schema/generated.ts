@@ -236,6 +236,16 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description One live worker's real underlying session status, joined to its most-recent ticket binding (amended 2026-07-05). This is the actual agent/session running state — distinct from a ticket's board-column placement — so the Streams view can show a stopped or errored session instead of a hardcoded "building". worker_id is the board slot uuid; ticket_id is "" for an idle-pool worker that never ran a send. */
+        AgentStatus: {
+            worker_id: string;
+            ticket_id: string;
+            /**
+             * @description building = alive with a turn in flight; idle = alive, no turn; stopped = session auto-stopped/not running; errored = terminal session failure; starting = session provisioning, not reachable yet.
+             * @enum {string}
+             */
+            status: "building" | "idle" | "stopped" | "errored" | "starting";
+        };
         /** @description GetBoard's full snapshot (03 §4), grouped in render order — the `board` SSE event payload and GET /api/board's response body are the identical shape (04 D7): absolute, never a delta, so a reconnect's resync is just "render the next board event" (07 §7–§8). `ready` is in exact pull order, top-to-bottom, so the user sees what gets pulled next (03 §5, 07 §7). */
         Board: {
             shaping: components["schemas"]["Ticket"][];
@@ -247,6 +257,8 @@ export interface components {
             worker_total: number;
             /** @description Free (non-busy) worker slots — the capacity chip (07 §7). */
             worker_free: number;
+            /** @description Live workers with their real session status, joined server-side for the Streams view (amended 2026-07-05). Absolute like the rest of the snapshot; empty before the first worker is live. Keyed to tickets by ticket_id. */
+            agents: components["schemas"]["AgentStatus"][];
         };
         /** @description One persisted transcript row (07 §3), as returned oldest-first by GET /api/messages. */
         Message: {

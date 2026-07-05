@@ -3,6 +3,7 @@
 // schema (`Ticket`/`Board`), never hand-invented shapes.
 import type {
   ActivityEvent,
+  AgentStatus,
   Board,
   FeedCard,
   FeedSnapshot,
@@ -53,8 +54,19 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
     done: [],
     worker_total: 4,
     worker_free: 4,
+    agents: [],
     ...overrides,
   };
+}
+
+/** Builds one `AgentStatus` join entry (amended 2026-07-05) — a live worker's
+ * real session state keyed to a ticket, for asserting the Streams view. */
+export function makeAgentStatus(
+  ticketId: string,
+  status: AgentStatus['status'],
+  workerId = `w-${ticketId}`,
+): AgentStatus {
+  return { worker_id: workerId, ticket_id: ticketId, status };
 }
 
 export interface FeedCardFixtureInput {

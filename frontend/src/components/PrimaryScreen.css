@@ -920,10 +920,18 @@ body:has([data-role='primary-screen']) {
 }
 
 [data-role='dock-mic-orb'] {
-  /* The red mic-input volume orb (09 §3): a soft halo behind the mic glyph whose
-     size + brightness track `--mic-level` (0..1), written each animation frame by
-     the dock. Absolutely positioned so it never shifts the glyph's layout, and
-     painted first so the glyph stays on top. Idle at level 0 → invisible. */
+  /* The red mic-input volume orb (09 §3): a soft halo behind the mic glyph.
+     Absolutely positioned so it never shifts the glyph's layout, and painted
+     first so the glyph stays on top.
+
+     Two things drive it while listening (see the `[data-dock-state='listening']`
+     rule below): a always-on breathing pulse — the resting "building glow"
+     rhythm — supplies the base opacity/scale, and live mic loudness
+     (`--mic-level`, 0..1, written each frame by the dock) modulates how DARK and
+     saturated the halo is on top of that pulse: louder speech pulls the gradient
+     down in lightness and up in chroma so the glow reads as more intense, then
+     eases back toward the resting red as the level falls (the dock's volume
+     smoother releases slowly). Non-listening → not animated → invisible. */
   --mic-level: 0;
   position: absolute;
   inset: 0;
@@ -934,17 +942,34 @@ body:has([data-role='primary-screen']) {
   pointer-events: none;
   background: radial-gradient(
     circle,
-    oklch(0.62 0.21 25 / 0.55) 0%,
-    oklch(0.62 0.22 25 / 0.28) 55%,
-    oklch(0.62 0.22 25 / 0) 72%
+    oklch(calc(0.63 - var(--mic-level) * 0.2) calc(0.2 + var(--mic-level) * 0.07) 25 / 0.6) 0%,
+    oklch(calc(0.63 - var(--mic-level) * 0.2) calc(0.2 + var(--mic-level) * 0.07) 25 / 0.3) 55%,
+    oklch(0.6 0.22 25 / 0) 72%
   );
-  opacity: calc(var(--mic-level) * 0.9);
-  transform: scale(calc(1 + var(--mic-level) * 0.9));
+  opacity: 0;
+  transform: scale(1);
   /* A short linear transition micro-smooths the step between rAF samples so the
-     orb reads as continuous rather than stepped. */
-  transition:
-    opacity 0.09s linear,
-    transform 0.09s linear;
+     darkness shift reads as continuous rather than stepped. */
+  transition: background 0.09s linear;
+}
+
+/* Active/listening only: run the breathing pulse. Its opacity/scale carry the
+   rhythm (the timing language); `--mic-level` rides along so a louder voice also
+   swells the halo, while the gradient darkening above does the intensity work. */
+[data-role='dock-talk'][data-dock-state='listening'] [data-role='dock-mic-orb'] {
+  animation: kiln-mic-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes kiln-mic-glow {
+  0%,
+  100% {
+    opacity: calc(0.28 + var(--mic-level) * 0.55);
+    transform: scale(calc(1 + var(--mic-level) * 0.6));
+  }
+  50% {
+    opacity: calc(0.46 + var(--mic-level) * 0.55);
+    transform: scale(calc(1.08 + var(--mic-level) * 0.6));
+  }
 }
 
 [data-role='dock-mic-capsule'] {
@@ -994,10 +1019,18 @@ body:has([data-role='primary-screen']) {
     animation: none;
   }
 
-  /* Keep the orb's brightness feedback but drop the scaling motion so it does
-     not pulse for motion-sensitive users. */
+  /* Keep the orb's volume-darkness feedback but drop the breathing pulse and
+     scaling motion so it does not animate for motion-sensitive users. While
+     listening it holds a static mid-visibility halo whose darkness still tracks
+     the mic level. */
   [data-role='dock-mic-orb'] {
     transform: none;
     transition: none;
+  }
+
+  [data-role='dock-talk'][data-dock-state='listening'] [data-role='dock-mic-orb'] {
+    animation: none;
+    opacity: calc(0.4 + var(--mic-level) * 0.45);
+    transform: none;
   }
 }

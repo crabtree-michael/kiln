@@ -140,7 +140,7 @@ func TestDoMapsToolUseResponse(t *testing.T) {
 	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
 		message("tool_use",
 			textBlock("thinking"),
-			toolUseBlock(callID1, string(brain.ToolMarkReady), map[string]any{"id": "t-1"}),
+			toolUseBlock(callID1, string(brain.ToolGetTicket), map[string]any{"id": "t-1"}),
 		))
 
 	resp, err := adapter.Do(context.Background(), brain.LLMRequest{})
@@ -160,8 +160,8 @@ func TestDoMapsToolUseResponse(t *testing.T) {
 	if got.ID != callID1 {
 		t.Errorf("Calls[0].ID = %q, want %q", got.ID, callID1)
 	}
-	if got.Name != brain.ToolMarkReady {
-		t.Errorf("Calls[0].Name = %q, want %q", got.Name, brain.ToolMarkReady)
+	if got.Name != brain.ToolGetTicket {
+		t.Errorf("Calls[0].Name = %q, want %q", got.Name, brain.ToolGetTicket)
 	}
 	var input struct {
 		ID string `json:"id"`
@@ -286,7 +286,7 @@ func TestDoEncodesConversation(t *testing.T) {
 			{
 				Role:  brain.LLMRoleAssistant,
 				Text:  "I'll mark it ready",
-				Calls: []brain.ToolCall{{ID: callID1, Name: brain.ToolMarkReady, Input: json.RawMessage(`{"id":"t-1"}`)}},
+				Calls: []brain.ToolCall{{ID: callID1, Name: brain.ToolGetTicket, Input: json.RawMessage(`{"id":"t-1"}`)}},
 			},
 			{
 				Role:    brain.LLMRoleUser,
@@ -330,8 +330,8 @@ func TestDoEncodesConversation(t *testing.T) {
 		t.Errorf("messages[1] block 0 = %v, want assistant text", asstBlocks[0])
 	}
 	tu := asMap(t, "messages[1] block 1", asstBlocks[1])
-	if tu["type"] != "tool_use" || tu["id"] != callID1 || tu["name"] != string(brain.ToolMarkReady) {
-		t.Errorf("messages[1] block 1 = %v, want tool_use mark_ready call-1", tu)
+	if tu["type"] != "tool_use" || tu["id"] != callID1 || tu["name"] != string(brain.ToolGetTicket) {
+		t.Errorf("messages[1] block 1 = %v, want tool_use get_ticket call-1", tu)
 	}
 	if input := asMap(t, "messages[1] tool_use input", tu["input"]); input["id"] != "t-1" {
 		t.Errorf("messages[1] tool_use input = %v, want id t-1", tu["input"])

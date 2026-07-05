@@ -48,21 +48,14 @@
         );
       })();
     </script>
-    <!-- The default route `/` is the light "paper" primary screen (08), which is
-         what the installed PWA launches into — so the system-chrome colour (iOS
-         status bar / Android address bar, and the safe-area strips some shells
-         tint with it) defaults to the paper tone, not a dark value that would
-         letterbox the notch/home-indicator black. `ThemeColorSync` in main.tsx
-         flips this to the dark shell tone on the `/debug` route. -->
-    <meta name="theme-color" content="#f3efee" />
-    <!-- Primary-screen (08) type: Space Grotesk / IBM Plex Mono / Instrument
-         Serif, per the Kiln Voice Screen design language. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Default system-chrome colour: the light paper surface (--surface-page,
+         docs/ui/Kiln Colors.html), so the installed PWA's status bar and
+         safe-area strips read as the app's own surface. `ThemeColorSync`
+         (src/theme.ts) rewrites this at runtime to the active theme's surface —
+         dark on /debug and when the OS prefers dark. Fonts are self-hosted via
+         @fontsource variable packages (imported in main.tsx), so there are no
+         external font links here. -->
+    <meta name="theme-color" content="#faf6ef" />
     <title>Kiln</title>
   </head>
   <body>

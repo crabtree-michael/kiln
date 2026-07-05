@@ -1,3 +1,10 @@
+// Design system: self-hosted variable fonts + the Kiln token sheet, loaded
+// before any component module so component CSS can override base styles.
+import '@fontsource-variable/hanken-grotesk';
+import '@fontsource-variable/newsreader';
+import '@fontsource-variable/spline-sans-mono';
+import '@/styles/tokens.css';
+
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import {

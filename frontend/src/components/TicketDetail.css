@@ -10,7 +10,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   padding: 0.75rem;
 }
 
@@ -19,15 +19,15 @@
   max-width: 32rem;
   max-height: 85dvh;
   overflow-y: auto;
-  background: var(--kiln-surface);
-  border: 1px solid var(--kiln-border);
-  border-radius: 0.6rem;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   padding: 0.75rem 0.9rem 1rem;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-overlay);
 }
 
 [data-role='ticket-detail'][data-state='blocked'] {
-  border-color: var(--kiln-blocked);
+  border-color: var(--danger);
 }
 
 [data-role='ticket-detail-header'] {
@@ -49,10 +49,10 @@
   height: 1.9rem;
   line-height: 1;
   font-size: 1.2rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--kiln-border);
-  background: var(--kiln-surface-raised);
-  color: var(--kiln-text);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-raised);
+  color: var(--text-body);
   cursor: pointer;
 }
 
@@ -69,9 +69,9 @@
 }
 
 [data-role='ticket-detail-meta'] dt {
-  color: var(--kiln-text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-caps);
   font-size: 0.7rem;
 }
 
@@ -83,10 +83,10 @@
 [data-role='detail-blocked-reason'] {
   margin: 0.6rem 0 0;
   padding: 0.4rem 0.6rem;
-  border-radius: 0.4rem;
-  background: var(--kiln-blocked-bg);
-  border: 1px solid var(--kiln-blocked);
-  color: var(--kiln-danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  color: var(--danger);
   font-weight: 600;
   white-space: pre-wrap;
 }
@@ -94,7 +94,7 @@
 [data-role='ticket-detail-body'] {
   margin-top: 0.7rem;
   padding-top: 0.7rem;
-  border-top: 1px solid var(--kiln-border);
+  border-top: 1px solid var(--border-default);
   font-size: 0.9rem;
   white-space: pre-wrap;
 }
@@ -112,10 +112,10 @@
   font-size: 0.9rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--kiln-surface);
-  background: var(--kiln-accent);
+  color: var(--text-on-accent);
+  background: var(--accent);
   border: none;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-pill);
   padding: 0.55rem 1.4rem;
   cursor: pointer;
 }
@@ -125,40 +125,37 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Primary-screen skin (08 §5). The rules above dress the overlay in the /debug
- * board's dark `--kiln-*` palette (App.css, :root). Those tokens are bundled
- * globally, so on the main app the panel renders as a dark #16161d box with
- * near-black inherited body/title text — an unstyled "debug view" clashing with
- * the paper UI. When the overlay is a descendant of the primary screen we repaint
- * it in the app's own design language — warm paper surface, ink text, ember
- * accent, Space Grotesk / IBM Plex Mono — so it reads as a first-class Kiln
- * surface, consistent with the feed cards, toasts and dock. Two data-role
- * selectors → higher specificity than the base rules, so these win here without
- * touching the /debug look or the component markup. Tokens resolve from the
- * enclosing [data-role='primary-screen'] (PrimaryScreen.css). */
+ * Primary-screen skin (08 §5). The base rules above dress the overlay for the
+ * /debug board's denser register; when the overlay is a descendant of the
+ * primary screen we repaint it in the app's own — card surface, larger type,
+ * pill Accept — so it reads as a first-class Kiln surface, consistent with the
+ * feed cards, toasts and dock. Two data-role selectors → higher specificity
+ * than the base rules, so these win here without touching the /debug look or
+ * the component markup. All colors are the global semantic tokens
+ * (src/styles/tokens.css), so both themes render both usages correctly. */
 
 [data-role='primary-screen'] [data-role='ticket-detail-backdrop'] {
-  background: oklch(0.28 0.02 40 / 0.4);
+  background: var(--scrim);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail'] {
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   padding: 20px 22px 22px;
-  box-shadow: 0 -8px 44px -12px oklch(0.4 0.02 40 / 0.4);
-  color: var(--ink);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text-body);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail'][data-state='blocked'] {
-  border-color: var(--ember-soft);
+  border-color: var(--accent-soft);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-title'] {
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--ink);
+  color: var(--text-body);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-close'] {
@@ -166,13 +163,13 @@
   height: 32px;
   font-size: 20px;
   border-radius: 50%;
-  border: 1.5px solid var(--hairline);
-  background: var(--surface);
-  color: var(--faint);
+  border: 1.5px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-faint);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-close']:hover {
-  color: var(--ink);
+  color: var(--text-body);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-meta'] {
@@ -181,34 +178,34 @@
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-meta'] dt {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.12em;
-  color: var(--faint);
+  color: var(--text-faint);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-meta'] dd {
   font-size: 13px;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
 }
 
 [data-role='primary-screen'] [data-role='detail-blocked-reason'] {
   margin-top: 14px;
   padding: 10px 12px;
-  border-radius: 10px;
-  background: oklch(0.58 0.2 27 / 0.08);
-  border: 1px solid var(--ember-soft);
-  color: oklch(0.42 0.14 27);
+  border-radius: var(--radius-md);
+  background: var(--accent-faint);
+  border: 1px solid var(--accent-soft);
+  color: var(--danger);
   font-weight: 500;
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-body'] {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid var(--border-default);
   font-size: 15px;
   line-height: 1.55;
-  color: var(--ink);
+  color: var(--text-body);
 }
 
 [data-role='primary-screen'] [data-role='ticket-detail-actions'] {
@@ -219,9 +216,18 @@
  * reads as the same affirmative action as accepting from the card. */
 [data-role='primary-screen'] [data-role='detail-accept'] {
   font-size: 13px;
-  color: oklch(0.985 0.004 40);
-  background: linear-gradient(160deg, oklch(0.62 0.21 29), var(--ember-strong));
-  border-radius: 10px;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-radius: var(--radius-pill);
   padding: 9px 22px;
-  box-shadow: 0 6px 16px oklch(0.58 0.2 27 / 0.28);
+  box-shadow: var(--shadow-raised);
+}
+
+[data-role='primary-screen'] [data-role='detail-accept']:hover {
+  background: var(--accent-hover);
+}
+
+[data-role='primary-screen'] [data-role='detail-accept']:active {
+  background: var(--accent-press);
+  transform: translateY(1px);
 }

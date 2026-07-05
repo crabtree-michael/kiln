@@ -79,6 +79,16 @@ const (
 	defaultRepoDir     = "/var/lib/kiln/repo"
 )
 
+// resolveHTTPAddr honors a platform-provided PORT (Render/Heroku convention)
+// when set, otherwise KILN_HTTP_ADDR, otherwise the default. PORT wins so a
+// managed host can assign and route to the bind port without app changes.
+func resolveHTTPAddr() string {
+	if p := os.Getenv("PORT"); p != "" {
+		return ":" + p
+	}
+	return getenvDefault("KILN_HTTP_ADDR", defaultHTTPAddr)
+}
+
 // loadConfig reads the composition root's environment (04 §8), applying
 // defaults. It never fails: validation of the values happens where they are
 // used (newProvider, serve).
@@ -89,7 +99,7 @@ func loadConfig() Config {
 		AmikaBaseURL:    os.Getenv("AMIKA_BASE_URL"),
 		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
 		BrainModel:      os.Getenv("KILN_BRAIN_MODEL"),
-		HTTPAddr:        getenvDefault("KILN_HTTP_ADDR", defaultHTTPAddr),
+		HTTPAddr:        resolveHTTPAddr(),
 		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
 		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
 		DevEndpoints:    os.Getenv("KILN_DEV_ENDPOINTS") == "1",

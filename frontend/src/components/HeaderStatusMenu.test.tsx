@@ -38,7 +38,7 @@ const summary = makeFeedSummary({ stream_count: 3, building: 2, idle: 1 });
 describe('HeaderStatusMenu', () => {
   it('keeps the collapsed summary text and starts closed', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
-    const trigger = screen.getByText('3 streams · nothing needs you');
+    const trigger = screen.getByText('3 streams');
     expect(trigger).toHaveAttribute('data-role', 'feed-status');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
@@ -78,7 +78,7 @@ describe('HeaderStatusMenu', () => {
         <button type="button">outside</button>
       </div>,
     );
-    fireEvent.click(screen.getByText('3 streams · nothing needs you'));
+    fireEvent.click(screen.getByText('3 streams'));
     const [trigger] = screen.getAllByRole('button');
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     fireEvent.mouseDown(screen.getByText('outside'));
@@ -96,6 +96,8 @@ describe('HeaderStatusMenu', () => {
 
   it('shows an empty affordance when there are no active streams', () => {
     render(<HeaderStatusMenu summary={makeFeedSummary()} board={makeBoard()} />);
+    // The collapsed trigger reads "Nothing active" rather than a count at zero.
+    expect(screen.getByText('Nothing active')).toHaveAttribute('data-role', 'feed-status');
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('No active streams')).toHaveAttribute(
       'data-role',

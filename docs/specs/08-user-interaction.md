@@ -38,10 +38,12 @@ states):
 for a ticket's thread of work; the label on a card is its ticket title.)
 - **Backlog** — one scrolling list, strictly ordered: **unresolved blockers** pinned on
 top (ember dot, `Blocker` tag, question in full), then **pending proposals** (§5),
-then the **"While you were away"** divider, then unseen **updates** newest-first
-(ticket label + relative age). Update cards may embed an image preview (4c). Empty
-feed renders the 4d "All clear" state with a streams status line
-(`3 building · 2 idle · last word 6m ago`).
+then **updates** newest-first (ticket label + relative age) as **retained history**
+(D2′): new-since-last-visit updates on top, then the **last-seen** divider
+(`Earlier`), then older history below it, paged in on demand ("Show earlier
+updates"). Update cards may embed an image preview (4c). Empty feed renders the 4d
+"All clear" state with a streams status line (`3 building · 2 idle · last word 6m
+ago`).
 - **Activity row** — between backlog and dock; hidden when idle (§4).
 - **Dock** — the live transcript and mic (`09` §3–§4).
 
@@ -58,24 +60,33 @@ board state so they cannot go stale; cards that are pure communication are
 | -------------------- | ---------------------------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
 | **Blocker**          | Derived: ticket in the Blocked zone (`03`) — its `blocked_reason`, blocked-at time | Ticket enters Blocked   | Ticket leaves Blocked (brain resumes/accepts) — *never* by being seen  |
 | **Proposal**         | Derived: **any** Shaping ticket (§5, superseding D5)                               | Ticket enters Shaping   | Ticket marked Ready (tap or voice accept), or brain withdraws/archives |
-| **Update / preview** | New `notifications` table, brain-authored (§7)                                     | Brain posts it          | Seen by the user, or retracted by the brain                            |
+| **Update / preview** | New `notifications` table, brain-authored (§7)                                     | Brain posts it          | Retracted by the brain (being *seen* no longer removes it — D2′)       |
 
 
-**Lifecycle: an inbox that drains** (user decision — §9, D2). The brain curates the
-feed — it posts updates, retracts ones that stopped mattering, and clears blockers by
-actually unblocking work. Updates additionally clear themselves: **seen means gone**.
+**Lifecycle: retained history with a last-seen divider** (user decision — §9, **D2′**,
+superseding D2's "inbox that drains"). The brain still curates the feed — it posts
+updates, retracts ones that stopped mattering, and clears blockers by actually
+unblocking work — but updates are **no longer erased on return**: they are kept as a
+reasonably long history the user can scroll back into, split by a last-seen divider.
 
 - **Seen semantics.** When update cards render on a foregrounded, visible screen, the
-client acks `POST /api/feed/seen {last_notification_id}`; the server stamps
-`seen_at` on every unseen notification with `id ≤ last`. Seen updates drop out of
-subsequent feed snapshots. Blockers and proposals ignore seen entirely — they persist
-until resolved.
-- **Session hold.** The client keeps already-acked updates on screen for the rest of
-the session (they fall below "While you were away" with their ages); a fresh open
-shows only blockers, proposals, and whatever arrived unseen since. This is what makes
-the divider mean *while you were away*.
+client acks `POST /api/feed/seen {last_notification_id}`; the server stamps `seen_at`
+on every unseen notification with `id ≤ last`, advancing a **persistent last-seen
+high-water mark**. Seen updates **stay in the feed as history** — seen only moves the
+divider on the *next* visit, it does not remove the card. Blockers and proposals
+ignore seen entirely; they persist until resolved.
+- **The divider.** The feed carries `summary.last_seen_notification_id`; update cards
+with a greater id are new since the last visit (above the `Earlier` divider), those at
+or below it are older history (below). The client **freezes** this boundary at the
+first snapshot of a session, so marking-seen-on-view doesn't slide the divider to the
+top mid-session — it stays meaning *what was new when you arrived*.
+- **Pagination.** History is not pruned (retention is a deliberate future decision —
+§9 open questions), so it can grow large. The `feed` snapshot carries only the newest
+page of updates plus `has_more_history`; older pages load on demand via
+`GET /api/feed/history?before=&limit=` (keyset, newest-first). Blockers and proposals
+are board-derived and never paged.
 - **Live arrivals** during a session render at the top of the updates section aged
-`now`, and are acked like any rendered update.
+`now`, above the frozen divider, and are acked like any rendered update.
 
 **Transport.** Same pattern as the board (`04` D7): absolute snapshots, no deltas. A
 new SSE event `feed` carries the full visible feed (derived cards assembled from
@@ -165,10 +176,14 @@ types from `/schema`, as always (`02` §3).
 - `notifications` **table** (runtime module, beside `messages` — `07` §3): `id bigserial`, `kind` (`update`/`preview`, CHECK), `ticket_id` nullable, `body text`,
 `image_url` nullable, `created_at`, `seen_at` nullable, `retracted_at` nullable.
 Append + stamp only; no edits.
-- **Feed assembly** (runtime service): one query joining derived cards (board port:
-Blocked tickets, **all Shaping tickets**) with unseen, unretracted
-notifications → the `FeedSnapshot` wire shape. Used by both `GET /api/feed` and the
-`feed.updated` executor.
+- **Feed assembly** (runtime service): one pass joining derived cards (board port:
+Blocked tickets, **all Shaping tickets**) with the **newest page of unretracted
+notifications — seen and unseen** (D2′, retained history) → the `FeedSnapshot` wire
+shape, which also carries `last_seen_notification_id` (max seen id) and
+`has_more_history`. Used by both `GET /api/feed` and the `feed.updated` executor. A
+second route `GET /api/feed/history?before=&limit=` keyset-pages older
+update/preview cards (default 30, bounds 1–100). A partial index over unretracted
+rows keeps the growing-history scans cheap.
 - **Outbox topics:** add `feed.updated` and `activity.toast` to the CHECK (`04` §2);
 executors are SSE broadcasts on the hub. Board ops that add, remove, or change a
 Blocked or Shaping ticket append `feed.updated` transactionally (`03` §7) — this now
@@ -181,9 +196,9 @@ a second writer, under the same transactional-emission rule.
 attention-nudge on an already-visible proposal, not a visibility gate),
 `post_update(body, ticket?, image_url?)`, `retract_update(notification_id)`; prompt
 guidance for posting updates worth a glance, not a play-by-play. `say` is unchanged.
-- **api module:** routes `GET /api/feed`, `POST /api/feed/seen`,
-`POST /api/tickets/{id}/accept`; `feed`/`activity` fan-out on the hub. All shapes in
-`/schema`.
+- **api module:** routes `GET /api/feed`, `GET /api/feed/history` (D2′),
+`POST /api/feed/seen`, `POST /api/tickets/{id}/accept`; `feed`/`activity` fan-out on
+the hub. All shapes in `/schema`.
 - `10` **inherits:** `notify.send` stays log-only for now. When push lands, blockers
 and proposals (derived) plus notifications (authored) are exactly the content push
 delivers; tapping a push opens `/` to an already-correct feed — no new state.
@@ -193,20 +208,24 @@ delivers; tapping a push opens `/` to an already-correct feed — no new state.
 ## 8. Testing
 
 - **Unit (backend):** feed assembly — derivation rules (every Shaping ticket is a
-proposal, D5′), seen filtering, ordering (blockers → proposals → unseen updates
-newest-first); seen high-water stamping; accept route precondition (rejects
-non-Shaping, idempotent on replay); `feed.updated` emission on Shaping create/shape;
-toast emission per transition verb.
-- **Unit (frontend):** feed store (snapshot replace + session hold across acks),
-activity store (pill contention: say replaces toast, toasts queue, thinking only
-when empty; auto-dismiss timing), seen-ack firing only when visible.
+proposal, D5′), **retained history** (seen updates stay, only retracted drop — D2′),
+ordering (blockers → proposals → updates newest-first), newest-page + `has_more_history`,
+`last_seen_notification_id`; `FeedHistory` keyset paging; seen high-water stamping;
+accept route precondition (rejects non-Shaping, idempotent on replay); `feed.updated`
+emission on Shaping create/shape; toast emission per transition verb.
+- **Unit (frontend):** feed store (board cards replace wholesale; update history
+**accumulates** across snapshots with window reconciliation; frozen last-seen divider;
+`loadMoreHistory` paging — D2′), activity store (pill contention: say replaces toast,
+toasts queue, thinking only when empty; auto-dismiss timing), seen-ack firing only when
+visible.
 - **Image snapshots (**`02` **§4a):** backlog with blocker on top (4a), updates-only (4b),
 embedded preview (4c), all-clear (4d); pill in thinking (6a), toast (6b), and
 `say`-reply states; a proposal card with Accept.
 - **E2E (**`02` **§14):** the full loop through the primary screen against the mock
 provider — message in (text seam) → proposal card appears → tap Accept → pulled,
 `Started` toast → mock turn completes → blocker card pinned → answer → blocker
-clears, update posts → seen → drains. The `07` e2e keeps covering the debug view.
+clears, update posts → seen → **stays as history below the last-seen divider** on
+resync (D2′, no longer drains). The `07` e2e keeps covering the debug view.
 
 
 
@@ -216,7 +235,8 @@ clears, update posts → seen → drains. The `07` e2e keeps covering the debug 
 | #   | Decision                                                                                                               | Alternatives considered                                                                                   | Rationale                                                                                                                                                                                                                                                             |
 | --- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1  | Hybrid feed: blockers/proposals derived from board state; updates in a brain-authored `notifications` table.           | One brain-managed `feed_items` table for everything; fully derived projection with no new state.          | Derived cards cannot drift from ticket truth and the brain already "removes" them by doing its job; authored updates need storage and retraction anyway. One table for all would let blocker cards go stale; fully derived would make updates read like chat history. |
-| D2  | Inbox that drains: seen-means-gone for updates; blockers/proposals persist until resolved; brain curates and retracts. | Append-only feed with a last-seen divider; bounded recency window.                                        | User decision. The screen should tend toward "All clear" — the feed is a to-attend list, not a log. History belongs to the debug view and the transcript.                                                                                                             |
+| D2  | ~~Inbox that drains: seen-means-gone for updates; blockers/proposals persist until resolved; brain curates and retracts.~~ **Superseded by D2′.** | Append-only feed with a last-seen divider; bounded recency window.                                        | User decision. The screen should tend toward "All clear" — the feed is a to-attend list, not a log. History belongs to the debug view and the transcript.                                                                                                             |
+| D2′ | **Retained history with a last-seen divider (reversing D2): seen no longer removes an update — it stays as scrollable history, split from new-since-last-visit by a divider frozen at the session's last-seen mark. History is paginated (`GET /api/feed/history`), not pruned.** | Keep D2's inbox-drain; append-only with no divider; auto-expiry now. | User decision (reversing D2 — the alternative D2 itself had listed). Erasing updates on return lost the record of what happened while away; returning users need to see it. Time-based expiry is deliberately deferred (see open questions) so we can feel the model first; retention is "reasonably long" (all unretracted) for now, and pagination keeps a growing history cheap to load. |
 | D3  | Activity layer is ephemeral SSE, never stored.                                                                         | Persist toasts as feed rows; derive thinking from queue-table polling.                                    | A toast repeats what the board/feed already record durably; storing it would double-write one fact. Missing a toast while disconnected loses nothing.                                                                                                                 |
 | D4  | `say` replies render in the same pill as toasts, persistent until the next utterance or dismissal.                     | A chat strip on the primary screen; replies as feed items.                                                | User decision. The pill is the live-exchange surface; the primary screen deliberately has no chat history (that is `/debug`). Feed items are for things that must survive being away.                                                                                 |
 | D5  | ~~Approval gate at the brain's discretion; prompted to gate complex technical decisions.~~ **Superseded by D5′.**       | Mandatory approval for every ticket; no gate (status quo).                                                | User decision — this is what Shaping means. Mandatory gating would tax routine work; no gate wastes the backlog's decision surface.                                                                                                                                   |
@@ -227,7 +247,9 @@ clears, update posts → seen → drains. The `07` e2e keeps covering the debug 
 
 **Open questions (owned elsewhere or later):** push payload mapping and deep links
 (`10`); where preview images come from — agent artifacts need a storage/URL story
-(`05`-adjacent, future); notification retention/pruning (`02` §15, with the
-transcript); whether the header's stream-status line needs worker liveness beyond board
-state (`05` §4's reconciler may already suffice); multi-blocker ordering beyond
+(`05`-adjacent, future); **notification retention / auto-expiry — the explicit
+follow-up to D2′: now that history is retained and never pruned, decide a time-based
+(or size-based) expiry policy once we've seen how the retained model feels** (`02` §15,
+with the transcript); whether the header's stream-status line needs worker liveness
+beyond board state (`05` §4's reconciler may already suffice); multi-blocker ordering beyond
 blocked-at (revisit if real usage stacks blockers).

@@ -541,18 +541,26 @@ body:has([data-role='primary-screen']) {
   flex-shrink: 0;
 }
 
-/* The toast stack floats above the dock as an overlay (bottom:100% of the dock
-   region = the dock's top edge) rather than sitting in flow. A multi-line toast
-   therefore grows UPWARD over the feed instead of pushing the empty-state count
-   or the backlog list up. */
+/* The toast stack floats above the dock as an overlay rather than sitting in
+   flow, so a multi-line toast grows UPWARD over the feed instead of pushing the
+   empty-state count or the backlog list up.
+
+   Layering principle (see the web-client skill): the notification hub must NEVER
+   overlap the dock, and the dock is not a fixed height — it expands upward as the
+   live transcript grows. So the hub is anchored above the dock's *current* top:
+   `100%` clears the collapsed controls row (the dock region's own height), and the
+   `--dock-overlay-height` term clears the transcript overlay stacked on top of it.
+   The var is published by the dock on the screen root and defaults to 0px, so a
+   collapsed dock keeps the hub sitting directly on the controls, while an expanded
+   dock pushes it up in lockstep — never overlapping in either state. */
 [data-role='activity-row'] {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 100%;
-  /* Sit above the dock transcript (z-index 5): both overlay the same region and
-     the transcript renders later in the DOM, so it would win a tie — a toast must
-     always render in front of the transcript box. */
+  bottom: calc(100% + var(--dock-overlay-height, 0px));
+  /* Belt-and-braces with the geometry above: also sit above the dock transcript
+     (z-index 5) so that even mid-resize (before the offset settles) a toast still
+     renders in front of, never behind, the transcript box. */
   z-index: 6;
   display: flex;
   align-items: center;

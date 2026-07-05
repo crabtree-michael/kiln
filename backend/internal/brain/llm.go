@@ -146,15 +146,21 @@ func NewAdapterWithClient(cfg Config, opts ...option.RequestOption) *Adapter {
 // Prompt caching is a prefix match over the rendered request (tools → system →
 // messages), so the placement follows the two reuse boundaries the brain has:
 //
-//   - The system block carries a breakpoint. tools render before system, so
-//     this caches the whole fixed prefix (the 14-tool schema + the static
-//     system prompt) as one unit. That prefix is byte-identical every pass —
-//     the prompt template interpolates only the constant Role, and Tools is a
-//     fixed slice — so back-to-back passes read it instead of re-billing it.
+//   - The system block carries a breakpoint with a 1-hour TTL. tools render
+//     before system, so this caches the whole fixed prefix (the 14-tool schema
+//   - the static system prompt) as one unit. That prefix is byte-identical
+//     every pass — the prompt template interpolates only the constant Role,
+//     and Tools is a fixed slice — so every pass within the TTL reads it
+//     instead of re-billing it. The 1h TTL (2x write vs 1.25x for the default
+//     5m) is deliberate: passes are event-driven and an agent turn routinely
+//     takes tens of minutes, so consecutive passes usually fall outside a 5m
+//     window and the default TTL made nearly every pass a cold write.
 //   - The last content block of the conversation carries a breakpoint
 //     (markConversationBreakpoint). Within one pass the bounded tool loop
 //     re-sends a growing conversation up to MaxToolRounds times; each round's
 //     breakpoint lets the next round read everything through the prior round.
+//     Rounds are seconds apart, so this one keeps the default 5m TTL and its
+//     cheaper writes.
 //
 // Two breakpoints is well under the 4-per-request ceiling. Caching is
 // transparent to the scripted-fake golden suite (06 §9) — only this live
@@ -172,7 +178,7 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 	if req.System != "" {
 		params.System = []anthropic.TextBlockParam{{
 			Text:         req.System,
-			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+			CacheControl: anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControlEphemeralTTLTTL1h},
 		}}
 	}
 
@@ -184,13 +190,17 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 	return fromSDKMessage(msg), nil
 }
 
-// logUsage emits one round's token usage so the live eval set can confirm
-// cache hit rates. cache_read_input_tokens staying at zero across a pass's
-// later rounds means a silent invalidator crept into the prefix (a volatile
-// system prompt, non-deterministic tool ordering). input_tokens is the
-// uncached remainder only — the true prompt size is the sum of all three.
+// logUsage emits one round's token usage so cache hit rates are observable in
+// production (the slog→Sentry-Logs bridge ships Info+ records with typed
+// attributes) as well as by the live eval set. Info rather than Debug on
+// purpose: one compact record per LLM round is cheap, and it is the only
+// signal that distinguishes a cold cache write from a read after deploy.
+// cache_read_input_tokens staying at zero across a pass's later rounds means
+// a silent invalidator crept into the prefix (a volatile system prompt,
+// non-deterministic tool ordering). input_tokens is the uncached remainder
+// only — the true prompt size is the sum of all three.
 func (a *Adapter) logUsage(ctx context.Context, u anthropic.Usage) {
-	a.log().LogAttrs(ctx, slog.LevelDebug, "brain: llm round usage",
+	a.log().LogAttrs(ctx, slog.LevelInfo, "brain: llm round usage",
 		slog.Int64("input_tokens", u.InputTokens),
 		slog.Int64("output_tokens", u.OutputTokens),
 		slog.Int64("cache_read_input_tokens", u.CacheReadInputTokens),

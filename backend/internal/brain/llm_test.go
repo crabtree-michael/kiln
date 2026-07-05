@@ -229,6 +229,16 @@ func TestDoSendsSystemAndModel(t *testing.T) {
 	if block[keyText] != "the fixed system prompt" {
 		t.Errorf("system block text = %v, want %q", block[keyText], "the fixed system prompt")
 	}
+	// The fixed prefix's breakpoint must carry the 1h TTL: passes are event-
+	// driven and often more than 5m apart, so the default TTL made nearly
+	// every pass a cold cache write (see Do's placement comment).
+	cache := asMap(t, "system cache_control", block["cache_control"])
+	if cache[keyType] != "ephemeral" {
+		t.Errorf("system cache_control type = %v, want %q", cache[keyType], "ephemeral")
+	}
+	if cache["ttl"] != "1h" {
+		t.Errorf("system cache_control ttl = %v, want %q", cache["ttl"], "1h")
+	}
 }
 
 // TestDoDefaultsModelWhenUnset: with an empty Config.Model and no env override,

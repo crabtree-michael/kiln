@@ -74,8 +74,10 @@ var _ runtime.Blocker = (*blockerAdapter)(nil)
 // boardViewAdapter satisfies runtime.BoardReader over *board.Service (08 §3
 // feed assembly): map a board.Snapshot to the runtime's local BoardView so the
 // runtime never imports internal/board. Blocked tickets become blocker cards
-// (BlockedReason dereferenced, "" when nil); shaping tickets awaiting approval
-// become proposal cards; the working/blocked counts drive the header summary.
+// (BlockedReason dereferenced, "" when nil); every shaping ticket becomes a
+// proposal card — a ticket in Shaping is implicitly a proposal awaiting review
+// (08 §5, superseding D5's approval_requested gate); the working/blocked counts
+// drive the header summary.
 type boardViewAdapter struct{ inner *board.Service }
 
 func (a *boardViewAdapter) BoardView(ctx context.Context) (runtime.BoardView, error) {
@@ -111,9 +113,6 @@ func (a *boardViewAdapter) BoardView(ctx context.Context) (runtime.BoardView, er
 		})
 	}
 	for _, t := range snap.Shaping {
-		if !t.ApprovalRequested {
-			continue
-		}
 		view.Proposals = append(view.Proposals, runtime.BoardTicket{
 			ID:        string(t.ID),
 			Title:     t.Title,

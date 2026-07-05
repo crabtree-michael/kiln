@@ -55,7 +55,7 @@ func TestCreateTicket_Success(t *testing.T) {
 	}
 }
 
-func TestCreateTicket_EmitsBoardUpdatedOnly(t *testing.T) {
+func TestCreateTicket_EmitsBoardUpdatedAndFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
 	ctx := context.Background()
 
@@ -66,10 +66,14 @@ func TestCreateTicket_EmitsBoardUpdatedOnly(t *testing.T) {
 	if len(emissionsWithTopic(ems, board.TopicBoardUpdated)) != 1 {
 		t.Errorf("CreateTicket must emit exactly one board.updated, got emissions: %+v", ems)
 	}
-	// The 03 §4 table lists no emission beyond board.updated for CreateTicket.
+	// A ticket is created in shaping, and every shaping ticket is a proposal
+	// card (08 §5, superseding D5), so CreateTicket also refreshes the feed.
+	if len(emissionsWithTopic(ems, board.TopicFeedUpdated)) != 1 {
+		t.Errorf("CreateTicket must emit exactly one feed.updated, got emissions: %+v", ems)
+	}
 	for _, e := range ems {
-		if e.Topic != board.TopicBoardUpdated {
-			t.Errorf("CreateTicket must not emit %q (03 §4 lists none beyond board.updated)", e.Topic)
+		if e.Topic != board.TopicBoardUpdated && e.Topic != board.TopicFeedUpdated {
+			t.Errorf("CreateTicket must not emit %q (only board.updated + feed.updated)", e.Topic)
 		}
 	}
 }
@@ -107,6 +111,12 @@ func TestShapeTicket_WhileShaping_UpdatesFields(t *testing.T) {
 	if got.State != board.StateShaping {
 		t.Errorf("ShapeTicket must not change state, got %q", got.State)
 	}
+	// Reshaping a shaping ticket changes its proposal card, so the feed must
+	// reassemble (08 §5, superseding D5).
+	ems := store.outboxSnapshot()
+	if len(emissionsWithTopic(ems, board.TopicFeedUpdated)) != 1 {
+		t.Errorf("ShapeTicket on a shaping ticket must emit exactly one feed.updated, got: %+v", ems)
+	}
 }
 
 func TestShapeTicket_WhileReady_StateUnchanged(t *testing.T) {
@@ -123,6 +133,11 @@ func TestShapeTicket_WhileReady_StateUnchanged(t *testing.T) {
 	}
 	if got.Priority != 9 {
 		t.Errorf("Priority = %d, want 9 (03 §4: no separate Reprioritize op)", got.Priority)
+	}
+	// A ready ticket has no feed surface, so shaping it emits board.updated only.
+	ems := store.outboxSnapshot()
+	if len(emissionsWithTopic(ems, board.TopicFeedUpdated)) != 0 {
+		t.Errorf("ShapeTicket on a ready ticket must not emit feed.updated, got: %+v", ems)
 	}
 }
 

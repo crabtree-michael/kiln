@@ -270,7 +270,7 @@ type SayEvent struct {
 
 // Ticket One ticket as rendered on the board (03 §2.2). Column/zone placement is derived from `state`, never carried as a separate field (03 D1).
 type Ticket struct {
-	// ApprovalRequested Set by the brain's request_approval tool on a Shaping ticket (08 §5); true iff state is shaping and the brain is seeking human approval. Surfaces the ticket as a `proposal` feed card. Cleared by mark_ready.
+	// ApprovalRequested Set by the brain's request_approval tool on a Shaping ticket (08 §5); a narrower secondary "explicitly nudged for attention" signal. It no longer gates proposal-card visibility: every Shaping ticket surfaces as a `proposal` feed card regardless (08 §5, superseding D5). Cleared by mark_ready.
 	ApprovalRequested bool `json:"approval_requested"`
 
 	// BlockedReason Set iff state is blocked (03 I4); full text, shown on the card (07 §7).

@@ -239,9 +239,11 @@ func TestSeedTicket_DefaultShaping(t *testing.T) {
 	if got.ApprovalRequested {
 		t.Error("a plain shaping seed must not request approval")
 	}
+	// Every shaping ticket is a proposal card (08 §5, superseding D5), so even
+	// a plain shaping seed is a feed surface and must reassemble the feed.
 	ems := store.outboxSnapshot()
-	if len(emissionsWithTopic(ems, board.TopicFeedUpdated)) != 0 {
-		t.Errorf("a plain shaping seed produces no feed surface, got feed.updated: %+v", ems)
+	if len(emissionsWithTopic(ems, board.TopicFeedUpdated)) != 1 {
+		t.Errorf("a plain shaping seed is a proposal card, must emit feed.updated: %+v", ems)
 	}
 }
 

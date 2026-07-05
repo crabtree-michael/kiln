@@ -268,8 +268,9 @@ var Tools = []ToolDef{
 		Description: "Update a ticket. Edit its title/body/priority, and/or move its state: " +
 			"\"ready\" queues a shaping ticket for the pull, \"blocked\" needs a human decision " +
 			"(give blocked_reason), \"done\" accepts the result and recycles the worker " +
-			"(destructive — the workspace is gone). Set approval_requested to surface a shaping " +
-			"ticket as a proposal card (mutually exclusive with state). Fields apply before the " +
+			"(destructive — the workspace is gone). Every shaping ticket is already a proposal " +
+			"card; set approval_requested only to nudge the user's attention to one (mutually " +
+			"exclusive with state). Fields apply before the " +
 			"state change, so one call can revise and queue a ticket.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID:      stringSchema("Ticket id."),
@@ -278,7 +279,7 @@ var Tools = []ToolDef{
 			fieldPriority:      intSchema("New priority; higher pulls first."),
 			fieldState:         stringSchema("New state: \"ready\", \"blocked\", or \"done\"."),
 			fieldBlockedReason: stringSchema("Required when state is \"blocked\": what the user must decide."),
-			fieldApproval:      boolSchema("Set true to surface a shaping ticket as a proposal card awaiting approval."),
+			fieldApproval:      boolSchema("Optional emphasis; every shaping ticket already shows as a proposal card."),
 		}),
 	},
 	{

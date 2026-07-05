@@ -51,6 +51,12 @@ func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket,
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
+		// A ticket is created in shaping, and every shaping ticket is a
+		// proposal card (08 §5, superseding D5's approval_requested gate), so
+		// the feed must reassemble to show it.
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			return fmt.Errorf("board: append feed.updated: %w", err)
+		}
 		out = created
 		return nil
 	})
@@ -81,6 +87,14 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 		updated, err := tx.UpdateTicket(ctx, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		// A shaping ticket is a proposal card (08 §5); reshaping it changes the
+		// card's title/summary, so the feed must reassemble. A ready ticket has
+		// no feed surface, so it emits board.updated only.
+		if t.State == StateShaping {
+			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+				return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+			}
 		}
 		return updated, nil
 	})
@@ -291,7 +305,10 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
-		if state == StateBlocked || created.ApprovalRequested {
+		// A blocker card (blocked) or a proposal card (any shaping ticket —
+		// 08 §5, superseding D5's approval_requested gate) is a feed surface,
+		// so the feed must reassemble.
+		if state == StateBlocked || state == StateShaping {
 			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
 				return fmt.Errorf("board: append feed.updated: %w", err)
 			}

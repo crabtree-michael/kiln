@@ -23,6 +23,13 @@ services:
           property: connectionString
       - key: KILN_LOG_LEVEL
         value: info
+      # Per-environment worker-name scope (05 §4, amended 2026-07-05): prod owns
+      # kiln-prod-worker-* exclusively, so no other Kiln instance on the shared
+      # Amika account (local dev = kiln-dev-worker-, e2e) can ever adopt or sweep
+      # prod's sandboxes — and prod can't touch theirs. NOTE: flipping the prefix
+      # abandons the previous pool; delete the old kiln-worker-* sandboxes once.
+      - key: KILN_WORKER_PREFIX
+        value: kiln-prod-worker-
       - key: SENTRY_BACKEND_DSN        # backend errors/traces/logs
         sync: false
       - key: ANTHROPIC_API_KEY

@@ -157,8 +157,13 @@ function onProviderEvent(state: VoiceState, event: VoiceProviderEvent): VoiceSta
         return { ...state, tailText: '' };
       }
       // Arm the send but hold it: the store times the post-turn-end grace window
-      // and dispatches `commitDelayElapsed` to actually commit (09 §4).
-      return { ...state, settledText: text, tailText: '', pending: text };
+      // and dispatches `commitDelayElapsed` to actually commit (09 §4). When
+      // unsent settled text is still on screen — resumed speech during the grace
+      // window cancelled the previous send (dropping `pending`) but left its ink
+      // — grow the transcript by appending this final rather than overwriting it,
+      // so the whole utterance sends as one (09 §4).
+      const settledText = state.settledText === '' ? text : `${state.settledText} ${text}`;
+      return { ...state, settledText, tailText: '', pending: settledText };
     }
     case 'error':
       return state; // the store decides reconnect-then-retry; no state change here

@@ -35,7 +35,7 @@ the `kiln-backend` project was created during setup and `.env` updated to its re
   maps via `SENTRY_AUTH_TOKEN`), output copied to `backend/internal/web/dist` before the
   Go stage embeds + builds. `VERSION` build arg reused as the Sentry `release`.
 - **`render.yaml`** — web service (Docker, `healthCheckPath: /healthz`, region
-  `frankfurt`, Starter) + managed Postgres 16 (Basic). `DATABASE_URL` via
+  `virginia` / US-East, Starter) + managed Postgres 16 (Basic). `DATABASE_URL` via
   `fromDatabase`. Auto-deploy on `main`. No static-site resource.
 
 ### Embed contract (shared by the backend + Dockerfile work)

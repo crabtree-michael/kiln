@@ -9,7 +9,7 @@ services:
     name: kiln
     runtime: docker
     plan: starter                     # $7/mo, always-on (no scale-to-zero)
-    region: frankfurt                 # nearest to the user (Sentry org is EU/`de`)
+    region: virginia                  # US East (user is US-based)
     branch: main
     autoDeploy: true                  # deploy-on-merge (no CI gate — see design doc, delta d)
     dockerfilePath: ./backend/Dockerfile
@@ -51,4 +51,4 @@ databases:
   - name: kiln-db
     plan: basic-256mb                  # ~$6/mo, daily backups + PITR
     postgresMajorVersion: "16"
-    region: frankfurt
+    region: virginia

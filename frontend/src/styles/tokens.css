@@ -206,6 +206,14 @@
    per-route `html:has(...)` background hacks. */
 html {
   background: var(--surface-page);
+  /* Kill the document-level rubber-band. Both app shells (primary screen, /debug)
+     are 100dvh columns with their OWN inner overflow regions — the page/body is
+     never meant to scroll — so any drag past a shell's edge otherwise bounces the
+     whole document (moving the pinned header/dock on iOS Safari). Disabling
+     overscroll on the viewport scroller here confines the elastic bounce to the
+     inner scrollers (the feed backlog additionally carries `overscroll-behavior:
+     contain` so its bounce never chains back out to this level). */
+  overscroll-behavior: none;
 }
 
 body {
@@ -213,6 +221,7 @@ body {
   font: var(--type-body);
   color: var(--text-body);
   background: var(--surface-page);
+  overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

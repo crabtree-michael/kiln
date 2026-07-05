@@ -39,6 +39,12 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Contain the feed's own rubber-band/overscroll to this region (iOS Safari):
+     dragging past the top or bottom of the backlog must not chain out to the
+     screen column or the document, so the sticky header and the dock below stay
+     pinned while only the feed content bounces. Pairs with the document-level
+     `overscroll-behavior: none` in tokens.css. */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   /* No top padding: the top breathing room lives in the sticky header instead,

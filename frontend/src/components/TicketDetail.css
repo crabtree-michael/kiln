@@ -123,3 +123,105 @@
 [data-role='detail-accept']:active {
   transform: translateY(1px);
 }
+
+/* ---------------------------------------------------------------------------
+ * Primary-screen skin (08 §5). The rules above dress the overlay in the /debug
+ * board's dark `--kiln-*` palette (App.css, :root). Those tokens are bundled
+ * globally, so on the main app the panel renders as a dark #16161d box with
+ * near-black inherited body/title text — an unstyled "debug view" clashing with
+ * the paper UI. When the overlay is a descendant of the primary screen we repaint
+ * it in the app's own design language — warm paper surface, ink text, ember
+ * accent, Space Grotesk / IBM Plex Mono — so it reads as a first-class Kiln
+ * surface, consistent with the feed cards, toasts and dock. Two data-role
+ * selectors → higher specificity than the base rules, so these win here without
+ * touching the /debug look or the component markup. Tokens resolve from the
+ * enclosing [data-role='primary-screen'] (PrimaryScreen.css). */
+
+[data-role='primary-screen'] [data-role='ticket-detail-backdrop'] {
+  background: oklch(0.28 0.02 40 / 0.4);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail'] {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  padding: 20px 22px 22px;
+  box-shadow: 0 -8px 44px -12px oklch(0.4 0.02 40 / 0.4);
+  color: var(--ink);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail'][data-state='blocked'] {
+  border-color: var(--ember-soft);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-title'] {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-close'] {
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hairline);
+  background: var(--surface);
+  color: var(--faint);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-close']:hover {
+  color: var(--ink);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-meta'] {
+  margin-top: 16px;
+  gap: 8px 16px;
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-meta'] dt {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-meta'] dd {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+[data-role='primary-screen'] [data-role='detail-blocked-reason'] {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: oklch(0.58 0.2 27 / 0.08);
+  border: 1px solid var(--ember-soft);
+  color: oklch(0.42 0.14 27);
+  font-weight: 500;
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-body'] {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+[data-role='primary-screen'] [data-role='ticket-detail-actions'] {
+  margin-top: 20px;
+}
+
+/* Match the feed's proposal Accept button exactly, so accepting from the detail
+ * reads as the same affirmative action as accepting from the card. */
+[data-role='primary-screen'] [data-role='detail-accept'] {
+  font-size: 13px;
+  color: oklch(0.985 0.004 40);
+  background: linear-gradient(160deg, oklch(0.62 0.21 29), var(--ember-strong));
+  border-radius: 10px;
+  padding: 9px 22px;
+  box-shadow: 0 6px 16px oklch(0.58 0.2 27 / 0.28);
+}

@@ -160,7 +160,7 @@ describe('PrimaryScreenView', () => {
     expect(image).toHaveAttribute('src', 'https://cdn.example/login.png');
   });
 
-  it('renders the all-clear empty state with the building/idle/last-word line (4d)', () => {
+  it('renders the all-clear empty state with only the building count and an active ember pulse (4d)', () => {
     renderView(
       makeFeedSnapshot({
         summary: {
@@ -176,11 +176,38 @@ describe('PrimaryScreenView', () => {
       'data-role',
       'feed-empty-title',
     );
-    expect(screen.getByText('3 building · 2 idle · last word 6m ago')).toBeInTheDocument();
+    // The idle count is dropped entirely — only the building count (with the
+    // last-word suffix) is shown.
+    expect(screen.getByText('3 building · last word 6m ago')).toBeInTheDocument();
+    expect(screen.queryByText(/idle/)).not.toBeInTheDocument();
+    // With active builds the pulse dot goes ember/animated via data-active.
+    expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
     // No secondary/body copy under the headline (08 §4d): the status counts are
     // the focal content of the all-clear state.
     expect(document.querySelector('[data-role="feed-empty-body"]')).toBeNull();
     expect(screen.queryByText(/keeping your streams moving/)).not.toBeInTheDocument();
+  });
+
+  it('leaves the empty-state pulse dot flat/inactive when nothing is building', () => {
+    renderView(
+      makeFeedSnapshot({
+        summary: {
+          stream_count: 2,
+          building: 0,
+          idle: 2,
+          last_word_at: minutesAgo(6),
+        },
+        cards: [],
+      }),
+    );
+    expect(screen.getByText('0 building · last word 6m ago')).toBeInTheDocument();
+    expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(
+      'data-active',
+      'false',
+    );
   });
 
   it('renders a real Accept button on a proposal card and calls acceptTicket with the ticket id (08 §5)', () => {

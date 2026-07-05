@@ -264,7 +264,8 @@ body:has([data-role='primary-screen']) {
   [data-role='feed-status-caret'] {
     transition: none;
   }
-  [data-role='header-status-row'][data-status='building'] [data-role='header-status-dot'] {
+  [data-role='header-status-row'][data-status='building'] [data-role='header-status-dot'],
+  [data-role='feed-empty-pulse'][data-active='true'] {
     animation: none;
   }
 }
@@ -449,6 +450,12 @@ body:has([data-role='primary-screen']) {
   height: 9px;
   border-radius: 50%;
   background: oklch(0.55 0.01 40);
+}
+
+[data-role='feed-empty-pulse'][data-active='true'] {
+  background: var(--ember);
+  box-shadow: 0 0 0 3px oklch(0.58 0.2 27 / 0.16);
+  animation: kiln-status-pulse 1.6s ease-in-out infinite;
 }
 
 /* --------------------------------------------------------------- activity */

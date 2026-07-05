@@ -97,7 +97,11 @@ export function PrimaryScreenView({
               <span data-role="feed-empty-mark" aria-hidden="true" />
               <span data-role="feed-empty-title">Nothing needs you right now.</span>
               <div data-role="feed-empty-status">
-                <span data-role="feed-empty-pulse" aria-hidden="true" />
+                <span
+                  data-role="feed-empty-pulse"
+                  data-active={summary.building > 0}
+                  aria-hidden="true"
+                />
                 <span>{streamDetail(summary, now)}</span>
               </div>
             </div>

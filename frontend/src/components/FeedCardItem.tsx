@@ -10,16 +10,23 @@
 // — uniformly across update, proposal, and blocker cards, so nothing hides
 // behind a click-through to another surface (08 goal: readable without leaving
 // the feed). Proposals keep their inline Accept as a sibling of the body.
+//
+// Already-seen cards (below the last-seen divider, 08 D2′) render de-emphasized
+// via `seen`: an unbolded ticket name and a body collapsed tighter than the
+// five-line preview, so the new-since-last-visit cards above stay the focus.
+// The expand affordance is unchanged — a seen card just starts more collapsed.
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { FeedCard } from '@/transport/transport';
 import { cardTag, relativeAge } from '@/components/feed-format';
 
 /**
- * The card body, clamped to five lines and expandable in place. When the clamp
- * actually bites we surface a "tap to see more" control (the "read full ticket"
- * text-link style, but a quiet gray rather than red) that reveals the full body
- * and toggles back to "Show less".
+ * The card body, clamped and expandable in place. Unseen cards clamp to five
+ * lines; already-seen cards (`seen`) clamp tighter (a skim of the top) via the
+ * `data-seen` hook, both driven from CSS. When the clamp actually bites we
+ * surface a "tap to see more" control (the "read full ticket" text-link style,
+ * but a quiet gray rather than red) that reveals the full body and toggles back
+ * to "Show less".
  *
  * Truncation is measured (`scrollHeight` overflows the clamped `clientHeight`)
  * only while collapsed — once expanded the clamp is gone and the two heights
@@ -27,7 +34,7 @@ import { cardTag, relativeAge } from '@/components/feed-format';
  * `ClampedText`; jsdom performs no layout, so the flag stays false under test
  * unless the heights are faked. `body` re-runs the check when the text changes.
  */
-function FeedCardBody({ body }: { body: string }): JSX.Element {
+function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Element {
   const ref = useRef<HTMLParagraphElement>(null);
   const [truncated, setTruncated] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -53,7 +60,12 @@ function FeedCardBody({ body }: { body: string }): JSX.Element {
 
   return (
     <>
-      <p ref={ref} data-role="feed-card-body" data-expanded={expanded ? 'true' : undefined}>
+      <p
+        ref={ref}
+        data-role="feed-card-body"
+        data-seen={seen ? 'true' : undefined}
+        data-expanded={expanded ? 'true' : undefined}
+      >
         {body}
       </p>
       {(truncated || expanded) && (
@@ -77,22 +89,26 @@ export interface FeedCardItemProps {
   now: number;
   /** Called with the proposal's ticket id when Accept is tapped (08 §5). */
   onAccept: (ticketId: string) => void;
+  /** True for already-seen history below the last-seen divider (08 D2′): renders
+   * the card de-emphasized — unbolded title, body collapsed tighter by default.
+   * Defaults to false (the unseen/new treatment). */
+  seen?: boolean;
 }
 
-export function FeedCardItem({ card, now, onAccept }: FeedCardItemProps): JSX.Element {
+export function FeedCardItem({ card, now, onAccept, seen = false }: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
 
   return (
-    <article data-role="feed-card" data-kind={card.kind}>
+    <article data-role="feed-card" data-kind={card.kind} data-seen={seen ? 'true' : undefined}>
       <div data-role="feed-card-head">
         {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
         <span data-role="feed-card-tag">{cardTag(card.kind)}</span>
         <span data-role="feed-card-label">{card.label}</span>
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>
-      <FeedCardBody body={card.body} />
+      <FeedCardBody body={card.body} seen={seen} />
       {card.kind === 'preview' && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />
       )}

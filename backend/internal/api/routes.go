@@ -38,6 +38,14 @@ const (
 // fails the probe promptly instead of hanging Render's health check.
 const healthPingTimeout = 3 * time.Second
 
+// maxMessageBody caps the POST /api/message request body before it is
+// decoded, so a hostile client cannot force the server to buffer an
+// arbitrarily large body into memory (the maxMessageLen check only runs after
+// a full decode). 64 KiB comfortably admits any valid MessageRequest — a
+// 4000-char text plus JSON/UTF-8 escaping overhead — while rejecting anything
+// larger up front.
+const maxMessageBody = 64 << 10
+
 // BoardReader is the api's port onto the board's read path (03 §4 GetBoard).
 type BoardReader interface {
 	GetBoard(ctx context.Context) (board.Snapshot, error)
@@ -348,8 +356,14 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 // delegates to the runtime's transactional PostMessage, and returns 202 with
 // both ids (07 §3–§4).
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBody)
 	var req wire.MessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}

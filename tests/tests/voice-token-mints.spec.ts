@@ -53,6 +53,8 @@ function streamUrl(token: string): string {
     sample_rate: String(SAMPLE_RATE),
     encoding: 'pcm_s16le',
     format_turns: 'true',
+    // Mirror the app: pin the English-only speech model (assemblyai-client.ts).
+    speech_model: 'universal-streaming-english',
     token,
   });
   return `${ASSEMBLYAI_WS}?${q.toString()}`;

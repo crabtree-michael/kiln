@@ -41,7 +41,11 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 22px 26px 8px;
+  /* No top padding: the top breathing room lives in the sticky header instead,
+     so the header pins flush to the feed's content edge (y=0) and its opaque
+     fill reaches the physical top — through the safe-area strip — in every
+     scroll state. Sides/bottom keep their padding. */
+  padding: 0 26px 8px;
 }
 
 [data-role='feed-header'] {
@@ -56,11 +60,17 @@
   /* Opaque page tone so the header occludes cards as the app's own background —
      same fill the dock + live transcript use. */
   background: var(--surface-page);
-  /* Bleed over the feed's own padding (22px top / 26px sides) so cards are
-     occluded to the very edges, while the matching padding keeps the header
-     content in its original position at rest. */
-  margin: -22px -26px 0;
-  padding: 22px 26px 24px;
+  /* Bleed over the feed's side padding (26px) so cards are occluded to the left
+     and right edges. The top needs no negative margin now — the feed carries no
+     top padding, so sticky top:0 pins the bar's top to y=0 (the physical top,
+     under the notch with viewport-fit=cover), where its opaque fill abuts the
+     safe-area top with no seam in any scroll state. */
+  margin: 0 -26px 0;
+  /* Push the header content below the notch / Dynamic Island: the safe-area top
+     inset plus the 22px design breathing room the feed used to carry. On a
+     device with no top inset (desktop, non-notched phones) this collapses to
+     the original 22px, so nothing changes there. */
+  padding: calc(env(safe-area-inset-top, 0px) + 22px) 26px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;

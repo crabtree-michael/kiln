@@ -1,14 +1,16 @@
-// Feed store (08 §3): holds the latest `FeedSnapshot`. Every `feed` SSE event —
-// and the initial `GET /api/feed` — replaces the board-derived cards
-// (blocker/proposal) wholesale. Update/preview cards are notification-backed:
-// once rendered on a visible screen the store marks them seen
-// (`POST /api/feed/seen` up to the high-water id) AND holds them for the rest of
-// the session so they don't vanish mid-session when the server drops them from
-// subsequent snapshots. A fresh mount starts with an empty held-set, so it shows
-// only what the server returns. Live updates ride the single app-wide stream
+// Feed store (08 §3, D2′): holds the current feed with RETAINED update history.
+// Every `feed` SSE event — and the initial `GET /api/feed` — replaces the
+// board-derived cards (blocker/proposal) wholesale. Update/preview cards are
+// notification-backed and now KEPT: the store accumulates them across snapshots
+// and paged history (`GET /api/feed/history`), so returning after being away no
+// longer erases what happened. A frozen "last seen" boundary
+// (`summary.last_seen_notification_id`, captured once per session) drives the
+// divider between new-since-last-visit and older history — the client keeps
+// marking updates seen on view (advancing the server mark for NEXT time) without
+// the divider jumping mid-session. Live updates ride the single app-wide stream
 // connection (`@/stores/stream-connection`), shared with the board/chat stores.
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
-import { fetchFeed, postFeedSeen } from '@/transport/transport';
+import { fetchFeed, fetchFeedHistory, postFeedSeen } from '@/transport/transport';
 import type { ConnectionState, FeedCard, FeedSnapshot } from '@/transport/transport';
 import { FeedStoreContext, type FeedStoreValue } from '@/stores/feed-context';
 import { subscribeStream } from '@/stores/stream-connection';
@@ -17,70 +19,175 @@ export interface FeedProviderProps {
   children: ReactNode;
 }
 
+// Older history pages this many cards at a time (matches the backend default at
+// GET /api/feed/history).
+const HISTORY_PAGE_SIZE = 30;
+
 function isUpdateCard(card: FeedCard): boolean {
   return card.kind === 'update' || card.kind === 'preview';
 }
 
-/** Merge the server snapshot with the session-held (already-seen) update cards.
- * Order (08 §3): blockers, then proposals, then updates newest-first by
- * `notification_id`. Held updates are re-inserted only when the server no longer
- * carries them (deduped by `notification_id`). */
-function mergeFeed(server: FeedSnapshot, held: Map<number, FeedCard>): FeedSnapshot {
+/** An update/preview card with a usable numeric notification_id, narrowed. */
+function updateId(card: FeedCard): number | null {
+  return isUpdateCard(card) && typeof card.notification_id === 'number' ? card.notification_id : null;
+}
+
+/** The smallest notification_id currently accumulated — the keyset cursor for
+ * the next older history page. `undefined` when no updates are held yet. */
+function oldestUpdateId(updates: Map<number, FeedCard>): number | undefined {
+  let min: number | undefined;
+  for (const id of updates.keys()) {
+    if (min === undefined || id < min) {
+      min = id;
+    }
+  }
+  return min;
+}
+
+/** The greatest notification_id currently accumulated — the seen high-water to
+ * ack. `0` when no updates are held. */
+function newestUpdateId(updates: Map<number, FeedCard>): number {
+  let max = 0;
+  for (const id of updates.keys()) {
+    if (id > max) {
+      max = id;
+    }
+  }
+  return max;
+}
+
+/** Merge the wholesale board-derived cards from the server snapshot with the
+ * accumulated (retained) update cards. Order (08 §3): blockers, then proposals,
+ * then updates newest-first by `notification_id`. */
+function mergeFeed(server: FeedSnapshot, updates: Map<number, FeedCard>): FeedSnapshot {
   const blockers = server.cards.filter((card) => card.kind === 'blocker');
   const proposals = server.cards.filter((card) => card.kind === 'proposal');
-
-  const updates = new Map<number, FeedCard>();
-  for (const card of server.cards) {
-    if (isUpdateCard(card) && typeof card.notification_id === 'number') {
-      updates.set(card.notification_id, card);
-    }
-  }
-  for (const [id, card] of held) {
-    if (!updates.has(id)) {
-      updates.set(id, card);
-    }
-  }
   const sortedUpdates = [...updates.values()].sort(
     (a, b) => (b.notification_id ?? 0) - (a.notification_id ?? 0),
   );
-
-  return { summary: server.summary, cards: [...blockers, ...proposals, ...sortedUpdates] };
+  return { ...server, cards: [...blockers, ...proposals, ...sortedUpdates] };
 }
 
 export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   const [feed, setFeed] = useState<FeedSnapshot | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
+  const [lastSeenId, setLastSeenId] = useState<number | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
 
-  // Session-scoped, render-stable state (mirrors chat-store's ref pattern): the
-  // held/seen update cards keyed by `notification_id`, and the latest server
-  // snapshot (so a `visibilitychange` can re-run the seen check).
-  const heldRef = useRef<Map<number, FeedCard>>(new Map());
-  const serverFeedRef = useRef<FeedSnapshot | null>(null);
+  // Session-scoped, render-stable state (mirrors chat-store's ref pattern):
+  const updatesRef = useRef<Map<number, FeedCard>>(new Map()); // accumulated update cards by id
+  const serverFeedRef = useRef<FeedSnapshot | null>(null); // latest server snapshot (for re-merge / visibility)
+  const seededRef = useRef(false); // has the session last-seen boundary been frozen?
+  const sessionLastSeenRef = useRef<number | null>(null); // the frozen divider boundary
+  const ackedRef = useRef(0); // highest notification_id already POSTed to /feed/seen this session
+  const pagedBelowWindowRef = useRef(false); // has the user paged older than the snapshot window?
 
-  const applySnapshot = useCallback((snapshot: FeedSnapshot): void => {
-    serverFeedRef.current = snapshot;
-
-    // Mark unseen update/preview cards seen — but only on a visible screen
-    // (08 §3). Held cards are the ones we've already acked this session.
-    const unseen = snapshot.cards.filter(
-      (card) =>
-        isUpdateCard(card) &&
-        typeof card.notification_id === 'number' &&
-        !heldRef.current.has(card.notification_id),
-    );
-    if (unseen.length > 0 && document.visibilityState === 'visible') {
-      let maxId = 0;
-      for (const card of unseen) {
-        const id = card.notification_id ?? 0;
-        if (id > maxId) {
-          maxId = id;
-        }
-        heldRef.current.set(id, card);
-      }
+  // Mark unseen update cards seen — but only on a visible screen (08 §3). Seen
+  // updates are RETAINED now (they stay as history); the ack just advances the
+  // persistent last-seen mark so NEXT session's divider is right. Deduped by a
+  // session high-water so we don't re-POST a mark we've already sent.
+  const ackVisibleSeen = useCallback((): void => {
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+    const maxId = newestUpdateId(updatesRef.current);
+    if (maxId > ackedRef.current) {
+      ackedRef.current = maxId;
       void postFeedSeen(maxId);
     }
+  }, []);
 
-    setFeed(mergeFeed(snapshot, heldRef.current));
+  const applySnapshot = useCallback(
+    (snapshot: FeedSnapshot): void => {
+      serverFeedRef.current = snapshot;
+
+      // Freeze the last-seen divider boundary once per session, before the first
+      // ack advances the server mark (08 D2′).
+      if (!seededRef.current) {
+        seededRef.current = true;
+        const ls = snapshot.summary.last_seen_notification_id;
+        sessionLastSeenRef.current = typeof ls === 'number' ? ls : null;
+        setLastSeenId(sessionLastSeenRef.current);
+      }
+
+      // Reconcile the retained update set against the snapshot's update cards.
+      // `has_more_history === false` means the snapshot carries the COMPLETE
+      // unretracted set, so anything accumulated but absent was retracted — drop
+      // it. When there IS older history the snapshot is only the newest page, so
+      // an absent id is authoritatively retracted only if it falls at/above the
+      // page's floor; older loaded history below the floor is left untouched
+      // (a deep retraction reconciles on the next full snapshot or reload).
+      const serverIds = new Set<number>();
+      let windowFloor = Infinity;
+      for (const card of snapshot.cards) {
+        const id = updateId(card);
+        if (id === null) {
+          continue;
+        }
+        serverIds.add(id);
+        if (id < windowFloor) {
+          windowFloor = id;
+        }
+      }
+      const snapshotIsComplete = !snapshot.has_more_history;
+      for (const id of [...updatesRef.current.keys()]) {
+        if (!serverIds.has(id) && (snapshotIsComplete || id >= windowFloor)) {
+          updatesRef.current.delete(id);
+        }
+      }
+      for (const card of snapshot.cards) {
+        const id = updateId(card);
+        if (id !== null) {
+          updatesRef.current.set(id, card);
+        }
+      }
+
+      // has-more only tracks the snapshot while we haven't paged below its
+      // window; once the user loads older history, pagination owns the flag
+      // (a fresh snapshot's has_more_history is about the newest page, not about
+      // what's older than everything we've now loaded).
+      if (!pagedBelowWindowRef.current) {
+        setHasMoreHistory(snapshot.has_more_history);
+      }
+
+      ackVisibleSeen();
+      setFeed(mergeFeed(snapshot, updatesRef.current));
+    },
+    [ackVisibleSeen],
+  );
+
+  const loadMoreHistory = useCallback((): void => {
+    if (!seededRef.current) {
+      return;
+    }
+    setLoadingMoreHistory((inFlight) => {
+      if (inFlight) {
+        return inFlight; // already fetching — ignore repeat taps
+      }
+      const before = oldestUpdateId(updatesRef.current);
+      void (async () => {
+        try {
+          const page = await fetchFeedHistory(before, HISTORY_PAGE_SIZE);
+          for (const card of page.cards) {
+            const id = updateId(card);
+            if (id !== null) {
+              updatesRef.current.set(id, card);
+            }
+          }
+          pagedBelowWindowRef.current = true;
+          setHasMoreHistory(page.has_more);
+          if (serverFeedRef.current !== null) {
+            setFeed(mergeFeed(serverFeedRef.current, updatesRef.current));
+          }
+        } catch {
+          // Leave the existing feed in place; the button stays available to retry.
+        } finally {
+          setLoadingMoreHistory(false);
+        }
+      })();
+      return true;
+    });
   }, []);
 
   // First paint: fetch the current snapshot directly (08 §3). Unlike the board
@@ -107,8 +214,6 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
           if (cancelled) {
             return;
           }
-          // Retry until we land a snapshot; the reconnect-refetch below is the
-          // steady-state safety net once the stream is up.
           const delay = backoffMs[Math.min(attempt, backoffMs.length - 1)];
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
@@ -126,14 +231,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   useEffect(() => {
     function handleVisibility(): void {
       if (document.visibilityState === 'visible' && serverFeedRef.current !== null) {
-        applySnapshot(serverFeedRef.current);
+        ackVisibleSeen();
       }
     }
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [applySnapshot]);
+  }, [ackVisibleSeen]);
 
   useEffect(() => {
     // Reconnect-refetch (mirrors chat-store, 07 §5/§8): a `feed` SSE event only
@@ -170,7 +275,10 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     });
   }, [applySnapshot]);
 
-  const value = useMemo<FeedStoreValue>(() => ({ feed, connectionState }), [feed, connectionState]);
+  const value = useMemo<FeedStoreValue>(
+    () => ({ feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory }),
+    [feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory],
+  );
 
   return <FeedStoreContext.Provider value={value}>{children}</FeedStoreContext.Provider>;
 }

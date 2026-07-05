@@ -144,7 +144,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
 </div>
 `;
 
-exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while-you-were-away (4a) 1`] = `
+exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′) 1`] = `
 <div>
   <div
     data-connection-state="connected"
@@ -183,7 +183,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
             data-role="feed-status"
             type="button"
           >
-            1 blocker · 3 updates
+            1 blocker · 1 update
             <span
               aria-hidden="true"
               data-role="feed-status-caret"
@@ -251,11 +251,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
         <div
           data-role="backlog-slot"
         >
-          <div
-            data-role="feed-divider"
-          >
-            While you were away
-          </div>
           <article
             data-kind="update"
             data-role="feed-card"
@@ -289,6 +284,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
         <div
           data-role="backlog-slot"
         >
+          <div
+            data-role="feed-divider"
+            data-variant="last-seen"
+          >
+            Earlier
+          </div>
           <article
             data-kind="update"
             data-role="feed-card"
@@ -352,6 +353,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
             </p>
           </article>
         </div>
+        <button
+          data-role="feed-load-more"
+          type="button"
+        >
+          Show earlier updates
+        </button>
       </div>
     </section>
     <div

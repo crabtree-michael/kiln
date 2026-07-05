@@ -504,6 +504,36 @@ body:has([data-role='primary-screen']) {
   border-top: 1px solid var(--hairline);
 }
 
+/* ------------------------------------------------- load more (history, D2′) */
+
+/* The "Show earlier updates" affordance at the foot of the retained-history
+   feed (08 D2′): a quiet, full-width control that pages older updates in rather
+   than loading all retained history at once. */
+[data-role='feed-load-more'] {
+  margin: 14px 0 4px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 11px 0;
+  cursor: pointer;
+}
+
+[data-role='feed-load-more']:active {
+  transform: translateY(1px);
+}
+
+[data-role='feed-load-more']:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
 /* --------------------------------------------------------- all-clear state */
 
 [data-role='feed-empty'] {

@@ -10,12 +10,27 @@ export interface FeedStoreValue {
   /**
    * The current feed, or `null` before the first `feed` event/fetch arrives.
    * Blocker/proposal cards mirror the server snapshot wholesale; update/preview
-   * cards are session-held (08 §3) — once rendered on a visible screen they
-   * persist for the session even after the server drops them as seen.
+   * cards are retained history (08 D2′): the store accumulates them across
+   * snapshots and paged history so nothing vanishes when the user returns.
    */
   feed: FeedSnapshot | null;
   /** Stream state for the connection chip (07 §8, 08 §F feed region gate). */
   connectionState: ConnectionState;
+  /**
+   * The last-seen divider boundary (08 D2′): update/preview cards with a greater
+   * `notification_id` are new since the last visit (above the divider); those at
+   * or below it are older history (below it). Frozen at the first snapshot of the
+   * session so marking-seen-on-view doesn't move the divider mid-session. `null`
+   * when nothing has ever been seen (no divider).
+   */
+  lastSeenId: number | null;
+  /** True when older retained update history remains to page in (08 D2′). */
+  hasMoreHistory: boolean;
+  /** True while a `loadMoreHistory()` page fetch is in flight. */
+  loadingMoreHistory: boolean;
+  /** Fetch and append the next older page of update history (08 D2′). No-op when
+   * `hasMoreHistory` is false or a fetch is already in flight. */
+  loadMoreHistory: () => void;
 }
 
 export const FeedStoreContext = createContext<FeedStoreValue | undefined>(undefined);

@@ -20,6 +20,7 @@ export type SayEvent = components['schemas']['SayEvent'];
 export type FeedCard = components['schemas']['FeedCard'];
 export type FeedSummary = components['schemas']['FeedSummary'];
 export type FeedSnapshot = components['schemas']['FeedSnapshot'];
+export type FeedHistoryPage = components['schemas']['FeedHistoryPage'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
@@ -176,6 +177,10 @@ function isFeedSnapshot(value: unknown): value is FeedSnapshot {
   return isRecord(value) && isFeedSummary(value.summary) && isFeedCardArray(value.cards);
 }
 
+function isFeedHistoryPage(value: unknown): value is FeedHistoryPage {
+  return isRecord(value) && isFeedCardArray(value.cards) && typeof value.has_more === 'boolean';
+}
+
 function isActivityKind(value: unknown): value is ActivityEvent['kind'] {
   return value === 'thinking' || value === 'toast';
 }
@@ -314,6 +319,29 @@ export async function fetchFeed(): Promise<FeedSnapshot> {
   const payload: unknown = await response.json();
   if (!isFeedSnapshot(payload)) {
     throw new Error('fetchFeed: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `GET /api/feed/history?before=&limit=` — one older keyset page of retained
+ * update/preview cards (08 D2′), newest-first. `before` omitted starts from the
+ * newest; the returned `has_more` signals another page remains. */
+export async function fetchFeedHistory(before?: number, limit?: number): Promise<FeedHistoryPage> {
+  const params = new URLSearchParams();
+  if (before !== undefined) {
+    params.set('before', String(before));
+  }
+  if (limit !== undefined) {
+    params.set('limit', String(limit));
+  }
+  const query = params.toString();
+  const response = await fetch(query === '' ? '/api/feed/history' : `/api/feed/history?${query}`);
+  if (!response.ok) {
+    throw new Error(`fetchFeedHistory: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isFeedHistoryPage(payload)) {
+    throw new Error('fetchFeedHistory: unexpected response shape');
   }
   return payload;
 }

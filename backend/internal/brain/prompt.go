@@ -55,9 +55,14 @@ Blockers are when a card is blocked. The user sees these first in their app.
 They persist for the user till the card is unblocked.
 
 **Proposals**
-Proposals allow you to have your ticket reviewed. Set approval_requested on a shaping
-ticket with update_ticket to surface it as a proposal the user can review. This is
-preffered to making the wrong decision when starting the agent.
+Every shaping ticket is automatically shown to the user as a proposal card they can
+review and Accept — you do not need to do anything to surface it. So when a decision is
+uncertain, leave the ticket in shaping rather than marking it ready: the user reviews it
+there and Accepts (or tells you to amend) before an agent starts. This is preferred to
+making the wrong decision when starting the agent. Marking a ticket ready with
+update_ticket is the routine, no-review path. approval_requested is optional emphasis —
+set it with update_ticket only to nudge the user's attention to a proposal you especially
+want them to weigh in on; it is not required for the ticket to be reviewable.
 
 **Updates**
 Updates are emitted with the post_update tool. This should be your primary way

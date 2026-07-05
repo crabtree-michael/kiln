@@ -99,7 +99,7 @@ TicketTitle*}`. `wire.FeedSeenRequest {LastNotificationId int64}`.
    Reads board via a new `boardReader BoardReader` port (`GetBoard(ctx) (board.Snapshot,
    error)`; `*board.Service` satisfies it) and `UnseenNotifications`. Build cards in strict
    order: blockers (from `snap.Blocked`, body=blocked_reason, created_at=UpdatedAt as
-   blocked-at proxy) → proposals (from `snap.Shaping` where `ApprovalRequested`, body=Body)
+   blocked-at proxy) → proposals (from `snap.Shaping` — **every** shaping ticket, D5′; body=Body)
    → updates newest-first (from unseen notifications). Compute `FeedSummary`
    (blocker_count, update_count, stream_count = len(working)+len(blocked), building =
    len(working), idle = stream_count - building, last_word_at from latest notification or
@@ -134,9 +134,10 @@ TicketTitle*}`. `wire.FeedSeenRequest {LastNotificationId int64}`.
    `RetractNotification(ctx, id int64) error` (satisfied structurally by `*runtime.Service`).
    `post_update` uses kind `update`, or `preview` when `image_url` is set.
 3. Prompt: bump `CurrentPromptVersion` to 2, add `systemPromptV2` + `promptTemplates[2]`.
-   New guidance: when to `request_approval` (complex technical decisions) vs `mark_ready`
-   (routine); post updates worth a glance not a play-by-play; retract updates that stopped
-   mattering.
+   New guidance: every shaping ticket is already a visible proposal (D5′), so
+   `request_approval` is an optional attention-nudge for a proposal the brain especially
+   wants weighed in on — not a visibility gate; `mark_ready` queues routine work; post
+   updates worth a glance not a play-by-play; retract updates that stopped mattering.
 4. Update the "exactly seven tools" golden (`dispatch_test.go`) to ten, and pin prompt v2.
 5. `NewService` gains a `notifications NotificationStore` param (INTEGRATION passes `rtSvc`).
 

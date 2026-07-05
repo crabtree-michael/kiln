@@ -57,7 +57,7 @@ board state so they cannot go stale; cards that are pure communication are
 | Card                 | Source                                                                             | Appears when            | Leaves when                                                            |
 | -------------------- | ---------------------------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
 | **Blocker**          | Derived: ticket in the Blocked zone (`03`) — its `blocked_reason`, blocked-at time | Ticket enters Blocked   | Ticket leaves Blocked (brain resumes/accepts) — *never* by being seen  |
-| **Proposal**         | Derived: Shaping ticket with `approval_requested` set (§5)                         | Brain requests approval | Ticket marked Ready (tap or voice accept), or brain withdraws/reshapes |
+| **Proposal**         | Derived: **any** Shaping ticket (§5, superseding D5)                               | Ticket enters Shaping   | Ticket marked Ready (tap or voice accept), or brain withdraws/archives |
 | **Update / preview** | New `notifications` table, brain-authored (§7)                                     | Brain posts it          | Seen by the user, or retracted by the brain                            |
 
 
@@ -114,17 +114,24 @@ the pill is empty.
 
 ## 5. The acceptance gate (Shaping, realized)
 
-Shaping (`01` §5) gets its interaction surface. The gate is **at the brain's
-discretion** (user decision — §9, D5): the brain is prompted to seek human approval
-when a ticket embeds complex technical decisions, and to proceed on its own for
-routine work.
+Shaping (`01` §5) gets its interaction surface. **Every Shaping ticket is implicitly a
+proposal awaiting review** (user decision, superseding D5): the feed surfaces all of
+them as proposal cards the moment they enter Shaping — the reviewer sees a ticket while
+it is still being shaped, before it is queued for a worker, with no operator flag
+required. The brain no longer decides *whether* a shaping ticket is visible; it decides
+*when* to leave Shaping (via `mark_ready`, tap-accept, or voice-accept).
 
-- **New board fact:** a Shaping ticket can have `approval_requested` set. A new
-brain tool `request_approval(ticket)` sets it; the ticket surfaces as a proposal
-card (title + shaped summary + Accept affordance). The brain's `mark_ready` tool
-remains for the no-gate path (`06` §4).
+- **The proposal card:** a Shaping ticket surfaces as a proposal card (title + shaped
+summary + Accept affordance) — derived purely from `state == shaping`. The brain's
+`mark_ready` tool moves a ticket out of Shaping and off the feed (`06` §4).
+- **`approval_requested`, narrowed:** the field and the `request_approval(ticket)` tool
+survive as a **secondary "explicitly nudged for attention" signal** (e.g. for ordering
+or a badge), *not* as the visibility gate. It is no longer required for a ticket to
+appear. Left in place so the brain can still flag a proposal it especially wants a
+human to weigh in on; cleared by `mark_ready`.
 - **Tap Accept** → `POST /api/tickets/{id}/accept` → **mechanical** `MarkReady` with a
-strict precondition (Shaping + `approval_requested`), emitting `pull.evaluate`,
+strict precondition (Shaping — every proposal card is now an un-nudged-or-nudged
+Shaping ticket, D5′), emitting `pull.evaluate`,
 `board.updated`, and `feed.updated` like any Ready transition (`03` §7). No LLM pass:
 acceptance is the human's own decision, already fully shaped — waking the brain to
 relay it would add latency and nondeterminism for nothing (§9, D6). This is a
@@ -159,20 +166,21 @@ types from `/schema`, as always (`02` §3).
 `image_url` nullable, `created_at`, `seen_at` nullable, `retracted_at` nullable.
 Append + stamp only; no edits.
 - **Feed assembly** (runtime service): one query joining derived cards (board port:
-Blocked tickets, approval-requested Shaping tickets) with unseen, unretracted
+Blocked tickets, **all Shaping tickets**) with unseen, unretracted
 notifications → the `FeedSnapshot` wire shape. Used by both `GET /api/feed` and the
 `feed.updated` executor.
 - **Outbox topics:** add `feed.updated` and `activity.toast` to the CHECK (`04` §2);
-executors are SSE broadcasts on the hub. Board ops that change Blocked or
-`approval_requested` state append `feed.updated` transactionally (`03` §7);
+executors are SSE broadcasts on the hub. Board ops that add, remove, or change a
+Blocked or Shaping ticket append `feed.updated` transactionally (`03` §7) — this now
+includes `CreateTicket` and `ShapeTicket`, since a shaping ticket is a proposal card;
 `activity.toast` rides the same appends for the §4 verbs. The notification store
 appends `feed.updated` in its own write transactions too — amending `04` §2's
 "written by the board" column: the outbox gains the runtime's notification store as
 a second writer, under the same transactional-emission rule.
-- **Brain tools** (`06` §4 amendments): add `request_approval(ticket)`,
+- **Brain tools** (`06` §4 amendments): add `request_approval(ticket)` (now a §5
+attention-nudge on an already-visible proposal, not a visibility gate),
 `post_update(body, ticket?, image_url?)`, `retract_update(notification_id)`; prompt
-guidance for the §5 discretion rule and for posting updates worth a glance, not a
-play-by-play. `say` is unchanged.
+guidance for posting updates worth a glance, not a play-by-play. `say` is unchanged.
 - **api module:** routes `GET /api/feed`, `POST /api/feed/seen`,
 `POST /api/tickets/{id}/accept`; `feed`/`activity` fan-out on the hub. All shapes in
 `/schema`.
@@ -184,10 +192,11 @@ delivers; tapping a push opens `/` to an already-correct feed — no new state.
 
 ## 8. Testing
 
-- **Unit (backend):** feed assembly — derivation rules, seen filtering, ordering
-(blockers → proposals → unseen updates newest-first); seen high-water stamping;
-accept route preconditions (rejects non-Shaping, rejects without
-`approval_requested`, idempotent on replay); toast emission per transition verb.
+- **Unit (backend):** feed assembly — derivation rules (every Shaping ticket is a
+proposal, D5′), seen filtering, ordering (blockers → proposals → unseen updates
+newest-first); seen high-water stamping; accept route precondition (rejects
+non-Shaping, idempotent on replay); `feed.updated` emission on Shaping create/shape;
+toast emission per transition verb.
 - **Unit (frontend):** feed store (snapshot replace + session hold across acks),
 activity store (pill contention: say replaces toast, toasts queue, thinking only
 when empty; auto-dismiss timing), seen-ack firing only when visible.
@@ -210,7 +219,8 @@ clears, update posts → seen → drains. The `07` e2e keeps covering the debug 
 | D2  | Inbox that drains: seen-means-gone for updates; blockers/proposals persist until resolved; brain curates and retracts. | Append-only feed with a last-seen divider; bounded recency window.                                        | User decision. The screen should tend toward "All clear" — the feed is a to-attend list, not a log. History belongs to the debug view and the transcript.                                                                                                             |
 | D3  | Activity layer is ephemeral SSE, never stored.                                                                         | Persist toasts as feed rows; derive thinking from queue-table polling.                                    | A toast repeats what the board/feed already record durably; storing it would double-write one fact. Missing a toast while disconnected loses nothing.                                                                                                                 |
 | D4  | `say` replies render in the same pill as toasts, persistent until the next utterance or dismissal.                     | A chat strip on the primary screen; replies as feed items.                                                | User decision. The pill is the live-exchange surface; the primary screen deliberately has no chat history (that is `/debug`). Feed items are for things that must survive being away.                                                                                 |
-| D5  | Approval gate at the brain's discretion; prompted to gate complex technical decisions.                                 | Mandatory approval for every ticket; no gate (status quo).                                                | User decision — this is what Shaping means. Mandatory gating would tax routine work; no gate wastes the backlog's decision surface.                                                                                                                                   |
+| D5  | ~~Approval gate at the brain's discretion; prompted to gate complex technical decisions.~~ **Superseded by D5′.**       | Mandatory approval for every ticket; no gate (status quo).                                                | User decision — this is what Shaping means. Mandatory gating would tax routine work; no gate wastes the backlog's decision surface.                                                                                                                                   |
+| D5′ | **Every Shaping ticket surfaces as a proposal card; no visibility gate. `approval_requested` narrowed to an optional "nudged for attention" signal (§5).** | Keep D5's brain-discretion gate; delete `approval_requested` entirely.                                    | User decision (reversing D5) — the reviewer must see a ticket *while it is being shaped*, before it is queued, so drafts aren't invisible. Discretion hid draft work the user wanted eyes on. The flag is kept, not deleted, so an explicit nudge remains expressible. |
 | D6  | Tap-accept is a mechanical `MarkReady` via `POST /api/tickets/{id}/accept`, a narrow exception to `07` D5.             | Route acceptance through the brain as a `human.message`; a structured `human.ticket_accepted` event type. | The decision is already made and the transition deterministic; an LLM pass adds seconds and nondeterminism to a button. Strict preconditions keep it as safe as the board's other ops. Voice acceptance still goes through the brain; both converge on `MarkReady`.   |
 | D7  | Spec numbering: this doc is `08`, voice is `09`.                                                                       | Voice as `08` (user listed it first).                                                                     | Every existing cross-reference (`04` §6–§7, `06`, `07`) already names `09` as the voice spec and `10` as push; keeping them true is worth more than list order.                                                                                                       |
 

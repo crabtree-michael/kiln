@@ -1,8 +1,11 @@
 // Mic input level metering for the dock's volume orb (09 §3 visual): the pure,
 // testable math behind the red orb that grows with the user's voice. `computeRms`
 // reduces one Float32 audio block to a single 0..~1 loudness; `toDisplayLevel`
-// maps that raw RMS onto the 0..1 range the orb's CSS scale expects (noise-floor
-// gate + gain + clamp); and `VolumeSmoother` gives the signal a fast attack /
+// maps that raw RMS onto the 0..1 range the orb's CSS expects (noise-floor gate
+// + gain + clamp); `toGlowResponse` shapes that level into the 0..1 colour
+// response the glow reads (a concave, forgiving climb: quiet already carries some
+// colour, full red takes real loudness); and
+// `VolumeSmoother` gives the signal a fast attack /
 // slow release so the orb rises promptly on speech but eases back to nothing on
 // silence instead of flickering per frame. The live AnalyserNode read + rAF loop
 // that feed these sit in `assemblyai-client` / `Dock`, so the tunable math stays
@@ -36,6 +39,22 @@ export function toDisplayLevel(rms: number): number {
   }
   const level = (rms - NOISE_FLOOR) / (FULL_SCALE_RMS - NOISE_FLOOR);
   return Math.max(0, Math.min(1, level));
+}
+
+// How hard the glow's colour climbs toward red as the level rises. A concave
+// exponent (< 1) lifts modest input above linear so quiet speech still shows
+// colour, while leaving headroom so it takes real loudness to reach full red —
+// forgiving rather than trigger-happy. Lower = snappier/less tolerant; higher =
+// more tolerant of volume. Endpoints are fixed (0→0, 1→1) regardless.
+const GLOW_SNAP_EXPONENT = 0.5;
+
+/** Shape a 0..1 loudness into the 0..1 colour response the glow consumes: a
+ *  concave ramp that lifts modest input above linear (so quiet speech still shows
+ *  colour) while leaving headroom so full red takes real loudness. Out-of-range
+ *  input is clamped. */
+export function toGlowResponse(level: number): number {
+  const clamped = Math.max(0, Math.min(1, level));
+  return Math.pow(clamped, GLOW_SNAP_EXPONENT);
 }
 
 /**

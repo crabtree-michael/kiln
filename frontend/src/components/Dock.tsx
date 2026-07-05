@@ -11,6 +11,7 @@
 import { useEffect, useRef, type JSX } from 'react';
 import { useVoice } from '@/voice/voice-context';
 import type { MicState } from '@/voice/commit-machine';
+import { VolumeSmoother, toDisplayLevel, toGlowResponse } from '@/voice/volume-meter';
 
 // The mic-button copy per state (09 §3 table). Listening is the amber resting
 // state; the rest are grey and tap-to-act.
@@ -22,8 +23,9 @@ const LABELS: Record<MicState, string> = {
 };
 
 export function Dock(): JSX.Element {
-  const { micState, settledText, tailText, pause, resume, cancel, sendNow } = useVoice();
+  const { micState, settledText, tailText, pause, resume, cancel, sendNow, getLevel } = useVoice();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const orbRef = useRef<HTMLSpanElement | null>(null);
 
   // One mic tap: pause while listening, otherwise resume/retry (09 §3, §5). This
   // only stops/starts the mic — it does NOT send (use the send button for that).
@@ -91,6 +93,33 @@ export function Dock(): JSX.Element {
     el.scrollTop = el.scrollHeight;
   }, [settledText, tailText]);
 
+  // Drive the listening glow's colour from live mic loudness (09 §3). While
+  // listening, sample the smoothed input level each frame and publish it as
+  // `--mic-level` on the orb; `PrimaryScreen.css` maps that white→red. `getLevel`
+  // reads the AnalyserNode tap; `VolumeSmoother` gives the fast-attack/slow-release
+  // feel; `toGlowResponse` snaps the colour toward red on any real speech. The
+  // effect only runs while listening (and cleans the var on stop), so it costs
+  // nothing in other states; a no-op where rAF is unavailable (isolated tests).
+  useEffect(() => {
+    if (micState !== 'listening') {
+      return;
+    }
+    const orb = orbRef.current;
+    if (orb === null || typeof requestAnimationFrame === 'undefined') {
+      return;
+    }
+    const smoother = new VolumeSmoother();
+    let handle = requestAnimationFrame(function tick() {
+      const level = smoother.push(toDisplayLevel(getLevel()));
+      orb.style.setProperty('--mic-level', toGlowResponse(level).toFixed(3));
+      handle = requestAnimationFrame(tick);
+    });
+    return () => {
+      cancelAnimationFrame(handle);
+      orb.style.removeProperty('--mic-level');
+    };
+  }, [micState, getLevel]);
+
   return (
     <div data-role="dock" data-dock-state={micState}>
       {hasTranscript && (
@@ -127,7 +156,7 @@ export function Dock(): JSX.Element {
           onClick={onMicTap}
         >
           <span data-role="dock-mic" aria-hidden="true">
-            <span data-role="dock-mic-orb" />
+            <span data-role="dock-mic-orb" ref={orbRef} />
             <span data-role="dock-mic-capsule" />
             <span data-role="dock-mic-arc" />
             <span data-role="dock-mic-stem" />

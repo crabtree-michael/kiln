@@ -1028,37 +1028,39 @@
 }
 
 [data-role='dock-mic-orb'] {
-  /* The red mic-input "listening" glow (09 §3): a soft halo behind the mic
-     glyph. Absolutely positioned so it never shifts the glyph's layout, and
-     painted first so the glyph stays on top.
+  /* The mic-input "listening" glow (09 §3): an ember ring that hugs the mic
+     button while recording. Absolutely positioned so it never shifts the glyph's
+     layout, painted first so the glyph stays on top.
 
      While listening (see the `[data-dock-state='listening']` rule below) it runs
      one breathing pulse — the resting "building glow" rhythm reused from the
-     streams-dropdown `[data-status='building']` dot, so the mic reads as
-     visually consistent with an actively-building stream — carrying two layers:
+     streams-dropdown `[data-status='building']` dot (same `--pulse-duration`
+     beat), so the mic reads as visually consistent with an actively-building
+     stream. Like the building dot it is a pure box-shadow RING whose spread
+     breathes outward, so the glow covers/hugs the button rather than floating
+     off it as a separate halo — no fill, no opacity fade, no scale.
 
-       • a gradient FILL whose darkness/saturation tracks live mic loudness
-         (`--mic-level`, 0..1, written each frame by the dock): louder speech
-         pulls the gradient down in lightness and up in chroma so the glow reads
-         as more intense, then eases back toward the resting red as the level
-         falls (the dock's volume smoother releases slowly); and
-       • a fire-ring box-shadow that breathes with the same pulse, scaled up
-         for the 54px button.
+     Volume rides along in the ring's COLOUR: `--mic-level` (0..1, the smoothed
+     mic loudness the dock writes each frame) drives the ring from a soft light
+     red when silent to fire-red when loud. Lightness falls and chroma climbs with
+     the level; the dock pre-shapes the level with a concave curve so quiet speech
+     already carries colour while full red still takes real loudness (high
+     contrast, but forgiving rather than trigger-happy).
 
-     Non-listening → not animated → invisible (opacity 0, no box-shadow).
+     Non-listening → not animated → no box-shadow → invisible.
 
-     sanctioned computed color: the gradient stops below are the one non-token
-     color in the codebase — a volume-reactive fire glow (fire-500 hue, 29) whose
+     sanctioned computed colour: the two oklch stops below are the one non-token
+     colour in the codebase — a volume-reactive glow (fire-500 hue, 29) whose
      lightness/chroma are functions of --mic-level, which a flat token cannot
-     express. Everything else in this file reads semantic tokens. */
+     express. Two alphas: the ring is stronger at its tight resting stop and
+     fades as it breathes outward. Everything else in this file reads tokens. */
   --mic-level: 0;
-  --mic-glow-core: oklch(
-    calc(0.63 - var(--mic-level) * 0.2) calc(0.2 + var(--mic-level) * 0.07) 29 / 0.6
-  ); /* sanctioned computed color */
-  --mic-glow-mid: oklch(
-    calc(0.63 - var(--mic-level) * 0.2) calc(0.2 + var(--mic-level) * 0.07) 29 / 0.3
-  ); /* sanctioned computed color */
-  --mic-glow-edge: oklch(0.6 0.22 29 / 0); /* sanctioned computed color */
+  --mic-glow-strong: oklch(
+    calc(0.82 - var(--mic-level) * 0.25) calc(0.07 + var(--mic-level) * 0.16) 29 / 0.55
+  ); /* sanctioned computed colour */
+  --mic-glow-weak: oklch(
+    calc(0.82 - var(--mic-level) * 0.25) calc(0.07 + var(--mic-level) * 0.16) 29 / 0.28
+  ); /* sanctioned computed colour */
   position: absolute;
   inset: 0;
   margin: auto;
@@ -1066,23 +1068,15 @@
   height: 100%;
   border-radius: 50%;
   pointer-events: none;
-  background: radial-gradient(
-    circle,
-    var(--mic-glow-core) 0%,
-    var(--mic-glow-mid) 55%,
-    var(--mic-glow-edge) 72%
-  );
-  opacity: 0;
-  transform: scale(1);
-  /* A short linear transition micro-smooths the step between rAF samples so the
-     darkness shift reads as continuous rather than stepped. */
-  transition: background 0.09s linear;
 }
 
-/* Active/listening only: run the breathing pulse. Its opacity/scale carry the
-   rhythm (the timing language); `--mic-level` rides along so a louder voice also
-   swells the halo, the gradient darkening does the intensity work, and the
-   fire-ring box-shadow breathes on the same beat. */
+/* Active/listening only: run the breathing pulse. The ring SPREAD carries the
+   rhythm (tight+strong at rest → wider+fainter mid-cycle, mirroring the building
+   dot's 3px→4px breath, scaled up for the 54px button); `--mic-level` rides along
+   in both the ring COLOUR and a small spread multiplier, so a louder voice both
+   reddens and swells the same breathing ring. Growing the box-shadow spread (not
+   a transform) keeps the ring anchored to the button edge as it enlarges, so it
+   still hugs rather than floating off as a separate halo. */
 [data-role='dock-talk'][data-dock-state='listening'] [data-role='dock-mic-orb'] {
   animation: kiln-mic-glow var(--pulse-duration) ease-in-out infinite;
 }
@@ -1090,18 +1084,14 @@
 @keyframes kiln-mic-glow {
   0%,
   100% {
-    opacity: calc(0.28 + var(--mic-level) * 0.55);
-    transform: scale(calc(1 + var(--mic-level) * 0.6));
     box-shadow:
-      0 0 0 4px var(--accent-soft),
-      0 0 14px 3px var(--accent-soft);
+      0 0 0 calc(4px + var(--mic-level) * 3px) var(--mic-glow-strong),
+      0 0 calc(12px + var(--mic-level) * 6px) 2px var(--mic-glow-weak);
   }
   50% {
-    opacity: calc(0.46 + var(--mic-level) * 0.55);
-    transform: scale(calc(1.08 + var(--mic-level) * 0.6));
     box-shadow:
-      0 0 0 7px var(--accent-faint),
-      0 0 22px 6px var(--accent-faint);
+      0 0 0 calc(7px + var(--mic-level) * 4px) var(--mic-glow-weak),
+      0 0 calc(20px + var(--mic-level) * 8px) 5px var(--mic-glow-weak);
   }
 }
 [data-role='dock-mic-capsule'] {
@@ -1151,21 +1141,14 @@
     animation: none;
   }
 
-  /* Reduced motion: drop the breathing pulse and scaling for motion-sensitive
-     users, but keep both static tells so the listening state stays visible — the
-     orb's volume-darkness feedback (its darkness still tracks the mic level) and
-     a static fire ring (mirrors the building dot's reduced-motion handling). */
-  [data-role='dock-mic-orb'] {
-    transform: none;
-    transition: none;
-  }
-
+  /* Reduced motion: drop the breathing pulse for motion-sensitive users, but keep
+     a static ring so the listening state stays visible — its colour still tracks
+     the mic level (white→red), mirroring the building dot's reduced-motion
+     handling. */
   [data-role='dock-talk'][data-dock-state='listening'] [data-role='dock-mic-orb'] {
     animation: none;
-    opacity: calc(0.4 + var(--mic-level) * 0.45);
-    transform: none;
     box-shadow:
-      0 0 0 4px var(--accent-soft),
-      0 0 14px 3px var(--accent-soft);
+      0 0 0 4px var(--mic-glow-strong),
+      0 0 12px 2px var(--mic-glow-weak);
   }
 }

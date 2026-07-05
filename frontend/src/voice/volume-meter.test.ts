@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeRms, toDisplayLevel, VolumeSmoother } from '@/voice/volume-meter';
+import { computeRms, toDisplayLevel, toGlowResponse, VolumeSmoother } from '@/voice/volume-meter';
 
 describe('computeRms', () => {
   it('is 0 for silence and for an empty block', () => {
@@ -32,6 +32,33 @@ describe('toDisplayLevel', () => {
 
   it('is monotonic across the speech range', () => {
     expect(toDisplayLevel(0.15)).toBeGreaterThan(toDisplayLevel(0.05));
+  });
+});
+
+describe('toGlowResponse', () => {
+  it('pins the endpoints: silence stays 0, full level stays 1', () => {
+    expect(toGlowResponse(0)).toBe(0);
+    expect(toGlowResponse(1)).toBe(1);
+  });
+
+  it('clamps out-of-range input to [0, 1]', () => {
+    expect(toGlowResponse(-0.5)).toBe(0);
+    expect(toGlowResponse(2)).toBe(1);
+  });
+
+  it('is concave but tolerant — lifts modest input above linear, yet leaves headroom so full red needs real volume', () => {
+    // Boosts small inputs so quiet speech still shows some colour, but not so
+    // hard that a near-whisper slams straight to max — reaching the top of the
+    // range takes real loudness.
+    expect(toGlowResponse(0.25)).toBeGreaterThan(0.25); // above linear (still concave)
+    expect(toGlowResponse(0.25)).toBeLessThan(0.62); // but not slammed to red
+    expect(toGlowResponse(0.5)).toBeGreaterThan(0.5);
+    expect(toGlowResponse(0.5)).toBeLessThan(0.8);
+  });
+
+  it('rises monotonically across the range', () => {
+    expect(toGlowResponse(0.1)).toBeLessThan(toGlowResponse(0.3));
+    expect(toGlowResponse(0.3)).toBeLessThan(toGlowResponse(0.7));
   });
 });
 

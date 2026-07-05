@@ -34,6 +34,14 @@ describe('decodeAssemblyMessage', () => {
     });
     expect(decodeAssemblyMessage(msg)).toEqual({ kind: 'partial', text: 'hello' });
   });
+  it('Error -> error (surfaces so the store recovers, not a silent dead socket)', () => {
+    const msg = JSON.stringify({
+      type: 'Error',
+      error: 'Input Duration Violation',
+      error_code: 3007,
+    });
+    expect(decodeAssemblyMessage(msg)).toEqual({ kind: 'error' });
+  });
   it('garbage -> null', () => {
     expect(decodeAssemblyMessage('not json')).toBeNull();
     expect(decodeAssemblyMessage(JSON.stringify({ type: 'Nope' }))).toBeNull();

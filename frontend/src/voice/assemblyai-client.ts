@@ -54,8 +54,12 @@ function isNotAllowedError(error: unknown): boolean {
  * Decodes one AssemblyAI Universal-Streaming message to a neutral provider
  * event (09 §7). `Begin` → open; a `Turn` with `end_of_turn && turn_is_formatted`
  * is the formatted final (→ commit); any other `Turn` with a transcript is a
- * still-forming partial. Anything unrecognised (or non-JSON) → `null`. Pure and
- * exported so it is the unit-test target for the provider protocol.
+ * still-forming partial. An `Error` message (e.g. the 3007 input-duration
+ * violation, or a post-connect session/auth error) → `error`, so the store's
+ * one-reconnect-then-Retry policy (09 §5) acts on it rather than the socket
+ * dying silently with the dock stuck in "Listening…". Anything unrecognised (or
+ * non-JSON) → `null`. Pure and exported so it is the unit-test target for the
+ * provider protocol.
  */
 export function decodeAssemblyMessage(data: string): VoiceProviderEvent | null {
   let parsed: unknown;
@@ -69,6 +73,9 @@ export function decodeAssemblyMessage(data: string): VoiceProviderEvent | null {
   }
   if (parsed.type === 'Begin') {
     return { kind: 'open' };
+  }
+  if (parsed.type === 'Error') {
+    return { kind: 'error' };
   }
   if (parsed.type === 'Turn') {
     const transcript = parsed.transcript;

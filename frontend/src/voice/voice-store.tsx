@@ -115,7 +115,16 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
           return;
         }
         if (event.kind === 'close') {
-          // Informational; the store drives reconnect off `error` only.
+          // An *unexpected* socket close is a provider failure, not just noise:
+          // AssemblyAI can end a session with a clean close and no preceding
+          // `onerror` (an application-level error, or a token that expired before
+          // the proactive refresh fired). Left unhandled, the socket dies while
+          // `micState` stays at its default `listening` and the mic-driven orb
+          // keeps glowing — the dock looks live but no transcript ever lands. Run
+          // it through the same one-silent-reconnect-then-Retry recovery as an
+          // error (09 §5). A stop()-initiated close never reaches here — the
+          // client suppresses the event once stopped.
+          handleProviderError();
           return;
         }
         dispatch({ type: 'provider', event });

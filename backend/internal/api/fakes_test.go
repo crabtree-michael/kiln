@@ -117,12 +117,21 @@ func (f *fakeMessagesReader) requestedNs() []int {
 	return append([]int(nil), f.ns...)
 }
 
-// fakeFeedReader is api.FeedReader (08 §3 GET /api/feed).
+// fakeFeedReader is api.FeedReader (08 §3, D2′ GET /api/feed + /api/feed/history).
 type fakeFeedReader struct {
 	mu       sync.Mutex
 	snapshot runtime.FeedSnapshot
 	err      error
 	calls    int
+
+	// history is served by FeedHistory; historyMore is its has-more flag, and
+	// historyBefore/historyLimit record the last paging request for assertions.
+	history       []runtime.FeedCard
+	historyMore   bool
+	historyErr    error
+	historyBefore int64
+	historyLimit  int
+	historyCalls  int
 }
 
 func (f *fakeFeedReader) Feed(context.Context) (runtime.FeedSnapshot, error) {
@@ -130,6 +139,15 @@ func (f *fakeFeedReader) Feed(context.Context) (runtime.FeedSnapshot, error) {
 	defer f.mu.Unlock()
 	f.calls++
 	return f.snapshot, f.err
+}
+
+func (f *fakeFeedReader) FeedHistory(_ context.Context, before int64, limit int) ([]runtime.FeedCard, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls++
+	f.historyBefore = before
+	f.historyLimit = limit
+	return f.history, f.historyMore, f.historyErr
 }
 
 func (f *fakeFeedReader) callCount() int {

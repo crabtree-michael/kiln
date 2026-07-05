@@ -15,7 +15,8 @@ import { acceptTicket } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 
 function PrimaryScreenBody(): JSX.Element {
-  const { feed, connectionState } = useFeedStore();
+  const { feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory } =
+    useFeedStore();
   const { board, refreshBoard, refreshing } = useBoardStore();
   const { thinking, toasts, dismiss } = useActivityStore();
 
@@ -36,6 +37,10 @@ function PrimaryScreenBody(): JSX.Element {
       onAccept={onAccept}
       onOpenStreams={refreshBoard}
       streamsRefreshing={refreshing}
+      lastSeenId={lastSeenId}
+      hasMoreHistory={hasMoreHistory}
+      loadingMoreHistory={loadingMoreHistory}
+      onLoadMoreHistory={loadMoreHistory}
     />
   );
 }

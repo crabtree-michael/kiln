@@ -104,12 +104,14 @@ export function makeFeedSummary(overrides: Partial<FeedSummary> = {}): FeedSumma
 export interface FeedSnapshotFixtureInput {
   summary?: Partial<FeedSummary>;
   cards?: FeedCard[];
+  hasMoreHistory?: boolean;
 }
 
 export function makeFeedSnapshot(input: FeedSnapshotFixtureInput = {}): FeedSnapshot {
   return {
     summary: makeFeedSummary(input.summary),
     cards: input.cards ?? [],
+    has_more_history: input.hasMoreHistory ?? false,
   };
 }
 

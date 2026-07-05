@@ -63,7 +63,30 @@ type NotificationStore interface {
 	MarkSeen(ctx context.Context, lastID int64) error
 
 	// UnseenNotifications returns notifications that are neither seen nor
-	// retracted (seen_at IS NULL AND retracted_at IS NULL), newest-first —
-	// the "update"/"preview" section of the feed (08 §3).
+	// retracted (seen_at IS NULL AND retracted_at IS NULL), newest-first — the
+	// brain's active-card view (list_updates: the ids it may edit or retract,
+	// 06 §4). NOT the feed's update section anymore — retained history keeps
+	// seen rows visible, so the feed reads RecentNotifications instead (08 D2′).
 	UnseenNotifications(ctx context.Context) ([]Notification, error)
+
+	// RecentNotifications returns the newest `limit` unretracted notifications
+	// (seen AND unseen), newest-first — the first page of the feed's retained
+	// update/preview history (08 D2′). The bool is true when at least one older
+	// unretracted row exists beyond the page (drives FeedSnapshot.HasMoreHistory).
+	RecentNotifications(ctx context.Context, limit int) ([]Notification, bool, error)
+
+	// HistoryBefore returns up to `limit` unretracted notifications with
+	// id < before, newest-first — one older page for keyset pagination
+	// (GET /api/feed/history, 08 D2′). The bool is true when another older page
+	// remains beyond this one.
+	HistoryBefore(ctx context.Context, before int64, limit int) ([]Notification, bool, error)
+
+	// LastSeenID returns the greatest id among seen, unretracted notifications —
+	// the persistent last-seen divider boundary (08 D2′). Nil when nothing has
+	// been seen yet.
+	LastSeenID(ctx context.Context) (*int64, error)
+
+	// UnseenCount returns the number of unseen, unretracted notifications — the
+	// header's "N updates" count, still meaning "new since last seen" (08 §2).
+	UnseenCount(ctx context.Context) (int, error)
 }

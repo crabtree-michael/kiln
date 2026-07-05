@@ -47,26 +47,47 @@ export interface PrimaryScreenViewProps {
   /** True while that refresh is in flight, so the dropdown can show a loading
    * indicator instead of a blank/empty state. */
   streamsRefreshing?: boolean;
+  /** The last-seen divider boundary (08 D2′): update/preview cards with a greater
+   * `notification_id` are new since the last visit; those at or below it are
+   * older history. `null` (default) shows no divider. */
+  lastSeenId?: number | null;
+  /** True when older retained update history remains to page in (08 D2′) — shows
+   * the "Show earlier updates" affordance at the foot of the feed. */
+  hasMoreHistory?: boolean;
+  /** True while a history page fetch is in flight (button shows a loading label). */
+  loadingMoreHistory?: boolean;
+  /** Fetch and append the next older page of update history (08 D2′). */
+  onLoadMoreHistory?: (() => void) | undefined;
   /** Injected "now" for deterministic relative-age rendering (defaults to real time). */
   now?: number;
 }
 
-function isUpdate(card: FeedCard): boolean {
-  return card.kind === 'update' || card.kind === 'preview';
+/** An update/preview card's numeric notification_id, or null for board cards. */
+function updateId(card: FeedCard): number | null {
+  const isUpdate = card.kind === 'update' || card.kind === 'preview';
+  return isUpdate && typeof card.notification_id === 'number' ? card.notification_id : null;
 }
 
-/** The index of the first update/preview card, but only when a blocker or
- * proposal precedes it — that's when the "While you were away" divider belongs
- * (08 §2 / design 4a). Returns -1 when no divider should show. */
-function dividerIndex(cards: FeedCard[]): number {
-  const firstUpdate = cards.findIndex(isUpdate);
-  if (firstUpdate <= 0) {
+/** The index of the first update card at/below the last-seen boundary — the
+ * "last seen" divider position (08 D2′), separating new-since-last-visit updates
+ * above from older history below. Shown only when there is at least one newer
+ * update above the boundary AND `lastSeenId` is known. Returns -1 otherwise. */
+function dividerIndex(cards: FeedCard[], lastSeenId: number | null): number {
+  if (lastSeenId === null) {
     return -1;
   }
-  const precededByLead = cards
-    .slice(0, firstUpdate)
-    .some((card) => card.kind === 'blocker' || card.kind === 'proposal');
-  return precededByLead ? firstUpdate : -1;
+  const firstOld = cards.findIndex((card) => {
+    const id = updateId(card);
+    return id !== null && id <= lastSeenId;
+  });
+  if (firstOld === -1) {
+    return -1;
+  }
+  const hasNewerAbove = cards.slice(0, firstOld).some((card) => {
+    const id = updateId(card);
+    return id !== null && id > lastSeenId;
+  });
+  return hasNewerAbove ? firstOld : -1;
 }
 
 /** The full ticket a proposal card points at, looked up in the board snapshot by
@@ -97,12 +118,16 @@ export function PrimaryScreenView({
   onAccept,
   onOpenStreams,
   streamsRefreshing = false,
+  lastSeenId = null,
+  hasMoreHistory = false,
+  loadingMoreHistory = false,
+  onLoadMoreHistory,
   now = Date.now(),
 }: PrimaryScreenViewProps): JSX.Element {
   const summary = feed?.summary ?? EMPTY_SUMMARY;
   const cards = feed?.cards ?? [];
   const isEmpty = cards.length === 0;
-  const divider = dividerIndex(cards);
+  const divider = dividerIndex(cards, lastSeenId);
 
   // Which proposal's full ticket is open in the click-through detail overlay
   // (08 §5). View-only state held here, mirroring how Board owns its selected
@@ -147,17 +172,33 @@ export function PrimaryScreenView({
               </div>
             </div>
           ) : (
-            cards.map((card, index) => (
-              <div key={card.id} data-role="backlog-slot">
-                {index === divider && <div data-role="feed-divider">While you were away</div>}
-                <FeedCardItem
-                  card={card}
-                  now={now}
-                  onAccept={onAccept}
-                  onOpenDetail={setOpenTicketId}
-                />
-              </div>
-            ))
+            <>
+              {cards.map((card, index) => (
+                <div key={card.id} data-role="backlog-slot">
+                  {index === divider && (
+                    <div data-role="feed-divider" data-variant="last-seen">
+                      Earlier
+                    </div>
+                  )}
+                  <FeedCardItem
+                    card={card}
+                    now={now}
+                    onAccept={onAccept}
+                    onOpenDetail={setOpenTicketId}
+                  />
+                </div>
+              ))}
+              {hasMoreHistory && onLoadMoreHistory !== undefined && (
+                <button
+                  type="button"
+                  data-role="feed-load-more"
+                  onClick={onLoadMoreHistory}
+                  disabled={loadingMoreHistory}
+                >
+                  {loadingMoreHistory ? 'Loading…' : 'Show earlier updates'}
+                </button>
+              )}
+            </>
           )}
         </div>
       </section>

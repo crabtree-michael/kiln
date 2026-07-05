@@ -197,14 +197,25 @@ type FeedCard struct {
 // FeedCardKind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image.
 type FeedCardKind string
 
+// FeedHistoryPage One older page of retained update/preview history (GET /api/feed/history — 08 §3, D2′): notification-backed cards only, newest-first, older than the request's `before` cursor. Board-derived blocker/proposal cards are never paged.
+type FeedHistoryPage struct {
+	Cards []FeedCard `json:"cards"`
+
+	// HasMore True when another older page remains beyond this one.
+	HasMore bool `json:"has_more"`
+}
+
 // FeedSeenRequest POST /api/feed/seen body (08 §3) — the seen high-water mark.
 type FeedSeenRequest struct {
 	LastNotificationId int64 `json:"last_notification_id"`
 }
 
-// FeedSnapshot GET /api/feed's body and the `feed` SSE event payload — the identical absolute shape (08 §3). `cards` is in strict order: unresolved blockers, then pending proposals, then unseen updates newest-first.
+// FeedSnapshot GET /api/feed's body and the `feed` SSE event payload — the identical absolute shape (08 §3, D2′). `cards` is in strict order: unresolved blockers, then pending proposals, then updates newest-first (seen and unseen — retained history). `cards` carries only the NEWEST PAGE of updates; `has_more_history` signals older ones are pageable via /api/feed/history.
 type FeedSnapshot struct {
 	Cards []FeedCard `json:"cards"`
+
+	// HasMoreHistory True when retained update/preview history exists older than the oldest update card in `cards` — page it in via GET /api/feed/history (08 D2′).
+	HasMoreHistory bool `json:"has_more_history"`
 
 	// Summary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, the active-stream count ("K streams") when not, "Nothing active" when the feed is empty; plus the all-clear detail line (building/idle/last word).
 	Summary FeedSummary `json:"summary"`
@@ -219,6 +230,9 @@ type FeedSummary struct {
 
 	// Idle Active streams not currently building.
 	Idle int `json:"idle"`
+
+	// LastSeenNotificationId The persistent seen high-water mark (08 D2′): the greatest notification id the user has acked. Update/preview cards with a greater notification_id are "new since last visit" (above the last-seen divider); those at or below it are retained history (below it). Null when nothing has ever been seen. The client freezes this at the first snapshot of a session so marking-seen-on-view doesn't move the divider mid-session.
+	LastSeenNotificationId *int64 `json:"last_seen_notification_id,omitempty"`
 
 	// LastWordAt Timestamp of the most recent brain say/update, for "last word 6m ago".
 	LastWordAt *time.Time `json:"last_word_at,omitempty"`
@@ -301,6 +315,15 @@ type VoiceToken struct {
 
 	// Token The temporary AssemblyAI streaming token (bearer for the wss connection).
 	Token string `json:"token"`
+}
+
+// GetFeedHistoryParams defines parameters for GetFeedHistory.
+type GetFeedHistoryParams struct {
+	// Before Exclusive upper-bound notification id; returns cards with id < before. Omit for the newest page.
+	Before *int64 `form:"before,omitempty" json:"before,omitempty"`
+
+	// Limit Page size (default 30, bounds 1–100).
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetMessagesParams defines parameters for GetMessages.

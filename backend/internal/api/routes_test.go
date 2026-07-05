@@ -439,8 +439,13 @@ func TestHandleReset(t *testing.T) {
 func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 	tid := "t-9"
 	nid := int64(77)
+	lastSeen := int64(70)
 	feed := &fakeFeedReader{snapshot: runtime.FeedSnapshot{
-		Summary: runtime.FeedSummary{BlockerCount: 1, UpdateCount: 2, StreamCount: 3, Building: 2, Idle: 1},
+		Summary: runtime.FeedSummary{
+			BlockerCount: 1, UpdateCount: 2, StreamCount: 3, Building: 2, Idle: 1,
+			LastSeenNotificationID: &lastSeen,
+		},
+		HasMoreHistory: true,
 		Cards: []runtime.FeedCard{
 			{Kind: "blocker", ID: "blocker:t-9", Label: "Auth", Body: "need keys", TicketID: &tid, CreatedAt: time.Now()},
 			{Kind: "update", ID: "update:77", Label: "note", Body: "shipped", NotificationID: &nid, CreatedAt: time.Now()},
@@ -477,6 +482,64 @@ func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 	}
 	if got.Cards[1].Kind != wire.Update || got.Cards[1].NotificationId == nil || *got.Cards[1].NotificationId != nid {
 		t.Errorf("card1 = %+v, want update with notification_id %d", got.Cards[1], nid)
+	}
+	if !got.HasMoreHistory {
+		t.Errorf("HasMoreHistory = false, want true (carried through from the snapshot)")
+	}
+	if got.Summary.LastSeenNotificationId == nil || *got.Summary.LastSeenNotificationId != lastSeen {
+		t.Errorf("LastSeenNotificationId = %v, want %d", got.Summary.LastSeenNotificationId, lastSeen)
+	}
+}
+
+func TestHandleFeedHistory_PagesOlderUpdates(t *testing.T) {
+	nid := int64(40)
+	feed := &fakeFeedReader{
+		history: []runtime.FeedCard{
+			{Kind: "update", ID: "update:40", Body: "older", NotificationID: &nid, CreatedAt: time.Now()},
+		},
+		historyMore: true,
+	}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		feed, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/feed/history?before=50&limit=10")
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if feed.historyBefore != 50 || feed.historyLimit != 10 {
+		t.Errorf("FeedHistory called before=%d limit=%d, want 50/10", feed.historyBefore, feed.historyLimit)
+	}
+	var got wire.FeedHistoryPage
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Cards) != 1 || got.Cards[0].NotificationId == nil || *got.Cards[0].NotificationId != nid {
+		t.Fatalf("cards = %+v, want the single older update card", got.Cards)
+	}
+	if !got.HasMore {
+		t.Errorf("HasMore = false, want true")
+	}
+}
+
+func TestHandleFeedHistory_RejectsBadLimit(t *testing.T) {
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/feed/history?limit=999")
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for an out-of-bounds limit", resp.StatusCode)
 	}
 }
 

@@ -79,7 +79,9 @@ const updateCards = [
   }),
 ];
 
-function renderView(feed: Parameters<typeof PrimaryScreenView>[0]['feed']) {
+type ViewProps = Parameters<typeof PrimaryScreenView>[0];
+
+function renderView(feed: ViewProps['feed'], extra: Partial<ViewProps> = {}) {
   return render(
     <PrimaryScreenView
       feed={feed}
@@ -89,6 +91,7 @@ function renderView(feed: Parameters<typeof PrimaryScreenView>[0]['feed']) {
       onDismiss={noop}
       onAccept={noop}
       now={NOW}
+      {...extra}
     />,
   );
 }
@@ -123,12 +126,20 @@ describe('PrimaryScreenView', () => {
     expect(screen.getByText('5 streams')).toBeInTheDocument();
   });
 
-  it('renders the blocker card pinned first with its kind and the "While you were away" divider (4a)', () => {
+  it('renders the blocker pinned first and the last-seen "Earlier" divider at the boundary (08 D2′, 4a)', () => {
+    // last-seen at 20: update:30 is new (above), update:20/update:10 are history
+    // (at/below) — the divider falls just before update:20.
     renderView(
       makeFeedSnapshot({
-        summary: { blocker_count: 1, update_count: 3, stream_count: 5 },
+        summary: {
+          blocker_count: 1,
+          update_count: 1,
+          stream_count: 5,
+          last_seen_notification_id: 20,
+        },
         cards: [blockerCard, ...updateCards],
       }),
+      { lastSeenId: 20 },
     );
     const [firstCard] = screen.getAllByRole('article');
     if (firstCard === undefined) {
@@ -137,12 +148,45 @@ describe('PrimaryScreenView', () => {
     expect(firstCard).toHaveAttribute('data-role', 'feed-card');
     expect(firstCard).toHaveAttribute('data-kind', 'blocker');
     expect(within(firstCard).getByText('Auth')).toHaveAttribute('data-role', 'feed-card-label');
-    expect(screen.getByText('While you were away')).toHaveAttribute('data-role', 'feed-divider');
+    const divider = screen.getByText('Earlier');
+    expect(divider).toHaveAttribute('data-role', 'feed-divider');
+    // The divider sits immediately before the first history card (update:20).
+    const slot = divider.closest('[data-role="backlog-slot"]');
+    expect(slot?.querySelector('[data-role="feed-card-label"]')?.textContent).toBe('Email');
   });
 
-  it('does not render the divider when updates are not preceded by a blocker/proposal (4b)', () => {
+  it('does not render the divider without a last-seen boundary (08 D2′)', () => {
+    // No lastSeenId (fresh user / nothing seen) → all updates are current, no divider.
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
-    expect(screen.queryByText('While you were away')).toBeNull();
+    expect(screen.queryByText('Earlier')).toBeNull();
+  });
+
+  it('does not render the divider when every update is newer than the boundary (08 D2′)', () => {
+    // last-seen below the oldest shown update → nothing is "history" yet.
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      lastSeenId: 5,
+    });
+    expect(screen.queryByText('Earlier')).toBeNull();
+  });
+
+  it('shows the "Show earlier updates" affordance when history remains, wired to the loader (08 D2′)', () => {
+    const onLoadMoreHistory = vi.fn();
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      hasMoreHistory: true,
+      onLoadMoreHistory,
+    });
+    const button = screen.getByRole('button', { name: 'Show earlier updates' });
+    expect(button).toHaveAttribute('data-role', 'feed-load-more');
+    button.click();
+    expect(onLoadMoreHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the "Show earlier updates" affordance when no history remains', () => {
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      hasMoreHistory: false,
+      onLoadMoreHistory: noop,
+    });
+    expect(screen.queryByRole('button', { name: /earlier updates/i })).toBeNull();
   });
 
   it('renders the preview image on a preview card (4c)', () => {
@@ -394,12 +438,21 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('matches the DOM-structure snapshot: blocker + while-you-were-away (4a)', () => {
+  it('matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′)', () => {
     const { container } = renderView(
       makeFeedSnapshot({
-        summary: { blocker_count: 1, update_count: 3, stream_count: 5, building: 3, idle: 2 },
+        summary: {
+          blocker_count: 1,
+          update_count: 1,
+          stream_count: 5,
+          building: 3,
+          idle: 2,
+          last_seen_notification_id: 20,
+        },
         cards: [blockerCard, ...updateCards],
+        hasMoreHistory: true,
       }),
+      { lastSeenId: 20, hasMoreHistory: true, onLoadMoreHistory: noop },
     );
     expect(container).toMatchSnapshot();
   });

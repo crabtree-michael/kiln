@@ -333,10 +333,11 @@ func (s *Store) MarkSeen(ctx context.Context, lastID int64) error {
 	})
 }
 
-// UnseenNotifications implements runtime.NotificationStore (08 §3): the
-// neither-seen-nor-retracted rows, newest-first — the update/preview section
-// of the feed.
-func (s *Store) UnseenNotifications(ctx context.Context) (_ []runtime.Notification, err error) {
+// UnseenNotifications implements runtime.NotificationStore: the
+// neither-seen-nor-retracted rows, newest-first — the brain's active-card view
+// (list_updates, 06 §4). The feed reads RecentNotifications instead now that
+// history is retained (08 D2′).
+func (s *Store) UnseenNotifications(ctx context.Context) ([]runtime.Notification, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, kind, ticket_id, body, image_url, created_at
 		 FROM notifications
@@ -345,9 +346,94 @@ func (s *Store) UnseenNotifications(ctx context.Context) (_ []runtime.Notificati
 	if err != nil {
 		return nil, fmt.Errorf("runtime/postgres: query unseen notifications: %w", err)
 	}
+	return scanNotifications(rows)
+}
+
+// RecentNotifications implements runtime.NotificationStore (08 D2′): the newest
+// `limit` unretracted rows (seen AND unseen), newest-first — the feed's first
+// page of retained update/preview history. Fetches limit+1 to report whether an
+// older page remains (the second return), then trims to limit.
+func (s *Store) RecentNotifications(ctx context.Context, limit int) ([]runtime.Notification, bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, kind, ticket_id, body, image_url, created_at
+		 FROM notifications
+		 WHERE retracted_at IS NULL
+		 ORDER BY id DESC
+		 LIMIT $1`, limit+1)
+	if err != nil {
+		return nil, false, fmt.Errorf("runtime/postgres: query recent notifications: %w", err)
+	}
+	notes, err := scanNotifications(rows)
+	if err != nil {
+		return nil, false, err
+	}
+	return trimPage(notes, limit)
+}
+
+// HistoryBefore implements runtime.NotificationStore (08 D2′): one older keyset
+// page — up to `limit` unretracted rows with id < before, newest-first. Fetches
+// limit+1 to report whether a further page remains.
+func (s *Store) HistoryBefore(ctx context.Context, before int64, limit int) ([]runtime.Notification, bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, kind, ticket_id, body, image_url, created_at
+		 FROM notifications
+		 WHERE retracted_at IS NULL AND id < $1
+		 ORDER BY id DESC
+		 LIMIT $2`, before, limit+1)
+	if err != nil {
+		return nil, false, fmt.Errorf("runtime/postgres: query history notifications: %w", err)
+	}
+	notes, err := scanNotifications(rows)
+	if err != nil {
+		return nil, false, err
+	}
+	return trimPage(notes, limit)
+}
+
+// LastSeenID implements runtime.NotificationStore (08 D2′): the greatest id
+// among seen notifications — the persistent last-seen divider boundary. Nil
+// when nothing has been seen yet.
+func (s *Store) LastSeenID(ctx context.Context) (*int64, error) {
+	var id sql.NullInt64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT max(id) FROM notifications WHERE seen_at IS NOT NULL`).Scan(&id); err != nil {
+		return nil, fmt.Errorf("runtime/postgres: query last seen id: %w", err)
+	}
+	if !id.Valid {
+		return nil, nil //nolint:nilnil // (nil, nil) is the intended "nothing seen yet" signal (08 D2′), not an error.
+	}
+	v := id.Int64
+	return &v, nil
+}
+
+// UnseenCount implements runtime.NotificationStore (08 §2): how many unseen,
+// unretracted notifications remain — the header's "N updates" count.
+func (s *Store) UnseenCount(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM notifications WHERE seen_at IS NULL AND retracted_at IS NULL`).
+		Scan(&n); err != nil {
+		return 0, fmt.Errorf("runtime/postgres: query unseen count: %w", err)
+	}
+	return n, nil
+}
+
+// trimPage turns a limit+1 over-fetch into (page, hasMore): if more than `limit`
+// rows came back there is a further page, and the sentinel row is dropped.
+func trimPage(notes []runtime.Notification, limit int) ([]runtime.Notification, bool, error) {
+	if len(notes) > limit {
+		return notes[:limit], true, nil
+	}
+	return notes, false, nil
+}
+
+// scanNotifications drains a notifications result set (the shared column list:
+// id, kind, ticket_id, body, image_url, created_at) into domain rows, closing
+// the rows and folding a close error into the return.
+func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 	defer func() {
 		if cerr := rows.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("runtime/postgres: close unseen notifications: %w", cerr)
+			err = fmt.Errorf("runtime/postgres: close notifications: %w", cerr)
 		}
 	}()
 

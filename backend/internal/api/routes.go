@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -23,6 +24,14 @@ const (
 	defaultLimit  = 50
 	minLimit      = 1
 	maxLimit      = 500
+)
+
+// Feed-history pagination bounds (08 D2′ GET /api/feed/history), mirroring
+// schema/openapi.yaml: default page 30, bounds 1–100.
+const (
+	defaultFeedLimit = 30
+	minFeedLimit     = 1
+	maxFeedLimit     = 100
 )
 
 // healthPingTimeout bounds the DB ping behind GET /healthz so a wedged database
@@ -50,11 +59,15 @@ type MessagesReader interface {
 	Recent(ctx context.Context, n int) ([]runtime.Message, error)
 }
 
-// FeedReader is the api's port onto the runtime's feed assembly (08 §3 GET
-// /api/feed): one absolute FeedSnapshot (blockers, proposals, unseen updates).
-// Satisfied directly by *runtime.Service's Feed.
+// FeedReader is the api's port onto the runtime's feed assembly (08 §3, D2′):
+// the absolute FeedSnapshot for GET /api/feed (blockers, proposals, newest page
+// of retained updates) and one older keyset page for GET /api/feed/history.
+// Satisfied directly by *runtime.Service's Feed / FeedHistory.
 type FeedReader interface {
 	Feed(ctx context.Context) (runtime.FeedSnapshot, error)
+	// FeedHistory returns update/preview cards older than `before` (newest-first,
+	// up to `limit`) and whether a further page remains (08 D2′).
+	FeedHistory(ctx context.Context, before int64, limit int) ([]runtime.FeedCard, bool, error)
 }
 
 // SeenAcker is the api's port onto the runtime's seen high-water mark (08 §3
@@ -187,6 +200,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/message", s.handleMessage)
 	mux.HandleFunc("GET /api/messages", s.handleMessages)
 	mux.HandleFunc("GET /api/feed", s.handleFeed)
+	mux.HandleFunc("GET /api/feed/history", s.handleFeedHistory)
 	mux.HandleFunc("POST /api/feed/seen", s.handleFeedSeen)
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/voice/token", s.handleVoiceToken)
@@ -385,6 +399,38 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, feedToWire(snap))
 }
 
+// handleFeedHistory returns one older page of retained update/preview history
+// (08 D2′): notification-backed cards with id < before, newest-first, plus a
+// has_more flag. `before` omitted starts from the newest; `limit` defaults to 30
+// (bounds 1–100), mirroring handleMessages.
+func (s *Server) handleFeedHistory(w http.ResponseWriter, r *http.Request) {
+	before := int64(math.MaxInt64)
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || n < 1 {
+			http.Error(w, "before must be a positive notification id", http.StatusBadRequest)
+			return
+		}
+		before = n
+	}
+	limit := defaultFeedLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < minFeedLimit || n > maxFeedLimit {
+			http.Error(w, "limit must be 1-100", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	cards, hasMore, err := s.feed.FeedHistory(r.Context(), before, limit)
+	if err != nil {
+		slog.Error("api: read feed history", "err", err)
+		http.Error(w, "read feed history", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, feedHistoryToWire(cards, hasMore))
+}
+
 // handleFeedSeen advances the seen high-water mark (08 §3): every update up to
 // and including last_notification_id is marked seen. Returns 202.
 func (s *Server) handleFeedSeen(w http.ResponseWriter, r *http.Request) {
@@ -506,12 +552,38 @@ func ticketToWire(t board.Ticket) wire.Ticket {
 }
 
 // feedToWire maps a runtime.FeedSnapshot onto the generated wire.FeedSnapshot
-// (08 §3): the identical absolute shape backs GET /api/feed and the feed SSE
+// (08 §3, D2′): the identical absolute shape backs GET /api/feed and the feed SSE
 // event. Nullable card fields (TicketId, ImageUrl, NotificationId) and the
-// summary's LastWordAt carry through as pointers untouched.
+// summary's LastWordAt / LastSeenNotificationId carry through as pointers
+// untouched; HasMoreHistory signals older retained updates page in via
+// /api/feed/history.
 func feedToWire(s runtime.FeedSnapshot) wire.FeedSnapshot {
-	cards := make([]wire.FeedCard, 0, len(s.Cards))
-	for _, c := range s.Cards {
+	return wire.FeedSnapshot{
+		Summary: wire.FeedSummary{
+			BlockerCount:           s.Summary.BlockerCount,
+			UpdateCount:            s.Summary.UpdateCount,
+			StreamCount:            s.Summary.StreamCount,
+			Building:               s.Summary.Building,
+			Idle:                   s.Summary.Idle,
+			LastWordAt:             s.Summary.LastWordAt,
+			LastSeenNotificationId: s.Summary.LastSeenNotificationID,
+		},
+		Cards:          feedCardsToWire(s.Cards),
+		HasMoreHistory: s.HasMoreHistory,
+	}
+}
+
+// feedHistoryToWire maps one older page of update/preview cards onto the
+// generated wire.FeedHistoryPage (08 D2′ GET /api/feed/history).
+func feedHistoryToWire(cards []runtime.FeedCard, hasMore bool) wire.FeedHistoryPage {
+	return wire.FeedHistoryPage{Cards: feedCardsToWire(cards), HasMore: hasMore}
+}
+
+// feedCardsToWire maps runtime feed cards onto wire.FeedCard, always non-nil.
+// Shared by the snapshot and the history page.
+func feedCardsToWire(in []runtime.FeedCard) []wire.FeedCard {
+	cards := make([]wire.FeedCard, 0, len(in))
+	for _, c := range in {
 		cards = append(cards, wire.FeedCard{
 			Kind:           wire.FeedCardKind(c.Kind),
 			Id:             c.ID,
@@ -523,17 +595,7 @@ func feedToWire(s runtime.FeedSnapshot) wire.FeedSnapshot {
 			CreatedAt:      c.CreatedAt,
 		})
 	}
-	return wire.FeedSnapshot{
-		Summary: wire.FeedSummary{
-			BlockerCount: s.Summary.BlockerCount,
-			UpdateCount:  s.Summary.UpdateCount,
-			StreamCount:  s.Summary.StreamCount,
-			Building:     s.Summary.Building,
-			Idle:         s.Summary.Idle,
-			LastWordAt:   s.Summary.LastWordAt,
-		},
-		Cards: cards,
-	}
+	return cards
 }
 
 // activityToWire maps a runtime.ActivityEvent onto the generated

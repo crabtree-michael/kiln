@@ -694,6 +694,65 @@ func (f *fakeNotificationStore) UnseenNotifications(_ context.Context) ([]runtim
 	return out, nil
 }
 
+func (f *fakeNotificationStore) RecentNotifications(
+	_ context.Context, limit int,
+) ([]runtime.Notification, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []runtime.Notification
+	for _, n := range slices.Backward(f.rows) { // newest-first, seen AND unseen
+		if n.RetractedAt == nil {
+			out = append(out, n)
+		}
+	}
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
+}
+
+func (f *fakeNotificationStore) HistoryBefore(
+	_ context.Context, before int64, limit int,
+) ([]runtime.Notification, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []runtime.Notification
+	for _, n := range slices.Backward(f.rows) { // newest-first
+		if n.RetractedAt == nil && n.ID < before {
+			out = append(out, n)
+		}
+	}
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
+}
+
+func (f *fakeNotificationStore) LastSeenID(_ context.Context) (*int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var maxID *int64
+	for i := range f.rows {
+		if f.rows[i].SeenAt != nil && (maxID == nil || f.rows[i].ID > *maxID) {
+			id := f.rows[i].ID
+			maxID = &id
+		}
+	}
+	return maxID, nil
+}
+
+func (f *fakeNotificationStore) UnseenCount(_ context.Context) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for i := range f.rows {
+		if f.rows[i].SeenAt == nil && f.rows[i].RetractedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // seed inserts an already-persisted notification directly, bypassing the tx
 // path, so feed-assembly tests can stage fixed rows.
 func (f *fakeNotificationStore) seed(n runtime.Notification) runtime.Notification {

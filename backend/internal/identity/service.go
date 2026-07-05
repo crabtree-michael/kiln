@@ -55,12 +55,6 @@ func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) 
 	return &Service{store: store, cipher: cipher, gh: gh, allowed: allowed, now: time.Now}
 }
 
-// SetClock overrides the service's time source (tests only): sliding-session
-// renewal and expiry math (11 §2) otherwise runs off the wall clock.
-func (s *Service) SetClock(now func() time.Time) {
-	s.now = now
-}
-
 func (s *Service) LoginURL(state string) string { return s.gh.AuthorizeURL(state) }
 
 // CompleteLogin exchanges the OAuth code, enforces the allowlist on every

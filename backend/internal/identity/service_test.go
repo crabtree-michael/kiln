@@ -125,7 +125,7 @@ func TestSessionRoundTrip(t *testing.T) {
 	store := newFakeStore()
 	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
-	svc.SetClock(clock.now)
+	identity.SetClockForTest(svc, clock.now)
 
 	u, err := store.UpsertUser(context.Background(), identity.User{GitHubID: 1, GitHubLogin: "u1"})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestResolveSessionExpired(t *testing.T) {
 	store := newFakeStore()
 	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
-	svc.SetClock(clock.now)
+	identity.SetClockForTest(svc, clock.now)
 
 	u, err := store.UpsertUser(context.Background(), identity.User{GitHubID: 2, GitHubLogin: "u2"})
 	if err != nil {
@@ -189,7 +189,7 @@ func TestResolveSessionSlides(t *testing.T) {
 	store := newFakeStore()
 	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
-	svc.SetClock(clock.now)
+	identity.SetClockForTest(svc, clock.now)
 
 	u, err := store.UpsertUser(context.Background(), identity.User{GitHubID: 3, GitHubLogin: "u3"})
 	if err != nil {

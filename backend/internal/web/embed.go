@@ -20,11 +20,10 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-// Handler serves the embedded SPA: an existing embedded file (hashed JS/CSS,
-// images, the manifest) is served directly by the file server; every other path
-// falls back to index.html so client-side routes ("/", "/debug") render. It is
-// mounted as the api mux's "/" catch-all, so /api/* and /healthz are matched by
-// their own patterns first; the explicit guard here is belt-and-suspenders.
+// Handler serves the SPA embedded into the binary at build time. It is the
+// production entry point; HandlerFS is the same logic over an arbitrary dist
+// tree, which the tests use to simulate successive deploys (each with a
+// disjoint set of hashed asset filenames).
 func Handler() http.Handler {
 	sub, err := fs.Sub(distFS, "dist")
 	if err != nil {
@@ -32,8 +31,29 @@ func Handler() http.Handler {
 		// invariant, so failing loudly at construction is correct.
 		panic("web: sub dist: " + err.Error())
 	}
-	fileServer := http.FileServer(http.FS(sub))
-	index, err := fs.ReadFile(sub, "index.html")
+	return HandlerFS(sub)
+}
+
+// HandlerFS serves the SPA out of fsys: an existing file (hashed JS/CSS under
+// /assets, images, the manifest) is served directly by the file server; every
+// other path falls back to index.html so client-side routes ("/", "/debug")
+// render. It is mounted as the api mux's "/" catch-all, so /api/* and /healthz
+// are matched by their own patterns first; the explicit guard here is
+// belt-and-suspenders.
+//
+// Caching policy is split by path so a deploy never strands a client:
+//   - /assets/* are content-hashed by Vite (the hash is the identity of the
+//     bytes), so they are served `immutable` with a one-year max-age. A client
+//     that already fetched a given hash never revalidates it, and — crucially —
+//     the filename changing on every content change is what makes the honest
+//     404 below the *only* way a superseded asset is ever missing.
+//   - index.html and every other root file (manifest, the self-destroying SW,
+//     favicon) are served `no-cache`: they keep the same name across deploys, so
+//     the client must revalidate to pick up new asset references. Serving a
+//     stale shell is precisely what stranded mobile clients on dead hashes.
+func HandlerFS(fsys fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(fsys))
+	index, err := fs.ReadFile(fsys, "index.html")
 	if err != nil {
 		panic("web: read embedded index.html: " + err.Error())
 	}
@@ -44,7 +64,16 @@ func Handler() http.Handler {
 			return
 		}
 		upath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if upath != "" && isFile(sub, upath) {
+		if upath != "" && isFile(fsys, upath) {
+			if strings.HasPrefix(upath, "assets/") {
+				// Content-hashed and immutable: safe to cache aggressively, and
+				// doing so keeps the client off the network for assets it already
+				// holds (fewer chances to race a deploy mid-load).
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				// Stable-named root files change per deploy — must revalidate.
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}

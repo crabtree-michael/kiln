@@ -6,6 +6,48 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
     />
+    <!-- Deploy-rollover recovery (bootstrap). MUST run before the hashed entry
+         module/CSS Vite injects into <head>: if one of those 404s (a stale shell
+         after a deploy, no SW to recover), src/asset-recovery.ts never runs, so
+         the reload must be armed here first. A capture-phase listener catches the
+         non-bubbling resource error and force-reloads once onto the current
+         build's shell, guarded by the same sessionStorage key the module uses so
+         the two never reload-storm each other. Keep in sync with
+         src/asset-recovery.ts (RELOAD_GUARD_KEY / the 10000ms window). -->
+    <script>
+      (function () {
+        var GUARD = 'kiln:asset-recovery-reloaded-at';
+        var MIN_INTERVAL_MS = 10000;
+        function isHashedAsset(url) {
+          try {
+            var u = new URL(url, location.origin);
+            return u.origin === location.origin && u.pathname.indexOf('/assets/') === 0;
+          } catch (e) {
+            return false;
+          }
+        }
+        function recover() {
+          try {
+            var last = parseInt(sessionStorage.getItem(GUARD) || '', 10);
+            if (!isNaN(last) && Date.now() - last < MIN_INTERVAL_MS) return;
+            sessionStorage.setItem(GUARD, String(Date.now()));
+          } catch (e) {
+            // storage unavailable — still attempt a single reload below
+          }
+          location.reload();
+        }
+        window.addEventListener(
+          'error',
+          function (event) {
+            var el = event.target;
+            var url =
+              el && el.tagName === 'LINK' ? el.href : el && el.tagName === 'SCRIPT' ? el.src : null;
+            if (url && isHashedAsset(url)) recover();
+          },
+          true,
+        );
+      })();
+    </script>
     <!-- The default route `/` is the light "paper" primary screen (08), which is
          what the installed PWA launches into — so the system-chrome colour (iOS
          status bar / Android address bar, and the safe-area strips some shells

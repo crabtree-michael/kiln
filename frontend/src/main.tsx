@@ -14,6 +14,13 @@ import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
+import { installAssetRecovery } from '@/asset-recovery';
+
+// Arm deploy-rollover recovery before anything else: if a hashed CSS/JS asset
+// from a superseded deploy 404s (stale shell after a deploy, no SW to recover),
+// force one full reload onto the current build's shell instead of rendering
+// unstyled/blank. See asset-recovery.ts for the full rationale.
+installAssetRecovery();
 
 // Frontend error + trace reporting (spec-10 §3). The DSN is baked in at build
 // time (`VITE_SENTRY_DSN`, a public value). When it is unset — local `pnpm dev`,

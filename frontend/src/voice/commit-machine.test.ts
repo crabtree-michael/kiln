@@ -46,6 +46,34 @@ describe('commit machine', () => {
     expect(s.commit).toBeUndefined();
   });
 
+  it('a final after resumed speech appends to the pending settled text, not replaces it', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Hello there.' } });
+    expect(s.settledText).toBe('Hello there.');
+    expect(s.pending).toBe('Hello there.');
+    // The user keeps talking in the grace window: a partial cancels the armed
+    // send but leaves the first final's ink on screen.
+    s = voiceReducer(s, {
+      type: 'provider',
+      event: { kind: 'partial', text: 'and one more thing' },
+    });
+    expect(s.pending).toBeUndefined();
+    expect(s.settledText).toBe('Hello there.');
+    // The continued speech finalizes: the growing transcript keeps the first
+    // final rather than discarding it, and the whole thing is armed to send.
+    s = voiceReducer(s, {
+      type: 'provider',
+      event: { kind: 'final', text: 'And one more thing.' },
+    });
+    expect(s.settledText).toBe('Hello there. And one more thing.');
+    expect(s.pending).toBe('Hello there. And one more thing.');
+    expect(s.tailText).toBe('');
+    // The grace window closes -> exactly one commit carries the full utterance.
+    s = voiceReducer(s, { type: 'commitDelayElapsed' });
+    expect(s.commit).toBe('Hello there. And one more thing.');
+  });
+
   it('sendNow fires the armed send immediately, skipping the grace window', () => {
     let s = initialVoiceState();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });

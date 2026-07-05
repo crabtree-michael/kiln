@@ -1,7 +1,7 @@
 // Header status dropdown tests (08 §2): the collapsed summary stays put, and
 // the panel breaks the streams out per-agent — building first, then idle — with
 // toggle / outside-click / Escape dismissal.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { makeBoard, makeFeedSummary, makeTicket } from '@/test/fixtures';
@@ -108,5 +108,37 @@ describe('HeaderStatusMenu', () => {
     render(<HeaderStatusMenu summary={makeFeedSummary({ stream_count: 2 })} board={null} />);
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('No active streams')).toBeInTheDocument();
+  });
+
+  it('fires onOpen when opening, but not when closing', () => {
+    const onOpen = vi.fn();
+    render(<HeaderStatusMenu summary={summary} board={board} onOpen={onOpen} />);
+    const button = screen.getByRole('button');
+
+    fireEvent.click(button); // closed → open: fetch fresh state
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(button); // open → closed: no fetch
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a loading indicator instead of the empty state while refreshing with nothing yet', () => {
+    render(
+      <HeaderStatusMenu summary={makeFeedSummary({ stream_count: 2 })} board={null} refreshing />,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    expect(
+      screen.getByText('Loading streams…').closest('[data-role="header-status-loading"]'),
+    ).not.toBeNull();
+    // The loading state is distinct from the genuinely-empty affordance.
+    expect(screen.queryByText('No active streams')).not.toBeInTheDocument();
+  });
+
+  it('keeps showing streams while a background refresh is in flight', () => {
+    render(<HeaderStatusMenu summary={summary} board={board} refreshing />);
+    fireEvent.click(screen.getByRole('button'));
+    // A refresh over already-loaded streams doesn't blank the list.
+    expect(screen.queryByText('Loading streams…')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
   });
 });

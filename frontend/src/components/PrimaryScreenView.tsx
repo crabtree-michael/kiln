@@ -40,6 +40,13 @@ export interface PrimaryScreenViewProps {
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
   onAccept: (ticketId: string) => void;
+  /** Fired when the streams dropdown opens — triggers an independent board
+   * refresh so the streams view isn't stale until the next agent push.
+   * Optional so presentational tests can omit it. */
+  onOpenStreams?: (() => void) | undefined;
+  /** True while that refresh is in flight, so the dropdown can show a loading
+   * indicator instead of a blank/empty state. */
+  streamsRefreshing?: boolean;
   /** Injected "now" for deterministic relative-age rendering (defaults to real time). */
   now?: number;
 }
@@ -88,6 +95,8 @@ export function PrimaryScreenView({
   toasts,
   onDismiss,
   onAccept,
+  onOpenStreams,
+  streamsRefreshing = false,
   now = Date.now(),
 }: PrimaryScreenViewProps): JSX.Element {
   const summary = feed?.summary ?? EMPTY_SUMMARY;
@@ -115,7 +124,12 @@ export function PrimaryScreenView({
             <span data-role="kiln-glyph" aria-hidden="true" />
             <span data-role="kiln-wordmark">Kiln</span>
           </div>
-          <HeaderStatusMenu summary={summary} board={board} />
+          <HeaderStatusMenu
+            summary={summary}
+            board={board}
+            onOpen={onOpenStreams}
+            refreshing={streamsRefreshing}
+          />
         </header>
 
         <div data-role="backlog">

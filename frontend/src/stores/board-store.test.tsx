@@ -150,6 +150,62 @@ describe('BoardProvider', () => {
     });
   });
 
+  it('refreshBoard() pulls a fresh snapshot on demand, independent of the stream', async () => {
+    const first = makeBoard();
+    const refreshed = makeBoard({
+      working: [
+        makeTicket({
+          id: 'w1',
+          title: 'now working',
+          body: '',
+          state: 'working',
+          priority: 0,
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-01T00:00:00Z',
+        }),
+      ],
+    });
+    vi.mocked(transport.fetchBoard).mockResolvedValueOnce(first).mockResolvedValueOnce(refreshed);
+
+    function RefreshProbe(): JSX.Element {
+      const { board, refreshBoard, refreshing } = useBoardStore();
+      return (
+        <div>
+          <div data-testid="refresh-probe" data-refreshing={refreshing}>
+            {board?.working.length ?? -1}
+          </div>
+          <button type="button" onClick={refreshBoard}>
+            refresh
+          </button>
+        </div>
+      );
+    }
+
+    render(
+      <BoardProvider>
+        <RefreshProbe />
+      </BoardProvider>,
+    );
+
+    // Mount fetch lands first; no working tickets yet.
+    await waitFor(() => {
+      expect(screen.getByTestId('refresh-probe').textContent).toBe('0');
+    });
+    expect(transport.fetchBoard).toHaveBeenCalledTimes(1);
+
+    screen.getByText('refresh').click();
+
+    // The on-demand pull replaces the snapshot without any `board` event.
+    await waitFor(() => {
+      expect(screen.getByTestId('refresh-probe').textContent).toBe('1');
+    });
+    expect(transport.fetchBoard).toHaveBeenCalledTimes(2);
+    // Flag settles back to false once the fetch resolves.
+    await waitFor(() => {
+      expect(screen.getByTestId('refresh-probe').dataset.refreshing).toBe('false');
+    });
+  });
+
   it('reflects connection-state changes from the stream (07 §8)', async () => {
     vi.mocked(transport.fetchBoard).mockResolvedValue(makeBoard());
 

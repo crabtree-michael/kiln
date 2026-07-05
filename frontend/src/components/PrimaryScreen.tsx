@@ -16,7 +16,7 @@ import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 
 function PrimaryScreenBody(): JSX.Element {
   const { feed, connectionState } = useFeedStore();
-  const { board } = useBoardStore();
+  const { board, refreshBoard, refreshing } = useBoardStore();
   const { thinking, toasts, dismiss } = useActivityStore();
 
   const onAccept = useCallback((ticketId: string): void => {
@@ -34,6 +34,8 @@ function PrimaryScreenBody(): JSX.Element {
       toasts={toasts}
       onDismiss={dismiss}
       onAccept={onAccept}
+      onOpenStreams={refreshBoard}
+      streamsRefreshing={refreshing}
     />
   );
 }

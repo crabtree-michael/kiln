@@ -25,6 +25,7 @@ const LABELS: Record<MicState, string> = {
 export function Dock(): JSX.Element {
   const { micState, settledText, tailText, pause, resume, cancel, sendNow, getLevel } = useVoice();
   const orbRef = useRef<HTMLSpanElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
 
   // Drive the volume orb (09 §3): while listening, sample the mic RMS each frame,
   // smooth it (fast attack / slow release) and write it to the orb's `--mic-level`
@@ -70,10 +71,43 @@ export function Dock(): JSX.Element {
   const showSend = hasTranscript;
   const showCancel = hasTranscript;
 
+  // Keep the notification hub clear of the dock as the transcript grows (08 §4 /
+  // the bottom-anchored-UI layering principle — see the web-client skill). The
+  // toast overlay and the live transcript both grow UPWARD from the dock's top
+  // edge, so on a shared baseline they would overlap. Publish the transcript's
+  // current height as `--dock-overlay-height` on the screen root; the activity
+  // row offsets its `bottom` by that value and so always floats above the
+  // transcript — collapsed (var unset → 0px) or expanded, tracked live as words
+  // stream in via ResizeObserver. Written on the screen root (not the dock) so it
+  // reaches the activity row, which is the dock's sibling; a no-op when the dock
+  // renders outside a primary screen (isolated tests) since `closest` is null.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    const root = el?.closest<HTMLElement>('[data-role="primary-screen"]') ?? null;
+    if (root === null) {
+      return;
+    }
+    const publish = (): void => {
+      root.style.setProperty('--dock-overlay-height', `${(el?.offsetHeight ?? 0).toString()}px`);
+    };
+    publish();
+    if (el === null || typeof ResizeObserver === 'undefined') {
+      return () => {
+        root.style.removeProperty('--dock-overlay-height');
+      };
+    }
+    const observer = new ResizeObserver(publish);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--dock-overlay-height');
+    };
+  }, [hasTranscript]);
+
   return (
     <div data-role="dock" data-dock-state={micState}>
       {hasTranscript && (
-        <div data-role="dock-transcript" data-dock-state={micState}>
+        <div data-role="dock-transcript" data-dock-state={micState} ref={transcriptRef}>
           {settledText !== '' && <span data-role="dock-settled">{settledText}</span>}
           {tailText !== '' && (
             <span data-role="dock-tail" data-ghost="true">

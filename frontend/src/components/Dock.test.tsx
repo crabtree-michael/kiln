@@ -141,4 +141,33 @@ describe('Dock', () => {
     expect(screen.getByRole('button', { name: 'Talk' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
+
+  // The bottom-anchored-UI layering principle (see the web-client skill): the dock
+  // expands upward as the transcript grows, and the notification hub must never
+  // overlap it. The dock publishes its transcript overlay's height on the screen
+  // root as `--dock-overlay-height`; the activity row offsets its `bottom` by that
+  // var so it always clears the *current* dock height, collapsed or expanded.
+  it('publishes the transcript overlay height on the screen root when expanded', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'a long utterance' });
+    const { container } = render(
+      <div data-role="primary-screen">
+        <Dock />
+      </div>,
+    );
+    const root = container.querySelector('[data-role="primary-screen"]');
+    // Set (to the measured height — 0px under jsdom's null layout, but present),
+    // which is what pushes the hub above the expanded dock.
+    expect(root?.getAttribute('style') ?? '').toContain('--dock-overlay-height');
+  });
+
+  it('leaves no overlay offset when collapsed, so the hub sits on the dock', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
+    const { container } = render(
+      <div data-role="primary-screen">
+        <Dock />
+      </div>,
+    );
+    const root = container.querySelector('[data-role="primary-screen"]');
+    expect(root?.getAttribute('style') ?? '').not.toContain('--dock-overlay-height');
+  });
 });

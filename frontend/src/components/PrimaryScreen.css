@@ -94,10 +94,26 @@ body:has([data-role='primary-screen']) {
 }
 
 [data-role='feed-header'] {
+  /* Pinned to the top of the feed region: the backlog scrolls behind it rather
+     than pushing it off-screen. Sticky (not fixed) so it stays scoped to the
+     feed's own scroll container and the 520px max-width column. */
+  position: sticky;
+  top: 0;
+  /* Above the scrolling cards, matching the dock/transcript occluders so feed
+     content passing behind is covered rather than showing through. */
+  z-index: 5;
+  /* Opaque paper tone (not the gradient, which would re-origin per box and
+     shift against the page) so the header reads as the app's own background.
+     Same occluder tone the dock + live transcript use. */
+  background: var(--paper-flat);
+  /* Bleed over the feed's own padding (22px top / 26px sides) so cards are
+     occluded to the very edges, while the matching padding keeps the header
+     content in its original position at rest. */
+  margin: -22px -26px 0;
+  padding: 22px 26px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 24px;
 }
 
 [data-role='kiln-mark'] {

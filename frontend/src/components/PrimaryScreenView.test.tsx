@@ -5,8 +5,20 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
-import { makeBoard, makeFeedCard, makeFeedSnapshot, makeTicket } from '@/test/fixtures';
+import { makeFeedCard, makeFeedSnapshot } from '@/test/fixtures';
 import { acceptTicket } from '@/transport/transport';
+
+/**
+ * jsdom performs no layout, so a card body's `scrollHeight`/`clientHeight` are
+ * both 0 and the five-line clamp never registers as overflowing. Fake a clamped
+ * box (content taller than the window) so the "tap to see more" affordance can
+ * be exercised; restore after each test so the layout-free default holds for the
+ * snapshot cases (mirrors ActivityRow.test's `fakeClampedOverflow`).
+ */
+function fakeClampedOverflow(): void {
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(80);
+}
 
 vi.mock('@/transport/transport', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/transport/transport')>();
@@ -308,7 +320,7 @@ describe('PrimaryScreenView', () => {
     expect(onAccept).toHaveBeenCalledWith('t-x');
   });
 
-  it('renders a compact summary on the proposal card, not the full body (08 §5)', () => {
+  it('renders the full proposal body inline in normal-weight body copy, not a truncated digest', () => {
     const longBody = `${'A'.repeat(300)} tail`;
     const proposal = makeFeedCard({
       kind: 'proposal',
@@ -319,123 +331,56 @@ describe('PrimaryScreenView', () => {
       createdAt: minutesAgo(1),
     });
     renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] }));
+    // The whole body is present in the feed's `feed-card-body` (the five-line
+    // clamp is visual only — the full text stays in the DOM, expandable in
+    // place). No ellipsis digest, and no click-through to another surface.
     const body = document.querySelector('[data-role="feed-card-body"]');
-    expect(body?.textContent ?? '').toMatch(/…$/);
-    expect((body?.textContent ?? '').length).toBeLessThan(longBody.length);
-    // The full body is behind the click-through, never dumped into the feed.
-    expect(screen.queryByText(longBody)).toBeNull();
+    expect(body?.tagName).toBe('P');
+    expect(body?.textContent ?? '').toBe(longBody);
+    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
+    expect(screen.queryByText('Read full ticket')).toBeNull();
   });
 
-  it('opens the ticket detail overlay with the full ticket when a proposal card is clicked', () => {
-    const body = 'The complete shaped body the overlay shows in full, not the feed.';
+  it('shows no "tap to see more" affordance when a card body fits within the clamp', () => {
     const proposal = makeFeedCard({
       kind: 'proposal',
-      id: 'proposal:t-x',
-      label: 'Detail Me',
-      body,
-      ticketId: 't-x',
+      id: 'proposal:t-short',
+      label: 'Short',
+      body: 'A short body that fits.',
+      ticketId: 't-short',
       createdAt: minutesAgo(1),
     });
-    const ticket = makeTicket({
-      id: 't-x',
-      title: 'Detail Me',
-      body,
-      state: 'shaping',
-      priority: 2,
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-02T00:00:00Z',
-    });
-    render(
-      <PrimaryScreenView
-        feed={makeFeedSnapshot({ cards: [proposal] })}
-        board={makeBoard({ shaping: [ticket] })}
-        connectionState="connected"
-        thinking={false}
-        toasts={[]}
-        onDismiss={noop}
-        onAccept={noop}
-        now={NOW}
-      />,
-    );
-    expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Detail Me' }));
-    const dialog = screen.getByRole('dialog', { name: 'Ticket: Detail Me' });
-    expect(within(dialog).getByText(body)).toBeInTheDocument();
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] }));
+    expect(document.querySelector('[data-role="feed-card-more"]')).toBeNull();
   });
 
-  it('accepts from the detail overlay with the ticket id and then dismisses it', () => {
-    const onAccept = vi.fn();
-    const body = 'Shaped body for the accept-from-detail path.';
-    const proposal = makeFeedCard({
-      kind: 'proposal',
-      id: 'proposal:t-y',
-      label: 'Accept Me',
-      body,
-      ticketId: 't-y',
+  it('reveals an overflowing card body in place on tap and collapses it again (uniform across kinds)', () => {
+    fakeClampedOverflow();
+    const update = makeFeedCard({
+      kind: 'update',
+      id: 'update:99',
+      label: 'Verbose',
+      body: 'A long update body that overflows the five-line clamp and must expand in place.',
+      notificationId: 99,
       createdAt: minutesAgo(1),
     });
-    const ticket = makeTicket({
-      id: 't-y',
-      title: 'Accept Me',
-      body,
-      state: 'shaping',
-      priority: 1,
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-02T00:00:00Z',
-    });
-    render(
-      <PrimaryScreenView
-        feed={makeFeedSnapshot({ cards: [proposal] })}
-        board={makeBoard({ shaping: [ticket] })}
-        connectionState="connected"
-        thinking={false}
-        toasts={[]}
-        onDismiss={noop}
-        onAccept={onAccept}
-        now={NOW}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Accept Me' }));
-    const dialog = screen.getByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept' }));
-    expect(onAccept).toHaveBeenCalledWith('t-y');
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }));
 
-  it('tapping inline Accept does not open the detail overlay', () => {
-    const body = 'Inline accept must accept without navigating to the detail.';
-    const proposal = makeFeedCard({
-      kind: 'proposal',
-      id: 'proposal:t-z',
-      label: 'Inline',
-      body,
-      ticketId: 't-z',
-      createdAt: minutesAgo(1),
-    });
-    const ticket = makeTicket({
-      id: 't-z',
-      title: 'Inline',
-      body,
-      state: 'shaping',
-      priority: 1,
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-02T00:00:00Z',
-    });
-    render(
-      <PrimaryScreenView
-        feed={makeFeedSnapshot({ cards: [proposal] })}
-        board={makeBoard({ shaping: [ticket] })}
-        connectionState="connected"
-        thinking={false}
-        toasts={[]}
-        onDismiss={noop}
-        onAccept={noop}
-        now={NOW}
-      />,
+    const body = document.querySelector('[data-role="feed-card-body"]');
+    const more = screen.getByRole('button', { name: 'Tap to see more' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(body).not.toHaveAttribute('data-expanded');
+
+    fireEvent.click(more);
+    expect(body).toHaveAttribute('data-expanded', 'true');
+    const less = screen.getByRole('button', { name: 'Show less' });
+    expect(less).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(less);
+    expect(document.querySelector('[data-role="feed-card-body"]')).not.toHaveAttribute(
+      'data-expanded',
     );
-    // Only the inline Accept exists while the overlay is closed → unambiguous.
-    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Tap to see more' })).toBeInTheDocument();
   });
 
   it('matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′)', () => {

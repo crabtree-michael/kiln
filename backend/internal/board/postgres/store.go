@@ -21,7 +21,7 @@ import (
 // ticketColumns is the canonical projection for a ticket row, shared by every
 // SELECT/RETURNING so scanTicket can read them positionally.
 const ticketColumns = `id, title, body, state, priority, worker_id, blocked_reason, ready_at, ` +
-	`approval_requested, created_at, updated_at`
+	`approval_requested, created_at, updated_at, archived_at`
 
 // activeTicketExists is the correlated subquery that derives a worker's busy
 // state (03 D2): a worker is busy iff an active ticket references it.
@@ -81,6 +81,19 @@ func (s *Store) Snapshot(ctx context.Context) (board.Snapshot, error) {
 	return snap, nil
 }
 
+// GetTicket reads one non-archived ticket by id (03 §4 amended), backing the
+// brain's get_ticket tool. A missing or archived id is ErrNotFound. A plain
+// read outside any transaction — no row lock, since the brain only reads here.
+func (s *Store) GetTicket(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+ticketColumns+` FROM tickets WHERE id = $1 AND archived_at IS NULL`, string(id))
+	tk, err := scanTicket(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return board.Ticket{}, board.ErrNotFound
+	}
+	return tk, err
+}
+
 // ReconcileWorkers brings the workers table to exactly n rows at startup
 // (03 §8): insert-only — rows are added when the current count is below n,
 // and a row is never deleted while an active ticket could reference it (v1
@@ -138,7 +151,7 @@ func (s *Store) WorkerIDs(ctx context.Context) (_ []string, err error) {
 // Only the error return is named, so it can carry a deferred rows.Close
 // failure (satisfying errcheck's check-blank without a non-error named return).
 func (s *Store) readTickets(ctx context.Context, snap *board.Snapshot) (err error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets WHERE archived_at IS NULL`)
 	if err != nil {
 		return fmt.Errorf("board/postgres: query tickets: %w", err)
 	}
@@ -232,7 +245,7 @@ var _ board.Tx = (*tx)(nil)
 // LOCKED, so a concurrent claimer conflicts loudly rather than skipping.
 func (t *tx) LockTicket(ctx context.Context, id board.TicketID) (board.Ticket, error) {
 	row := t.sqltx.QueryRowContext(ctx,
-		`SELECT `+ticketColumns+` FROM tickets WHERE id = $1 FOR UPDATE`, string(id))
+		`SELECT `+ticketColumns+` FROM tickets WHERE id = $1 AND archived_at IS NULL FOR UPDATE`, string(id))
 	tk, err := scanTicket(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return board.Ticket{}, board.ErrNotFound
@@ -260,11 +273,12 @@ func (t *tx) UpdateTicket(ctx context.Context, tk board.Ticket) (board.Ticket, e
 		`UPDATE tickets
 		 SET title = $2, body = $3, state = $4, priority = $5,
 		     worker_id = $6, blocked_reason = $7, ready_at = $8, approval_requested = $9,
-		     updated_at = now()
+		     archived_at = $10, updated_at = now()
 		 WHERE id = $1
 		 RETURNING `+ticketColumns,
 		string(tk.ID), tk.Title, tk.Body, string(tk.State), tk.Priority,
-		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt), tk.ApprovalRequested)
+		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt), tk.ApprovalRequested,
+		timeArg(tk.ArchivedAt))
 	out, err := scanTicket(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return board.Ticket{}, board.ErrNotFound
@@ -277,7 +291,7 @@ func (t *tx) UpdateTicket(ctx context.Context, tk board.Ticket) (board.Ticket, e
 func (t *tx) NextReadyTicket(ctx context.Context) (board.Ticket, bool, error) {
 	row := t.sqltx.QueryRowContext(ctx,
 		`SELECT `+ticketColumns+` FROM tickets
-		 WHERE state = 'ready'
+		 WHERE state = 'ready' AND archived_at IS NULL
 		 ORDER BY priority DESC, ready_at ASC, id ASC
 		 FOR UPDATE SKIP LOCKED LIMIT 1`)
 	tk, err := scanTicket(row)
@@ -393,15 +407,17 @@ type rowScanner interface {
 // callers can still detect it with errors.Is while satisfying wrapcheck.
 func scanTicket(r rowScanner) (board.Ticket, error) {
 	var (
-		tk       board.Ticket
-		id       string
-		state    string
-		workerID sql.NullString
-		blocked  sql.NullString
-		readyAt  sql.NullTime
+		tk         board.Ticket
+		id         string
+		state      string
+		workerID   sql.NullString
+		blocked    sql.NullString
+		readyAt    sql.NullTime
+		archivedAt sql.NullTime
 	)
 	if err := r.Scan(&id, &tk.Title, &tk.Body, &state, &tk.Priority,
-		&workerID, &blocked, &readyAt, &tk.ApprovalRequested, &tk.CreatedAt, &tk.UpdatedAt); err != nil {
+		&workerID, &blocked, &readyAt, &tk.ApprovalRequested, &tk.CreatedAt, &tk.UpdatedAt,
+		&archivedAt); err != nil {
 		return board.Ticket{}, fmt.Errorf("board/postgres: scan ticket: %w", err)
 	}
 	tk.ID = board.TicketID(id)
@@ -417,6 +433,10 @@ func scanTicket(r rowScanner) (board.Ticket, error) {
 	if readyAt.Valid {
 		rt := readyAt.Time
 		tk.ReadyAt = &rt
+	}
+	if archivedAt.Valid {
+		at := archivedAt.Time
+		tk.ArchivedAt = &at
 	}
 	return tk, nil
 }

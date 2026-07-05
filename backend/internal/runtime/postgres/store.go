@@ -303,6 +303,22 @@ func (s *Store) RetractNotification(ctx context.Context, id int64) error {
 	})
 }
 
+// EditNotification implements runtime.NotificationStore (08 §3 amended): amend
+// a still-active row's kind/body/image in place and append feed.updated in one
+// transaction. Retracted or seen rows are left untouched (the WHERE guard), so
+// editing a drained card is a silent no-op rather than resurfacing it.
+func (s *Store) EditNotification(ctx context.Context, id int64, kind, body string, imageURL *string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE notifications SET kind = $2, body = $3, image_url = $4
+			 WHERE id = $1 AND retracted_at IS NULL AND seen_at IS NULL`,
+			id, kind, body, imageURL); err != nil {
+			return fmt.Errorf("runtime/postgres: edit notification: %w", err)
+		}
+		return enqueueFeedUpdatedTx(ctx, tx)
+	})
+}
+
 // MarkSeen implements runtime.NotificationStore (08 §3): stamp seen_at=now() on
 // every still-unseen notification up to the client's high-water id, and append
 // feed.updated in one transaction.

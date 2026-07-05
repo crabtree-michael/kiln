@@ -21,11 +21,13 @@ import (
 // Shared literals hoisted to package-level consts so no single string recurs
 // 3+ times across the brain_test package (goconst).
 const (
-	ticketT1        = "t-1"
-	ticketT99       = "t-99"
-	opMarkReady     = "mark_ready"
-	methodMarkReady = "MarkReady"
-	workerW1        = "w-1"
+	ticketT1          = "t-1"
+	ticketT7          = "t-7"
+	ticketT99         = "t-99"
+	opMarkReady       = "mark_ready"
+	methodMarkReady   = "MarkReady"
+	methodShapeTicket = "ShapeTicket"
+	workerW1          = "w-1"
 )
 
 // --- scripted LLM -----------------------------------------------------
@@ -125,7 +127,9 @@ type fakeBoard struct {
 	markBlockedFn     func(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
 	acceptToDoneFn    func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	requestApprovalFn func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	archiveTicketFn   func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	getBoardFn        func(ctx context.Context) (board.Snapshot, error)
+	getTicketFn       func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 }
 
 func (f *fakeBoard) CreateTicket(ctx context.Context, title, body string) (board.Ticket, error) {
@@ -184,9 +188,18 @@ func (f *fakeBoard) RequestApproval(ctx context.Context, id board.TicketID) (boa
 	return board.Ticket{ID: id, State: board.StateShaping}, nil
 }
 
-// GetBoard is the read port (BoardReader), tracked separately from the six
-// mutation ops so mutation-sequence assertions (pass_loop_test.go) aren't
-// perturbed by the once-per-pass snapshot read; getBoardCount() observes it.
+func (f *fakeBoard) ArchiveTicket(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+	f.record("ArchiveTicket", id)
+	if f.archiveTicketFn != nil {
+		return f.archiveTicketFn(ctx, id)
+	}
+	now := time.Now()
+	return board.Ticket{ID: id, State: board.StateShaping, ArchivedAt: &now}, nil
+}
+
+// GetBoard is a read port (BoardReader), tracked separately from the mutation
+// ops so mutation-sequence assertions (pass_loop_test.go) aren't perturbed by a
+// board read; getBoardCount() observes it.
 func (f *fakeBoard) GetBoard(ctx context.Context) (board.Snapshot, error) {
 	f.mu.Lock()
 	f.getBoards++
@@ -195,6 +208,15 @@ func (f *fakeBoard) GetBoard(ctx context.Context) (board.Snapshot, error) {
 		return f.getBoardFn(ctx)
 	}
 	return board.Snapshot{}, nil
+}
+
+// GetTicket is the single-ticket read port (BoardReader), backing get_ticket.
+func (f *fakeBoard) GetTicket(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+	f.record("GetTicket", id)
+	if f.getTicketFn != nil {
+		return f.getTicketFn(ctx, id)
+	}
+	return board.Ticket{ID: id, State: board.StateShaping}, nil
 }
 
 // record, recordedCalls, and getBoardCount are unexported and placed after the
@@ -287,8 +309,18 @@ type fakeNotifications struct {
 	mu         sync.Mutex
 	posts      []postedNotification
 	retracts   []int64
+	edits      []editedNotification
 	postErr    error
 	retractErr error
+	editErr    error
+}
+
+// editedNotification records one edit_update call (06 §4 amended).
+type editedNotification struct {
+	ID       int64
+	Kind     string
+	Body     string
+	ImageURL *string
 }
 
 func (f *fakeNotifications) PostNotification(_ context.Context, kind, body string, ticketID, imageURL *string) error {
@@ -305,6 +337,21 @@ func (f *fakeNotifications) RetractNotification(_ context.Context, id int64) err
 	return f.retractErr
 }
 
+func (f *fakeNotifications) EditNotification(_ context.Context, id int64, kind, body string, imageURL *string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.edits = append(f.edits, editedNotification{ID: id, Kind: kind, Body: body, ImageURL: imageURL})
+	return f.editErr
+}
+
+func (f *fakeNotifications) edited() []editedNotification {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]editedNotification, len(f.edits))
+	copy(out, f.edits)
+	return out
+}
+
 func (f *fakeNotifications) posted() []postedNotification {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -319,6 +366,21 @@ func (f *fakeNotifications) retracted() []int64 {
 	out := make([]int64, len(f.retracts))
 	copy(out, f.retracts)
 	return out
+}
+
+// --- fake FeedReader ------------------------------------------------------
+
+// fakeFeed is the FeedReader port's recording double (06 §4 amended): ListUpdates
+// returns canned active cards and records that it was called.
+type fakeFeed struct {
+	updates []brain.Update
+	err     error
+	calls   int
+}
+
+func (f *fakeFeed) ListUpdates(context.Context) ([]brain.Update, error) {
+	f.calls++
+	return f.updates, f.err
 }
 
 // --- fake AgentInspector --------------------------------------------------
@@ -362,13 +424,25 @@ func newTestService(board *fakeBoard, say *fakeSay, convo *fakeConvo, llm *scrip
 }
 
 // newTestServiceN is newTestService with an explicit NotificationStore, for
-// the feed-tool golden tests (08 §7) that assert post_update/retract_update.
+// the feed-tool golden tests (08 §7) that assert post_update/edit_update/
+// retract_update.
 func newTestServiceN(
 	board *fakeBoard, say *fakeSay, notifications brain.NotificationStore,
 	convo *fakeConvo, llm *scriptedLLM,
 ) *brain.Service {
 	return brain.NewService(
-		board, board, say, notifications, convo, &fakeInspector{}, &fakeRepo{}, llm,
+		board, board, say, notifications, &fakeFeed{}, convo, &fakeInspector{}, &fakeRepo{}, llm,
+		brain.Config{Model: brain.DefaultModel},
+	)
+}
+
+// newTestServiceF is newTestService with an explicit FeedReader, for the
+// list_updates golden test.
+func newTestServiceF(
+	board *fakeBoard, say *fakeSay, feed brain.FeedReader, convo *fakeConvo, llm *scriptedLLM,
+) *brain.Service {
+	return brain.NewService(
+		board, board, say, &fakeNotifications{}, feed, convo, &fakeInspector{}, &fakeRepo{}, llm,
 		brain.Config{Model: brain.DefaultModel},
 	)
 }
@@ -378,7 +452,7 @@ func newTestServiceI(
 	board *fakeBoard, say *fakeSay, convo *fakeConvo, agents brain.AgentInspector, llm *scriptedLLM,
 ) *brain.Service {
 	return brain.NewService(
-		board, board, say, &fakeNotifications{}, convo, agents, &fakeRepo{}, llm,
+		board, board, say, &fakeNotifications{}, &fakeFeed{}, convo, agents, &fakeRepo{}, llm,
 		brain.Config{Model: brain.DefaultModel},
 	)
 }
@@ -389,7 +463,7 @@ func newTestServiceR(
 	board *fakeBoard, say *fakeSay, convo *fakeConvo, repo brain.RepoShell, llm *scriptedLLM,
 ) *brain.Service {
 	return brain.NewService(
-		board, board, say, &fakeNotifications{}, convo, &fakeInspector{}, repo, llm,
+		board, board, say, &fakeNotifications{}, &fakeFeed{}, convo, &fakeInspector{}, repo, llm,
 		brain.Config{Model: brain.DefaultModel},
 	)
 }

@@ -15,22 +15,23 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 )
 
-// TestToolSet_IsExactlyThirteenToolsInFixedOrder pins the tool set (06 §4,
-// amended by 08 §5/§7, the agent read tools, and the repo shell tool): no pull
-// tool, no board-read tool — exactly these thirteen, in this order (order
-// matters for prompt-cache friendliness and golden fixtures, 06 §4/§9).
-// list_agents/get_agent_updates follow 08's feed tools; bash is last.
-func TestToolSet_IsExactlyThirteenToolsInFixedOrder(t *testing.T) {
+// TestToolSet_IsExactlyFourteenToolsInFixedOrder pins the CRUD-consolidated tool
+// set (06 §4 amended): clean CRUD over tickets and feed updates, plus the agent
+// read seam, send/say, and bash — exactly these fourteen, in this order (order
+// matters for prompt-cache friendliness and golden fixtures, 06 §4/§9). No pull
+// tool; board reads are now tools (list_tickets/get_ticket), not injection.
+func TestToolSet_IsExactlyFourteenToolsInFixedOrder(t *testing.T) {
 	want := []brain.ToolName{
 		brain.ToolCreateTicket,
-		brain.ToolShapeTicket,
-		brain.ToolMarkReady,
+		brain.ToolListTickets,
+		brain.ToolGetTicket,
+		brain.ToolUpdateTicket,
+		brain.ToolDeleteTicket,
 		brain.ToolSendToAgent,
-		brain.ToolMarkBlocked,
-		brain.ToolAcceptToDone,
 		brain.ToolSay,
-		brain.ToolRequestApproval,
 		brain.ToolPostUpdate,
+		brain.ToolListUpdates,
+		brain.ToolEditUpdate,
 		brain.ToolRetractUpdate,
 		brain.ToolListAgents,
 		brain.ToolGetAgentUpdates,
@@ -46,22 +47,23 @@ func TestToolSet_IsExactlyThirteenToolsInFixedOrder(t *testing.T) {
 	}
 }
 
-// TestSystemPrompt_HasFeedToolGuidance pins that the shipped prompt keeps
-// the 08 §5/§7 feed-tool guidance. It asserts tool-name presence, not
-// literal prose (06 D7). The agent read tools (list_agents,
-// get_agent_updates) are intentionally NOT asserted here — they are
-// self-describing via their tool schemas, not the prompt prose.
-func TestSystemPrompt_HasFeedToolGuidance(t *testing.T) {
+// TestSystemPrompt_HasToolGuidance pins that the shipped prompt names the CRUD
+// and feed tools it guides the model to use. It asserts tool-name presence, not
+// literal prose (06 D7). The agent read tools (list_agents, get_agent_updates)
+// are intentionally NOT asserted here — they are self-describing via their tool
+// schemas, not the prompt prose.
+func TestSystemPrompt_HasToolGuidance(t *testing.T) {
 	got, err := brain.RenderSystemPrompt(brain.PromptData{Role: "Kiln"})
 	if err != nil {
 		t.Fatalf("RenderSystemPrompt: %v", err)
 	}
 	tools := []string{
-		"request_approval", "post_update", "retract_update", "bash",
+		"list_tickets", "get_ticket", "update_ticket", "delete_ticket",
+		"post_update", "edit_update", "retract_update", "bash",
 	}
 	for _, tool := range tools {
 		if !strings.Contains(got, tool) {
-			t.Errorf("system prompt is missing the 08 feed-tool guidance for %s:\n%s", tool, got)
+			t.Errorf("system prompt is missing tool guidance for %s:\n%s", tool, got)
 		}
 	}
 }
@@ -89,76 +91,102 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			wantArgs:   []any{"T", "B"},
 		},
 		{
-			name: "shape_ticket",
+			name: "get_ticket",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c2", brain.ToolShapeTicket, brain.ShapeTicketInput{
+				return newToolCall(t, "c2", brain.ToolGetTicket, brain.GetTicketInput{ID: ticketT1})
+			},
+			wantMethod: "GetTicket",
+			wantArgs:   []any{board.TicketID(ticketT1)},
+		},
+		{
+			name: "update_ticket fields -> ShapeTicket",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c3", brain.ToolUpdateTicket, brain.UpdateTicketInput{
 					ID: ticketT1, Title: &newTitle, Body: &newBody, Priority: &priority,
 				})
 			},
-			wantMethod: "ShapeTicket",
+			wantMethod: methodShapeTicket,
 			wantArgs: []any{board.TicketID(ticketT1), board.ShapePatch{
 				Title: &newTitle, Body: &newBody, Priority: &priority,
 			}},
 		},
 		{
-			name: opMarkReady,
+			name: "update_ticket state=ready -> MarkReady",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c3", brain.ToolMarkReady, brain.MarkReadyInput{ID: "t-2"})
+				return newToolCall(t, "c4", brain.ToolUpdateTicket, brain.UpdateTicketInput{
+					ID: "t-2", State: new("ready"),
+				})
 			},
 			wantMethod: methodMarkReady,
 			wantArgs:   []any{board.TicketID("t-2")},
 		},
 		{
-			name: "send_to_agent",
+			name: "update_ticket state=blocked -> MarkBlocked",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c4", brain.ToolSendToAgent, brain.SendToAgentInput{ID: "t-3", Instruction: "keep going"})
-			},
-			wantMethod: "SendToAgent",
-			wantArgs:   []any{board.TicketID("t-3"), "keep going"},
-		},
-		{
-			name: "mark_blocked",
-			call: func(t *testing.T) brain.ToolCall {
-				t.Helper()
-				return newToolCall(t, "c5", brain.ToolMarkBlocked, brain.MarkBlockedInput{ID: "t-4", Reason: "need a decision"})
+				return newToolCall(t, "c5", brain.ToolUpdateTicket, brain.UpdateTicketInput{
+					ID: "t-4", State: new("blocked"), BlockedReason: new("need a decision"),
+				})
 			},
 			wantMethod: "MarkBlocked",
 			wantArgs:   []any{board.TicketID("t-4"), "need a decision"},
 		},
 		{
-			name: "accept_to_done",
+			name: "update_ticket state=done -> AcceptToDone",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c6", brain.ToolAcceptToDone, brain.AcceptToDoneInput{ID: "t-5"})
+				return newToolCall(t, "c6", brain.ToolUpdateTicket, brain.UpdateTicketInput{
+					ID: "t-5", State: new("done"),
+				})
 			},
 			wantMethod: "AcceptToDone",
 			wantArgs:   []any{board.TicketID("t-5")},
 		},
 		{
-			name: "say",
+			name: "update_ticket approval_requested -> RequestApproval",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c7", brain.ToolSay, brain.SayInput{Text: "hello"})
-			},
-			wantMethod: "Say",
-		},
-		{
-			name: "request_approval",
-			call: func(t *testing.T) brain.ToolCall {
-				t.Helper()
-				return newToolCall(t, "c8", brain.ToolRequestApproval, brain.RequestApprovalInput{Ticket: "t-6"})
+				return newToolCall(t, "c7", brain.ToolUpdateTicket, brain.UpdateTicketInput{
+					ID: "t-6", ApprovalRequested: new(true),
+				})
 			},
 			wantMethod: "RequestApproval",
 			wantArgs:   []any{board.TicketID("t-6")},
 		},
 		{
+			name: "delete_ticket -> ArchiveTicket",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c8", brain.ToolDeleteTicket, brain.DeleteTicketInput{ID: ticketT7})
+			},
+			wantMethod: "ArchiveTicket",
+			wantArgs:   []any{board.TicketID(ticketT7)},
+		},
+		{
+			name: "send_to_agent",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c9", brain.ToolSendToAgent, brain.SendToAgentInput{ID: "t-3", Instruction: "keep going"})
+			},
+			wantMethod: "SendToAgent",
+			wantArgs:   []any{board.TicketID("t-3"), "keep going"},
+		},
+		{
+			name: "say",
+			call: func(t *testing.T) brain.ToolCall {
+				t.Helper()
+				return newToolCall(t, "c10", brain.ToolSay, brain.SayInput{Text: "hello"})
+			},
+			wantMethod: "Say",
+		},
+		{
 			name: "bash",
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
-				return newToolCall(t, "c9", brain.ToolBash, brain.BashInput{Command: "git fetch"})
+				return newToolCall(t, "c11", brain.ToolBash, brain.BashInput{Command: "git fetch"})
 			},
 			wantMethod: "Run",
 			wantArgs:   []any{"git fetch"},
@@ -222,7 +250,7 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 // (08 §7): kind is "update" with no image, "preview" when image_url is set,
 // and body/ticket/image_url reach NotificationStore.PostNotification verbatim.
 func TestDispatch_PostUpdate_RoutesToNotificationStore(t *testing.T) {
-	ticket := "t-7"
+	ticket := ticketT7
 	img := "https://example.test/preview.png"
 
 	cases := []struct {
@@ -312,12 +340,12 @@ func TestDispatch_PostUpdate_EmptyBodyRejected(t *testing.T) {
 
 // TestDispatch_RequiredTextFields_RejectEmpty pins that every required free-text
 // tool argument — say's text, create_ticket's title, send_to_agent's
-// instruction, mark_blocked's reason — is rejected when omitted, empty, or
-// whitespace-only (see requireField). Such a value parses cleanly to "", so it
-// is not a JSON error; it must still come back as an error ToolResult and never
-// reach the board or Say — the same silent-empty gap that produced bodyless
-// update cards. create_ticket's body is intentionally optional (the board allows
-// it), so it is not covered here.
+// instruction, update_ticket's blocked_reason when moving to blocked — is
+// rejected when omitted, empty, or whitespace-only (requireField / validateUpdate).
+// Such a value parses cleanly to "", so it is not a JSON error; it must still
+// come back as an error ToolResult and never reach the board or Say — the same
+// silent-empty gap that produced bodyless update cards. create_ticket's body is
+// intentionally optional (the board allows it), so it is not covered here.
 func TestDispatch_RequiredTextFields_RejectEmpty(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -330,8 +358,11 @@ func TestDispatch_RequiredTextFields_RejectEmpty(t *testing.T) {
 		{"create_ticket title whitespace", brain.ToolCreateTicket, `{"title": " \t", "body": "b"}`},
 		{"send_to_agent instruction omitted", brain.ToolSendToAgent, `{"id": "t-1"}`},
 		{"send_to_agent instruction empty", brain.ToolSendToAgent, `{"id": "t-1", "instruction": ""}`},
-		{"mark_blocked reason omitted", brain.ToolMarkBlocked, `{"id": "t-1"}`},
-		{"mark_blocked reason whitespace", brain.ToolMarkBlocked, `{"id": "t-1", "reason": "   "}`},
+		{"update_ticket blocked reason omitted", brain.ToolUpdateTicket, `{"id": "t-1", "state": "blocked"}`},
+		{
+			"update_ticket blocked reason whitespace", brain.ToolUpdateTicket,
+			`{"id": "t-1", "state": "blocked", "blocked_reason": "   "}`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -525,7 +556,7 @@ func TestDispatch_BoardErrorFedBackVerbatim(t *testing.T) {
 	}
 	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, &scriptedLLM{})
 
-	call := newToolCall(t, "err-1", brain.ToolMarkReady, brain.MarkReadyInput{ID: ticketT1})
+	call := newToolCall(t, "err-1", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: ticketT1, State: new("ready")})
 	result := svc.Dispatch(context.Background(), call)
 
 	if !result.IsError {
@@ -549,7 +580,7 @@ func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
 	}
 	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, &scriptedLLM{})
 
-	call := newToolCall(t, "err-2", brain.ToolAcceptToDone, brain.AcceptToDoneInput{ID: "missing"})
+	call := newToolCall(t, "err-2", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: "missing", State: new("done")})
 	result := svc.Dispatch(context.Background(), call)
 
 	if !result.IsError {

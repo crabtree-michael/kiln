@@ -609,6 +609,15 @@ type fakeNotificationStore struct {
 	postFn    func(ctx context.Context, kind, body string, ticketID, imageURL *string) (runtime.Notification, error)
 	retractFn func(ctx context.Context, id int64) error
 	markSeenN []int64
+	edits     []notificationEdit
+}
+
+// notificationEdit records one EditNotification call for delegation assertions.
+type notificationEdit struct {
+	ID       int64
+	Kind     string
+	Body     string
+	ImageURL *string
 }
 
 func (f *fakeNotificationStore) PostNotification(
@@ -639,6 +648,22 @@ func (f *fakeNotificationStore) RetractNotification(ctx context.Context, id int6
 	for i := range f.rows {
 		if f.rows[i].ID == id {
 			f.rows[i].RetractedAt = &now
+		}
+	}
+	return nil
+}
+
+func (f *fakeNotificationStore) EditNotification(
+	_ context.Context, id int64, kind, body string, imageURL *string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.edits = append(f.edits, notificationEdit{ID: id, Kind: kind, Body: body, ImageURL: imageURL})
+	for i := range f.rows {
+		if f.rows[i].ID == id && f.rows[i].RetractedAt == nil && f.rows[i].SeenAt == nil {
+			f.rows[i].Kind = runtime.NotificationKind(kind)
+			f.rows[i].Body = body
+			f.rows[i].ImageURL = imageURL
 		}
 	}
 	return nil

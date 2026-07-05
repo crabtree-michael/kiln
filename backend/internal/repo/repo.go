@@ -20,6 +20,9 @@ const (
 	// outputCapBytes caps the combined stdout+stderr kept in a Result; larger
 	// output is elided head+tail and Truncated is set.
 	outputCapBytes = 16 * 1024
+	// dirPerm is the permission for directories this shell creates (the clone
+	// parent and allowed-bin): owner rwx, group rx, no world access.
+	dirPerm = 0o750
 )
 
 // allowlist is the set of binaries symlinked into allowed-bin; PATH points there
@@ -83,7 +86,7 @@ func New(ctx context.Context, cfg Config) *Shell {
 
 	// Ensure the clone. If Dir is already a git repo, leave it; else clone.
 	if !isGitRepo(cfg.Dir) {
-		if err := os.MkdirAll(filepath.Dir(cfg.Dir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(cfg.Dir), dirPerm); err != nil {
 			return s.disable(ctx, fmt.Sprintf("prepare clone dir: %v", err))
 		}
 		if out, err := s.clone(ctx); err != nil {
@@ -93,6 +96,58 @@ func New(ctx context.Context, cfg Config) *Shell {
 
 	slog.InfoContext(ctx, "repo.shell.ready", "repo_url", cfg.RepoURL, "dir", cfg.Dir)
 	return s
+}
+
+// Run executes `sh -c command` in the clone with a restricted PATH, a timeout,
+// and an output cap. Never returns an error: a non-zero exit is a normal
+// Result; a disabled shell yields Result{Unavailable:true}.
+func (s *Shell) Run(ctx context.Context, command string) Result {
+	if s.disabled {
+		return Result{Unavailable: true, Reason: s.reason}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	// Running an arbitrary command string is the entire purpose of this tool; it
+	// is contained by a restricted PATH (only the allowlisted symlinks are
+	// reachable), a hermetic env, a timeout, and an output cap — see runEnv.
+	//nolint:gosec // G204: intentional shell runner, contained by restricted PATH/env (allowlist).
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd.Dir = s.cfg.Dir
+	cmd.Env = s.runEnv()
+
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+
+	err := cmd.Run()
+
+	res := Result{}
+	res.TimedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
+
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		res.ExitCode = 0
+	case errors.As(err, &exitErr):
+		res.ExitCode = exitErr.ExitCode()
+	default:
+		// Could not start the process (e.g. /bin/sh missing) — surface as a
+		// non-zero exit with the error text rather than a Go error.
+		res.ExitCode = -1
+		buf.WriteString("\n" + err.Error())
+	}
+
+	res.Output, res.Truncated = capOutput(buf.Bytes())
+
+	slog.InfoContext(ctx, "repo.shell.run",
+		"exit_code", res.ExitCode,
+		"timed_out", res.TimedOut,
+		"truncated", res.Truncated,
+		"output_bytes", len(res.Output),
+	)
+	return res
 }
 
 // disable records the reason and returns the shell in a disabled state.
@@ -111,6 +166,9 @@ func (s *Shell) disable(ctx context.Context, reason string) *Shell {
 // gh; see runEnv). The returned string is combined git output.
 func (s *Shell) clone(ctx context.Context) (string, error) {
 	gitBin := filepath.Join(s.allowedBinDir, "git")
+	// The command is fixed; only the configured repo URL/dir vary, and git runs
+	// with the restricted PATH/env of runEnv.
+	//nolint:gosec // G204: configured clone of a trusted repo URL, restricted PATH/env.
 	cmd := exec.CommandContext(ctx, gitBin, "clone", "--filter=blob:none", s.cfg.RepoURL, s.cfg.Dir)
 	cmd.Env = s.runEnv()
 	out, err := cmd.CombinedOutput()
@@ -120,8 +178,8 @@ func (s *Shell) clone(ctx context.Context) (string, error) {
 // buildAllowedBin (re)creates the allowed-bin directory with symlinks to the
 // resolved absolute path of each allowlisted binary found on the host. It is
 // idempotent. Returns ok=false (with a reason) only when git is unavailable.
-func (s *Shell) buildAllowedBin() (reason string, ok bool) {
-	if err := os.MkdirAll(s.allowedBinDir, 0o755); err != nil {
+func (s *Shell) buildAllowedBin() (string, bool) {
+	if err := os.MkdirAll(s.allowedBinDir, dirPerm); err != nil {
 		return fmt.Sprintf("create allowed-bin: %v", err), false
 	}
 	gitFound := false
@@ -135,7 +193,8 @@ func (s *Shell) buildAllowedBin() (reason string, ok bool) {
 			continue
 		}
 		link := filepath.Join(s.allowedBinDir, name)
-		_ = os.Remove(link) // idempotent rebuild
+		//nolint:errcheck,gosec // idempotent rebuild: a missing link is expected and fine.
+		os.Remove(link)
 		if err := os.Symlink(abs, link); err != nil {
 			continue
 		}
@@ -147,56 +206,6 @@ func (s *Shell) buildAllowedBin() (reason string, ok bool) {
 		return "git not found on host", false
 	}
 	return "", true
-}
-
-// Run executes `sh -c command` in the clone with a restricted PATH, a timeout,
-// and an output cap. Never returns an error: a non-zero exit is a normal
-// Result; a disabled shell yields Result{Unavailable:true}.
-func (s *Shell) Run(ctx context.Context, command string) Result {
-	if s.disabled {
-		return Result{Unavailable: true, Reason: s.reason}
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
-	cmd.Dir = s.cfg.Dir
-	cmd.Env = s.runEnv()
-
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-
-	err := cmd.Run()
-
-	res := Result{}
-	res.TimedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
-
-	switch {
-	case err == nil:
-		res.ExitCode = 0
-	default:
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			res.ExitCode = exitErr.ExitCode()
-		} else {
-			// Could not start the process (e.g. /bin/sh missing) — surface as a
-			// non-zero exit with the error text rather than a Go error.
-			res.ExitCode = -1
-			buf.WriteString("\n" + err.Error())
-		}
-	}
-
-	res.Output, res.Truncated = capOutput(buf.Bytes())
-
-	slog.InfoContext(ctx, "repo.shell.run",
-		"exit_code", res.ExitCode,
-		"timed_out", res.TimedOut,
-		"truncated", res.Truncated,
-		"output_bytes", len(res.Output),
-	)
-	return res
 }
 
 // runEnv is the deliberately minimal environment; nothing else is inherited.
@@ -248,11 +257,13 @@ func capOutput(b []byte) (string, bool) {
 		return string(b), false
 	}
 	const marker = "\n...[output truncated]...\n"
+	// halves splits the kept budget between a head slice and a tail slice.
+	const halves = 2
 	keep := outputCapBytes - len(marker)
-	if keep < 2 {
+	if keep < halves {
 		return string(b[:outputCapBytes]), true
 	}
-	head := keep / 2
+	head := keep / halves
 	tail := keep - head
 	var sb strings.Builder
 	sb.Grow(outputCapBytes)

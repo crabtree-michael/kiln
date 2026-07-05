@@ -176,6 +176,41 @@ func TestService_PostNotification_DelegatesToStore(t *testing.T) {
 	}
 }
 
+func TestService_EditNotification_DelegatesToStore(t *testing.T) {
+	notes := &fakeNotificationStore{}
+	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
+	img := "https://example.com/p.png"
+	if err := svc.EditNotification(context.Background(), 7, "preview", "fixed wording", &img); err != nil {
+		t.Fatalf("EditNotification: %v", err)
+	}
+	if len(notes.edits) != 1 {
+		t.Fatalf("store edits = %d, want 1", len(notes.edits))
+	}
+	e := notes.edits[0]
+	if e.ID != 7 || e.Kind != "preview" || e.Body != "fixed wording" || e.ImageURL == nil || *e.ImageURL != img {
+		t.Errorf("edit = %+v, want id=7 kind=preview body='fixed wording' image=%q", e, img)
+	}
+}
+
+func TestService_ListNotifications_ReturnsActiveNewestFirst(t *testing.T) {
+	notes := &fakeNotificationStore{}
+	seen := notes.seed(runtime.Notification{Body: "first card"})
+	notes.seed(runtime.Notification{Body: "second card"})
+	// Mark the first as seen so it drops out of the active set.
+	if err := notes.MarkSeen(context.Background(), seen.ID); err != nil {
+		t.Fatalf("MarkSeen: %v", err)
+	}
+	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
+
+	got, err := svc.ListNotifications(context.Background())
+	if err != nil {
+		t.Fatalf("ListNotifications: %v", err)
+	}
+	if len(got) != 1 || got[0].Body != "second card" {
+		t.Fatalf("ListNotifications = %+v, want a single active card 'second card'", got)
+	}
+}
+
 func TestService_MarkSeen_DelegatesHighWaterToStore(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})

@@ -187,6 +187,51 @@ func TestIntegration_PostNotification_InsertsRowAndEmitsFeedUpdated(t *testing.T
 	}
 }
 
+func TestIntegration_EditNotification_AmendsActiveRowAndEmitsFeedUpdated(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	posted, err := store.PostNotification(ctx, "update", "original", nil, nil)
+	if err != nil {
+		t.Fatalf("PostNotification: %v", err)
+	}
+
+	img := "https://img/edited.png"
+	if err := store.EditNotification(ctx, posted.ID, "preview", "amended", &img); err != nil {
+		t.Fatalf("EditNotification: %v", err)
+	}
+
+	var kind, body string
+	var gotImg sql.NullString
+	if err := db.QueryRowContext(ctx,
+		`SELECT kind, body, image_url FROM notifications WHERE id = $1`, posted.ID).
+		Scan(&kind, &body, &gotImg); err != nil {
+		t.Fatalf("query edited row: %v", err)
+	}
+	if kind != "preview" || body != "amended" || !gotImg.Valid || gotImg.String != img {
+		t.Errorf("edited row = (%q,%q,%v), want (preview, amended, %q)", kind, body, gotImg, img)
+	}
+
+	// A retracted card is not resurfaced by an edit (no-op under the WHERE guard).
+	if err := store.RetractNotification(ctx, posted.ID); err != nil {
+		t.Fatalf("RetractNotification: %v", err)
+	}
+	if err := store.EditNotification(ctx, posted.ID, "update", "should not apply", nil); err != nil {
+		t.Fatalf("EditNotification on retracted: %v", err)
+	}
+	var stillBody string
+	var retracted sql.NullTime
+	if err := db.QueryRowContext(ctx,
+		`SELECT body, retracted_at FROM notifications WHERE id = $1`, posted.ID).
+		Scan(&stillBody, &retracted); err != nil {
+		t.Fatalf("re-query row: %v", err)
+	}
+	if stillBody != "amended" || !retracted.Valid {
+		t.Errorf("after editing a retracted card: body=%q retracted=%v, want body unchanged ('amended') and still retracted", stillBody, retracted)
+	}
+}
+
 func TestIntegration_UnseenNotifications_NewestFirstFiltersSeenAndRetracted(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)

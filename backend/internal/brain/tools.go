@@ -21,29 +21,40 @@ const (
 	toolResultSummaryBytes = 512
 )
 
-// ToolName enumerates the thirteen tools (06 §4, amended by 08 §5/§7, the
-// agent read tools, and the repo shell tool) — the brain's entire action
-// surface. Not in the set (06 §4, D3, I6): anything that pulls (03 I6, the
-// pull is a system action, never a brain decision), notify (deferred to 10 —
-// the mechanical notify.send from MarkBlocked still emits, log-only in v1),
-// and any board-read (the snapshot is already in context). 08 adds the three
-// feed tools: request_approval, post_update, retract_update. The two read
-// tools, list_agents and get_agent_updates, give the model visibility into the
-// agent runtime without it needing to import internal/agent. bash is the
-// read-oriented repo shell — a window into the real project clone to verify
-// pushed work and search the code — backed by the RepoShell port.
+// ToolName enumerates the fourteen tools (06 §4 amended — the CRUD
+// consolidation) — the brain's entire action surface, organized as clean CRUD
+// over the two nouns it owns, tickets and feed updates, plus the agent/repo
+// seams:
+//
+//   - Tickets: create_ticket (C), list_tickets + get_ticket (R),
+//     update_ticket (U — one patch folding the old shape/mark_ready/
+//     mark_blocked/accept_to_done/request_approval verbs), delete_ticket (D,
+//     soft archive).
+//   - Feed updates: post_update (C), list_updates (R), edit_update (U),
+//     retract_update (D).
+//   - Agent seam: list_agents + get_agent_updates (read-only visibility into
+//     the runtime without importing internal/agent).
+//   - Cross-cutting: send_to_agent (message a ticket's agent), say (talk to the
+//     user), bash (read-oriented repo shell over the RepoShell port).
+//
+// Not in the set (06 D3, I6): anything that pulls (03 I6 — the pull is a system
+// action, never a brain decision) and notify (deferred to 10 — the mechanical
+// notify.send from MarkBlocked still emits, log-only in v1). Board state is no
+// longer injected; the model pulls it via list_tickets / get_ticket, so a pass
+// spends no tokens on board state it does not need (06 §4 amended).
 type ToolName string
 
 const (
 	ToolCreateTicket    ToolName = "create_ticket"
-	ToolShapeTicket     ToolName = "shape_ticket"
-	ToolMarkReady       ToolName = "mark_ready"
+	ToolListTickets     ToolName = "list_tickets"
+	ToolGetTicket       ToolName = "get_ticket"
+	ToolUpdateTicket    ToolName = "update_ticket"
+	ToolDeleteTicket    ToolName = "delete_ticket"
 	ToolSendToAgent     ToolName = "send_to_agent"
-	ToolMarkBlocked     ToolName = "mark_blocked"
-	ToolAcceptToDone    ToolName = "accept_to_done"
 	ToolSay             ToolName = "say"
-	ToolRequestApproval ToolName = "request_approval"
 	ToolPostUpdate      ToolName = "post_update"
+	ToolListUpdates     ToolName = "list_updates"
+	ToolEditUpdate      ToolName = "edit_update"
 	ToolRetractUpdate   ToolName = "retract_update"
 	ToolListAgents      ToolName = "list_agents"
 	ToolGetAgentUpdates ToolName = "get_agent_updates"
@@ -69,19 +80,44 @@ type CreateTicketInput struct {
 	Body  string `json:"body"`
 }
 
-// ShapeTicketInput — shape_ticket → BoardAPI.ShapeTicket(id, patch) (06 §4).
-// Nil/omitted fields are left unchanged; reprioritize is shape (03 §4's
-// "Reprioritize is not a separate operation").
-type ShapeTicketInput struct {
-	ID       string  `json:"id"`
-	Title    *string `json:"title,omitempty"`
-	Body     *string `json:"body,omitempty"`
-	Priority *int    `json:"priority,omitempty"`
+// ListTicketsInput — list_tickets takes no arguments (06 §4 amended). Returns
+// the compact board roster (every non-archived ticket, no bodies).
+type ListTicketsInput struct{}
+
+// GetTicketInput — get_ticket → BoardReader.GetTicket(id) (06 §4 amended). One
+// ticket in full, including its body.
+type GetTicketInput struct {
+	ID string `json:"id"`
 }
 
-// MarkReadyInput — mark_ready → BoardAPI.MarkReady(id) (06 §4). Makes the
-// ticket pullable; the pull itself is never a tool (03 I6).
-type MarkReadyInput struct {
+// UpdateTicketInput — update_ticket (06 §4 amended): one patch tool folding the
+// old shape_ticket / mark_ready / mark_blocked / accept_to_done /
+// request_approval verbs. Nil/omitted fields are left unchanged. Field edits
+// (title/body/priority) apply first, then approval_requested, then the state
+// transition, so a single call can shape-then-ready a ticket. Each field routes
+// to the board's own typed operation (dispatch), preserving every precondition.
+//
+//   - State ∈ {"ready","blocked","done"} — the reachable brain transitions;
+//     "blocked" requires BlockedReason. There is no transition *to* shaping.
+//   - ApprovalRequested and State are mutually exclusive (approval is a
+//     shaping-only flag, 08 §5); setting both is a malformed call.
+//
+// State="done" is always destructive (recycles the worker, 06 §7); the
+// confirm-before-destructive rule lives in the system prompt (prompt.go).
+type UpdateTicketInput struct {
+	ID                string  `json:"id"`
+	Title             *string `json:"title,omitempty"`
+	Body              *string `json:"body,omitempty"`
+	Priority          *int    `json:"priority,omitempty"`
+	State             *string `json:"state,omitempty"`
+	BlockedReason     *string `json:"blocked_reason,omitempty"`
+	ApprovalRequested *bool   `json:"approval_requested,omitempty"`
+}
+
+// DeleteTicketInput — delete_ticket → BoardAPI.ArchiveTicket(id) (06 §4
+// amended). Soft-deletes a non-active ticket; an active (working/blocked)
+// ticket is refused with a typed board error.
+type DeleteTicketInput struct {
 	ID string `json:"id"`
 }
 
@@ -95,31 +131,10 @@ type SendToAgentInput struct {
 	Instruction string `json:"instruction"`
 }
 
-// MarkBlockedInput — mark_blocked → BoardAPI.MarkBlocked(id, reason)
-// (06 §4). Turn ended, human decision genuinely needed.
-type MarkBlockedInput struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason"`
-}
-
-// AcceptToDoneInput — accept_to_done → BoardAPI.AcceptToDone(id) (06 §4).
-// Always destructive (06 §7): releases and recycles the worker.
-type AcceptToDoneInput struct {
-	ID string `json:"id"`
-}
-
 // SayInput — say → Say.Say(text) (06 §4). Text to the user: appended to the
 // transcript, pushed over SSE; 09 will speak it.
 type SayInput struct {
 	Text string `json:"text"`
-}
-
-// RequestApprovalInput — request_approval → BoardAPI.RequestApproval(id)
-// (08 §5). Sets approval_requested on a Shaping ticket so it surfaces as a
-// proposal card. Used at the brain's discretion for complex decisions;
-// routine work goes straight to mark_ready.
-type RequestApprovalInput struct {
-	Ticket string `json:"ticket"`
 }
 
 // PostUpdateInput — post_update → NotificationStore.PostNotification(kind,
@@ -129,6 +144,21 @@ type PostUpdateInput struct {
 	Body     string  `json:"body"`
 	Ticket   *string `json:"ticket,omitempty"`
 	ImageURL *string `json:"image_url,omitempty"`
+}
+
+// ListUpdatesInput — list_updates takes no arguments (06 §4 amended). Returns
+// the active feed cards (id, kind, body, ticket, image) so the model knows
+// which notification_id to edit or retract.
+type ListUpdatesInput struct{}
+
+// EditUpdateInput — edit_update → NotificationStore.EditNotification(id, kind,
+// body, image_url) (06 §4 amended, 08 §7). Amends a still-active card in place.
+// kind is derived from ImageURL like post_update ("preview" with an image, else
+// "update").
+type EditUpdateInput struct {
+	NotificationID int64   `json:"notification_id"`
+	Body           string  `json:"body"`
+	ImageURL       *string `json:"image_url,omitempty"`
 }
 
 // RetractUpdateInput — retract_update → NotificationStore.RetractNotification(
@@ -159,21 +189,32 @@ const (
 
 	schemaTypeString  = "string"
 	schemaTypeInteger = "integer"
+	schemaTypeBoolean = "boolean"
 	schemaTypeObject  = "object"
 
 	fieldTicketID       = "id"
 	fieldTitle          = "title"
 	fieldBody           = "body"
 	fieldTicket         = "ticket"
+	fieldPriority       = "priority"
+	fieldState          = "state"
+	fieldBlockedReason  = "blocked_reason"
+	fieldApproval       = "approval_requested"
 	fieldImageURL       = "image_url"
 	fieldNotificationID = "notification_id"
 	fieldWorkerID       = "worker_id"
 	fieldCommand        = "command"
 
-	// notifKindUpdate/notifKindPreview are post_update's two kinds (08 §7):
-	// "preview" when an image is attached, "update" otherwise.
+	// notifKindUpdate/notifKindPreview are post_update's / edit_update's two
+	// kinds (08 §7): "preview" when an image is attached, "update" otherwise.
 	notifKindUpdate  = "update"
 	notifKindPreview = "preview"
+
+	// The reachable update_ticket state transitions (06 §4 amended). There is
+	// no transition *to* shaping — a ticket starts there.
+	stateReady   = "ready"
+	stateBlocked = "blocked"
+	stateDone    = "done"
 )
 
 func stringSchema(description string) map[string]any {
@@ -182,6 +223,10 @@ func stringSchema(description string) map[string]any {
 
 func intSchema(description string) map[string]any {
 	return map[string]any{schemaKeyType: schemaTypeInteger, schemaKeyDescription: description}
+}
+
+func boolSchema(description string) map[string]any {
+	return map[string]any{schemaKeyType: schemaTypeBoolean, schemaKeyDescription: description}
 }
 
 func objectSchema(required []string, properties map[string]any) map[string]any {
@@ -205,19 +250,42 @@ var Tools = []ToolDef{
 		}),
 	},
 	{
-		Name: ToolShapeTicket,
-		Description: "Update a ticket's title, body, and/or priority while it is in Shaping " +
-			"or Ready. Reprioritizing is done by shaping.",
+		Name: ToolListTickets,
+		Description: "List every ticket on the board with its state, priority and worker — the " +
+			"compact roster, without bodies. Read the board here before deciding; use " +
+			"get_ticket for a single ticket's full body. Read-only.",
+		InputSchema: objectSchema([]string{}, map[string]any{}),
+	},
+	{
+		Name:        ToolGetTicket,
+		Description: "Read one ticket in full, including its body, by id. Read-only.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
-			fieldTitle:    stringSchema("New title, if changing."),
-			fieldBody:     stringSchema("New body, if changing."),
-			"priority":    intSchema("New priority; higher pulls first."),
 		}),
 	},
 	{
-		Name:        ToolMarkReady,
-		Description: "Mark a shaping ticket ready, making it pullable. Does not pull it — the pull is automatic.",
+		Name: ToolUpdateTicket,
+		Description: "Update a ticket. Edit its title/body/priority, and/or move its state: " +
+			"\"ready\" queues a shaping ticket for the pull, \"blocked\" needs a human decision " +
+			"(give blocked_reason), \"done\" accepts the result and recycles the worker " +
+			"(destructive — the workspace is gone). Set approval_requested to surface a shaping " +
+			"ticket as a proposal card (mutually exclusive with state). Fields apply before the " +
+			"state change, so one call can revise and queue a ticket.",
+		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
+			fieldTicketID:      stringSchema("Ticket id."),
+			fieldTitle:         stringSchema("New title, if changing."),
+			fieldBody:          stringSchema("New body, if changing."),
+			fieldPriority:      intSchema("New priority; higher pulls first."),
+			fieldState:         stringSchema("New state: \"ready\", \"blocked\", or \"done\"."),
+			fieldBlockedReason: stringSchema("Required when state is \"blocked\": what the user must decide."),
+			fieldApproval:      boolSchema("Set true to surface a shaping ticket as a proposal card awaiting approval."),
+		}),
+	},
+	{
+		Name: ToolDeleteTicket,
+		Description: "Delete (archive) a ticket that should not exist — a mistake or duplicate. " +
+			"It disappears from the board but is retained for history. Only backlog or done " +
+			"tickets can be deleted; resolve an in-progress ticket first.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
 		}),
@@ -232,35 +300,10 @@ var Tools = []ToolDef{
 		}),
 	},
 	{
-		Name:        ToolMarkBlocked,
-		Description: "Mark a working ticket blocked because a human decision is genuinely needed.",
-		InputSchema: objectSchema([]string{fieldTicketID, "reason"}, map[string]any{
-			fieldTicketID: stringSchema("Ticket id."),
-			"reason":      stringSchema("What the user must decide."),
-		}),
-	},
-	{
-		Name: ToolAcceptToDone,
-		Description: "Accept a ticket's result as done, releasing and recycling its worker. " +
-			"Destructive — the workspace is gone.",
-		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
-			fieldTicketID: stringSchema("Ticket id."),
-		}),
-	},
-	{
 		Name:        ToolSay,
 		Description: "Say something to the user in the chat.",
 		InputSchema: objectSchema([]string{"text"}, map[string]any{
 			"text": stringSchema("The text to say."),
-		}),
-	},
-	{
-		Name: ToolRequestApproval,
-		Description: "Ask the user to approve a Shaping ticket before it runs — it surfaces " +
-			"as a proposal card. Use for tickets embedding a complex or consequential " +
-			"technical decision; routine work goes straight to mark_ready.",
-		InputSchema: objectSchema([]string{fieldTicket}, map[string]any{
-			fieldTicket: stringSchema("Ticket id."),
 		}),
 	},
 	{
@@ -271,6 +314,22 @@ var Tools = []ToolDef{
 			fieldBody:     stringSchema("The update text."),
 			fieldTicket:   stringSchema("Related ticket id, if any."),
 			fieldImageURL: stringSchema("Image URL for an inline preview, if any."),
+		}),
+	},
+	{
+		Name: ToolListUpdates,
+		Description: "List the active feed updates you have posted — their ids, kinds and text — " +
+			"so you can edit or retract one. Read-only.",
+		InputSchema: objectSchema([]string{}, map[string]any{}),
+	},
+	{
+		Name: ToolEditUpdate,
+		Description: "Edit a feed update you already posted — fix its wording or swap its preview " +
+			"image — instead of retracting and reposting. Use list_updates to find the id.",
+		InputSchema: objectSchema([]string{fieldNotificationID, fieldBody}, map[string]any{
+			fieldNotificationID: intSchema("The id of the notification to edit."),
+			fieldBody:           stringSchema("The new update text."),
+			fieldImageURL:       stringSchema("New image URL for an inline preview, if any."),
 		}),
 	},
 	{
@@ -308,18 +367,22 @@ var Tools = []ToolDef{
 }
 
 // Dispatch executes one tool call against the injected ports — the
-// tool -> port-method mapping (06 §4):
+// tool -> port-method mapping (06 §4 amended):
 //
 //	create_ticket  -> BoardAPI.CreateTicket(title, body)
-//	shape_ticket   -> BoardAPI.ShapeTicket(id, patch)
-//	mark_ready     -> BoardAPI.MarkReady(id)
+//	list_tickets   -> BoardReader.GetBoard()                          (compact roster)
+//	get_ticket     -> BoardReader.GetTicket(id)                       (full body)
+//	update_ticket  -> facade: ShapeTicket / RequestApproval / MarkReady /
+//	                  MarkBlocked / AcceptToDone, routed per patch field
+//	delete_ticket  -> BoardAPI.ArchiveTicket(id)
 //	send_to_agent  -> BoardAPI.SendToAgent(id, instruction)
-//	mark_blocked   -> BoardAPI.MarkBlocked(id, reason)
-//	accept_to_done   -> BoardAPI.AcceptToDone(id)
 //	say              -> Say.Say(text)
-//	request_approval -> BoardAPI.RequestApproval(id)                  (08 §5)
 //	post_update      -> NotificationStore.PostNotification(kind, ...) (08 §7)
+//	list_updates     -> FeedReader.ListUpdates()                      (08 §7)
+//	edit_update      -> NotificationStore.EditNotification(id, ...)   (08 §7)
 //	retract_update   -> NotificationStore.RetractNotification(id)     (08 §7)
+//	list_agents      -> AgentInspector.ListAgents()
+//	get_agent_updates-> AgentInspector.GetAgentUpdates(worker_id)
 //	bash             -> RepoShell.Run(command)
 //
 // Never returns a Go error: a tool failure — bad arguments, a typed Board
@@ -362,22 +425,24 @@ func (s *Service) routeTool(ctx context.Context, call ToolCall) (ToolResult, boo
 	switch call.Name {
 	case ToolCreateTicket:
 		return s.doCreateTicket(ctx, call)
-	case ToolShapeTicket:
-		return s.doShapeTicket(ctx, call)
-	case ToolMarkReady:
-		return s.doMarkReady(ctx, call)
+	case ToolListTickets:
+		return s.doListTickets(ctx, call)
+	case ToolGetTicket:
+		return s.doGetTicket(ctx, call)
+	case ToolUpdateTicket:
+		return s.doUpdateTicket(ctx, call)
+	case ToolDeleteTicket:
+		return s.doDeleteTicket(ctx, call)
 	case ToolSendToAgent:
 		return s.doSendToAgent(ctx, call)
-	case ToolMarkBlocked:
-		return s.doMarkBlocked(ctx, call)
-	case ToolAcceptToDone:
-		return s.doAcceptToDone(ctx, call)
 	case ToolSay:
 		return s.doSay(ctx, call)
-	case ToolRequestApproval:
-		return s.doRequestApproval(ctx, call)
 	case ToolPostUpdate:
 		return s.doPostUpdate(ctx, call)
+	case ToolListUpdates:
+		return s.doListUpdates(ctx, call)
+	case ToolEditUpdate:
+		return s.doEditUpdate(ctx, call)
 	case ToolRetractUpdate:
 		return s.doRetractUpdate(ctx, call)
 	case ToolListAgents:
@@ -410,23 +475,58 @@ func (s *Service) doCreateTicket(ctx context.Context, call ToolCall) (ToolResult
 	return ticketResult(call.ID, t, err), false
 }
 
-func (s *Service) doShapeTicket(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	var in ShapeTicketInput
-	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return malformedResult(call.ID, err), true
+func (s *Service) doListTickets(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	snap, err := s.reader.GetBoard(ctx)
+	if err != nil {
+		return errorResult(call.ID, err), false
 	}
-	patch := board.ShapePatch{Title: in.Title, Body: in.Body, Priority: in.Priority}
-	t, err := s.board.ShapeTicket(ctx, board.TicketID(in.ID), patch)
-	return ticketResult(call.ID, t, err), false
+	return ToolResult{ToolCallID: call.ID, Content: formatRoster(snap)}, false
 }
 
-func (s *Service) doMarkReady(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	var in MarkReadyInput
+func (s *Service) doGetTicket(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in GetTicketInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
 	}
-	t, err := s.board.MarkReady(ctx, board.TicketID(in.ID))
-	return ticketResult(call.ID, t, err), false
+	t, err := s.reader.GetTicket(ctx, board.TicketID(in.ID))
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: formatTicketDetail(t)}, false
+}
+
+// doUpdateTicket is the update_ticket facade (06 §4 amended): it validates the
+// patch, then routes each present field to the board's own typed operation in a
+// fixed order — field edits, then approval, then the state transition — so one
+// call can revise and queue a ticket. The first typed board error stops the call
+// and is fed back verbatim (06 §6); when earlier steps already applied, the
+// error names them so the model can re-issue only the remainder. Argument-shape
+// problems (bad state, approval+state, blocked without a reason, an empty patch)
+// are malformed (06 §8).
+func (s *Service) doUpdateTicket(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in UpdateTicketInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	if res, ok := requireField(call.ID, ToolUpdateTicket, fieldTicketID, in.ID); !ok {
+		return res, true
+	}
+	if res, ok := validateUpdate(call.ID, in); !ok {
+		return res, true
+	}
+	return s.applyUpdate(ctx, call.ID, in), false
+}
+
+func (s *Service) doDeleteTicket(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in DeleteTicketInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	t, err := s.board.ArchiveTicket(ctx, board.TicketID(in.ID))
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: fmt.Sprintf("ok: ticket %s deleted", t.ID)}, false
 }
 
 func (s *Service) doSendToAgent(ctx context.Context, call ToolCall) (ToolResult, bool) {
@@ -443,28 +543,121 @@ func (s *Service) doSendToAgent(ctx context.Context, call ToolCall) (ToolResult,
 	return ticketResult(call.ID, t, err), false
 }
 
-func (s *Service) doMarkBlocked(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	var in MarkBlockedInput
-	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return malformedResult(call.ID, err), true
+// validateUpdate checks an update_ticket patch's argument shape (06 §8), before
+// any board call: approval_requested and state are mutually exclusive, the state
+// (if any) must be a reachable transition with a reason when "blocked", and the
+// patch must do something. ok is false when the returned ToolResult is the
+// malformed feedback to send back.
+func validateUpdate(id string, in UpdateTicketInput) (ToolResult, bool) {
+	if in.ApprovalRequested != nil && *in.ApprovalRequested && in.State != nil {
+		return malformedResultMsg(id, "update_ticket: approval_requested and state are mutually exclusive"), false
 	}
-	// reason is the whole point of a blocker card — the decision the user must
-	// make. An empty one is a "needs you" card with nothing to act on. The board
-	// stores it verbatim without guarding, so reject it here (see requireField).
-	if res, ok := requireField(call.ID, ToolMarkBlocked, "reason", in.Reason); !ok {
-		return res, true
+	if res, ok := validateUpdateState(id, in); !ok {
+		return res, false
 	}
-	t, err := s.board.MarkBlocked(ctx, board.TicketID(in.ID), in.Reason)
-	return ticketResult(call.ID, t, err), false
+	if !updateHasWork(in) {
+		return malformedResultMsg(id,
+			"update_ticket: nothing to update — set at least one field, approval_requested, or state"), false
+	}
+	return ToolResult{}, true
 }
 
-func (s *Service) doAcceptToDone(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	var in AcceptToDoneInput
-	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return malformedResult(call.ID, err), true
+// validateUpdateState validates the state field alone (a reachable transition,
+// with a blocked_reason when moving to blocked). A nil state is valid.
+func validateUpdateState(id string, in UpdateTicketInput) (ToolResult, bool) {
+	if in.State == nil {
+		return ToolResult{}, true
 	}
-	t, err := s.board.AcceptToDone(ctx, board.TicketID(in.ID))
-	return ticketResult(call.ID, t, err), false
+	switch *in.State {
+	case stateReady, stateBlocked, stateDone:
+	default:
+		return malformedResultMsg(id, fmt.Sprintf(
+			"update_ticket: state must be %q, %q, or %q", stateReady, stateBlocked, stateDone)), false
+	}
+	if *in.State == stateBlocked && strings.TrimSpace(deref(in.BlockedReason)) == "" {
+		return malformedResultMsg(id, "update_ticket: state=\"blocked\" requires a non-empty blocked_reason"), false
+	}
+	return ToolResult{}, true
+}
+
+// updateHasWork reports whether a patch actually changes anything — a field
+// edit, an approval request, or a state transition (a bare approval_requested:false
+// is not work).
+func updateHasWork(in UpdateTicketInput) bool {
+	edits := in.Title != nil || in.Body != nil || in.Priority != nil
+	return edits || (in.ApprovalRequested != nil && *in.ApprovalRequested) || in.State != nil
+}
+
+// applyUpdate routes a validated patch to the board's typed operations in order
+// — field edits, then approval, then state — and returns the final ticket
+// result. A step's typed error stops the sequence and is reported with any steps
+// that already applied (updateStepError).
+func (s *Service) applyUpdate(ctx context.Context, id string, in UpdateTicketInput) ToolResult {
+	tid := board.TicketID(in.ID)
+	var t board.Ticket
+	var err error
+	var applied []string
+
+	if in.Title != nil || in.Body != nil || in.Priority != nil {
+		t, err = s.board.ShapeTicket(ctx, tid, board.ShapePatch{Title: in.Title, Body: in.Body, Priority: in.Priority})
+		if err != nil {
+			return updateStepError(id, "edit fields", applied, err)
+		}
+		applied = append(applied, "fields")
+	}
+	if in.ApprovalRequested != nil && *in.ApprovalRequested {
+		t, err = s.board.RequestApproval(ctx, tid)
+		if err != nil {
+			return updateStepError(id, "request approval", applied, err)
+		}
+		applied = append(applied, "approval_requested")
+	}
+	if in.State != nil {
+		// State is last, so no step reads `applied` after this — it need not be
+		// extended here.
+		if t, err = s.applyState(ctx, tid, *in.State, deref(in.BlockedReason)); err != nil {
+			return updateStepError(id, "state="+*in.State, applied, err)
+		}
+	}
+	return ticketResult(id, t, nil)
+}
+
+// applyState routes one state transition to its board operation. The board's
+// typed error is returned unwrapped on purpose: applyUpdate feeds it back to the
+// model verbatim (06 §6), and wrapping it would corrupt the idempotency signal
+// the prompt tells the model to read.
+//
+//nolint:wrapcheck // board error is fed back verbatim (06 §6), never wrapped.
+func (s *Service) applyState(
+	ctx context.Context, id board.TicketID, state, blockedReason string,
+) (board.Ticket, error) {
+	switch state {
+	case stateReady:
+		return s.board.MarkReady(ctx, id)
+	case stateBlocked:
+		return s.board.MarkBlocked(ctx, id, blockedReason)
+	default: // stateDone — validateUpdate already rejected any other value
+		return s.board.AcceptToDone(ctx, id)
+	}
+}
+
+// updateStepError reports a failed update_ticket step, naming any steps that
+// already applied so the model can re-issue only the remainder (06 §6). Fed back
+// verbatim; not malformed (the arguments were valid, a precondition failed).
+func updateStepError(id, step string, applied []string, err error) ToolResult {
+	msg := err.Error()
+	if len(applied) > 0 {
+		msg = fmt.Sprintf("applied %s, then failed to %s: %s", strings.Join(applied, "+"), step, err.Error())
+	}
+	return ToolResult{ToolCallID: id, Content: msg, IsError: true}
+}
+
+// deref returns the pointed-to string, or "" for a nil pointer.
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (s *Service) doSay(ctx context.Context, call ToolCall) (ToolResult, bool) {
@@ -483,13 +676,32 @@ func (s *Service) doSay(ctx context.Context, call ToolCall) (ToolResult, bool) {
 	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
 }
 
-func (s *Service) doRequestApproval(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	var in RequestApprovalInput
+func (s *Service) doListUpdates(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	updates, err := s.feed.ListUpdates(ctx)
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: formatUpdates(updates)}, false
+}
+
+func (s *Service) doEditUpdate(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in EditUpdateInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
 	}
-	t, err := s.board.RequestApproval(ctx, board.TicketID(in.Ticket))
-	return ticketResult(call.ID, t, err), false
+	// body is required for the same reason as post_update: an empty edit would
+	// blank the card. See requireField.
+	if res, ok := requireField(call.ID, ToolEditUpdate, fieldBody, in.Body); !ok {
+		return res, true
+	}
+	kind := notifKindUpdate
+	if in.ImageURL != nil {
+		kind = notifKindPreview
+	}
+	if err := s.notifications.EditNotification(ctx, in.NotificationID, kind, in.Body, in.ImageURL); err != nil {
+		return errorResult(call.ID, err), false
+	}
+	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
 }
 
 func (s *Service) doPostUpdate(ctx context.Context, call ToolCall) (ToolResult, bool) {
@@ -523,6 +735,62 @@ func (s *Service) doRetractUpdate(ctx context.Context, call ToolCall) (ToolResul
 		return errorResult(call.ID, err), false
 	}
 	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
+}
+
+// formatRoster renders list_tickets' result — the compact board roster, no
+// bodies (06 §4 amended). Reuses renderBoard (service.go), the same compact
+// per-column layout that was injected before board reads became a tool.
+func formatRoster(snap board.Snapshot) string {
+	var b strings.Builder
+	renderBoard(&b, snap)
+	return b.String()
+}
+
+// formatTicketDetail renders get_ticket's result — one ticket in full, including
+// its body (06 §4 amended).
+func formatTicketDetail(t board.Ticket) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "ticket %s: %q\nstate=%s priority=%d", t.ID, t.Title, t.State, t.Priority)
+	if t.WorkerID != nil {
+		fmt.Fprintf(&b, " worker=%s", *t.WorkerID)
+	}
+	if t.ApprovalRequested {
+		b.WriteString(" approval_requested=true")
+	}
+	if t.BlockedReason != nil {
+		fmt.Fprintf(&b, "\nblocked_reason: %s", *t.BlockedReason)
+	}
+	b.WriteString("\nbody:\n")
+	if t.Body == "" {
+		b.WriteString("(empty)")
+	} else {
+		b.WriteString(t.Body)
+	}
+	return b.String()
+}
+
+// formatUpdates renders list_updates' result — one line per active feed card
+// (06 §4 amended), leading with the id the model uses for edit_update /
+// retract_update.
+func formatUpdates(updates []Update) string {
+	if len(updates) == 0 {
+		return "no active updates"
+	}
+	var b strings.Builder
+	for i, u := range updates {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "update %d [%s]", u.ID, u.Kind)
+		if u.TicketID != "" {
+			fmt.Fprintf(&b, " (ticket %s)", u.TicketID)
+		}
+		if u.ImageURL != "" {
+			fmt.Fprintf(&b, " image=%s", u.ImageURL)
+		}
+		fmt.Fprintf(&b, ": %s", u.Body)
+	}
+	return b.String()
 }
 
 // ticketResult turns a Board API call's outcome into a ToolResult. A typed

@@ -337,6 +337,44 @@ func buildSeedTicket(ctx context.Context, tx Tx, spec SeedSpec, state State) (Ti
 	return seed, nil
 }
 
+// ArchiveTicket soft-deletes a ticket — the brain's delete_ticket (06 §4
+// amended). The row is retained (ArchivedAt is stamped) but the ticket
+// disappears from every read (Snapshot, GetTicket) and from the pull, and
+// every later targeted operation treats it as ErrNotFound.
+//
+// Precondition: state ∈ {shaping, ready, done} — a non-active ticket. An
+// active (working/blocked) ticket binds a worker (03 I3), so it must be
+// resolved first; archiving it directly is refused with ErrInvalidTransition
+// rather than silently stranding or releasing the worker. Emits board.updated
+// (via mutate) and feed.updated (an archived proposal/blocker card disappears).
+func (s *Service) ArchiveTicket(ctx context.Context, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, "archive_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if t.State.Active() {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ArchiveTicket"}
+		}
+		now := time.Now().UTC()
+		t.ArchivedAt = &now
+		updated, err := tx.UpdateTicket(ctx, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+		}
+		return updated, nil
+	})
+}
+
+// GetTicket reads one ticket by id (03 §4 amended), backing the brain's
+// get_ticket tool. Archived or missing ids surface as ErrNotFound.
+func (s *Service) GetTicket(ctx context.Context, id TicketID) (Ticket, error) {
+	t, err := s.store.GetTicket(ctx, id)
+	if err != nil {
+		return Ticket{}, fmt.Errorf("board: get ticket %s: %w", id, err)
+	}
+	return t, nil
+}
+
 // GetBoard returns the full snapshot (03 §4).
 func (s *Service) GetBoard(ctx context.Context) (Snapshot, error) {
 	snap, err := s.store.Snapshot(ctx)

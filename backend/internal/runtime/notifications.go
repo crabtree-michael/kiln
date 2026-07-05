@@ -50,6 +50,13 @@ type NotificationStore interface {
 	// note that stopped mattering).
 	RetractNotification(ctx context.Context, id int64) error
 
+	// EditNotification amends a still-active (non-retracted) notification's kind,
+	// body and image in place and appends a feed.updated outbox row in one
+	// transaction — the brain's edit_update (06 §4 amended): fix a card's wording
+	// or swap its preview without retract-and-repost. kind is recomputed by the
+	// caller from the image's presence ("preview" with an image, else "update").
+	EditNotification(ctx context.Context, id int64, kind, body string, imageURL *string) error
+
 	// MarkSeen stamps seen_at=now() on every still-unseen notification with
 	// id <= lastID (the high-water mark the client reports), and appends a
 	// feed.updated outbox row in one transaction (08 §3).

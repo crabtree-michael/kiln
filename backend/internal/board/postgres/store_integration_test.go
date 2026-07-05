@@ -17,6 +17,7 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -296,6 +297,82 @@ func TestParallelRunPull_NoDoubleBind(t *testing.T) {
 	if sendCount != numWorkers {
 		t.Errorf("agent.send emission count = %d, want exactly %d"+
 			" (one per binding, no duplicates from repeated/racing RunPull calls)", sendCount, numWorkers)
+	}
+}
+
+// ---- archived_at: soft delete is invisible to reads but keeps the row ------
+
+func TestArchiveTicket_SoftDeletesFromReadsButKeepsRow(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	created, err := svc.CreateTicket(ctx, "mistake", "body")
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	archived, err := svc.ArchiveTicket(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("ArchiveTicket: %v", err)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatalf("ArchiveTicket returned nil ArchivedAt")
+	}
+
+	// Gone from both read paths...
+	if _, err := svc.GetTicket(ctx, created.ID); !errors.Is(err, board.ErrNotFound) {
+		t.Fatalf("GetTicket after archive: err = %v, want ErrNotFound", err)
+	}
+	snap, err := svc.GetBoard(ctx)
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(snap.Shaping)+len(snap.Ready)+len(snap.Working)+len(snap.Blocked)+len(snap.Done) != 0 {
+		t.Fatalf("archived ticket still visible in snapshot: %+v", snap)
+	}
+
+	// ...but the row is retained (soft delete, not hard delete).
+	var count int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM tickets WHERE id = $1 AND archived_at IS NOT NULL`, string(created.ID)).Scan(&count); err != nil {
+		t.Fatalf("count archived row: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("archived row count = %d, want 1 (row retained)", count)
+	}
+}
+
+// A ready ticket, once archived, is no longer a pull candidate.
+func TestArchiveTicket_ArchivedReadyIsNotPulled(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	mustInsertWorker(ctx, t, db)
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	created, err := svc.CreateTicket(ctx, "ready-then-archived", "")
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if _, err := svc.MarkReady(ctx, created.ID); err != nil {
+		t.Fatalf("MarkReady: %v", err)
+	}
+	if _, err := svc.ArchiveTicket(ctx, created.ID); err != nil {
+		t.Fatalf("ArchiveTicket: %v", err)
+	}
+	if err := svc.RunPull(ctx); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+
+	var working int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM tickets WHERE state = 'working'`).Scan(&working); err != nil {
+		t.Fatalf("count working: %v", err)
+	}
+	if working != 0 {
+		t.Fatalf("archived ready ticket was pulled into working (count=%d)", working)
 	}
 }
 

@@ -31,8 +31,8 @@ func TestHandleEvent_BoundedToolLoop_DispatchesInOrder(t *testing.T) {
 	priority := 3
 	llm := &scriptedLLM{responses: []brain.LLMResponse{
 		toolUse(newToolCall(t, "r1", brain.ToolCreateTicket, brain.CreateTicketInput{Title: "Fix bug", Body: "details"})),
-		toolUse(newToolCall(t, "r2", brain.ToolShapeTicket, brain.ShapeTicketInput{ID: ticketT99, Priority: &priority})),
-		toolUse(newToolCall(t, "r3", brain.ToolMarkReady, brain.MarkReadyInput{ID: ticketT99})),
+		toolUse(newToolCall(t, "r2", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: ticketT99, Priority: &priority})),
+		toolUse(newToolCall(t, "r3", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: ticketT99, State: new("ready")})),
 		toolUse(newToolCall(t, "r4", brain.ToolSay, brain.SayInput{Text: "Created and readied t-99."})),
 		endTurn(""),
 	}}
@@ -46,7 +46,7 @@ func TestHandleEvent_BoundedToolLoop_DispatchesInOrder(t *testing.T) {
 	llm.requireCalled(t, 5)
 
 	calls := fb.recordedCalls()
-	wantMethods := []string{"CreateTicket", "ShapeTicket", methodMarkReady}
+	wantMethods := []string{"CreateTicket", methodShapeTicket, methodMarkReady}
 	gotMethods := make([]string, 0, len(calls))
 	for _, c := range calls {
 		gotMethods = append(gotMethods, c.Method)
@@ -78,7 +78,7 @@ func TestHandleEvent_ToolErrorFedBackVerbatim(t *testing.T) {
 	}
 	fs := &fakeSay{}
 	llm := &scriptedLLM{responses: []brain.LLMResponse{
-		toolUse(newToolCall(t, "r1", brain.ToolMarkReady, brain.MarkReadyInput{ID: ticketT1})),
+		toolUse(newToolCall(t, "r1", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: ticketT1, State: new("ready")})),
 		endTurn("noted"),
 	}}
 
@@ -177,7 +177,7 @@ func TestHandleEvent_ConfirmBeforeDestructive_UnambiguousExecutesImmediately(t *
 	fb := &fakeBoard{}
 	fs := &fakeSay{}
 	llm := &scriptedLLM{responses: []brain.LLMResponse{
-		toolUse(newToolCall(t, "accept", brain.ToolAcceptToDone, brain.AcceptToDoneInput{ID: "t-3"})),
+		toolUse(newToolCall(t, "accept", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: "t-3", State: new("done")})),
 		toolUse(newToolCall(t, "say", brain.ToolSay, brain.SayInput{Text: "Accepted t-3."})),
 		endTurn(""),
 	}}

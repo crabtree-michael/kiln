@@ -6,34 +6,44 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
 
-// BoardAPI is the brain's port onto six of the Board API's operations
-// (03 §4) — everything the seven tools need except the read path (split out
+// BoardAPI is the brain's port onto the Board API's mutation operations
+// (03 §4) — everything the write tools need except the read path (split out
 // as BoardReader below) and RunPull, which is never a brain tool (03 I6).
 // Method signatures match board.Service's exactly, so *board.Service
 // satisfies this port directly at the composition root with no adapter (see
 // the compile-time assertion below); board's typed errors (ErrNotFound,
 // ErrInvalidTransition) surface through these calls and are fed back to the
 // model verbatim as tool results (06 §6, §8).
+//
+// After the CRUD consolidation (06 §4 amended), the single update_ticket tool
+// is a *facade* over ShapeTicket / RequestApproval / MarkReady / MarkBlocked /
+// AcceptToDone — those verbs are no longer separate tools, but the port methods
+// remain so the facade can route each patch field to the right typed operation
+// and preserve every precondition.
 type BoardAPI interface {
 	// CreateTicket → tool create_ticket (06 §4).
 	CreateTicket(ctx context.Context, title, body string) (board.Ticket, error)
-	// ShapeTicket → tool shape_ticket.
+	// ShapeTicket → update_ticket title/body/priority.
 	ShapeTicket(ctx context.Context, id board.TicketID, patch board.ShapePatch) (board.Ticket, error)
-	// MarkReady → tool mark_ready.
+	// MarkReady → update_ticket state="ready".
 	MarkReady(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	// SendToAgent → tool send_to_agent. Destructive when the instruction
 	// would discard in-flight work — confirm-before-destructive is
 	// prompt-level, not mechanical (06 §7); this port has no notion of it.
 	SendToAgent(ctx context.Context, id board.TicketID, instruction string) (board.Ticket, error)
-	// MarkBlocked → tool mark_blocked.
+	// MarkBlocked → update_ticket state="blocked" (reason required).
 	MarkBlocked(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
-	// AcceptToDone → tool accept_to_done. Always destructive — releases and
-	// recycles the worker (06 §7).
+	// AcceptToDone → update_ticket state="done". Always destructive — releases
+	// and recycles the worker (06 §7).
 	AcceptToDone(ctx context.Context, id board.TicketID) (board.Ticket, error)
-	// RequestApproval → tool request_approval (08 §5). Sets approval_requested
-	// on a Shaping ticket so it surfaces as a proposal card; the gate is at the
-	// brain's discretion (08 §5, §9 D5). Precondition state==shaping surfaces as
-	// a typed board error, fed back verbatim like any other (06 §6, §8).
+	// ArchiveTicket → tool delete_ticket (06 §4 amended). Soft-deletes a
+	// non-active ticket; an active (working/blocked) ticket is refused with a
+	// typed board error, fed back verbatim (06 §6, §8).
+	ArchiveTicket(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	// RequestApproval → update_ticket approval_requested=true (08 §5). Sets
+	// approval_requested on a Shaping ticket so it surfaces as a proposal card;
+	// the gate is at the brain's discretion (08 §5, §9 D5). Precondition
+	// state==shaping surfaces as a typed board error, fed back verbatim (06 §6, §8).
 	RequestApproval(ctx context.Context, id board.TicketID) (board.Ticket, error)
 }
 
@@ -51,6 +61,22 @@ type NotificationStore interface {
 	// RetractNotification → tool retract_update (08 §7). Stamps retracted_at so
 	// the card drops from the feed.
 	RetractNotification(ctx context.Context, id int64) error
+	// EditNotification → tool edit_update (06 §4 amended, 08 §7). Amends a
+	// still-active card's kind/body/image in place; kind is "preview" when an
+	// image is set, else "update". Appends feed.updated transactionally.
+	EditNotification(ctx context.Context, id int64, kind, body string, imageURL *string) error
+}
+
+// FeedReader is the brain's read port onto the active feed (06 §4 amended,
+// 08 §7): list the update/preview cards the brain may still edit or retract, so
+// it knows their ids. Provider-neutral neutral Update shapes out; satisfied by a
+// cmd/kiln adapter over *runtime.Service (brain cannot import runtime, so no
+// assertion here — the same pattern as AgentInspector). The feed is pulled on
+// demand via list_updates rather than injected, keeping per-pass context lean.
+type FeedReader interface {
+	// ListUpdates → tool list_updates. Active (neither seen nor retracted)
+	// cards, newest-first.
+	ListUpdates(ctx context.Context) ([]Update, error)
 }
 
 // BoardReader is the brain's port onto the board's read path (03 §4
@@ -59,7 +85,14 @@ type NotificationStore interface {
 // requested, so the model can't skip reading state and no round-trip is
 // spent on it.
 type BoardReader interface {
+	// GetBoard → tool list_tickets (06 §4 amended). The full board snapshot,
+	// rendered compactly (no bodies) as the model's ticket roster. No longer
+	// injected every pass — the model pulls it on demand, so a pass that does
+	// not need board state spends no tokens on it.
 	GetBoard(ctx context.Context) (board.Snapshot, error)
+	// GetTicket → tool get_ticket (06 §4 amended). One ticket in full, including
+	// its body; ErrNotFound for a missing or archived id, fed back verbatim.
+	GetTicket(ctx context.Context, id board.TicketID) (board.Ticket, error)
 }
 
 // Say is the brain's port onto the runtime's Say path (07 §3, §6): append

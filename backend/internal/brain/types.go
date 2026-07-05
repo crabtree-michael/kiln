@@ -3,8 +3,6 @@ package brain
 import (
 	"encoding/json"
 	"time"
-
-	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
 
 // EventType enumerates the two 01 event types this module decodes (06 §3.3).
@@ -80,17 +78,31 @@ type Message struct {
 // from over-trimming.
 const TranscriptWindow = 20
 
-// PassInput is one pass's assembled context (06 §3): built fresh every
-// HandleEvent call, never held between events (06 §9). The three blocks go
-// into one user message after the fixed system prompt (prompt.go):
+// PassInput is one pass's assembled context (06 §3 amended): built fresh every
+// HandleEvent call, never held between events (06 §9). The board is no longer
+// injected — the model pulls it on demand via list_tickets / get_ticket
+// (06 §4 amended) — so only two blocks go into the user message after the fixed
+// system prompt (prompt.go):
 //
-//  1. Board — the full GetBoard snapshot, render-order preserved (06 §3.1).
-//  2. Transcript — the last TranscriptWindow messages, oldest first (06 §3.2).
-//  3. Event — the triggering event, tagged with its queue id (06 §3.3).
+//  1. Transcript — the last TranscriptWindow messages, oldest first (06 §3.2).
+//  2. Event — the triggering event, tagged with its queue id (06 §3.3).
 type PassInput struct {
-	Board      board.Snapshot
 	Transcript []Message
 	Event      Event
+}
+
+// Update is one active feed card as the brain reads it through FeedReader
+// (06 §4 amended, 08 §7), mirroring the runtime's Notification by value — brain
+// cannot import internal/runtime (doc.go), so the cmd/kiln adapter converts
+// runtime.Notification → brain.Update. ID is the notification id the model
+// supplies to edit_update / retract_update; TicketID/ImageURL are "" when unset.
+type Update struct {
+	ID        int64
+	Kind      string
+	TicketID  string
+	Body      string
+	ImageURL  string
+	CreatedAt time.Time
 }
 
 // AgentStatus / AgentInfo / AgentUpdate mirror the agent runtime's neutral

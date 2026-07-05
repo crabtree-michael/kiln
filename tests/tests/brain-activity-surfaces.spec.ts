@@ -84,7 +84,11 @@ test('an orchestrator action surfaces as a toast on the primary screen', async (
 
   // The auto-dismissing toast pill appears carrying one of the §4 verbs. Poll within its
   // on-screen window (it slides away after ~4s; Playwright polls fast enough to catch it).
-  const toast = page.locator('[data-role="toast-pill"]');
+  // A single mechanical transition can surface MORE than one pill at once — mark_ready
+  // emits `queued` and, when a worker is free, the pull immediately emits `started` — so
+  // scope to the first pill (any valid orchestrator toast satisfies "an action surfaced")
+  // rather than tripping strict mode on a legitimately multi-toast state.
+  const toast = page.locator('[data-role="toast-pill"]').first();
   await expect(toast, 'no orchestrator action toast appeared after the mechanical transition').toBeVisible();
   await expect(toast).toHaveAttribute('data-verb', /queued|started|nudged|finished/);
 });

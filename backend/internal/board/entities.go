@@ -37,8 +37,13 @@ type Ticket struct {
 	// user to approve (08 §5 proposal card). True only while shaping — the DB
 	// CHECK ties it to state='shaping'; MarkReady clears it (08 §B).
 	ApprovalRequested bool
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// ArchivedAt is set when the ticket has been archived (soft-deleted) — the
+	// brain's delete_ticket (06 §4 amended). An archived ticket is invisible to
+	// every read path (Snapshot, GetTicket) and to the pull, and every targeted
+	// operation treats it as ErrNotFound; the row is retained for history.
+	ArchivedAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // Worker is a capacity slot, not a live resource handle (03 §2.3): the WIP

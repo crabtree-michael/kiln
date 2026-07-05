@@ -298,6 +298,28 @@ func (s *Service) RetractNotification(ctx context.Context, id int64) error {
 	return nil
 }
 
+// EditNotification is the brain-facing port for edit_update (08 §3 amended, 06
+// tool set): amend a still-active card's kind/body/image in place and append
+// feed.updated in one tx. Delegates to the store; the brain tool handler needs
+// only success/failure.
+func (s *Service) EditNotification(ctx context.Context, id int64, kind, body string, imageURL *string) error {
+	if err := s.notifications.EditNotification(ctx, id, kind, body, imageURL); err != nil {
+		return fmt.Errorf("runtime: edit notification: %w", err)
+	}
+	return nil
+}
+
+// ListNotifications is the brain-facing port for list_updates (06 tool set): the
+// active (neither seen nor retracted) feed cards, newest-first, so the brain can
+// see the ids it may edit or retract. Delegates to the store's UnseenNotifications.
+func (s *Service) ListNotifications(ctx context.Context) ([]Notification, error) {
+	notes, err := s.notifications.UnseenNotifications(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: list notifications: %w", err)
+	}
+	return notes, nil
+}
+
 // MarkSeen is the api-facing port for POST /api/feed/seen (08 §3): stamp every
 // still-unseen notification up to the client's high-water id, and append
 // feed.updated in one tx. Delegates to the store.

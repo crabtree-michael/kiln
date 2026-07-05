@@ -14,6 +14,11 @@ type Store interface {
 
 	// Snapshot reads the full board in render order (03 §4 GetBoard).
 	Snapshot(ctx context.Context) (Snapshot, error)
+
+	// GetTicket reads one ticket by id, backing the brain's get_ticket tool
+	// (06 §4 amended). Returns ErrNotFound if the id does not exist or the
+	// ticket has been archived (an archived ticket is gone from every read).
+	GetTicket(ctx context.Context, id TicketID) (Ticket, error)
 }
 
 // Tx is the transaction-scoped view of the store. The service works

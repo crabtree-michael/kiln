@@ -160,6 +160,33 @@ func (a *convoAdapter) Recent(ctx context.Context, n int) ([]brain.Message, erro
 
 var _ brain.ConversationReader = (*convoAdapter)(nil)
 
+// feedReaderAdapter satisfies brain.FeedReader over *runtime.Service (06 §4
+// amended, 08 §7): call rt.ListNotifications and map runtime.Notification →
+// brain.Update, so the brain can list the active feed cards it may edit or
+// retract without importing internal/runtime.
+type feedReaderAdapter struct{ rt *runtime.Service }
+
+func (a *feedReaderAdapter) ListUpdates(ctx context.Context) ([]brain.Update, error) {
+	notes, err := a.rt.ListNotifications(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list updates: %w", err)
+	}
+	out := make([]brain.Update, len(notes))
+	for i, n := range notes {
+		u := brain.Update{ID: n.ID, Kind: string(n.Kind), Body: n.Body, CreatedAt: n.CreatedAt}
+		if n.TicketID != nil {
+			u.TicketID = *n.TicketID
+		}
+		if n.ImageURL != nil {
+			u.ImageURL = *n.ImageURL
+		}
+		out[i] = u
+	}
+	return out, nil
+}
+
+var _ brain.FeedReader = (*feedReaderAdapter)(nil)
+
 // agentInspectorAdapter bridges *agent.Service to brain.AgentInspector,
 // converting the agent module's neutral inspector shapes to the brain's own
 // value-copies (brain cannot import internal/agent). No provider handle crosses.

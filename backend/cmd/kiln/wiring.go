@@ -154,7 +154,8 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	})
 
 	brainSvc := brain.NewService(
-		boardSvc, boardSvc, rtSvc, rtSvc, &convoAdapter{rt: rtSvc},
+		boardSvc, boardSvc, rtSvc, rtSvc, &feedReaderAdapter{rt: rtSvc},
+		&convoAdapter{rt: rtSvc},
 		&agentInspectorAdapter{inner: agentSvc},
 		&repoShellAdapter{inner: repoShell},
 		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),

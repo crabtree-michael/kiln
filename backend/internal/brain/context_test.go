@@ -1,10 +1,11 @@
 package brain_test
 
-// Input-contract tests (06 §3): PassInput assembly injects the full board
-// snapshot + last TranscriptWindow (20) transcript messages + the event
-// into the first LLMRequest, with agent.turn_completed output truncated to
-// AgentOutputTruncateBytes (head+tail), and a non-empty, stable system
-// prompt rendered from the repo's template.
+// Input-contract tests (06 §3 amended): PassInput assembly carries the last
+// TranscriptWindow (20) transcript messages + the event into the first
+// LLMRequest, with agent.turn_completed output truncated to
+// AgentOutputTruncateBytes (head+tail), and a non-empty, stable system prompt
+// rendered from the repo's template. The board is NOT injected — the model
+// pulls it on demand via list_tickets / get_ticket (06 §4 amended).
 
 import (
 	"context"
@@ -32,11 +33,11 @@ func requestText(req brain.LLMRequest) string {
 	return b.String()
 }
 
-// TestHandleEvent_InjectsFullBoardSnapshotOncePerPass pins 06 §3.1/D3: the
-// full GetBoard snapshot is read exactly once per pass and reaches the
-// model's first request — there is no board-read tool, so the model never
-// asks for it.
-func TestHandleEvent_InjectsFullBoardSnapshotOncePerPass(t *testing.T) {
+// TestHandleEvent_DoesNotInjectBoard pins 06 §3.1 amended: the board is no
+// longer read or injected during context assembly — a pass that never calls
+// list_tickets triggers zero GetBoard reads, and the model's first request
+// carries no board content.
+func TestHandleEvent_DoesNotInjectBoard(t *testing.T) {
 	fb := &fakeBoard{
 		getBoardFn: func(ctx context.Context) (board.Snapshot, error) {
 			return board.Snapshot{
@@ -47,19 +48,51 @@ func TestHandleEvent_InjectsFullBoardSnapshotOncePerPass(t *testing.T) {
 	llm := &scriptedLLM{responses: []brain.LLMResponse{endTurn("ok")}}
 
 	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, llm)
+	if err := svc.HandleEvent(context.Background(), humanMessageEvent(10, "hi")); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	if got := fb.getBoardCount(); got != 0 {
+		t.Fatalf("GetBoard was called %d times, want 0 — the board is pulled on demand, not injected (06 §4 amended)", got)
+	}
+
+	llm.requireCalled(t, 1)
+	first := requestText(llm.requestAt(t, 0))
+	if strings.Contains(first, "marker-ticket-xyz") || strings.Contains(first, "Marker Ticket") {
+		t.Errorf("first LLMRequest contains board content, but the board must not be injected; got: %q", first)
+	}
+}
+
+// TestHandleEvent_ListTicketsPullsBoardOnDemand pins 06 §4 amended: when the
+// model calls list_tickets, GetBoard runs and the roster reaches the model as
+// that tool's result in the next round.
+func TestHandleEvent_ListTicketsPullsBoardOnDemand(t *testing.T) {
+	fb := &fakeBoard{
+		getBoardFn: func(ctx context.Context) (board.Snapshot, error) {
+			return board.Snapshot{
+				Ready: []board.Ticket{{ID: "marker-ticket-xyz", Title: "Marker Ticket", State: board.StateReady}},
+			}, nil
+		},
+	}
+	llm := &scriptedLLM{responses: []brain.LLMResponse{
+		toolUse(newToolCall(t, "lt", brain.ToolListTickets, brain.ListTicketsInput{})),
+		endTurn("ok"),
+	}}
+
+	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, llm)
 	if err := svc.HandleEvent(context.Background(), humanMessageEvent(10, "what's on the board?")); err != nil {
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
 
 	if got := fb.getBoardCount(); got != 1 {
-		t.Fatalf("GetBoard was called %d times, want exactly 1 per pass (06 §3, D3)", got)
+		t.Fatalf("GetBoard was called %d times, want exactly 1 (one list_tickets call)", got)
 	}
 
-	llm.requireCalled(t, 1)
-	first := requestText(llm.requestAt(t, 0))
-	if !strings.Contains(first, "marker-ticket-xyz") && !strings.Contains(first, "Marker Ticket") {
-		t.Errorf("first LLMRequest does not appear to contain the board snapshot "+
-			"(looked for the marker ticket); got: %q", first)
+	llm.requireCalled(t, 2)
+	second := requestText(llm.requestAt(t, 1))
+	if !strings.Contains(second, "marker-ticket-xyz") && !strings.Contains(second, "Marker Ticket") {
+		t.Errorf("list_tickets result does not appear to carry the board roster "+
+			"(looked for the marker ticket); got: %q", second)
 	}
 }
 
@@ -136,7 +169,7 @@ func TestHandleEvent_TruncatesLongAgentOutputHeadAndTail(t *testing.T) {
 	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, llm)
 
 	ev := agentTurnCompletedEvent(12, brain.AgentTurnCompletedPayload{
-		TicketID: "t-7", WorkerID: workerW1, IsError: false, Output: output, CostUSD: 0.02,
+		TicketID: ticketT7, WorkerID: workerW1, IsError: false, Output: output, CostUSD: 0.02,
 	})
 	if err := svc.HandleEvent(context.Background(), ev); err != nil {
 		t.Fatalf("HandleEvent returned error: %v", err)

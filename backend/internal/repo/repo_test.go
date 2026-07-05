@@ -13,12 +13,11 @@ import (
 // seedRemote builds a real local "remote": a bare repo with one seeded commit.
 // It returns the bare repo path, usable as a plain-filesystem RepoURL (no token
 // injection), keeping the test hermetic (no network).
-func seedRemote(t *testing.T) (barePath, commitSubject string) {
+func seedRemote(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
-	barePath = filepath.Join(root, "remote.git")
+	barePath := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
-	commitSubject = "seed: initial commit"
 
 	git := func(dir string, args ...string) {
 		t.Helper()
@@ -28,7 +27,8 @@ func seedRemote(t *testing.T) (barePath, commitSubject string) {
 			"-c", "init.defaultBranch=main",
 			"-c", "commit.gpgsign=false",
 		}, args...)
-		cmd := exec.Command("git", full...)
+		//nolint:gosec // G204: test helper running git with fixed, test-controlled args.
+		cmd := exec.CommandContext(context.Background(), "git", full...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -37,14 +37,14 @@ func seedRemote(t *testing.T) (barePath, commitSubject string) {
 
 	git(root, "init", "--bare", barePath)
 	git(root, "init", work)
-	git(work, "-c", "user.name=Test", "commit", "--allow-empty", "-m", commitSubject)
+	git(work, "-c", "user.name=Test", "commit", "--allow-empty", "-m", "seed: initial commit")
 	// Write a file and commit it too, so allowlisted searches have content.
-	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hello kiln\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hello kiln\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	git(work, "add", "README.md")
 	git(work, "commit", "-m", "add readme")
-	commitSubject = "add readme"
+	commitSubject := "add readme"
 	git(work, "branch", "-M", "main")
 	git(work, "remote", "add", "origin", barePath)
 	git(work, "push", "-u", "origin", "main")

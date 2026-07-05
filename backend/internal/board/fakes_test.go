@@ -84,6 +84,9 @@ func (s *fakeStore) Snapshot(ctx context.Context) (board.Snapshot, error) {
 	var snap board.Snapshot
 	var ready []board.Ticket
 	for _, t := range s.tickets {
+		if t.ArchivedAt != nil { // archived tickets are gone from every read (03 §4 amended)
+			continue
+		}
 		switch t.State {
 		case board.StateShaping:
 			snap.Shaping = append(snap.Shaping, t)
@@ -116,6 +119,18 @@ func (s *fakeStore) Snapshot(ctx context.Context) (board.Snapshot, error) {
 	}
 	snap.WorkerFree = free
 	return snap, nil
+}
+
+// GetTicket reads one non-archived ticket by id (03 §4 amended). Archived or
+// missing ids are ErrNotFound, matching the store contract.
+func (s *fakeStore) GetTicket(_ context.Context, id board.TicketID) (board.Ticket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tickets[id]
+	if !ok || t.ArchivedAt != nil {
+		return board.Ticket{}, board.ErrNotFound
+	}
+	return t, nil
 }
 
 // now returns a strictly-increasing timestamp, so CreatedAt/tie-break
@@ -213,7 +228,7 @@ var _ board.Tx = (*fakeTx)(nil)
 
 func (t *fakeTx) LockTicket(_ context.Context, id board.TicketID) (board.Ticket, error) {
 	tk, ok := t.s.tickets[id]
-	if !ok {
+	if !ok || tk.ArchivedAt != nil { // archived tickets are invisible to targeted ops (03 §4 amended)
 		return board.Ticket{}, board.ErrNotFound
 	}
 	return tk, nil

@@ -119,3 +119,7 @@ func (s *errorStore) Tx(ctx context.Context, fn func(board.Tx) error) error { re
 func (s *errorStore) Snapshot(ctx context.Context) (board.Snapshot, error) {
 	return board.Snapshot{}, s.err
 }
+
+func (s *errorStore) GetTicket(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+	return board.Ticket{}, s.err
+}

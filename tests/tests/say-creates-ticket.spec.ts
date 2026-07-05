@@ -10,11 +10,15 @@ import { expect, test } from '@playwright/test';
 // -> `board` SSE event -> re-render. We stop before any Amika pull, so this
 // needs no sandbox (nothing to clean up) and never leaves Backlog.
 //
+// The board+chat client lives at `/debug`; `/` is the spec-08 feed screen
+// (main.tsx routes `/` -> PrimaryScreen, `/debug` -> App). This test drives the
+// board client, so it navigates to `/debug`.
+//
 // Backlog is the "Backlog" column (Board.tsx); a freshly created ticket lands in
 // state `shaping` (03 §2.1), rendered as a `ticket-card` inside that column
 // (BoardColumn.tsx / TicketCard.tsx).
 test('saying a build request creates a ticket in Backlog', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/debug');
 
   // The board region must render, and the live stream must be connected, before
   // the created ticket can reach us over SSE (07 §8).

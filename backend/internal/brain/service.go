@@ -23,8 +23,11 @@ const orchestratorRole = "Kiln, the autonomous project orchestrator"
 // MaxToolRounds bounds one pass's tool loop (06 §5, D4): after this many
 // rounds without the model ending its turn, the brain appends a forced
 // wrap-up instruction (at most a say) and stops. Typical passes are 1-3
-// rounds; this is worst-case headroom, not a target.
-const MaxToolRounds = 8
+// rounds; this is worst-case headroom, not a target. Raised from 8 to 12 with
+// the CRUD consolidation (06 §4 amended): board state is now pulled via
+// list_tickets / get_ticket rather than injected, so most passes spend a round
+// or two reading before acting — the extra headroom absorbs those reads.
+const MaxToolRounds = 12
 
 // Service is the brain's core: HandleEvent (the runtime's Brain port,
 // 04 §2) and the bounded tool loop it drives (06 §5). Constructed at the
@@ -34,6 +37,7 @@ type Service struct {
 	reader        BoardReader
 	say           Say
 	notifications NotificationStore
+	feed          FeedReader
 	convo         ConversationReader
 	agents        AgentInspector
 	repo          RepoShell
@@ -43,17 +47,18 @@ type Service struct {
 
 // NewService assembles the brain over its ports and model configuration.
 //
-// The notifications port (08 §7) is grouped with the other user-facing output
-// ports, immediately after say. The full parameter order INTEGRATION wires is:
+// The notifications write port and the feed read port (08 §7) are grouped after
+// say. The full parameter order INTEGRATION wires is:
 //
 //	NewService(board BoardAPI, reader BoardReader, say Say,
-//	    notifications NotificationStore, convo ConversationReader,
-//	    agents AgentInspector, repo RepoShell, llm LLM, cfg Config)
+//	    notifications NotificationStore, feed FeedReader,
+//	    convo ConversationReader, agents AgentInspector, repo RepoShell,
+//	    llm LLM, cfg Config)
 //
 // INTEGRATION passes rtSvc for notifications (*runtime.Service satisfies the
-// port structurally, D5/§E4).
+// port structurally, D5/§E4) and a feedReaderAdapter over rtSvc for feed.
 func NewService(
-	board BoardAPI, reader BoardReader, say Say, notifications NotificationStore,
+	board BoardAPI, reader BoardReader, say Say, notifications NotificationStore, feed FeedReader,
 	convo ConversationReader, agents AgentInspector, repo RepoShell, llm LLM, cfg Config,
 ) *Service {
 	return &Service{
@@ -61,6 +66,7 @@ func NewService(
 		reader:        reader,
 		say:           say,
 		notifications: notifications,
+		feed:          feed,
 		convo:         convo,
 		agents:        agents,
 		repo:          repo,
@@ -95,22 +101,18 @@ func NewService(
 // no-runtime-import rule; the composition root adapts runtime.Event <-> Event
 // when it wires *Service into the runtime's Brain port.
 //
-// Context assembly (06 §3): read the full board snapshot once (reader,
-// D3), the last TranscriptWindow transcript messages once (convo, D2), and
-// carry the triggering event; agent.turn_completed output is truncated to
-// AgentOutputTruncateBytes at render time (renderContext). Both reads happen
-// exactly once per pass — never inside the loop, so the injected snapshot is
-// honest for the pass's duration (06 §5).
+// Context assembly (06 §3 amended): the board is no longer read here — the
+// model pulls it on demand via list_tickets / get_ticket (06 §4 amended), so a
+// pass that does not need board state spends nothing on it. Only the last
+// TranscriptWindow transcript messages are read once (convo, D2), alongside the
+// triggering event; agent.turn_completed output is truncated to
+// AgentOutputTruncateBytes at render time (renderContext).
 func (s *Service) HandleEvent(ctx context.Context, ev Event) error {
-	snapshot, err := s.reader.GetBoard(ctx)
-	if err != nil {
-		return fmt.Errorf("brain: read board: %w", err)
-	}
 	transcript, err := s.convo.Recent(ctx, TranscriptWindow)
 	if err != nil {
 		return fmt.Errorf("brain: read transcript: %w", err)
 	}
-	return s.runPass(ctx, PassInput{Board: snapshot, Transcript: transcript, Event: ev})
+	return s.runPass(ctx, PassInput{Transcript: transcript, Event: ev})
 }
 
 // model resolves the model id for this pass (06 §2): Config.Model, or
@@ -228,15 +230,14 @@ func (s *Service) forceWrapUp(ctx context.Context, system string, messages []LLM
 	return nil
 }
 
-// renderContext serializes one pass's three context blocks (06 §3) into the
-// single user message that follows the system prompt: the full board
-// snapshot (§3.1), the transcript window (§3.2), and the triggering event
-// (§3.3, with agent output truncated).
+// renderContext serializes one pass's two context blocks (06 §3 amended) into
+// the single user message that follows the system prompt: the transcript
+// window (§3.2) and the triggering event (§3.3, with agent output truncated).
+// The board is not injected — the model reads it via list_tickets / get_ticket
+// (06 §4 amended).
 func renderContext(input PassInput) string {
 	var b strings.Builder
-	b.WriteString("# Board (full snapshot, render order)\n")
-	renderBoard(&b, input.Board)
-	b.WriteString("\n# Conversation (last ")
+	b.WriteString("# Conversation (last ")
 	fmt.Fprintf(&b, "%d messages, oldest first)\n", TranscriptWindow)
 	for _, m := range input.Transcript {
 		fmt.Fprintf(&b, "[%s @ %s] %s\n", m.Role, m.At.Format("15:04:05"), m.Text)

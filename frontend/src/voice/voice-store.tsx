@@ -20,6 +20,7 @@ import { fetchVoiceToken, postMessage } from '@/transport/transport';
 import { initialVoiceState, voiceReducer, type MicState } from '@/voice/commit-machine';
 import { startVoiceStream, type VoiceStream } from '@/voice/assemblyai-client';
 import { VoiceStoreContext, type VoiceStoreValue } from '@/voice/voice-context';
+import { useActivityStore } from '@/stores/activity-context';
 
 export interface VoiceProviderProps {
   children: ReactNode;
@@ -36,6 +37,16 @@ const COMMIT_DELAY_MS = 10_000;
 
 export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const [state, dispatch] = useReducer(voiceReducer, undefined, initialVoiceState);
+
+  // Sending a finalized utterance supersedes any toast on the activity row
+  // (08 §4); the commit effect calls this to clear it. Held in a ref so the
+  // effect can fire purely on `state.commit` without re-POSTing on identity
+  // churn (the store is always mounted under an ActivityProvider in 08/09).
+  const { dismissToast } = useActivityStore();
+  const dismissToastRef = useRef(dismissToast);
+  useEffect(() => {
+    dismissToastRef.current = dismissToast;
+  }, [dismissToast]);
 
   // Render-stable I/O handles (never props for re-render): the live stream, the
   // proactive-refresh timer, whether this failure episode has already used its
@@ -177,6 +188,9 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     if (pending === undefined) {
       return;
     }
+    // Dismiss any toast on the activity row as part of handling this submission
+    // (a no-op when the row shows a say or is already clear).
+    dismissToastRef.current();
     let cancelled = false;
     // Read via a call so the post-await check keeps its `boolean` type rather
     // than being narrowed to the initial literal (the cleanup below flips it).

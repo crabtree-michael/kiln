@@ -29,11 +29,13 @@ function makeSay(text: string): SayEvent {
 }
 
 let capturedDismiss: ((id: number) => void) | undefined;
+let capturedDismissToast: (() => void) | undefined;
 let capturedIds: number[] = [];
 
 function Probe(): JSX.Element {
-  const { thinking, toasts, dismiss } = useActivityStore();
+  const { thinking, toasts, dismiss, dismissToast } = useActivityStore();
   capturedDismiss = dismiss;
+  capturedDismissToast = dismissToast;
   capturedIds = toasts.map((toast) => toast.id);
   const rendered = toasts
     .map((toast) =>
@@ -53,6 +55,7 @@ describe('ActivityProvider', () => {
     vi.useFakeTimers();
     capturedHandlers = undefined;
     capturedDismiss = undefined;
+    capturedDismissToast = undefined;
     capturedIds = [];
     closeStream.mockClear();
     vi.mocked(transport.openStream).mockImplementation((handlers): StreamConnection => {
@@ -205,6 +208,66 @@ describe('ActivityProvider', () => {
 
     act(() => {
       vi.advanceTimersByTime(TOAST_MS);
+    });
+    expect(pills()).toBe('');
+  });
+
+  it('dismissToast clears every live toast at once when input is sent', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'A' }),
+      );
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'nudged', ticketTitle: 'B' }),
+      );
+    });
+    expect(pills()).toBe('toast:started:A|toast:nudged:B');
+
+    // Sending input supersedes lingering board toasts: the whole transient
+    // stack clears at once.
+    act(() => {
+      capturedDismissToast?.();
+    });
+    expect(pills()).toBe('');
+
+    // The cleared toasts' timers are gone (no stale expiry), and toasts raised
+    // after submission still behave normally.
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'finished', ticketTitle: 'C' }),
+      );
+    });
+    expect(pills()).toBe('toast:finished:C');
+    act(() => {
+      vi.advanceTimersByTime(TOAST_MS);
+    });
+    expect(pills()).toBe('');
+  });
+
+  it('dismissToast clears transient toasts but leaves a coexisting say', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'A' }),
+      );
+      capturedHandlers?.onSay(makeSay('reply'));
+    });
+    expect(pills()).toBe('toast:started:A|say:reply');
+
+    // The transient toast goes; the persistent say is left for its own dismiss.
+    act(() => {
+      capturedDismissToast?.();
+    });
+    expect(pills()).toBe('say:reply');
+  });
+
+  it('dismissToast is a no-op when the row is already clear', () => {
+    mount();
+    expect(pills()).toBe('');
+
+    act(() => {
+      capturedDismissToast?.();
     });
     expect(pills()).toBe('');
   });

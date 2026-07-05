@@ -60,6 +60,26 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
     [dismiss],
   );
 
+  // Dismiss every transient toast on the row at once, clearing each one's
+  // auto-dismiss timer. Used when the user sends input: the fresh turn
+  // supersedes lingering board toasts, but persistent `say` pills and an
+  // already-clear row are left untouched (a submission with no toast up is a
+  // no-op).
+  const dismissToast = useCallback((): void => {
+    setToasts((prev) => {
+      for (const toast of prev) {
+        if (toast.pill.kind === 'toast') {
+          const timer = timersRef.current.get(toast.id);
+          if (timer !== undefined) {
+            clearTimeout(timer);
+            timersRef.current.delete(toast.id);
+          }
+        }
+      }
+      return prev.filter((toast) => toast.pill.kind !== 'toast');
+    });
+  }, []);
+
   const handleActivity = useCallback(
     (event: ActivityEvent): void => {
       if (event.kind === 'thinking') {
@@ -104,8 +124,8 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
   }, []);
 
   const value = useMemo<ActivityStoreValue>(
-    () => ({ thinking, toasts, dismiss }),
-    [thinking, toasts, dismiss],
+    () => ({ thinking, toasts, dismiss, dismissToast }),
+    [thinking, toasts, dismiss, dismissToast],
   );
 
   return <ActivityStoreContext.Provider value={value}>{children}</ActivityStoreContext.Provider>;

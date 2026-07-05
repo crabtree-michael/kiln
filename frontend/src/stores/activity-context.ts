@@ -32,6 +32,12 @@ export interface ActivityStoreValue {
   toasts: ActivityToast[];
   /** Dismisses one toast by id (early-dismiss for a `say`; also used by timers). */
   dismiss: (id: number) => void;
+  /**
+   * Dismisses every transient `toast` on the row at once, leaving persistent
+   * `say` pills and an already-clear row untouched. Used when the user sends
+   * input, which supersedes any lingering toast.
+   */
+  dismissToast: () => void;
 }
 
 export const ActivityStoreContext = createContext<ActivityStoreValue | undefined>(undefined);

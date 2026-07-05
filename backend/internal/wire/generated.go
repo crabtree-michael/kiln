@@ -102,13 +102,13 @@ func (e FeedCardKind) Valid() bool {
 
 // Defines values for HealthStatus.
 const (
-	Ok HealthStatus = "ok"
+	HealthStatusOk HealthStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatus enum.
 func (e HealthStatus) Valid() bool {
 	switch e {
-	case Ok:
+	case HealthStatusOk:
 		return true
 	default:
 		return false
@@ -154,6 +154,48 @@ func (e TicketState) Valid() bool {
 	case Shaping:
 		return true
 	case Working:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerifyCheckName.
+const (
+	Amika     VerifyCheckName = "amika"
+	Anthropic VerifyCheckName = "anthropic"
+	Repo      VerifyCheckName = "repo"
+)
+
+// Valid indicates whether the value is a known member of the VerifyCheckName enum.
+func (e VerifyCheckName) Valid() bool {
+	switch e {
+	case Amika:
+		return true
+	case Anthropic:
+		return true
+	case Repo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerifyCheckStatus.
+const (
+	VerifyCheckStatusFailed  VerifyCheckStatus = "failed"
+	VerifyCheckStatusOk      VerifyCheckStatus = "ok"
+	VerifyCheckStatusSkipped VerifyCheckStatus = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the VerifyCheckStatus enum.
+func (e VerifyCheckStatus) Valid() bool {
+	switch e {
+	case VerifyCheckStatusFailed:
+		return true
+	case VerifyCheckStatusOk:
+		return true
+	case VerifyCheckStatusSkipped:
 		return true
 	default:
 		return false
@@ -293,6 +335,41 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Me The signed-in user's account view (11 §4). Secret values never appear.
+type Me struct {
+	// Project Absent until the user creates their project.
+	Project *MeProject `json:"project,omitempty"`
+
+	// Settings Config status — secrets as presence+fingerprint only (11 §3 D7).
+	Settings MeSettings `json:"settings"`
+	User     MeUser     `json:"user"`
+}
+
+// MeProject defines model for MeProject.
+type MeProject struct {
+	AmikaSnapshot string `json:"amika_snapshot"`
+	BrainModel    string `json:"brain_model"`
+	Name          string `json:"name"`
+	RepoUrl       string `json:"repo_url"`
+	WorkerCount   int    `json:"worker_count"`
+}
+
+// MeSettings Config status — secrets as presence+fingerprint only (11 §3 D7).
+type MeSettings struct {
+	AmikaApiKey       SecretStatus `json:"amika_api_key"`
+	AmikaBaseUrl      string       `json:"amika_base_url"`
+	AmikaClaudeCredId string       `json:"amika_claude_cred_id"`
+	AnthropicApiKey   SecretStatus `json:"anthropic_api_key"`
+	GithubAuthToken   SecretStatus `json:"github_auth_token"`
+}
+
+// MeUser defines model for MeUser.
+type MeUser struct {
+	AvatarUrl   string `json:"avatar_url"`
+	DisplayName string `json:"display_name"`
+	GithubLogin string `json:"github_login"`
+}
+
 // Message One persisted transcript row (07 §3), as returned oldest-first by GET /api/messages.
 type Message struct {
 	MessageId int64       `json:"message_id"`
@@ -315,11 +392,37 @@ type MessageRequest struct {
 	Text string `json:"text"`
 }
 
+// ProjectUpdateRequest defines model for ProjectUpdateRequest.
+type ProjectUpdateRequest struct {
+	AmikaSnapshot *string `json:"amika_snapshot,omitempty"`
+	BrainModel    *string `json:"brain_model,omitempty"`
+	Name          string  `json:"name"`
+	RepoUrl       string  `json:"repo_url"`
+	WorkerCount   *int    `json:"worker_count,omitempty"`
+}
+
 // SayEvent The `say` SSE event payload (07 §4) — one event per brain say (renamed from `speak`, 07 A1). message_id matches the corresponding Message row from GET /api/messages/the transcript.
 type SayEvent struct {
 	At        time.Time `json:"at"`
 	MessageId int64     `json:"message_id"`
 	Text      string    `json:"text"`
+}
+
+// SecretStatus defines model for SecretStatus.
+type SecretStatus struct {
+	Set bool `json:"set"`
+
+	// Tail Last 4 characters of the stored secret; empty when unset.
+	Tail string `json:"tail"`
+}
+
+// SettingsUpdateRequest All fields optional; empty or omitted means unchanged (write-only secrets).
+type SettingsUpdateRequest struct {
+	AmikaApiKey       *string `json:"amika_api_key,omitempty"`
+	AmikaBaseUrl      *string `json:"amika_base_url,omitempty"`
+	AmikaClaudeCredId *string `json:"amika_claude_cred_id,omitempty"`
+	AnthropicApiKey   *string `json:"anthropic_api_key,omitempty"`
+	GithubAuthToken   *string `json:"github_auth_token,omitempty"`
 }
 
 // Ticket One ticket as rendered on the board (03 §2.2). Column/zone placement is derived from `state`, never carried as a separate field (03 D1).
@@ -347,6 +450,24 @@ type Ticket struct {
 
 // TicketState One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.
 type TicketState string
+
+// VerifyCheck defines model for VerifyCheck.
+type VerifyCheck struct {
+	Message string            `json:"message"`
+	Name    VerifyCheckName   `json:"name"`
+	Status  VerifyCheckStatus `json:"status"`
+}
+
+// VerifyCheckName defines model for VerifyCheck.Name.
+type VerifyCheckName string
+
+// VerifyCheckStatus defines model for VerifyCheck.Status.
+type VerifyCheckStatus string
+
+// VerifyResponse defines model for VerifyResponse.
+type VerifyResponse struct {
+	Checks []VerifyCheck `json:"checks"`
+}
 
 // VoiceToken POST /api/voice/token's 200 body (09 §2, §6): a short-lived AssemblyAI Universal-Streaming token and its absolute expiry. The client opens the STT WebSocket with `token` and refreshes proactively before `expires_at`.
 type VoiceToken struct {
@@ -377,3 +498,9 @@ type PostFeedSeenJSONRequestBody = FeedSeenRequest
 
 // PostMessageJSONRequestBody defines body for PostMessage for application/json ContentType.
 type PostMessageJSONRequestBody = MessageRequest
+
+// PutProjectJSONRequestBody defines body for PutProject for application/json ContentType.
+type PutProjectJSONRequestBody = ProjectUpdateRequest
+
+// PutSettingsJSONRequestBody defines body for PutSettings for application/json ContentType.
+type PutSettingsJSONRequestBody = SettingsUpdateRequest

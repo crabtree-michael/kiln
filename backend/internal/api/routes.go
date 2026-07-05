@@ -267,7 +267,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 			map[string]string{"status": "degraded", "version": s.version})
 		return
 	}
-	writeJSON(w, http.StatusOK, wire.Health{Status: wire.Ok, Version: s.version})
+	writeJSON(w, http.StatusOK, wire.Health{Status: wire.HealthStatusOk, Version: s.version})
 }
 
 // handleReset returns the system to a fresh agent session (204). The reset is

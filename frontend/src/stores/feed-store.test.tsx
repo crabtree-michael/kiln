@@ -292,4 +292,88 @@ describe('FeedProvider', () => {
       expect(screen.getByTestId('probe').dataset.connectionState).toBe('reconnecting');
     });
   });
+
+  it('retries the initial fetch after a transient failure (no connect-time feed push to fall back on)', async () => {
+    // The feed's only guaranteed initial delivery is this fetch — nothing is
+    // pushed on stream connect — so a swallowed failure would strand the view
+    // blank. It must retry until a snapshot lands.
+    vi.mocked(transport.fetchFeed)
+      .mockRejectedValueOnce(new Error('transient 500'))
+      .mockResolvedValueOnce(
+        makeFeedSnapshot({
+          cards: [
+            makeFeedCard({
+              kind: 'blocker',
+              id: 'blocker:t1',
+              label: 'T1',
+              body: 'stuck',
+              createdAt: '2026-07-01T00:00:00Z',
+              ticketId: 't1',
+            }),
+          ],
+        }),
+      );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:t1');
+    });
+    expect(transport.fetchFeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches the feed on reconnect to close the gap (reconnecting -> connected)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValueOnce(
+      makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'blocker',
+            id: 'blocker:t1',
+            label: 'T1',
+            body: 'stuck',
+            createdAt: '2026-07-01T00:00:00Z',
+            ticketId: 't1',
+          }),
+        ],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:t1');
+    });
+
+    // While disconnected, the feed changed server-side. A bare `connected` with
+    // no prior drop must NOT refetch; only a reconnecting -> connected does.
+    vi.mocked(transport.fetchFeed).mockResolvedValueOnce(
+      makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'blocker',
+            id: 'blocker:t2',
+            label: 'T2',
+            body: 'stuck',
+            createdAt: '2026-07-01T00:05:00Z',
+            ticketId: 't2',
+          }),
+        ],
+      }),
+    );
+
+    capturedHandlers?.onConnectionStateChange('reconnecting');
+    capturedHandlers?.onConnectionStateChange('connected');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:t2');
+    });
+    expect(transport.fetchFeed).toHaveBeenCalledTimes(2);
+  });
 });

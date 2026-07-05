@@ -692,6 +692,23 @@ body:has([data-role='primary-screen']) {
   color: var(--ink);
 }
 
+/* When a toast/say message overflows the 2-line clamp (df0f2a75) the text
+   becomes tappable to read the rest: `data-expandable` flags the affordance,
+   and `data-expanded` drops the clamp so the full message shows in place. Text
+   that fits carries neither attribute and is unaffected. */
+[data-role='toast-text'][data-expandable='true'],
+[data-role='say-text'][data-expandable='true'] {
+  cursor: pointer;
+}
+
+[data-role='toast-text'][data-expanded='true'],
+[data-role='say-text'][data-expanded='true'] {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
+}
+
 [data-role='say-dismiss'] {
   flex-shrink: 0;
   width: 22px;

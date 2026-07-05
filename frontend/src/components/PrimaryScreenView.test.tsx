@@ -118,9 +118,9 @@ describe('PrimaryScreenView', () => {
     expect(screen.getByText('1 blocker · 3 updates')).toHaveAttribute('data-role', 'feed-status');
   });
 
-  it('derives the header status: no blockers → "K streams · nothing needs you"', () => {
+  it('derives the header status: no blockers → the active-stream count', () => {
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
-    expect(screen.getByText('5 streams · nothing needs you')).toBeInTheDocument();
+    expect(screen.getByText('5 streams')).toBeInTheDocument();
   });
 
   it('renders the blocker card pinned first with its kind and the "While you were away" divider (4a)', () => {

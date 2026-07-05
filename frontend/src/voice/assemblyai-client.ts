@@ -9,7 +9,7 @@
 // The pure `decodeAssemblyMessage` is split out and unit-tested; the socket/mic
 // plumbing has no branch worth testing without a real browser, so tests mock at
 // the store boundary instead (09 §8).
-import pcmWorkletUrl from '@/voice/pcm-worklet.ts?url';
+import pcmWorkletUrl from '@/voice/pcm-worklet.ts?worker&url';
 import type { VoiceProviderEvent } from '@/voice/commit-machine';
 import type { VoiceToken } from '@/transport/transport';
 import { computeRms } from '@/voice/volume-meter';
@@ -162,6 +162,20 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
   }
 
   async function init(): Promise<void> {
+    // Declare a play-and-record audio session *before* opening the mic so iOS
+    // lets other apps' audio (Spotify, Apple Music, a podcast) keep playing —
+    // ducked — instead of interrupting it the moment we capture (09 §3). Without
+    // this, WebKit's default recording session is exclusive and silences the
+    // device. Only Safari 16.4+ exposes `navigator.audioSession`; everywhere
+    // else it is absent and this is a no-op (Android Chrome already does not
+    // hard-stop other audio, so it needs no equivalent). The exact duck-vs-mix
+    // outcome is decided by the platform, not us — see the device-test checklist
+    // in docs/specs/09. We keep `echoCancellation` on for cleaner STT input; if
+    // on-device testing shows it re-forces an exclusive session and still stops
+    // music, the fallback is to drop it to `false`.
+    if (navigator.audioSession !== undefined) {
+      navigator.audioSession.type = 'play-and-record';
+    }
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({

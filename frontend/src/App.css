@@ -6,7 +6,14 @@
    change freely without touching component markup or its DOM snapshots. */
 
 :root {
-  color-scheme: dark;
+  /* Light by default: the primary (08) screen at `/` is the light "paper"
+     surface, and this is what drives the UA-painted regions (safe-area insets,
+     overscroll) — a global `dark` here made the browser letterbox the notch /
+     home-indicator strips black even on the light screen. The debug shell opts
+     back into dark below. The `--kiln-*` vars stay defined here but are only
+     consumed by the debug (`.app-shell`) selectors, so keeping them global is
+     harmless. */
+  color-scheme: light;
   --kiln-bg: #0b0b0f;
   --kiln-surface: #16161d;
   --kiln-surface-raised: #1e1e28;
@@ -36,6 +43,15 @@ body {
     'Segoe UI',
     Roboto,
     sans-serif;
+}
+
+/* The debug shell (07, `/debug`) is legitimately dark — opt its root back into
+   a dark color-scheme so its UA-painted regions (safe-area insets, form
+   controls, scrollbars) stay dark to match. Scoped via `:has` to the debug
+   route only, so the light primary screen is unaffected. `ThemeColorSync`
+   (main.tsx) makes the system chrome follow suit. */
+:root:has(.app-shell) {
+  color-scheme: dark;
 }
 
 .app-shell {

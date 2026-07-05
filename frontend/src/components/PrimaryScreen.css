@@ -8,12 +8,36 @@
    canvas. Scoped under [data-role="primary-screen"] so it never clobbers the
    /debug (07) client's dark App.css. */
 
-/* The primary screen owns the whole page canvas: paint the paper background on
-   the body so the area outside the centered max-width column (the letterbox on
-   wide viewports) is paper too, not the /debug client's global dark App.css
-   body. :has scopes it to the `/` route only. */
+/* The primary screen owns the whole page canvas. Paint the paper background on
+   the ROOT (html) as well as the body, because that is what fills the safe-area
+   insets — the status-bar / home-indicator strips that `viewport-fit=cover`
+   extends the page under. In an installed / standalone PWA those OS-padding
+   strips take the *root element's* background; body-background propagation and
+   the `theme-color` meta don't reach them, so with no html background they fell
+   back to the UA canvas colour — black under the old global `color-scheme: dark`
+   and then plain white once ticket 11d3db88 flipped that to `light`. Painting
+   the real paper gradient on the root makes the strips continue the screen's
+   own background. The body paint additionally covers the letterbox outside the
+   centered max-width column on wide viewports. `:has` scopes both to `/` only.
+
+   `--paper` is defined here on the root and inherited by the body and the
+   primary-screen boxes, so the page-level paint has ONE source of truth rather
+   than three copies of the gradient that can drift apart (the recurring failure
+   this ticket chain keeps hitting). The gradient is sized to each box's own
+   full-viewport area, so root + screen read as one continuous surface behind
+   the strips. */
+html:has([data-role='primary-screen']) {
+  --paper: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+  /* Solid sRGB paper fallback UNDER the gradient (flat base ≈ #f3efee, the same
+     tone as the `theme-color` meta + PWA manifest). If the gradient ever fails to
+     paint an inset strip, the fallback keeps it paper rather than letting it snap
+     back to the UA canvas white — the exact regression this ticket reports. */
+  background-color: #f3efee;
+  background-image: var(--paper);
+}
+
 body:has([data-role='primary-screen']) {
-  background: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+  background: var(--paper);
 }
 
 [data-role='primary-screen'] {
@@ -27,7 +51,8 @@ body:has([data-role='primary-screen']) {
   --hairline: oklch(0.91 0.006 40);
   --hairline-faint: oklch(0.94 0.004 40);
   --surface: oklch(0.994 0.003 40);
-  --paper: radial-gradient(130% 80% at 50% -10%, oklch(0.972 0.013 32), oklch(0.955 0.004 45));
+  /* `--paper` (the gradient painted below) is defined once on the root html above
+     and inherits down here — see the safe-area note at the top of this file. */
   /* The flat base tone of the paper gradient — the colour it settles to away from
      the top-centre highlight, i.e. the lower screen where the dock lives. Used as
      an OPAQUE fill for overlays that must occlude the feed yet still read as the
@@ -541,18 +566,26 @@ body:has([data-role='primary-screen']) {
   flex-shrink: 0;
 }
 
-/* The toast stack floats above the dock as an overlay (bottom:100% of the dock
-   region = the dock's top edge) rather than sitting in flow. A multi-line toast
-   therefore grows UPWARD over the feed instead of pushing the empty-state count
-   or the backlog list up. */
+/* The toast stack floats above the dock as an overlay rather than sitting in
+   flow, so a multi-line toast grows UPWARD over the feed instead of pushing the
+   empty-state count or the backlog list up.
+
+   Layering principle (see the web-client skill): the notification hub must NEVER
+   overlap the dock, and the dock is not a fixed height — it expands upward as the
+   live transcript grows. So the hub is anchored above the dock's *current* top:
+   `100%` clears the collapsed controls row (the dock region's own height), and the
+   `--dock-overlay-height` term clears the transcript overlay stacked on top of it.
+   The var is published by the dock on the screen root and defaults to 0px, so a
+   collapsed dock keeps the hub sitting directly on the controls, while an expanded
+   dock pushes it up in lockstep — never overlapping in either state. */
 [data-role='activity-row'] {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 100%;
-  /* Sit above the dock transcript (z-index 5): both overlay the same region and
-     the transcript renders later in the DOM, so it would win a tie — a toast must
-     always render in front of the transcript box. */
+  bottom: calc(100% + var(--dock-overlay-height, 0px));
+  /* Belt-and-braces with the geometry above: also sit above the dock transcript
+     (z-index 5) so that even mid-resize (before the offset settles) a toast still
+     renders in front of, never behind, the transcript box. */
   z-index: 6;
   display: flex;
   align-items: center;
@@ -622,15 +655,30 @@ body:has([data-role='primary-screen']) {
   display: flex;
   align-items: center;
   gap: 9px;
+  /* Never exceed the activity row's inner width (its 26px side padding is the
+     mobile safe margin). Without this a long ticket title grew the pill wider
+     than the screen; the text now clamps to 2 lines instead (see toast-text). */
+  max-width: 100%;
   padding: 9px 14px;
   background: var(--surface);
   border: 1.5px solid var(--ember-soft);
   border-radius: 12px;
   box-shadow: 0 8px 20px -12px oklch(0.58 0.2 27 / 0.3);
-  white-space: nowrap;
+}
+
+[data-role='toast-icon'] {
+  flex-shrink: 0;
 }
 
 [data-role='toast-text'] {
+  /* min-width:0 lets this flex child shrink below its content so the clamp can
+     bite; the -webkit-box clamp caps it at 2 lines and ellipsizes the rest. */
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   font-size: 12.5px;
   font-weight: 500;
   color: oklch(0.3 0.012 40);
@@ -655,10 +703,35 @@ body:has([data-role='primary-screen']) {
 }
 
 [data-role='say-text'] {
+  /* Match toast-text: shrink within the pill and cap at 2 lines with ellipsis
+     so a long `say` never grows the card unbounded in height. */
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
   color: var(--ink);
+}
+
+/* When a toast/say message overflows the 2-line clamp (df0f2a75) the text
+   becomes tappable to read the rest: `data-expandable` flags the affordance,
+   and `data-expanded` drops the clamp so the full message shows in place. Text
+   that fits carries neither attribute and is unaffected. */
+[data-role='toast-text'][data-expandable='true'],
+[data-role='say-text'][data-expandable='true'] {
+  cursor: pointer;
+}
+
+[data-role='toast-text'][data-expanded='true'],
+[data-role='say-text'][data-expanded='true'] {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
 }
 
 [data-role='say-dismiss'] {

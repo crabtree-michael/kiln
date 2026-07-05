@@ -19,9 +19,11 @@ const sentryPlugins =
   sentryAuthToken !== undefined && sentryAuthToken.length > 0
     ? [
         sentryVitePlugin({
-          org: 'macmail',
+          org: 'kiln-5p',
           project: 'kiln-frontend',
-          url: 'https://de.sentry.io',
+          // US-region orgs are served from sentry.io (the token's embedded host);
+          // forcing us.sentry.io here makes sentry-cli 401 on upload.
+          url: 'https://sentry.io',
           authToken: sentryAuthToken,
           sourcemaps: {
             // Symbolication maps are upload-only: delete them once Sentry has
@@ -39,6 +41,17 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Self-destroying SW (recovery mechanism). The app is an online-only,
+      // SSE-driven dashboard, and per the web-client spec the PWA/offline surface
+      // is deferred to specs 09/10 — so precaching the app shell buys nothing here
+      // and actively caused an outage: a previously-installed client kept serving
+      // a stale precached `index.html` whose hashed CSS/JS no longer exist after a
+      // deploy, so the page rendered unstyled. `selfDestroying` ships a worker that
+      // unregisters itself and clears every cache on the client's next visit, after
+      // which the app loads straight from the always-consistent (no-cache) server.
+      // This auto-recovers already-installed clients with no manual clear. A real,
+      // purpose-built service worker returns when notifications (09/10) need one.
+      selfDestroying: true,
       workbox: {
         // Never precache source maps: they are upload-only artifacts (deleted
         // after upload) and must not be cached by — or shipped in — the SW.
@@ -53,8 +66,13 @@ export default defineConfig({
         name: 'Kiln',
         short_name: 'Kiln',
         description: 'Voice-driven orchestrator for autonomous coding agents.',
-        theme_color: '#0b0b0f',
-        background_color: '#0b0b0f',
+        // Paper tone of the primary (08) screen — the flat base of its light
+        // background gradient (oklch(0.955 0.004 45) ≈ #f3efee). `start_url` is
+        // `/`, so both the standalone system chrome (`theme_color`) and the
+        // launch splash (`background_color`) read as the app's own light surface
+        // rather than a dark value that letterboxes the safe-area insets black.
+        theme_color: '#f3efee',
+        background_color: '#f3efee',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',

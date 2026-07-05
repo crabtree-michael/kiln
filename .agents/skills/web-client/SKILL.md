@@ -43,6 +43,30 @@ client↔server types.
   truth.
 _(Accumulate: how to run the frontend locally, build/test commands, the boundary — `/frontend`.)_
 
+## Bottom-anchored UI layering (standing principle)
+
+The bottom of the primary screen is a stack of layers that all grow **upward** over
+the feed: the dock (mic controls, in flow) is the base; the live transcript overlays
+just above it; the notification hub (toast stack / "Kiln is thinking") sits on top.
+
+**Rule: the notification hub must never overlap the dock, and the dock is not a fixed
+height** — it expands upward as the transcript grows (bounded to 28vh). So the hub is
+anchored above the dock's *current* top, not its collapsed top:
+
+- The dock publishes its transcript overlay's live height as `--dock-overlay-height`
+  on the screen root (`[data-role='primary-screen']`), tracked via `ResizeObserver`
+  so it updates as words stream in. It defaults to `0px` (collapsed dock).
+- The hub (`[data-role='activity-row']`) offsets its `bottom` by that var:
+  `bottom: calc(100% + var(--dock-overlay-height, 0px))` — `100%` clears the collapsed
+  controls row, the var clears the transcript. Collapsed and expanded both stay clear.
+- z-index (hub 6 > transcript 5) is only a belt-and-braces backstop for mid-resize
+  frames; the geometry, not the z-order, is what keeps them from overlapping.
+
+**When you add any new bottom-anchored surface** (another dock affordance, a second
+hub, a banner): decide its place in this upward stack and anchor it to the *dynamic*
+height of the layers below it (via the same var / a measured offset), never to a fixed
+collapsed height that only happens to look right until the dock expands.
+
 ## Common footguns
 
 - Reaching for a TS escape hatch to get past the type checker instead of fixing the schema/types.

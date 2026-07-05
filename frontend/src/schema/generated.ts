@@ -294,7 +294,7 @@ export interface components {
              */
             created_at: string;
         };
-        /** @description Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, "K streams · nothing needs you" when not, "all clear" when the feed is empty; plus the all-clear detail line (building/idle/last word). */
+        /** @description Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, the active-stream count ("K streams") when not, "Nothing active" when the feed is empty; plus the all-clear detail line (building/idle/last word). */
         FeedSummary: {
             blocker_count: number;
             /** @description Count of unseen update/preview cards. */

@@ -39,7 +39,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             data-role="feed-status"
             type="button"
           >
-            5 streams · nothing needs you
+            5 streams
             <span
               aria-hidden="true"
               data-role="feed-status-caret"
@@ -443,7 +443,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
             data-role="feed-status"
             type="button"
           >
-            5 streams · nothing needs you
+            5 streams
             <span
               aria-hidden="true"
               data-role="feed-status-caret"
@@ -633,7 +633,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
             data-role="feed-status"
             type="button"
           >
-            3 streams · nothing needs you
+            3 streams
             <span
               aria-hidden="true"
               data-role="feed-status-caret"
@@ -807,7 +807,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
             data-role="feed-status"
             type="button"
           >
-            5 streams · nothing needs you
+            5 streams
             <span
               aria-hidden="true"
               data-role="feed-status-caret"

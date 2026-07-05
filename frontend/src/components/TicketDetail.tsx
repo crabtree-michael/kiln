@@ -7,10 +7,15 @@
 // get out of (07 §7–§8).
 import { useEffect, type JSX } from 'react';
 import type { Ticket } from '@/components/TicketCard';
+import '@/components/TicketDetail.css';
 
 export interface TicketDetailProps {
   ticket: Ticket;
   onClose: () => void;
+  /** When provided, the detail is a proposal reached via click-through and shows
+   * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
+   * the overlay stays strictly read-only (the debug board's inspection use, D5). */
+  onAccept?: (ticketId: string) => void;
 }
 
 /** A labelled row in the metadata list, omitted entirely when the value is null. */
@@ -26,7 +31,7 @@ function MetaRow({ label, value }: { label: string; value: string | null }): JSX
   );
 }
 
-export function TicketDetail({ ticket, onClose }: TicketDetailProps): JSX.Element {
+export function TicketDetail({ ticket, onClose, onAccept }: TicketDetailProps): JSX.Element {
   // Escape closes the overlay from anywhere (07 §8 — never trap the user).
   useEffect(() => {
     function handleKey(event: KeyboardEvent): void {
@@ -79,6 +84,20 @@ export function TicketDetail({ ticket, onClose }: TicketDetailProps): JSX.Elemen
         )}
 
         <div data-role="ticket-detail-body">{ticket.body}</div>
+
+        {onAccept !== undefined && (
+          <div data-role="ticket-detail-actions">
+            <button
+              type="button"
+              data-role="detail-accept"
+              onClick={() => {
+                onAccept(ticket.id);
+              }}
+            >
+              Accept
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

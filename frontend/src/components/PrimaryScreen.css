@@ -369,6 +369,50 @@ body:has([data-role='primary-screen']) {
   color: var(--ink);
 }
 
+/* proposal card body is a compact summary + click-through to the full ticket:
+   the button resets to look like plain card content, with the summary text and a
+   quiet "Read full ticket" affordance (mobile-first — no hover to rely on). */
+[data-role='feed-card-open'] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+[data-role='feed-card-open'] [data-role='feed-card-body'] {
+  transition: color 0.12s ease;
+}
+
+[data-role='feed-card-open-hint'] {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ember);
+}
+
+[data-role='feed-card-open-hint']::after {
+  content: ' ›';
+}
+
+[data-role='feed-card-open']:hover [data-role='feed-card-body'] {
+  color: var(--ember);
+}
+
+[data-role='feed-card-open']:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
 [data-role='feed-card-actions'] {
   display: flex;
 }

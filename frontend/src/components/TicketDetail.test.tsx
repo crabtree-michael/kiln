@@ -78,4 +78,19 @@ describe('TicketDetail', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('is read-only by default — no Accept action (D5 board inspection)', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+  });
+
+  it('shows an Accept action when onAccept is provided (proposal click-through, 08 §5)', () => {
+    const onAccept = vi.fn();
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onAccept={onAccept} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+
+    expect(onAccept).toHaveBeenCalledWith('t-42');
+  });
 });

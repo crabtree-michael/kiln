@@ -16,8 +16,14 @@ vi.mock('@/stores/board-context', async (importOriginal) => {
 
 const baseFields = { createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' };
 
-function mockStore(value: BoardStoreValue): void {
-  vi.mocked(boardContext.useBoardStore).mockReturnValue(value);
+function mockStore(value: Pick<BoardStoreValue, 'board' | 'connectionState'>): void {
+  // Board.tsx reads only board + connectionState; the refresh affordance is the
+  // header dropdown's concern, so default it here to keep call sites focused.
+  vi.mocked(boardContext.useBoardStore).mockReturnValue({
+    refreshBoard: () => undefined,
+    refreshing: false,
+    ...value,
+  });
 }
 
 describe('Board ticket detail', () => {

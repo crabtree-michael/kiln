@@ -24,6 +24,7 @@ export type VoiceAction =
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'cancel' } // the X — discard the un-committed utterance (09 §4)
+  | { type: 'sendNow' } // the send button — fire the armed send immediately, skipping the grace window
   | { type: 'denied' }
   | { type: 'background' } // visibilitychange -> hidden (09 §3)
   | { type: 'foreground' } // visibilitychange -> visible
@@ -52,6 +53,17 @@ export function initialVoiceState(): VoiceState {
   return { micState: 'listening', settledText: '', tailText: '' };
 }
 
+/** Promote an armed end-of-turn final (`pending`) to the one-tick `commit` the
+ *  store POSTs — the shared "fire the send now" step behind the send button, the
+ *  grace-window timer, and stopping the mic (09 §4). A no-op when nothing is
+ *  armed, so callers can apply it unconditionally. */
+function fireArmedSend(state: VoiceState): VoiceState {
+  if (state.pending === undefined) {
+    return state;
+  }
+  return { ...state, pending: undefined, commit: state.pending };
+}
+
 export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState {
   switch (action.type) {
     case 'provider':
@@ -60,7 +72,11 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       // Preserve any un-committed transcript on screen (09 §5); drop the armed send.
       return { ...state, micState: 'retry', pending: undefined, commit: undefined };
     case 'pause':
-      return { ...state, micState: 'paused', tailText: '', pending: undefined, commit: undefined };
+      // Tapping the mic to stop listening fires any armed end-of-turn final on
+      // the way out (same effect as the send button / the grace window elapsing,
+      // 09 §4) rather than dropping it, then stops. A still-forming tail is still
+      // discarded, and with nothing armed this is just a plain stop.
+      return { ...fireArmedSend(state), micState: 'paused', tailText: '' };
     case 'resume':
       return { ...state, micState: 'listening', pending: undefined, commit: undefined };
     case 'cancel':
@@ -84,13 +100,13 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       // speak again (09 §4); only drop the one-tick commit.
       return { ...state, commit: undefined };
     case 'commitDelayElapsed':
-      // The post-turn-end grace window closed with the send still armed: promote
-      // the held `pending` text to the one-tick `commit` the store POSTs. A no-op
-      // if resumed speech (or a cancel) already cleared `pending` mid-window.
-      if (state.pending === undefined) {
-        return state;
-      }
-      return { ...state, pending: undefined, commit: state.pending };
+    case 'sendNow':
+      // Fire the armed send now. `commitDelayElapsed` reaches here when the
+      // post-turn-end grace window closes on its own; `sendNow` when the user
+      // taps the send button to skip that window (09 §4). Stopping the mic fires
+      // it too — see the `pause` case. A no-op if resumed speech (or a cancel)
+      // already cleared `pending`.
+      return fireArmedSend(state);
     default:
       return state;
   }

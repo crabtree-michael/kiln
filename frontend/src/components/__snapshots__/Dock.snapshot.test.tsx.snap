@@ -122,6 +122,83 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
 </div>
 `;
 
+exports[`Dock snapshots > Listening with an armed send (grace window open -> send button shown) 1`] = `
+<div>
+  <div
+    data-dock-state="listening"
+    data-role="dock"
+  >
+    <div
+      data-dock-state="listening"
+      data-role="dock-transcript"
+    >
+      <span
+        data-role="dock-settled"
+      >
+        Ship the login screen.
+      </span>
+      <span
+        aria-hidden="true"
+        data-role="dock-caret"
+      >
+        |
+      </span>
+    </div>
+    <div
+      data-role="dock-controls"
+    >
+      <button
+        aria-label="Send"
+        data-role="dock-send"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          height="18"
+          viewBox="0 0 24 24"
+          width="18"
+        >
+          <path
+            d="M2 21l21-9L2 3v7l15 2-15 2v7z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+      <button
+        aria-label="Talk"
+        aria-pressed="true"
+        data-dock-state="listening"
+        data-role="dock-talk"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          data-role="dock-mic"
+        >
+          <span
+            data-role="dock-mic-orb"
+          />
+          <span
+            data-role="dock-mic-capsule"
+          />
+          <span
+            data-role="dock-mic-arc"
+          />
+          <span
+            data-role="dock-mic-stem"
+          />
+        </span>
+        <span
+          data-role="dock-label"
+        >
+          Listening…
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
 exports[`Dock snapshots > Paused 1`] = `
 <div>
   <div

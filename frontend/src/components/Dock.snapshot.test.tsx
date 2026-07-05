@@ -19,9 +19,11 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     micState: 'listening',
     settledText: '',
     tailText: '',
+    pendingSend: false,
     pause: noop,
     resume: noop,
     cancel: noop,
+    sendNow: noop,
     getLevel: () => 0,
     ...overrides,
   };
@@ -33,6 +35,17 @@ describe('Dock snapshots', () => {
       micState: 'listening',
       settledText: 'Ship the login screen.',
       tailText: 'and wire up',
+    });
+    const { container } = render(<Dock />);
+    expect(container).toMatchSnapshot();
+  });
+
+  it('Listening with an armed send (grace window open -> send button shown)', () => {
+    mockVoiceValue = stubVoice({
+      micState: 'listening',
+      settledText: 'Ship the login screen.',
+      tailText: '',
+      pendingSend: true,
     });
     const { container } = render(<Dock />);
     expect(container).toMatchSnapshot();

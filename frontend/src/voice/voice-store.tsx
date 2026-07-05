@@ -226,6 +226,13 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     dispatch({ type: 'cancel' });
   }, []);
 
+  const sendNow = useCallback((): void => {
+    // The send button fires the armed end-of-turn final immediately, skipping the
+    // grace window; the commit effect POSTs it exactly as if the window had
+    // elapsed (09 §4). A no-op unless a send is armed.
+    dispatch({ type: 'sendNow' });
+  }, []);
+
   // Live mic loudness for the dock's volume orb (09 §3). Reads the current
   // stream's AnalyserNode each call; 0 while no stream is up (paused/denied/
   // between reconnects) so the orb naturally shrinks away.
@@ -236,12 +243,24 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       micState: state.micState,
       settledText: state.settledText,
       tailText: state.tailText,
+      pendingSend: state.pending !== undefined,
       pause,
       resume,
       cancel,
+      sendNow,
       getLevel,
     }),
-    [state.micState, state.settledText, state.tailText, pause, resume, cancel, getLevel],
+    [
+      state.micState,
+      state.settledText,
+      state.tailText,
+      state.pending,
+      pause,
+      resume,
+      cancel,
+      sendNow,
+      getLevel,
+    ],
   );
 
   return <VoiceStoreContext.Provider value={value}>{children}</VoiceStoreContext.Provider>;

@@ -1,8 +1,8 @@
 // Split from board-store.tsx so that file exports only the `BoardProvider`
 // component (react-refresh/only-export-components) — this file carries the
 // context, its value shape, and the consumer hook.
-import { createContext, useContext } from 'react';
 import type { Board, ConnectionState } from '@/transport/transport';
+import { createStoreContext } from '@/stores/create-store-context';
 
 export type { Board };
 
@@ -21,12 +21,7 @@ export interface BoardStoreValue {
   refreshing: boolean;
 }
 
-export const BoardStoreContext = createContext<BoardStoreValue | undefined>(undefined);
+const { Context: BoardStoreContext, useStore: useBoardStore } =
+  createStoreContext<BoardStoreValue>('useBoardStore');
 
-export function useBoardStore(): BoardStoreValue {
-  const context = useContext(BoardStoreContext);
-  if (context === undefined) {
-    throw new Error('useBoardStore must be used within a BoardProvider');
-  }
-  return context;
-}
+export { BoardStoreContext, useBoardStore };

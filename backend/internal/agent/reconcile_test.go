@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 type reconcileProvider struct {
@@ -98,13 +99,13 @@ const (
 func TestRun_ReconcileCreatesOnlyMissingWorkers(t *testing.T) {
 	provider := newReconcileProvider() // no live workers at all
 	slots := &fakeSlots{ids: []string{reconcileWorkerA, reconcileWorkerB}}
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock)
 
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool {
+	testutil.Eventually(t, func() bool {
 		return provider.wasCreated(agent.WorkerName(reconcileWorkerA)) &&
 			provider.wasCreated(agent.WorkerName(reconcileWorkerB))
 	})
@@ -114,14 +115,14 @@ func TestRun_ReconcileAdoptsExistingWorkersWithoutRecreating(t *testing.T) {
 	existingName := agent.WorkerName(reconcileWorkerA)
 	provider := newReconcileProvider(agent.ProviderWorker{Name: existingName, Ref: "already-provisioned"})
 	slots := &fakeSlots{ids: []string{reconcileWorkerA, reconcileWorkerB}}
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock)
 
 	stop := runService(t, svc, clock)
 	defer stop()
 
 	// The slot with no live worker (B) must get one.
-	eventually(t, func() bool { return provider.wasCreated(agent.WorkerName(reconcileWorkerB)) })
+	testutil.Eventually(t, func() bool { return provider.wasCreated(agent.WorkerName(reconcileWorkerB)) })
 
 	// Give a few more reconcile sweeps a chance to run, then confirm the
 	// already-live worker (A) was never recreated — adopt-first (05 §4).
@@ -140,13 +141,13 @@ func TestRun_ReconcileDestroysOrphanedWorkers(t *testing.T) {
 		agent.ProviderWorker{Name: orphanName, Ref: "orphan"},
 	)
 	slots := &fakeSlots{ids: []string{reconcileWorkerA}}
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock)
 
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	eventually(t, func() bool { return provider.wasDestroyed(orphanName) })
+	testutil.Eventually(t, func() bool { return provider.wasDestroyed(orphanName) })
 
 	if provider.wasDestroyed(validName) {
 		t.Errorf("reconciliation must only destroy kiln-worker-* entries matching no board"+

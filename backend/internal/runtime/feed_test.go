@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 // newFeedService builds a Service with the caller's 08 §7 fakes and inert
@@ -18,7 +19,7 @@ func newFeedService(
 	notes runtime.NotificationStore, board runtime.BoardReader,
 	feed runtime.FeedPusher, activity runtime.ActivityPusher,
 ) *runtime.Service {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	return runtime.NewService(
 		newFakeStore(clock), &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
@@ -306,7 +307,7 @@ func TestService_MarkSeen_DelegatesHighWaterToStore(t *testing.T) {
 // ---- thinking bracket around a brain pass (08 §4) -------------------------
 
 func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
@@ -321,7 +322,7 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 	stop := runWorker(t, eventsWorker)
 	defer stop()
 
-	eventually(t, func() bool { return len(activity.events()) >= 2 })
+	testutil.Eventually(t, func() bool { return len(activity.events()) >= 2 })
 	time.Sleep(20 * time.Millisecond)
 
 	evs := activity.events()
@@ -341,7 +342,7 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 // ---- feed.updated / activity.toast outbox routing (08 §7) -----------------
 
 func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	notes := &fakeNotificationStore{}
 	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "note"})
@@ -358,7 +359,7 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
-	eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
 	pushes := feed.pushes()
 	if len(pushes) < 1 {
 		t.Fatalf("PushFeed calls = %d, want >= 1", len(pushes))
@@ -369,7 +370,7 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 }
 
 func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
-	clock := newFakeClock()
+	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
@@ -385,7 +386,7 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
-	eventually(t, func() bool {
+	testutil.Eventually(t, func() bool {
 		for _, ev := range activity.events() {
 			if ev.Kind == "toast" {
 				return true

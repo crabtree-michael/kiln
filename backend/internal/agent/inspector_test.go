@@ -13,12 +13,13 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/agent/mock"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 func newInspector(t *testing.T, store *fakeStore) (*agent.Service, *mock.Provider) {
 	t.Helper()
 	p := mock.New()
-	svc := agent.NewService(store, p, &fakeEvents{}, &fakeSlots{}, newFakeClock())
+	svc := agent.NewService(store, p, &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock())
 	return svc, p
 }
 

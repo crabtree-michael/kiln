@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/crabtree-michael/kiln/backend/internal/pgutil"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
 
@@ -467,18 +468,8 @@ func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 // board store's pattern, 03 §6). A rollback failure is joined to the causing
 // error so neither is lost.
 func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("runtime/postgres: begin: %w", err)
-	}
-	if err := fn(tx); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-			return fmt.Errorf("runtime/postgres: rollback (after %w): %w", err, rbErr)
-		}
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("runtime/postgres: commit: %w", err)
+	if err := pgutil.InTx(ctx, s.db, nil, fn); err != nil {
+		return fmt.Errorf("runtime/postgres: tx: %w", err)
 	}
 	return nil
 }

@@ -15,89 +15,17 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 // statusDone is the terminal delivery status a successful entry lands in
 // (04 §3), shared across the runtime unit tests.
 const statusDone = "done"
 
-// ---- fakeClock -----------------------------------------------------------
-
-// clockWaiter is one pending After() call: fired once the fake clock's Now()
-// reaches or passes deadline.
-type clockWaiter struct {
-	deadline time.Time
-	ch       chan time.Time
-}
-
-// fakeClock is a manually-advanced runtime.Clock. Tests step simulated time
-// forward (via Advance/pump) so the worker's backoff schedule (04 §3, D8:
-// min(1s*2^(attempts-1), 60s), up to 8 attempts — nearly two minutes of
-// simulated waiting) never costs real wall time (04 §9).
-type fakeClock struct {
-	mu      sync.Mutex
-	now     time.Time
-	waiters []clockWaiter
-}
-
-func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)}
-}
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *fakeClock) After(d time.Duration) <-chan time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ch := make(chan time.Time, 1)
-	c.waiters = append(c.waiters, clockWaiter{deadline: c.now.Add(d), ch: ch})
-	return ch
-}
-
-// Advance moves the clock forward by d and fires every waiter whose deadline
-// has elapsed.
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-	remaining := c.waiters[:0]
-	for _, w := range c.waiters {
-		if !w.deadline.After(c.now) {
-			w.ch <- c.now
-		} else {
-			remaining = append(remaining, w)
-		}
-	}
-	c.waiters = remaining
-}
-
 // pumpStep is the simulated time each pump heartbeat advances — the worker's
 // 1s poll fallback (04 §5), so one real millisecond crosses one simulated
 // poll cycle.
 const pumpStep = time.Second
-
-// pump advances the clock by pumpStep on a tight real-time heartbeat until stop
-// is closed — the "without real sleeps" trick (04 §9): the *simulated*
-// interval the worker waits on (its 1s poll fallback, 04 §5) is what
-// advances; the real wall-clock cost is only the heartbeat tick, so a test
-// crosses many simulated poll cycles — and the whole 8-attempt, ~183s
-// backoff ladder — in well under a second of real time.
-func (c *fakeClock) pump(stop <-chan struct{}) {
-	t := time.NewTicker(time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-t.C:
-			c.Advance(pumpStep)
-		}
-	}
-}
 
 // realTestClock is the trivial wall-clock runtime.Clock, used only by the
 // nudge-vs-poll test (worker_test.go), which deliberately measures real
@@ -108,27 +36,6 @@ func (realTestClock) Now() time.Time                         { return time.Now()
 func (realTestClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 var _ runtime.Clock = realTestClock{}
-
-// ---- eventually -----------------------------------------------------------
-
-// eventuallyTimeout bounds every eventually() wait below: real scheduling
-// slack only, never the worker's own poll/backoff intervals — those are
-// owned and sped up by fakeClock.
-const eventuallyTimeout = 2 * time.Second
-
-func eventually(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(eventuallyTimeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	if !cond() {
-		t.Fatalf("condition not met within %s", eventuallyTimeout)
-	}
-}
 
 // runWorker starts w.Run in the background and returns a stop func that
 // cancels the context and waits (bounded) for Run to return.
@@ -144,7 +51,7 @@ func runWorker(t *testing.T, w *runtime.Worker) func() {
 			if err != nil && !errors.Is(err, context.Canceled) {
 				t.Errorf("Worker.Run returned an unexpected error after cancellation: %v", err)
 			}
-		case <-time.After(eventuallyTimeout):
+		case <-time.After(testutil.EventuallyTimeout):
 			t.Error("Worker.Run did not return after context cancellation")
 		}
 	}

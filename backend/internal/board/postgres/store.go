@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
+	"github.com/crabtree-michael/kiln/backend/internal/pgutil"
 )
 
 // ticketColumns is the canonical projection for a ticket row, shared by every
@@ -43,18 +44,10 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 // Tx runs fn in one short READ COMMITTED transaction (03 §6): the ticket
 // change and its outbox appends commit together or roll back together (03 I7).
 func (s *Store) Tx(ctx context.Context, fn func(board.Tx) error) error {
-	sqltx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-	if err != nil {
-		return fmt.Errorf("board/postgres: begin: %w", err)
-	}
-	if err := fn(&tx{sqltx: sqltx}); err != nil {
-		if rbErr := sqltx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-			return fmt.Errorf("board/postgres: rollback (after %w): %w", err, rbErr)
-		}
-		return err
-	}
-	if err := sqltx.Commit(); err != nil {
-		return fmt.Errorf("board/postgres: commit: %w", err)
+	if err := pgutil.InTx(ctx, s.db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(sqltx *sql.Tx) error {
+		return fn(&tx{sqltx: sqltx})
+	}); err != nil {
+		return fmt.Errorf("board/postgres: tx: %w", err)
 	}
 	return nil
 }
@@ -398,14 +391,9 @@ type workerRow struct {
 	CreatedAt time.Time
 }
 
-// rowScanner is satisfied by both *sql.Row and *sql.Rows.
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
 // scanTicket reads one ticket row. A sql.ErrNoRows is returned wrapped so
 // callers can still detect it with errors.Is while satisfying wrapcheck.
-func scanTicket(r rowScanner) (board.Ticket, error) {
+func scanTicket(r pgutil.RowScanner) (board.Ticket, error) {
 	var (
 		tk         board.Ticket
 		id         string

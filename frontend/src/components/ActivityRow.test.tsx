@@ -3,7 +3,7 @@
 // and the persistent say pill — each rendered from the stack the store hands
 // down. Multiple live toasts stack. DOM-structure snapshots stand in for pixel
 // snapshots (07 §9 D4).
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ActivityRow } from '@/components/ActivityRow';
 import type { ActivityToast } from '@/stores/activity-context';
@@ -15,6 +15,21 @@ const noop = (): void => {
 function toast(id: number, pill: ActivityToast['pill']): ActivityToast {
   return { id, pill };
 }
+
+/**
+ * jsdom performs no layout, so `scrollHeight`/`clientHeight` are both 0 and the
+ * clamp never registers as truncated. Fake a clamped box (content taller than
+ * the 2-line window) so the expand affordance can be exercised; restore after
+ * each test so the layout-free default holds for the snapshot cases.
+ */
+function fakeClampedOverflow(): void {
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(100);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40);
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('ActivityRow', () => {
   it('renders the thinking indicator only when the stack is empty (6a)', () => {
@@ -61,6 +76,63 @@ describe('ActivityRow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledWith(7);
+  });
+
+  it('leaves a say pill inert when its text fits (no clamp, no expand affordance)', () => {
+    const toasts = [toast(1, { kind: 'say', text: 'On it.' })];
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
+    const text = screen.getByText('On it.');
+    expect(text).not.toHaveAttribute('data-expandable');
+    expect(text).not.toHaveAttribute('data-expanded');
+    expect(text).not.toHaveAttribute('role', 'button');
+  });
+
+  it('expands a truncated say pill in place on tap and collapses it again', () => {
+    fakeClampedOverflow();
+    const toasts = [toast(1, { kind: 'say', text: 'A very long agent utterance that overflows.' })];
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
+    const text = screen.getByText(/A very long agent utterance/);
+
+    // Truncated: tappable, collapsed to start.
+    expect(text).toHaveAttribute('data-expandable', 'true');
+    expect(text).toHaveAttribute('role', 'button');
+    expect(text).toHaveAttribute('aria-expanded', 'false');
+    expect(text).not.toHaveAttribute('data-expanded');
+
+    fireEvent.click(text);
+    expect(text).toHaveAttribute('data-expanded', 'true');
+    expect(text).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(text);
+    expect(text).not.toHaveAttribute('data-expanded');
+    expect(text).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('expands a truncated toast pill via keyboard (Enter)', () => {
+    fakeClampedOverflow();
+    const toasts = [
+      toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'A title long enough to clamp' }),
+    ];
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
+    const text = document.querySelector('[data-role="toast-text"]');
+    expect(text).not.toBeNull();
+    expect(text).toHaveAttribute('data-expandable', 'true');
+    fireEvent.keyDown(text!, { key: 'Enter' });
+    expect(text).toHaveAttribute('data-expanded', 'true');
+  });
+
+  it('dismisses a say pill without toggling expansion when the × is tapped', () => {
+    fakeClampedOverflow();
+    const onDismiss = vi.fn();
+    const toasts = [
+      toast(9, { kind: 'say', text: 'A very long say that is clamped and dismissable.' }),
+    ];
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={onDismiss} />);
+    const text = screen.getByText(/A very long say/);
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onDismiss).toHaveBeenCalledWith(9);
+    // The dismiss button is a sibling of the text, so it never toggles expansion.
+    expect(text).not.toHaveAttribute('data-expanded');
   });
 
   it('renders an empty row when idle (nothing needs the activity surface)', () => {

@@ -13,6 +13,7 @@ import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
+import { ThemeColorSync } from '@/components/ThemeColorSync';
 
 // Frontend error + trace reporting (spec-10 §3). The DSN is baked in at build
 // time (`VITE_SENTRY_DSN`, a public value). When it is unset — local `pnpm dev`,
@@ -61,6 +62,7 @@ createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
       <BrowserRouter>
+        <ThemeColorSync />
         <SentryRoutes>
           <Route path="/" element={<PrimaryScreen />} />
           <Route path="/debug" element={<App />} />

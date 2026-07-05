@@ -53,8 +53,13 @@ export default defineConfig({
         name: 'Kiln',
         short_name: 'Kiln',
         description: 'Voice-driven orchestrator for autonomous coding agents.',
-        theme_color: '#0b0b0f',
-        background_color: '#0b0b0f',
+        // Paper tone of the primary (08) screen — the flat base of its light
+        // background gradient (oklch(0.955 0.004 45) ≈ #f3efee). `start_url` is
+        // `/`, so both the standalone system chrome (`theme_color`) and the
+        // launch splash (`background_color`) read as the app's own light surface
+        // rather than a dark value that letterboxes the safe-area insets black.
+        theme_color: '#f3efee',
+        background_color: '#f3efee',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',

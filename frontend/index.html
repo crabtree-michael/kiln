@@ -6,7 +6,13 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
     />
-    <meta name="theme-color" content="#0b0b0f" />
+    <!-- The default route `/` is the light "paper" primary screen (08), which is
+         what the installed PWA launches into — so the system-chrome colour (iOS
+         status bar / Android address bar, and the safe-area strips some shells
+         tint with it) defaults to the paper tone, not a dark value that would
+         letterbox the notch/home-indicator black. `ThemeColorSync` in main.tsx
+         flips this to the dark shell tone on the `/debug` route. -->
+    <meta name="theme-color" content="#f3efee" />
     <!-- Primary-screen (08) type: Space Grotesk / IBM Plex Mono / Instrument
          Serif, per the Kiln Voice Screen design language. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

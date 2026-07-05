@@ -88,6 +88,19 @@ function dividerIndex(cards: FeedCard[], lastSeenId: number | null): number {
   return hasNewerAbove ? firstOld : -1;
 }
 
+/** Whether a card sits at/below the last-seen boundary — already-seen history
+ * that renders de-emphasized (unbolded title, body collapsed tighter) so the
+ * new-since-last-visit cards above stay the feed's focus (08 D2′). Board cards
+ * (blocker/proposal, no `notification_id`) never recede — they still need the
+ * user. Returns false when no boundary is known (fresh visit / nothing seen). */
+function isSeen(card: FeedCard, lastSeenId: number | null): boolean {
+  if (lastSeenId === null) {
+    return false;
+  }
+  const id = updateId(card);
+  return id !== null && id <= lastSeenId;
+}
+
 export function PrimaryScreenView({
   feed,
   board = null,
@@ -153,7 +166,12 @@ export function PrimaryScreenView({
                       Earlier
                     </div>
                   )}
-                  <FeedCardItem card={card} now={now} onAccept={onAccept} />
+                  <FeedCardItem
+                    card={card}
+                    now={now}
+                    onAccept={onAccept}
+                    seen={isSeen(card, lastSeenId)}
+                  />
                 </div>
               ))}
               {hasMoreHistory && onLoadMoreHistory !== undefined && (

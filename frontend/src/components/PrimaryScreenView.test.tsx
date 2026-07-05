@@ -167,6 +167,61 @@ describe('PrimaryScreenView', () => {
     expect(slot?.querySelector('[data-role="feed-card-label"]')?.textContent).toBe('Email');
   });
 
+  it('de-emphasizes already-seen cards below the boundary and leaves new cards above untouched (08 D2′)', () => {
+    // last-seen at 20: update:30 is new (above), update:20/update:10 are history
+    // (at/below) — the history cards recede via data-seen; the new card and the
+    // blocker (no notification_id — still needs the user) do not.
+    renderView(
+      makeFeedSnapshot({
+        summary: { blocker_count: 1, stream_count: 5, last_seen_notification_id: 20 },
+        cards: [blockerCard, ...updateCards],
+      }),
+      { lastSeenId: 20 },
+    );
+    const seenState = (label: string): string | null => {
+      const card = screen.getByText(label).closest('[data-role="feed-card"]');
+      return card?.getAttribute('data-seen') ?? null;
+    };
+    // Above the divider (new) and the blocker stay bold/full — no data-seen.
+    expect(seenState('Auth')).toBeNull();
+    expect(seenState('Rate limiting')).toBeNull();
+    // At/below the divider recede.
+    expect(seenState('Email')).toBe('true');
+    expect(seenState('Search')).toBe('true');
+    // The tighter body clamp rides the same data-seen hook on the body element.
+    const emailCard = screen.getByText('Email').closest('[data-role="feed-card"]');
+    expect(emailCard?.querySelector('[data-role="feed-card-body"]')).toHaveAttribute(
+      'data-seen',
+      'true',
+    );
+  });
+
+  it('keeps an already-seen card expandable in place from its tighter default (08 D2′)', () => {
+    fakeClampedOverflow();
+    // Everything shown is at/below the boundary → all history, all receded, but
+    // the same expand/collapse interaction still applies.
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: updateCards }), {
+      lastSeenId: 30,
+    });
+    const emailCard = screen.getByText('Email').closest('[data-role="feed-card"]');
+    if (!(emailCard instanceof HTMLElement)) {
+      throw new Error('expected the Email feed card');
+    }
+    expect(emailCard).toHaveAttribute('data-seen', 'true');
+    const body = emailCard.querySelector('[data-role="feed-card-body"]');
+    const more = within(emailCard).getByRole('button', { name: 'Tap to see more' });
+    expect(body).not.toHaveAttribute('data-expanded');
+    fireEvent.click(more);
+    expect(body).toHaveAttribute('data-expanded', 'true');
+  });
+
+  it('does not de-emphasize any card without a last-seen boundary (08 D2′)', () => {
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
+    for (const card of screen.getAllByRole('article')) {
+      expect(card).not.toHaveAttribute('data-seen');
+    }
+  });
+
   it('does not render the divider without a last-seen boundary (08 D2′)', () => {
     // No lastSeenId (fresh user / nothing seen) → all updates are current, no divider.
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));

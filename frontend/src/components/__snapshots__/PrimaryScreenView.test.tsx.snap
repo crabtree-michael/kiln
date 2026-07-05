@@ -293,6 +293,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
           <article
             data-kind="update"
             data-role="feed-card"
+            data-seen="true"
           >
             <div
               data-role="feed-card-head"
@@ -315,6 +316,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             </div>
             <p
               data-role="feed-card-body"
+              data-seen="true"
             >
               Drafted three subject lines for the password-reset email and kept the clearest.
             </p>
@@ -326,6 +328,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
           <article
             data-kind="update"
             data-role="feed-card"
+            data-seen="true"
           >
             <div
               data-role="feed-card-head"
@@ -348,6 +351,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             </div>
             <p
               data-role="feed-card-body"
+              data-seen="true"
             >
               Reindexed the product catalog; queries are back under 40ms.
             </p>

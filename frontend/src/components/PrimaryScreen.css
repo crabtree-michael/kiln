@@ -386,6 +386,13 @@ body:has([data-role='primary-screen']) {
   color: var(--ink);
 }
 
+/* Already-seen history (below the last-seen divider, 08 D2′): drop the ticket
+   name to regular weight so read cards recede and the new cards above stay the
+   focus. */
+[data-role='feed-card'][data-seen='true'] [data-role='feed-card-label'] {
+  font-weight: 400;
+}
+
 [data-role='feed-card-age'] {
   flex-shrink: 0;
   font-size: 11px;
@@ -404,6 +411,14 @@ body:has([data-role='primary-screen']) {
   -webkit-line-clamp: 5;
   line-clamp: 5;
   overflow: hidden;
+}
+
+/* Already-seen bodies (08 D2′) collapse tighter than the five-line preview — a
+   two-line skim of the top. Comes before the expanded rule so tapping to expand
+   still fully wins (equal specificity, last-declared clamp applies). */
+[data-role='feed-card-body'][data-seen='true'] {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 [data-role='feed-card-body'][data-expanded='true'] {

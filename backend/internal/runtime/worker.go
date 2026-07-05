@@ -2,9 +2,18 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
+
+// errHandlerPanic is the static sentinel a recovered handler panic is wrapped
+// with, so the retry/dead-letter path carries a typed error rather than a bare
+// dynamic one.
+var errHandlerPanic = errors.New("runtime: panic in queue handler")
 
 // Handler executes one claimed entry — a brain pass on the events queue, a
 // per-topic executor on the outbox (04 §2). It runs outside any queue
@@ -99,7 +108,7 @@ func (w *Worker) drainDue(ctx context.Context) {
 // success → done; failure with attempts left → retry with backoff; failure at
 // MaxAttempts → dead + the per-kind dead-letter action.
 func (w *Worker) process(ctx context.Context, e Entry) {
-	handleErr := w.handle(ctx, e)
+	handleErr := w.safeHandle(ctx, e)
 	if handleErr == nil {
 		if err := w.store.MarkDone(ctx, w.queue, e.ID); err != nil {
 			slog.Error("runtime: mark done", "queue", w.queue, "id", e.ID, "err", err)
@@ -114,6 +123,21 @@ func (w *Worker) process(ctx context.Context, e Entry) {
 	if err := w.store.MarkRetry(ctx, w.queue, e.ID, handleErr.Error(), next); err != nil {
 		slog.Error("runtime: mark retry", "queue", w.queue, "id", e.ID, "err", err)
 	}
+}
+
+// safeHandle runs the entry's handler with a panic guard: a panic (e.g. a nil
+// deref deep in a brain pass or outbox executor) is captured to Sentry, re-logged
+// with a stack, and converted into a normal handler error so the entry retries
+// or dead-letters through the usual path — the worker keeps draining instead of
+// the panic unwinding the goroutine and taking the process down.
+func (w *Worker) safeHandle(ctx context.Context, e Entry) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			obs.Capture(ctx, r)
+			err = fmt.Errorf("%w (%s entry %d): %v", errHandlerPanic, w.queue, e.ID, r)
+		}
+	}()
+	return w.handle(ctx, e)
 }
 
 // retire dead-letters an exhausted entry (04 §3): mark it dead, then run the

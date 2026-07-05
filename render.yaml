@@ -1,0 +1,54 @@
+# Kiln production topology (spec 10, phases 2–3).
+# One web service (Go binary with the frontend embedded) + one managed Postgres 16.
+# NOTE: for this first bring-up the resources are provisioned via the Render API
+# (headless, from the connected GitHub repo) rather than a dashboard Blueprint apply.
+# This file is the source-of-truth record of that topology; keep it in sync with the
+# live resources. Secrets are marked `sync: false` and set out-of-band (never committed).
+services:
+  - type: web
+    name: kiln
+    runtime: docker
+    plan: starter                     # $7/mo, always-on (no scale-to-zero)
+    region: frankfurt                 # nearest to the user (Sentry org is EU/`de`)
+    branch: main
+    autoDeploy: true                  # deploy-on-merge (no CI gate — see design doc, delta d)
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .                  # repo root: the Dockerfile builds frontend + embeds it
+    healthCheckPath: /healthz
+    envVars:
+      # --- runtime ---
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kiln-db
+          property: connectionString
+      - key: KILN_LOG_LEVEL
+        value: info
+      - key: SENTRY_BACKEND_DSN        # backend errors/traces/logs
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AMIKA_API_KEY
+        sync: false
+      - key: AMIKA_CLAUDE_CRED_ID
+        sync: false
+      - key: AMIKA_REPO_URL
+        sync: false
+      - key: AMIKA_SNAPSHOT
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: GITHUB_AUTH_TOKEN
+        sync: false
+      - key: GITHUB_REPO_URL
+        sync: false
+      # --- build-time (available to the Docker build; frontend bundle + source maps) ---
+      - key: VITE_SENTRY_DSN           # public client DSN, baked into the bundle
+        sync: false
+      - key: SENTRY_AUTH_TOKEN         # source-map upload only
+        sync: false
+
+databases:
+  - name: kiln-db
+    plan: basic-256mb                  # ~$6/mo, daily backups + PITR
+    postgresMajorVersion: "16"
+    region: frankfurt

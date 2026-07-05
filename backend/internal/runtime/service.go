@@ -359,6 +359,10 @@ func (s *Service) handleEvent(ctx context.Context, e Entry) error {
 	// derail the brain pass, so activity errors are logged and dropped.
 	s.pushThinking(ctx, true)
 	defer s.pushThinking(ctx, false)
+	// Trace the brain pass as one span (design 2026-07-05); no-op when Sentry is
+	// disabled. Description carries the event type so traces group by trigger.
+	ctx, finish := obs.StartSpan(ctx, "brain.dispatch", e.Kind)
+	defer finish()
 	if err := s.brain.HandleEvent(ctx, ev); err != nil {
 		slog.ErrorContext(ctx, "runtime.event.failed", "event_id", e.ID, "event_type", e.Kind, "err", err)
 		return fmt.Errorf("runtime: brain pass for event %d: %w", e.ID, err)
@@ -391,6 +395,10 @@ func (s *Service) deadLetterEvent(ctx context.Context, e Entry, cause error) err
 // to its executor (04 §2). The outbox id travels as the idempotency key for
 // agent.send/agent.release (04 §3, 05 §7).
 func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
+	// Trace each outbox delivery as one span keyed on the topic (design
+	// 2026-07-05); no-op when Sentry is disabled.
+	ctx, finish := obs.StartSpan(ctx, "outbox.deliver", e.Kind)
+	defer finish()
 	switch e.Kind {
 	case topicAgentSend:
 		return wrapOutbox("agent send", s.agents.Send(ctx, e.ID, e.Payload))
@@ -403,9 +411,11 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 	case topicBoardUpdated:
 		return wrapOutbox("push board", s.pusher.PushBoard(ctx))
 	case topicFeedUpdated:
-		return s.handleFeedUpdated(ctx)
+		s.handleFeedUpdated(ctx)
+		return nil
 	case topicActivityToast:
-		return s.handleActivityToast(ctx, e)
+		s.handleActivityToast(ctx, e)
+		return nil
 	default:
 		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
 	}
@@ -454,33 +464,31 @@ type toastPayload struct {
 // transitions) and the runtime itself (notification mutations). Self-heals —
 // a failed assembly or push logs-and-drops (like board.updated) rather than
 // wedging the outbox, since the next emission re-renders from scratch.
-func (s *Service) handleFeedUpdated(ctx context.Context) error {
+func (s *Service) handleFeedUpdated(ctx context.Context) {
 	snap, err := s.Feed(ctx)
 	if err != nil {
 		slog.Error("runtime: feed.updated assemble", "err", err)
-		return nil
+		return
 	}
 	if err := s.feedPusher.PushFeed(ctx, snap); err != nil {
 		slog.Error("runtime: feed.updated push", "err", err)
 	}
-	return nil
 }
 
 // handleActivityToast realizes the activity.toast topic (08 §4, §7): decode
 // the board-emitted verb + ticket title and fan out a toast activity event.
 // Self-heals — a decode or push failure logs-and-drops (the toast is
 // ephemeral, so a lost one is cosmetic).
-func (s *Service) handleActivityToast(ctx context.Context, e Entry) error {
+func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
 	var p toastPayload
 	if err := json.Unmarshal(e.Payload, &p); err != nil {
 		slog.Error("runtime: activity.toast decode", "id", e.ID, "err", err)
-		return nil
+		return
 	}
 	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle}
 	if err := s.activityPusher.PushActivity(ctx, ev); err != nil {
 		slog.Error("runtime: activity.toast push", "id", e.ID, "err", err)
 	}
-	return nil
 }
 
 // wrapOutbox annotates an executor error with the operation name, satisfying

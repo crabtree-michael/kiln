@@ -25,6 +25,10 @@ const (
 	maxLimit      = 500
 )
 
+// healthPingTimeout bounds the DB ping behind GET /healthz so a wedged database
+// fails the probe promptly instead of hanging Render's health check.
+const healthPingTimeout = 3 * time.Second
+
 // BoardReader is the api's port onto the board's read path (03 §4 GetBoard).
 type BoardReader interface {
 	GetBoard(ctx context.Context) (board.Snapshot, error)
@@ -130,6 +134,10 @@ type Server struct {
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
+
+	version    string                      // release string surfaced by GET /healthz
+	healthPing func(context.Context) error // non-nil ⇒ GET /healthz is mounted
+	spa        http.Handler                // non-nil ⇒ the "/" catch-all serves the embedded SPA
 }
 
 // NewServer wires the routes over their ports and the hub.
@@ -156,6 +164,21 @@ func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes 
 // /debug "Reset session" button relies on it always being present.
 func (s *Server) EnableReset(r Resetter) { s.resetter = r }
 
+// EnableHealthz turns on GET /healthz (call before Handler): a liveness+DB probe
+// returning 200 {status:ok, version} when ping succeeds, 503 {status:degraded}
+// otherwise. version is the release string; ping is the composition root's DB
+// health check (db.PingContext). Mounted outside /api so Render and a first curl
+// hit it without the app prefix.
+func (s *Server) EnableHealthz(version string, ping func(context.Context) error) {
+	s.version = version
+	s.healthPing = ping
+}
+
+// EnableSPA mounts the embedded frontend as the mux's "/" catch-all (call before
+// Handler): every path not claimed by an /api/* or /healthz pattern falls to it,
+// so the client's own routes render same-origin with the API.
+func (s *Server) EnableSPA(h http.Handler) { s.spa = h }
+
 // Handler returns the api's http.Handler, ready to mount.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -176,7 +199,33 @@ func (s *Server) Handler() http.Handler {
 	if s.resetter != nil {
 		mux.HandleFunc("POST /api/dev/reset", s.handleReset)
 	}
+	if s.healthPing != nil {
+		mux.HandleFunc("GET /healthz", s.handleHealthz)
+	}
+	if s.spa != nil {
+		// The "/" pattern is the lowest-precedence match in a Go 1.22 ServeMux,
+		// so every /api/* and /healthz route above wins first; only unmatched
+		// paths (client routes, embedded assets) reach the SPA handler.
+		mux.Handle("/", s.spa)
+	}
 	return mux
+}
+
+// handleHealthz is the liveness + DB-reachability probe (design 2026-07-05):
+// 200 {status:ok, version} when the DB ping answers, 503 {status:degraded,
+// version} otherwise. Mounted outside /api. The ping is bounded by a short
+// timeout so a wedged DB fails the check promptly rather than hanging Render's
+// probe.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), healthPingTimeout)
+	defer cancel()
+	if err := s.healthPing(ctx); err != nil {
+		slog.Warn("api: healthz degraded", "err", err)
+		writeJSON(w, http.StatusServiceUnavailable,
+			map[string]string{"status": "degraded", "version": s.version})
+		return
+	}
+	writeJSON(w, http.StatusOK, wire.Health{Status: wire.Ok, Version: s.version})
 }
 
 // handleReset returns the system to a fresh agent session (204). The reset is

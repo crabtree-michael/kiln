@@ -1,0 +1,15 @@
+# Build context hygiene — backend/Dockerfile uses the repo ROOT as context
+# (it builds the frontend and embeds it). Keep node_modules, VCS, and local
+# artifacts out so builds stay fast on Render and locally.
+**/node_modules
+frontend/dist
+backend/bin
+.git
+.claude
+docs
+tests
+*.log
+# never ship local secrets into a build context
+.env
+.env.*
+!.env.example

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"time"
 
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	_ "github.com/lib/pq" // Postgres driver for database/sql.
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
@@ -23,10 +24,12 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	boardpg "github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/obs"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/voice/assemblyai"
+	"github.com/crabtree-michael/kiln/backend/internal/web"
 )
 
 // errBadConfig marks a fatal misconfiguration at startup (e.g. an unknown
@@ -171,18 +174,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 		BaseURL: cfg.AssemblyAIBaseURL,
 	})
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
-	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
-	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
-	// It re-seeds the worker pool to WorkerCount, mirroring startup, so a fresh
-	// session comes back up with capacity.
-	server.EnableReset(newResetCoordinator(db, agentSvc, boardStore, cfg.WorkerCount))
-	if cfg.DevEndpoints {
-		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
-		// post a feed notification (POST /api/dev/notifications), both without the
-		// brain — deterministic e2e preconditions.
-		server.EnableDevTickets(boardSvc)
-		server.EnableDevNotifications(rtSvc)
-	}
+	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore)
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
@@ -191,6 +183,34 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 		outbox: outbox,
 		agent:  agentSvc,
 	}, nil
+}
+
+// enableServerRoutes wires the api server's non-core routes: the unconditional
+// reset affordance and health/SPA, plus the dev-only seed routes when
+// KILN_DEV_ENDPOINTS is set. Extracted from buildGraph to keep that function
+// within the complexity budget.
+func enableServerRoutes(
+	server *api.Server, cfg Config, db *sql.DB,
+	boardSvc *board.Service, rtSvc *runtime.Service,
+	agentSvc *agent.Service, boardStore *boardpg.Store,
+) {
+	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
+	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
+	// It re-seeds the worker pool to WorkerCount, mirroring startup, so a fresh
+	// session comes back up with capacity.
+	server.EnableReset(newResetCoordinator(db, agentSvc, boardStore, cfg.WorkerCount))
+	// GET /healthz probes the DB (Render health check + first-curl diagnostic);
+	// the embedded SPA is the "/" catch-all so the client is served same-origin
+	// with the API (design 2026-07-05).
+	server.EnableHealthz(version, db.PingContext)
+	server.EnableSPA(web.Handler())
+	if cfg.DevEndpoints {
+		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
+		// post a feed notification (POST /api/dev/notifications), both without the
+		// brain — deterministic e2e preconditions.
+		server.EnableDevTickets(boardSvc)
+		server.EnableDevNotifications(rtSvc)
+	}
 }
 
 // run starts the two workers and the HTTP server, then blocks until ctx is
@@ -203,9 +223,19 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	// Without this the pool is never provisioned and agent.send turns never reach Amika.
 	go g.runAgent(ctx, log)
 
+	// Wrap the mux with Sentry's HTTP middleware for request tracing + panic
+	// capture. Its ResponseWriter proxy preserves http.Flusher (it returns an
+	// httpFancyWriter for a Flusher-capable HTTP/1 writer), so the SSE board
+	// stream (hub.go) keeps flushing. When Sentry is disabled the mux is used
+	// bare — no wrapper, no cost. Repanic lets net/http's own per-request
+	// recovery resume after Sentry has captured the panic.
+	handler := g.server.Handler()
+	if obs.SentryEnabled() {
+		handler = sentryhttp.New(sentryhttp.Options{Repanic: true}).Handle(handler)
+	}
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           g.server.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	go func() {
@@ -226,15 +256,31 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	return nil
 }
 
-// runWorker runs one queue worker, logging a non-shutdown error.
+// runWorker runs one queue worker, logging a non-shutdown error. The deferred
+// recover is a process-level safety net: an unrecovered panic in a background
+// goroutine would otherwise take the whole process down. Per-entry panics are
+// already caught inside the worker (runtime.Worker.process) and turned into a
+// retryable error; this only fires for a panic outside a handler.
 func (g graph) runWorker(ctx context.Context, name string, w *runtime.Worker, log *slog.Logger) {
+	defer func() {
+		if r := recover(); r != nil {
+			obs.Capture(ctx, r)
+		}
+	}()
 	if err := w.Run(ctx); err != nil {
 		log.Error("kiln: worker exited", "worker", name, "err", err)
 	}
 }
 
-// runAgent runs the agent-runtime reconciler+poller loop, logging a non-shutdown error.
+// runAgent runs the agent-runtime reconciler+poller loop, logging a non-shutdown
+// error. A panic in the loop is captured to Sentry and re-logged rather than
+// crashing the process (design 2026-07-05).
 func (g graph) runAgent(ctx context.Context, log *slog.Logger) {
+	defer func() {
+		if r := recover(); r != nil {
+			obs.Capture(ctx, r)
+		}
+	}()
 	if err := g.agent.Run(ctx); err != nil {
 		log.Error("kiln: agent runtime exited", "err", err)
 	}

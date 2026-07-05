@@ -36,18 +36,30 @@ func NewLogger() (*slog.Logger, error) {
 
 	path := os.Getenv(LogFileEnv)
 	if path == "" {
-		return slog.New(Handler(slog.NewJSONHandler(os.Stdout, opts))), nil
+		return slog.New(Handler(withSentry(slog.NewJSONHandler(os.Stdout, opts), level))), nil
 	}
 
 	// The path is operator configuration (KILN_LOG_FILE), not user input.
 	//nolint:gosec // trusted env-configured log path
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, logFilePerm)
 	if err != nil {
-		stdout := slog.New(Handler(slog.NewJSONHandler(os.Stdout, opts)))
+		stdout := slog.New(Handler(withSentry(slog.NewJSONHandler(os.Stdout, opts), level)))
 		return stdout, fmt.Errorf("obs: open log file %q: %w", path, err)
 	}
 	w := io.MultiWriter(os.Stdout, f)
-	return slog.New(Handler(slog.NewJSONHandler(w, opts))), nil
+	return slog.New(Handler(withSentry(slog.NewJSONHandler(w, opts), level))), nil
+}
+
+// withSentry fans the JSON sink out to the Sentry-Logs bridge when Sentry is
+// enabled (InitSentry must have run first), so structured records reach both
+// stdout and Sentry Logs; the turn-id contextHandler still wraps the result, so
+// turn_id rides to both. When Sentry is disabled it returns base unchanged —
+// zero extra work per record locally.
+func withSentry(base slog.Handler, level slog.Level) slog.Handler {
+	if !SentryEnabled() {
+		return base
+	}
+	return newFanout(base, newSentryHandler(level))
 }
 
 // parseLevel maps a KILN_LOG_LEVEL string to a slog.Level, defaulting to info

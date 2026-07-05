@@ -63,6 +63,11 @@ type Config struct {
 	GitHubRepoURL   string // GITHUB_REPO_URL — the project repo cloned for the brain to inspect
 	GitHubAuthToken string // GITHUB_AUTH_TOKEN — token embedded into the https clone + GH_TOKEN
 	RepoDir         string // KILN_REPO_DIR — where the clone lives (default defaultRepoDir)
+
+	// Sentry observability (design 2026-07-05). Both empty locally, so the SDK
+	// is a no-op: make up and tests are unaffected.
+	SentryDSN         string // SENTRY_BACKEND_DSN — backend project DSN; empty ⇒ Sentry disabled
+	SentryEnvironment string // SENTRY_ENVIRONMENT — deployment env label (e.g. "production")
 }
 
 // Defaults for the composition root's configuration.
@@ -95,6 +100,9 @@ func loadConfig() Config {
 		GitHubRepoURL:   os.Getenv("GITHUB_REPO_URL"),
 		GitHubAuthToken: os.Getenv("GITHUB_AUTH_TOKEN"),
 		RepoDir:         getenvDefault("KILN_REPO_DIR", defaultRepoDir),
+
+		SentryDSN:         os.Getenv("SENTRY_BACKEND_DSN"),
+		SentryEnvironment: os.Getenv("SENTRY_ENVIRONMENT"),
 	}
 }
 
@@ -121,6 +129,27 @@ func getenvInt(key string, def int) int {
 }
 
 func main() {
+	// os.Exit is isolated here so main() holds no defers; the real startup runs
+	// in start(), whose deferred Sentry flush is therefore guaranteed to run
+	// before the process exits (gocritic exitAfterDefer).
+	os.Exit(start())
+}
+
+// start performs process startup and returns the exit code. Its deferred
+// Sentry flush runs on every return path — including a failed run — so buffered
+// events reach Sentry before exit.
+func start() int {
+	// Initialize Sentry before anything else so panics report even in the idle
+	// (no DATABASE_URL) path, and before NewLogger so the slog→Sentry-Logs bridge
+	// can compose. Empty SENTRY_BACKEND_DSN ⇒ a no-op that flushes nothing.
+	cfg := loadConfig()
+	flush := obs.InitSentry(obs.SentryConfig{
+		DSN:         cfg.SentryDSN,
+		Environment: cfg.SentryEnvironment,
+		Release:     version,
+	})
+	defer flush()
+
 	log, err := obs.NewLogger()
 	if err != nil {
 		// The logger is usable (stdout) even when the durable file sink could
@@ -133,8 +162,9 @@ func main() {
 
 	if err := run(log); err != nil {
 		log.Error("kiln exited with error", "err", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // run holds the real startup so it is testable and returns errors instead of

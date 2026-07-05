@@ -65,7 +65,9 @@ run offline against fakes; **e2e is separate** and needs a live stack.
   real Amika turn, asserting both the ticket reaches `working` and — reaching past the 05 §1
   abstraction on purpose, to verify the default provider — that the bound sandbox gains a new
   Amika session, since v0beta1 has no list-jobs endpoint) does reach Developing and is cleaned
-  up automatically by Playwright's `global-teardown.ts`, which deletes the `kiln-worker-*` pool
+  up automatically by Playwright's `global-teardown.ts`, which deletes the stack's own
+  worker pool — scoped by `KILN_WORKER_PREFIX`, default `kiln-dev-worker-`, so it never
+  touches another environment's (e.g. prod's) sandboxes on the shared account
   (best-effort while the stack is up — the reconciler recreates idle slots, so run `make down`
   after for a clean slate). See `/tests/README.md` for the full recipe.
 

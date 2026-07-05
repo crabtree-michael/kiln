@@ -5,8 +5,11 @@ import (
 	"errors"
 )
 
-// WorkerNamePrefix scopes every provider-side worker this module owns; the
-// reconciler destroys prefix-matched workers that match no board slot (05 §4).
+// WorkerNamePrefix is the DEFAULT worker-name scope; the reconciler destroys
+// prefix-matched workers that match no board slot (05 §4). Environments
+// sharing one provider account must each override it (KILN_WORKER_PREFIX →
+// WithWorkerPrefix + amika Config.WorkerPrefix, amended 2026-07-05) so no
+// instance ever sweeps another environment's live workers.
 const WorkerNamePrefix = "kiln-worker-"
 
 // ErrConversationLost is the sentinel an adapter returns from StartTurn when a
@@ -17,9 +20,11 @@ const WorkerNamePrefix = "kiln-worker-"
 // so errors.Is still matches.
 var ErrConversationLost = errors.New("agent: provider lost the conversation")
 
-// WorkerName derives the deterministic provider-side name for a board
-// worker slot (05 §4). The name is the whole board↔provider join — no shared
-// registry, adoption is pure list-and-match (05 D5).
+// WorkerName derives the deterministic provider-side name for a board worker
+// slot under the DEFAULT prefix (05 §4). The name is the whole board↔provider
+// join — no shared registry, adoption is pure list-and-match (05 D5). A
+// Service configured with WithWorkerPrefix derives names from its own prefix
+// instead.
 func WorkerName(workerID string) string { return WorkerNamePrefix + workerID }
 
 // RunStatus is the provider-neutral liveness of one worker's underlying

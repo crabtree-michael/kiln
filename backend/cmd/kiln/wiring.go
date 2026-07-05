@@ -142,6 +142,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	agentSvc := agent.NewService(
 		agentpg.New(db), provider, agentEvents, &slotsAdapter{store: boardStore}, clock,
 		&boardRefreshAdapter{hub: hub},
+		agent.WithWorkerPrefix(cfg.WorkerPrefix),
 	)
 	// Close the hub↔agent cycle: the board snapshot now carries each live
 	// worker's real session status for the Streams view.
@@ -307,6 +308,7 @@ func newProvider(cfg Config) (agent.Provider, error) {
 			RepoURL:      os.Getenv("AMIKA_REPO_URL"),
 			Snapshot:     os.Getenv("AMIKA_SNAPSHOT"),
 			ClaudeCredID: os.Getenv("AMIKA_CLAUDE_CRED_ID"),
+			WorkerPrefix: cfg.WorkerPrefix,
 		}, nil), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)

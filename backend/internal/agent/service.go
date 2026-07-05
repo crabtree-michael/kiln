@@ -86,6 +86,7 @@ type Service struct {
 	slots     Slots
 	clock     Clock
 	refresher BoardRefresher // may be nil (05 §9): no board push nudge on liveness change
+	prefix    string         // worker-name scope this instance owns (WithWorkerPrefix; default WorkerNamePrefix)
 
 	mu      sync.Mutex
 	workers map[string]ProviderWorker // provider-worker cache keyed by name
@@ -94,20 +95,42 @@ type Service struct {
 	lastStatus map[string]AgentStatus // worker id → last-pushed status, for the liveness diff
 }
 
+// Option tweaks a Service at construction time.
+type Option func(*Service)
+
+// WithWorkerPrefix scopes every provider-side worker name this instance owns
+// (creates, adopts, sweeps, resets) to prefix instead of the default
+// WorkerNamePrefix — per-environment isolation on a shared provider account
+// (05 §4, amended 2026-07-05): an instance must never destroy another
+// environment's workers.
+func WithWorkerPrefix(prefix string) Option {
+	return func(s *Service) {
+		if prefix != "" {
+			s.prefix = prefix
+		}
+	}
+}
+
 // NewService assembles the agent runtime over its ports. refresher is optional
 // (nil disables the liveness push nudge — e.g. in tests that do not exercise it).
 func NewService(
 	store Store, provider Provider, events EventEnqueuer, slots Slots, clock Clock, refresher BoardRefresher,
+	opts ...Option,
 ) *Service {
-	return &Service{
+	s := &Service{
 		store:     store,
 		provider:  provider,
 		events:    events,
 		slots:     slots,
 		clock:     clock,
 		refresher: refresher,
+		prefix:    WorkerNamePrefix,
 		workers:   map[string]ProviderWorker{},
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Send delivers one message to a worker (05 §2.1): decode the agent.send
@@ -201,7 +224,7 @@ func (s *Service) ListAgents(ctx context.Context) ([]AgentInfo, error) {
 	}
 	out := make([]AgentInfo, 0, len(live))
 	for _, w := range live {
-		workerID := strings.TrimPrefix(w.Name, WorkerNamePrefix)
+		workerID := strings.TrimPrefix(w.Name, s.prefix)
 		info := AgentInfo{WorkerID: workerID, Status: statusFor(w.Status, false)}
 		if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found {
 			info.UpdatedAt = prev.UpdatedAt
@@ -251,7 +274,7 @@ func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUp
 		turnRunning = isRunning(prev.Phase)
 		u.IsError = prev.Phase == PhaseFailed
 	}
-	w, err := s.resolveWorker(ctx, WorkerName(workerID))
+	w, err := s.resolveWorker(ctx, s.workerName(workerID))
 	if err != nil {
 		return AgentUpdate{}, fmt.Errorf("agent: get agent updates: %w", err)
 	}
@@ -285,7 +308,7 @@ func (s *Service) Reset(ctx context.Context) error {
 		return fmt.Errorf("agent: reset list workers: %w", err)
 	}
 	for _, w := range live {
-		if !strings.HasPrefix(w.Name, WorkerNamePrefix) {
+		if !strings.HasPrefix(w.Name, s.prefix) {
 			continue
 		}
 		if err := s.provider.DestroyWorker(ctx, w); err != nil {
@@ -423,7 +446,7 @@ func (s *Service) advanceSend(ctx context.Context, t Turn) {
 // recreate is left for the reconciler's next sweep to heal; the row still
 // settles so it never lingers non-terminal.
 func (s *Service) advanceRelease(ctx context.Context, t Turn) {
-	name := WorkerName(t.WorkerID)
+	name := s.workerName(t.WorkerID)
 	if err := s.provider.DestroyWorker(ctx, s.lookupWorker(name)); err != nil {
 		slog.WarnContext(ctx, "agent: release destroy", "worker", name, "err", err)
 	}
@@ -592,7 +615,7 @@ func (s *Service) reconcile(ctx context.Context) {
 		slog.ErrorContext(ctx, "agent: read worker slots", "err", err)
 		return
 	}
-	wanted := wantedNames(ids)
+	wanted := s.wantedNames(ids)
 	s.adoptAndCreate(ctx, wanted, live)
 	s.destroyOrphans(ctx, wanted, live)
 }
@@ -617,7 +640,7 @@ func (s *Service) adoptAndCreate(ctx context.Context, wanted map[string]struct{}
 // destroyOrphans removes live kiln-worker-* entries that match no slot (05 §4).
 func (s *Service) destroyOrphans(ctx context.Context, wanted map[string]struct{}, live []ProviderWorker) {
 	for _, w := range live {
-		if !strings.HasPrefix(w.Name, WorkerNamePrefix) {
+		if !strings.HasPrefix(w.Name, s.prefix) {
 			continue
 		}
 		if _, ok := wanted[w.Name]; ok {
@@ -634,7 +657,7 @@ func (s *Service) destroyOrphans(ctx context.Context, wanted map[string]struct{}
 // ensureWorker returns the cached provider worker for a slot, creating it if
 // the cache has none yet.
 func (s *Service) ensureWorker(ctx context.Context, workerID string) (ProviderWorker, error) {
-	name := WorkerName(workerID)
+	name := s.workerName(workerID)
 	if w, ok := s.getWorker(name); ok {
 		return w, nil
 	}
@@ -709,11 +732,15 @@ func failureOutput(t Turn) string {
 	return "agent turn failed"
 }
 
+// workerName derives the deterministic provider-side name for a board worker
+// slot under this instance's configured prefix (05 §4, D5).
+func (s *Service) workerName(workerID string) string { return s.prefix + workerID }
+
 // wantedNames maps board slot ids to their deterministic provider-worker names.
-func wantedNames(ids []string) map[string]struct{} {
+func (s *Service) wantedNames(ids []string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
-		out[WorkerName(id)] = struct{}{}
+		out[s.workerName(id)] = struct{}{}
 	}
 	return out
 }

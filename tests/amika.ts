@@ -13,7 +13,11 @@
 // opens a session on the bound sandbox. GET /sandboxes/{id}/sessions ({sessions,total})
 // is therefore the external proof a message was sent. See backend/internal/agent/amika.
 const DEFAULT_BASE_URL = 'https://app.amika.dev/api/v0beta1';
-export const WORKER_NAME_PREFIX = 'kiln-worker-';
+// The stack-under-test's worker-name scope (05 §4, amended 2026-07-05). Must match
+// the backend's KILN_WORKER_PREFIX — the docker-compose default is kiln-dev-worker- —
+// so the teardown only ever deletes THIS stack's pool, never another environment's
+// (e.g. prod's) sandboxes on the shared Amika account.
+export const WORKER_NAME_PREFIX = process.env.KILN_WORKER_PREFIX ?? 'kiln-dev-worker-';
 
 export type AmikaConfig = { base: string; apiKey: string };
 

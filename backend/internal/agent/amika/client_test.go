@@ -26,6 +26,8 @@ const (
 	keyMsg  = "message"
 
 	roleUser = "user" // the non-assistant sessionMessage.Role value in test transcripts
+
+	stateRunning = "running" // the live sandbox state in test fixtures
 )
 
 var (
@@ -85,6 +87,27 @@ func errEnvelope(code, msg string) map[string]any {
 	return map[string]any{keyCode: code, keyMsg: msg}
 }
 
+func TestListWorkersHonoursConfiguredPrefix(t *testing.T) {
+	const prefix = "kiln-e2e-worker-"
+	c := newClient(t, Config{APIKey: "k", WorkerPrefix: prefix}, map[route]http.HandlerFunc{
+		{http.MethodGet, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, http.StatusOK, []sandbox{
+				{ID: "sb-own", Name: prefix + "worker-a", State: stateRunning},
+				{ID: "sb-foreign", Name: agent.WorkerName("worker-b"), State: stateRunning}, // default prefix: not ours
+				{ID: "sb-other", Name: "someone-elses-sandbox"},
+			})
+		},
+	})
+
+	got, err := c.ListWorkers(context.Background())
+	if err != nil {
+		t.Fatalf("ListWorkers: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != prefix+"worker-a" {
+		t.Errorf("ListWorkers must keep only sandboxes under the configured prefix %q, got %+v", prefix, got)
+	}
+}
+
 func TestListWorkersFiltersPrefixAndMapsID(t *testing.T) {
 	c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
 		{http.MethodGet, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +115,7 @@ func TestListWorkersFiltersPrefixAndMapsID(t *testing.T) {
 				t.Errorf("auth header = %q, want Bearer k", got)
 			}
 			writeJSON(t, w, http.StatusOK, []sandbox{
-				{ID: sbID, Name: agent.WorkerName("worker-a"), State: "running"},
+				{ID: sbID, Name: agent.WorkerName("worker-a"), State: stateRunning},
 				{ID: "sb-2", Name: "someone-elses-sandbox"},
 				{ID: "sb-3", Name: agent.WorkerName("worker-b"), State: "paused"},
 			})
@@ -210,7 +233,7 @@ func TestWorkerReadyStates(t *testing.T) {
 	t.Run("ready", func(t *testing.T) {
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
 			{http.MethodGet, pathSandbox}: func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, sandbox{ID: sbID, State: "running"})
+				writeJSON(t, w, http.StatusOK, sandbox{ID: sbID, State: stateRunning})
 			},
 		})
 		ready, err := c.WorkerReady(context.Background(), worker)

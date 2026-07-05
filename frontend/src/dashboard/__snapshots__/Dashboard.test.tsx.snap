@@ -1,0 +1,170 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
+<div>
+  <div
+    data-role="dashboard"
+  >
+    <div
+      data-role="settings"
+    >
+      <section
+        data-role="account-card"
+      >
+        <img
+          alt=""
+          data-role="account-avatar"
+          src="https://example.com/a.png"
+        />
+        <div
+          data-role="account-name"
+        >
+          Octocat
+        </div>
+        <div
+          data-role="account-login"
+        >
+          @
+          octocat
+        </div>
+        <button
+          type="button"
+        >
+          Sign out
+        </button>
+      </section>
+      <form
+        data-role="settings-form"
+      >
+        <label>
+          Anthropic API key
+          <input
+            placeholder="configured · …x4Kd"
+            type="password"
+            value=""
+          />
+        </label>
+        <span
+          data-name="anthropic_api_key"
+          data-role="secret-status"
+          data-set="true"
+        >
+          configured · …x4Kd
+        </span>
+        <label>
+          Amika API key
+          <input
+            placeholder=""
+            type="password"
+            value=""
+          />
+        </label>
+        <span
+          data-name="amika_api_key"
+          data-role="secret-status"
+          data-set="false"
+        >
+          not configured
+        </span>
+        <label>
+          GitHub token
+          <input
+            placeholder="configured · …abcd"
+            type="password"
+            value=""
+          />
+        </label>
+        <span
+          data-name="github_auth_token"
+          data-role="secret-status"
+          data-set="true"
+        >
+          configured · …abcd
+        </span>
+        <label>
+          Amika base URL
+          <input
+            type="text"
+            value="https://amika.example"
+          />
+        </label>
+        <label>
+          Amika Claude credential ID
+          <input
+            type="text"
+            value="cred-1"
+          />
+        </label>
+        <button
+          type="submit"
+        >
+          Save credentials
+        </button>
+      </form>
+      <form
+        data-role="project-form"
+      >
+        <label>
+          Project name
+          <input
+            required=""
+            type="text"
+            value="kiln"
+          />
+        </label>
+        <label>
+          Repo URL
+          <input
+            required=""
+            type="text"
+            value="https://github.com/crabtree-michael/kiln"
+          />
+        </label>
+        <label>
+          Amika snapshot
+          <input
+            type="text"
+            value="snap-1"
+          />
+        </label>
+        <label>
+          Brain model
+          <input
+            type="text"
+            value="claude-sonnet"
+          />
+        </label>
+        <label>
+          Worker count
+          <input
+            type="number"
+            value="3"
+          />
+        </label>
+        <button
+          type="submit"
+        >
+          Save project
+        </button>
+      </form>
+      <section
+        data-role="verify-section"
+      >
+        <button
+          type="button"
+        >
+          Test connections
+        </button>
+        <ul
+          data-role="verify-checks"
+        />
+      </section>
+      <p
+        data-role="dashboard-footnote"
+      >
+        Open kiln on your phone at this URL — the app itself doesn't need sign-in yet.
+      </p>
+    </div>
+  </div>
+</div>
+`;

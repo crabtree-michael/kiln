@@ -18,9 +18,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
         <div
           data-role="kiln-mark"
         >
-          <span
+          <img
+            alt=""
             aria-hidden="true"
             data-role="kiln-glyph"
+            src="/kiln-mark.svg"
           />
           <span
             data-role="kiln-wordmark"
@@ -70,9 +72,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
         <div
           data-role="feed-empty"
         >
-          <span
+          <img
+            alt=""
             aria-hidden="true"
             data-role="feed-empty-mark"
+            src="/kiln-mark.svg"
           />
           <span
             data-role="feed-empty-title"
@@ -162,9 +166,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
         <div
           data-role="kiln-mark"
         >
-          <span
+          <img
+            alt=""
             aria-hidden="true"
             data-role="kiln-glyph"
+            src="/kiln-mark.svg"
           />
           <span
             data-role="kiln-wordmark"
@@ -433,9 +439,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
         <div
           data-role="kiln-mark"
         >
-          <span
+          <img
+            alt=""
             aria-hidden="true"
             data-role="kiln-glyph"
+            src="/kiln-mark.svg"
           />
           <span
             data-role="kiln-wordmark"
@@ -623,9 +631,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
         <div
           data-role="kiln-mark"
         >
-          <span
+          <img
+            alt=""
             aria-hidden="true"
             data-role="kiln-glyph"
+            src="/kiln-mark.svg"
           />
           <span
             data-role="kiln-wordmark"
@@ -797,9 +807,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
         <div
           data-role="kiln-mark"
         >
-          <span
+          <img
+            alt=""
             aria-hidden="true"
             data-role="kiln-glyph"
+            src="/kiln-mark.svg"
           />
           <span
             data-role="kiln-wordmark"

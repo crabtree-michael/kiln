@@ -159,7 +159,7 @@ export function PrimaryScreenView({
       >
         <header data-role="feed-header">
           <div data-role="kiln-mark">
-            <span data-role="kiln-glyph" aria-hidden="true" />
+            <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
             <span data-role="kiln-wordmark">Kiln</span>
           </div>
           <HeaderStatusMenu
@@ -173,7 +173,7 @@ export function PrimaryScreenView({
         <div data-role="backlog">
           {isEmpty ? (
             <div data-role="feed-empty">
-              <span data-role="feed-empty-mark" aria-hidden="true" />
+              <img data-role="feed-empty-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
               <span data-role="feed-empty-title">Nothing needs you right now.</span>
               <div data-role="feed-empty-status">
                 <span

@@ -77,6 +77,7 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
+        icons: [{ src: '/kiln-mark.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
       },
     }),
     // Sentry goes last (per its docs) and only when a token is present; empty

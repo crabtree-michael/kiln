@@ -85,9 +85,6 @@
 [data-role='kiln-glyph'] {
   width: 23px;
   height: 23px;
-  border-radius: 7px 7px 5px 5px;
-  background: var(--accent);
-  box-shadow: var(--shadow-card);
 }
 
 [data-role='kiln-wordmark'] {
@@ -609,9 +606,6 @@
 [data-role='feed-empty-mark'] {
   width: 64px;
   height: 64px;
-  border-radius: 19px 19px 14px 14px;
-  background: var(--accent);
-  box-shadow: var(--shadow-raised);
 }
 
 /* The all-clear headline takes the calm register (Newsreader) — the design's

@@ -96,20 +96,6 @@ export function streamStatusLabel(status: StreamStatus['status']): string {
   return status === 'building' ? 'Building' : 'Idle';
 }
 
-/** A compact one-line summary of a proposal body for the feed card (08 §5). The
- * proposal card is now a scannable digest — title + this snippet — with the full
- * shaped body behind a click-through to the ticket detail. Whitespace/newlines
- * are collapsed so multi-paragraph bodies read as one line, then truncated with
- * an ellipsis. The budget is generous (short/medium bodies pass through whole)
- * so the card still carries enough to decide on at a glance. */
-export function cardSummary(body: string, max = 200): string {
-  const collapsed = body.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= max) {
-    return collapsed;
-  }
-  return `${collapsed.slice(0, max).trimEnd()}…`;
-}
-
 /** The short uppercase tag shown on each card kind. */
 export function cardTag(kind: FeedCard['kind']): string {
   switch (kind) {

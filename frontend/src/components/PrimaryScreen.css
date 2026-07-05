@@ -335,33 +335,84 @@ body:has([data-role='primary-screen']) {
   box-shadow: 0 0 11px oklch(0.58 0.2 27 / 0.85);
 }
 
-[data-role='feed-card-label'] {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
+/* Type label, leftmost: the small uppercase kind marker ("Update", "Proposal",
+   "Blocker") that anchors the scannable head. */
 [data-role='feed-card-tag'] {
+  flex-shrink: 0;
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 600;
-  color: oklch(0.4 0.012 40);
+  color: var(--muted);
+}
+
+/* Ticket name — the bolded focal element of the card. Flexes to fill the row
+   and truncates with an ellipsis so a long title keeps the head to one line
+   (the age stays pinned right). */
+[data-role='feed-card-label'] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.006em;
+  color: var(--ink);
 }
 
 [data-role='feed-card-age'] {
-  margin-left: auto;
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--faint);
 }
 
+/* Body: normal-weight update-style copy on every kind, clamped to five lines by
+   default; the emphasis lives on the ticket name in the head, not here. */
 [data-role='feed-card-body'] {
   margin: 0;
   font-size: 14.5px;
   line-height: 1.5;
   color: oklch(0.26 0.012 40);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  overflow: hidden;
+}
+
+[data-role='feed-card-body'][data-expanded='true'] {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
+}
+
+/* "Tap to see more" / "Show less": the quiet expand affordance. Same text-link
+   treatment as the "read full ticket" hint, but a light gray instead of red so
+   it stays out of the way until the body actually overflows. */
+[data-role='feed-card-more'] {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+[data-role='feed-card-more']:not([data-expanded='true'])::after {
+  content: ' ›';
+}
+
+[data-role='feed-card-more']:focus-visible {
+  outline: 2px solid var(--faint);
+  outline-offset: 4px;
+  border-radius: 6px;
 }
 
 [data-role='feed-card-image'] {
@@ -374,69 +425,12 @@ body:has([data-role='primary-screen']) {
   box-shadow: 0 12px 30px -20px rgba(70, 28, 20, 0.3);
 }
 
-/* blocker — the loudest card, pinned on top (08 §2) */
+/* blocker — the loudest card, pinned on top (08 §2). The head carries the
+   emphasis (ember type tag + ticket name beside the pulse dot); the body stays
+   normal-weight update-style copy like every other kind. */
 [data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-label'],
 [data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-tag'] {
   color: var(--ember);
-}
-
-[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-body'] {
-  font-weight: 500;
-  font-size: 18px;
-  line-height: 1.5;
-  letter-spacing: -0.003em;
-  color: oklch(0.42 0.14 27);
-}
-
-/* proposal — a shaped decision awaiting Accept (08 §5) */
-[data-role='feed-card'][data-kind='proposal'] [data-role='feed-card-body'] {
-  font-weight: 500;
-  font-size: 16.5px;
-  color: var(--ink);
-}
-
-/* proposal card body is a compact summary + click-through to the full ticket:
-   the button resets to look like plain card content, with the summary text and a
-   quiet "Read full ticket" affordance (mobile-first — no hover to rely on). */
-[data-role='feed-card-open'] {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
-[data-role='feed-card-open'] [data-role='feed-card-body'] {
-  transition: color 0.12s ease;
-}
-
-[data-role='feed-card-open-hint'] {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ember);
-}
-
-[data-role='feed-card-open-hint']::after {
-  content: ' ›';
-}
-
-[data-role='feed-card-open']:hover [data-role='feed-card-body'] {
-  color: var(--ember);
-}
-
-[data-role='feed-card-open']:focus-visible {
-  outline: 2px solid var(--ember);
-  outline-offset: 4px;
-  border-radius: 8px;
 }
 
 [data-role='feed-card-actions'] {

@@ -226,14 +226,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
                 data-role="feed-card-dot"
               />
               <span
-                data-role="feed-card-label"
-              >
-                Auth
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Blocker
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Auth
               </span>
               <span
                 data-role="feed-card-age"
@@ -264,14 +264,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Rate limiting
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Rate limiting
               </span>
               <span
                 data-role="feed-card-age"
@@ -297,14 +297,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Email
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Email
               </span>
               <span
                 data-role="feed-card-age"
@@ -330,14 +330,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + while
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Search
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Search
               </span>
               <span
                 data-role="feed-card-age"
@@ -482,14 +482,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Auth
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Preview
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Auth
               </span>
               <span
                 data-role="feed-card-age"
@@ -520,14 +520,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Rate limiting
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Rate limiting
               </span>
               <span
                 data-role="feed-card-age"
@@ -672,14 +672,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Login Redesign
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Proposal
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Login Redesign
               </span>
               <span
                 data-role="feed-card-age"
@@ -687,23 +687,11 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                 1m
               </span>
             </div>
-            <button
-              aria-label="Open ticket: Login Redesign"
-              data-role="feed-card-open"
-              type="button"
+            <p
+              data-role="feed-card-body"
             >
-              <span
-                data-role="feed-card-body"
-              >
-                Rework the login screen to a single-column layout with inline validation.
-              </span>
-              <span
-                aria-hidden="true"
-                data-role="feed-card-open-hint"
-              >
-                Read full ticket
-              </span>
-            </button>
+              Rework the login screen to a single-column layout with inline validation.
+            </p>
             <div
               data-role="feed-card-actions"
             >
@@ -846,14 +834,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Rate limiting
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Rate limiting
               </span>
               <span
                 data-role="feed-card-age"
@@ -879,14 +867,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Email
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Email
               </span>
               <span
                 data-role="feed-card-age"
@@ -912,14 +900,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-label"
-              >
-                Search
-              </span>
-              <span
                 data-role="feed-card-tag"
               >
                 Update
+              </span>
+              <span
+                data-role="feed-card-label"
+              >
+                Search
               </span>
               <span
                 data-role="feed-card-age"

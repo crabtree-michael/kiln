@@ -34,13 +34,59 @@ describe('commit machine', () => {
     s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Hello there.' } });
     expect(s.pending).toBe('Hello there.');
     // A mid-thought pause was misread as end-of-turn; the user keeps talking.
-    s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'and one more thing' } });
+    s = voiceReducer(s, {
+      type: 'provider',
+      event: { kind: 'partial', text: 'and one more thing' },
+    });
     expect(s.pending).toBeUndefined(); // send cancelled
     expect(s.tailText).toBe('and one more thing');
     expect(s.micState).toBe('listening');
     // A late timer firing must not resurrect the cancelled send.
     s = voiceReducer(s, { type: 'commitDelayElapsed' });
     expect(s.commit).toBeUndefined();
+  });
+
+  it('sendNow fires the armed send immediately, skipping the grace window', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+    expect(s.pending).toBe('Ship it.');
+    expect(s.commit).toBeUndefined();
+    // The user taps send before the window elapses -> commit right away.
+    s = voiceReducer(s, { type: 'sendNow' });
+    expect(s.pending).toBeUndefined();
+    expect(s.commit).toBe('Ship it.');
+  });
+
+  it('sendNow with nothing armed is a no-op', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'sendNow' });
+    expect(s.commit).toBeUndefined();
+    expect(s.pending).toBeUndefined();
+  });
+
+  it('stopping the mic (pause) fires the armed send, then stops listening', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+    expect(s.pending).toBe('Ship it.');
+    // Tapping the mic to stop = send now + stop, in one action.
+    s = voiceReducer(s, { type: 'pause' });
+    expect(s.micState).toBe('paused');
+    expect(s.pending).toBeUndefined();
+    expect(s.commit).toBe('Ship it.');
+  });
+
+  it('stopping the mic with nothing armed just stops (no commit)', () => {
+    let s = initialVoiceState();
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'half a thought' } });
+    // A still-forming tail is discarded on stop, nothing is sent.
+    s = voiceReducer(s, { type: 'pause' });
+    expect(s.micState).toBe('paused');
+    expect(s.commit).toBeUndefined();
+    expect(s.tailText).toBe('');
   });
 
   it('commitDelayElapsed with nothing armed is a no-op', () => {

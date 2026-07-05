@@ -1,8 +1,8 @@
 // The dock (08 §2 dock region, 09 §3–§4): the mic button + live transcript + the
-// cancel (X). Presentational consumer of the voice store — all lifecycle and
-// commit logic lives in `voice-store`/`commit-machine`; this file only renders
-// `useVoice()`'s `{ micState, settledText, tailText }` and forwards taps to
-// `pause`/`resume`/`cancel`.
+// cancel (X) + the send button. Presentational consumer of the voice store — all
+// lifecycle and commit logic lives in `voice-store`/`commit-machine`; this file
+// only renders `useVoice()`'s `{ micState, settledText, tailText, pendingSend }`
+// and forwards taps to `pause`/`resume`/`cancel`/`sendNow`.
 //
 // The 08 §F selector surface is preserved verbatim (`data-role="dock"`,
 // `"dock-talk"`, `aria-label="Talk"`, and the mic-glyph sub-elements) so
@@ -23,7 +23,8 @@ const LABELS: Record<MicState, string> = {
 };
 
 export function Dock(): JSX.Element {
-  const { micState, settledText, tailText, pause, resume, cancel, getLevel } = useVoice();
+  const { micState, settledText, tailText, pendingSend, pause, resume, cancel, sendNow, getLevel } =
+    useVoice();
   const orbRef = useRef<HTMLSpanElement | null>(null);
 
   // Drive the volume orb (09 §3): while listening, sample the mic RMS each frame,
@@ -52,6 +53,8 @@ export function Dock(): JSX.Element {
   }, [micState, getLevel]);
 
   // One mic tap: pause while listening, otherwise resume/retry (09 §3, §5).
+  // Pausing also fires any armed end-of-turn send on the way out (09 §4) — the
+  // reducer's `pause` handles that, so stopping the mic = send now + stop.
   const onMicTap = (): void => {
     if (micState === 'listening') {
       pause();
@@ -64,6 +67,9 @@ export function Dock(): JSX.Element {
   // The X discards the un-committed (still-forming) utterance (09 §4); show it
   // whenever there is an un-committed tail to discard.
   const showCancel = tailText !== '';
+  // The send button fires the armed end-of-turn final immediately, skipping the
+  // post-turn-end grace window (09 §4); show it whenever a send is armed.
+  const showSend = pendingSend;
 
   return (
     <div data-role="dock" data-dock-state={micState}>
@@ -84,6 +90,14 @@ export function Dock(): JSX.Element {
       )}
 
       <div data-role="dock-controls">
+        {showSend && (
+          <button type="button" data-role="dock-send" aria-label="Send" onClick={sendNow}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor" />
+            </svg>
+          </button>
+        )}
+
         <button
           type="button"
           data-role="dock-talk"

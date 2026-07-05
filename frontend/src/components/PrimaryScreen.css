@@ -660,15 +660,39 @@ body:has([data-role='primary-screen']) {
 }
 
 /* Controls row: the mic is the fixed centre; the X (discard the un-committed
-   utterance, 09 §4) sits to its right. A 1fr/auto/1fr grid keeps the mic centred
-   regardless of how many controls flank it — column 1 is intentionally left empty
-   so a third control (e.g. a future call button) can be added on the mic's left
-   later without shifting the mic off-centre. */
+   utterance, 09 §4) sits to its right, and the send button (fire the armed final
+   now, skipping the grace window, 09 §4) sits in column 1 to its left. A
+   1fr/auto/1fr grid keeps the mic centred regardless of which controls flank it —
+   each side control lives in an outer column and hugs the mic, so showing or
+   hiding either one never shifts the mic off-centre. */
 [data-role='dock-controls'] {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   width: 100%;
+}
+
+/* Send button: mirrors the cancel (X) sizing/shape on the mic's left (column 1,
+   hugging the mic), but tinted ember to read as the affirmative "send now"
+   action rather than the neutral discard. */
+[data-role='dock-send'] {
+  grid-column: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1.5px solid var(--hairline);
+  color: var(--ember);
+  cursor: pointer;
+}
+
+[data-role='dock-send']:hover {
+  background: var(--ember-soft);
+  border-color: var(--ember);
 }
 
 [data-role='dock-talk'] {

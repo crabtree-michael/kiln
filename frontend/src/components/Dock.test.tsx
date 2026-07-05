@@ -20,9 +20,11 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     micState: 'listening',
     settledText: '',
     tailText: '',
+    pendingSend: false,
     pause: vi.fn(),
     resume: vi.fn(),
     cancel: vi.fn(),
+    sendNow: vi.fn(),
     getLevel: vi.fn(() => 0),
     ...overrides,
   };
@@ -110,6 +112,30 @@ describe('Dock', () => {
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'Committed.', tailText: '' });
     render(<Dock />);
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+
+  it('shows the send button and calls sendNow while a send is armed', () => {
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({
+      micState: 'listening',
+      settledText: 'Ship it.',
+      tailText: '',
+      pendingSend: true,
+      sendNow,
+    });
+    render(<Dock />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the send button when no send is armed', () => {
+    mockVoiceValue = stubVoice({
+      micState: 'listening',
+      tailText: 'still talking',
+      pendingSend: false,
+    });
+    render(<Dock />);
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
   });
 
   it('idle after send: no transcript region, mic controls intact', () => {

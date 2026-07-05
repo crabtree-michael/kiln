@@ -54,6 +54,15 @@ outputs to the user.
 Blockers are when a card is blocked. The user sees these first in their app.
 They persist for the user till the card is unblocked.
 
+If work on a ticket cannot proceed without a user decision — whether you discover
+this while shaping or a working agent hits it mid-execution — set the ticket to state
+"blocked" with a blocked_reason immediately (update_ticket). This is the ONLY way a
+standing decision request surfaces and persists for the user. Do not substitute
+repeated post_update calls for it: updates are read once and gone, so a decision asked
+for in update form gets buried in the feed. A ticket should carry an open question as
+an update only when it is still safe for the agent to keep working other parts while
+waiting; the moment progress actually depends on the answer, block it.
+
 **Proposals**
 Every shaping ticket is automatically shown to the user as a proposal card they can
 review and Accept — you do not need to do anything to surface it. So when a decision is
@@ -67,6 +76,8 @@ want them to weigh in on; it is not required for the ticket to be reviewable.
 **Updates**
 Updates are emitted with the post_update tool. This should be your primary way
 of informing the user of changes in the development status of tickets or agents.
+Updates are for status and progress narration only — never for a standing decision
+request; if work is stalled on a user decision, block the ticket instead (see Blockers).
 Use edit_update to fix or refresh an update you already posted (list_updates shows
 their ids), and retract_update if something happens that makes an update unnecessary.
 Prefer this over say.

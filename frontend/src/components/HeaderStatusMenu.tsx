@@ -11,9 +11,22 @@ import { feedStatus, streamStatuses, streamStatusLabel } from '@/components/feed
 export interface HeaderStatusMenuProps {
   summary: FeedSummary;
   board: Board | null;
+  /** Fired when the panel opens (closed → open). Triggers an independent board
+   * fetch so the streams list reflects current state rather than waiting for
+   * the next agent-driven push. Optional so presentational tests can omit it. */
+  onOpen?: (() => void) | undefined;
+  /** True while that fetch is in flight. When there's nothing to show yet the
+   * panel renders a loading indicator instead of "No active streams", so a
+   * genuinely empty board reads differently from one still loading. */
+  refreshing?: boolean;
 }
 
-export function HeaderStatusMenu({ summary, board }: HeaderStatusMenuProps): JSX.Element {
+export function HeaderStatusMenu({
+  summary,
+  board,
+  onOpen,
+  refreshing = false,
+}: HeaderStatusMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const streams = streamStatuses(board);
@@ -52,6 +65,11 @@ export function HeaderStatusMenu({ summary, board }: HeaderStatusMenuProps): JSX
         aria-expanded={open}
         aria-controls="header-status-panel"
         onClick={() => {
+          // Opening pulls a fresh snapshot; `open` is the current render's state,
+          // so this reads the pre-toggle value and only fires on closed → open.
+          if (!open) {
+            onOpen?.();
+          }
           setOpen((wasOpen) => !wasOpen);
         }}
       >
@@ -65,7 +83,12 @@ export function HeaderStatusMenu({ summary, board }: HeaderStatusMenuProps): JSX
         aria-hidden={!open}
       >
         <div data-role="header-status-heading">Streams</div>
-        {streams.length === 0 ? (
+        {refreshing && streams.length === 0 ? (
+          <div data-role="header-status-loading">
+            <span data-role="header-status-spinner" aria-hidden="true" />
+            <span>Loading streams…</span>
+          </div>
+        ) : streams.length === 0 ? (
           <div data-role="header-status-empty">No active streams</div>
         ) : (
           <ul data-role="header-status-list">

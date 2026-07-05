@@ -446,8 +446,9 @@ components:
       description: >
         Server-derived header status counts (08 §2). The client renders the
         one-line summary from these: "N blocker(s) · M updates" when blockers
-        exist, "K streams · nothing needs you" when not, "all clear" when the
-        feed is empty; plus the all-clear detail line (building/idle/last word).
+        exist, the active-stream count ("K streams") when not, "Nothing active"
+        when the feed is empty; plus the all-clear detail line
+        (building/idle/last word).
       required: [blocker_count, update_count, stream_count, building, idle]
       properties:
         blocker_count:

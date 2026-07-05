@@ -10,15 +10,16 @@ function plural(count: number, word: string): string {
 }
 
 /** The one-line header status derived from the feed summary (08 §2 / §F):
- * blockers first, then live streams, then "all clear" for an empty feed. */
+ * blockers first, then the live active-stream count, then "Nothing active" for
+ * an empty feed. */
 export function feedStatus(summary: FeedSummary): string {
   if (summary.blocker_count > 0) {
     return `${plural(summary.blocker_count, 'blocker')} · ${plural(summary.update_count, 'update')}`;
   }
   if (summary.stream_count > 0) {
-    return `${plural(summary.stream_count, 'stream')} · nothing needs you`;
+    return plural(summary.stream_count, 'stream');
   }
-  return 'all clear';
+  return 'Nothing active';
 }
 
 /** Compact relative age used on cards and the all-clear line ("now", "2m",

@@ -206,11 +206,11 @@ type FeedSeenRequest struct {
 type FeedSnapshot struct {
 	Cards []FeedCard `json:"cards"`
 
-	// Summary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, "K streams · nothing needs you" when not, "all clear" when the feed is empty; plus the all-clear detail line (building/idle/last word).
+	// Summary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, the active-stream count ("K streams") when not, "Nothing active" when the feed is empty; plus the all-clear detail line (building/idle/last word).
 	Summary FeedSummary `json:"summary"`
 }
 
-// FeedSummary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, "K streams · nothing needs you" when not, "all clear" when the feed is empty; plus the all-clear detail line (building/idle/last word).
+// FeedSummary Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, the active-stream count ("K streams") when not, "Nothing active" when the feed is empty; plus the all-clear detail line (building/idle/last word).
 type FeedSummary struct {
 	BlockerCount int `json:"blocker_count"`
 

@@ -92,7 +92,9 @@ type Config struct {
 	// runtime keeps the log-only notifier (local dev + tests unaffected).
 	VAPIDPublicKey  string // VAPID_PUBLIC_KEY — served to the client as applicationServerKey
 	VAPIDPrivateKey string // VAPID_PRIVATE_KEY — signs the VAPID JWT; never leaves the backend
-	VAPIDSubject    string // VAPID_SUBJECT — mailto:/https contact in the VAPID "sub" claim
+	// VAPIDSubject is the VAPID "sub" claim contact: a BARE email or https URL, never
+	// mailto:… — webpush-go prepends mailto: itself, and Apple 403s the doubled prefix.
+	VAPIDSubject string // VAPID_SUBJECT
 }
 
 // Defaults for the composition root's configuration.

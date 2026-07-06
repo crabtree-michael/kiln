@@ -44,16 +44,21 @@ services:
         sync: false
       - key: ASSEMBLYAI_API_KEY
         sync: false
-      - key: VAPID_PUBLIC_KEY           # Web Push (VAPID) key pair + subject
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
-      - key: VAPID_SUBJECT
-        sync: false
       - key: GITHUB_AUTH_TOKEN
         sync: false
       - key: GITHUB_REPO_URL
         sync: false
+      # Web Push VAPID pair (02 §10): both keys unset ⇒ push disabled, log-only
+      # notifier. Values set out-of-band; the public key is served to clients
+      # via /api/push/key, the private key never leaves the backend.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # BARE email, no mailto: prefix — webpush-go prepends mailto: itself, and a
+      # doubled prefix makes Apple reject every JWT with 403 BadJwtToken.
+      - key: VAPID_SUBJECT               # VAPID "sub" claim contact
+        value: accounts@macmail.app
       # --- build-time (available to the Docker build; frontend bundle + source maps) ---
       - key: VITE_SENTRY_DSN           # public client DSN, baked into the bundle
         sync: false

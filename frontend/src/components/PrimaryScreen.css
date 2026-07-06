@@ -109,17 +109,17 @@
 [data-role='kiln-mark'] {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 11px;
 }
 
 [data-role='kiln-glyph'] {
-  width: 23px;
-  height: 23px;
+  width: 30px;
+  height: 30px;
 }
 
 [data-role='kiln-wordmark'] {
   font-weight: 700;
-  font-size: 22px;
+  font-size: 28px;
   letter-spacing: -0.01em;
   color: var(--accent);
 }

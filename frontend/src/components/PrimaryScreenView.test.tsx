@@ -651,4 +651,57 @@ describe('PrimaryScreenView', () => {
     );
     expect(container).toMatchSnapshot();
   });
+
+  describe('clear-all trash affordance (08 §3)', () => {
+    const proposalCard = makeFeedCard({
+      kind: 'proposal',
+      id: 'proposal:t-login',
+      label: 'Login',
+      body: 'Rework the login screen.',
+      ticketId: 't-login',
+      createdAt: minutesAgo(1),
+    });
+
+    it('is absent unless a clear-all handler is wired (presentational default)', () => {
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
+      expect(screen.queryByRole('button', { name: 'Clear all notifications' })).toBeNull();
+    });
+
+    it('clears every notification only after the confirm is accepted', () => {
+      const onDismissAll = vi.fn();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+        onDismissAll,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all notifications' }));
+      expect(confirm).toHaveBeenCalledWith('Clear all notifications?');
+      expect(onDismissAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the feed untouched when the confirm is cancelled', () => {
+      const onDismissAll = vi.fn();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+        onDismissAll,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all notifications' }));
+      expect(confirm).toHaveBeenCalledWith('Clear all notifications?');
+      expect(onDismissAll).not.toHaveBeenCalled();
+    });
+
+    it('is disabled when only board cards (or none) are clearable', () => {
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [proposalCard] }), {
+        onDismissAll: noop,
+      });
+      expect(screen.getByRole('button', { name: 'Clear all notifications' })).toBeDisabled();
+    });
+
+    it('is enabled when a notification-backed card is present', () => {
+      renderView(
+        makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [proposalCard, rateLimitUpdate] }),
+        { onDismissAll: noop },
+      );
+      expect(screen.getByRole('button', { name: 'Clear all notifications' })).toBeEnabled();
+    });
+  });
 });

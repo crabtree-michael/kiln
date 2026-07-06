@@ -338,6 +338,19 @@ func (s *Store) RetractNotification(ctx context.Context, id int64) error {
 	})
 }
 
+// RetractAllNotifications implements runtime.NotificationStore (08 §3,
+// clear-all): stamp retracted_at=now() on every still-active row and append
+// feed.updated in one transaction.
+func (s *Store) RetractAllNotifications(ctx context.Context) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE notifications SET retracted_at = now() WHERE retracted_at IS NULL`); err != nil {
+			return fmt.Errorf("runtime/postgres: retract all notifications: %w", err)
+		}
+		return enqueueFeedUpdatedTx(ctx, tx)
+	})
+}
+
 // EditNotification implements runtime.NotificationStore (08 §3 amended): amend
 // a still-active row's kind/body/image in place and append feed.updated in one
 // transaction. Retracted or seen rows are left untouched (the WHERE guard), so

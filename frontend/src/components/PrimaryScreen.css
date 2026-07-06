@@ -185,6 +185,40 @@
   display: block;
 }
 
+/* Clear-all trash affordance (08 §3), beside the bell — mirrors the bell
+ * trigger's sizing/hover so the two read as one header cluster. */
+[data-role='feed-clear-all'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 5px;
+  margin: -5px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='feed-clear-all']:hover:not(:disabled) {
+  color: var(--text-secondary);
+  background: var(--surface-inset);
+}
+
+[data-role='feed-clear-all']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+[data-role='clear-all-trash'] {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
 /* The panel mirrors the stream menu's mount-and-animate mechanics and is sized
  * to its content rather than the full feed width. It is RIGHT-anchored (its right
  * edge pinned to the bell's right edge) so it opens leftward, into the screen.

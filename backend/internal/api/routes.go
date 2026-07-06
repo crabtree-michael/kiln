@@ -104,15 +104,19 @@ type FeedReader interface {
 }
 
 // FeedMutator is the api's port onto the client-driven feed mutations (08 §3):
-// advancing the seen high-water mark (POST /api/feed/seen) and clearing a single
-// card by swipe (POST /api/feed/{id}/dismiss). Satisfied directly by
-// *runtime.Service's MarkSeen / DismissNotification.
+// advancing the seen high-water mark (POST /api/feed/seen), clearing a single
+// card by swipe (POST /api/feed/{id}/dismiss), and clearing them all at once
+// (POST /api/feed/dismiss-all). Satisfied directly by *runtime.Service's
+// MarkSeen / DismissNotification / DismissAllNotifications.
 type FeedMutator interface {
 	// MarkSeen marks every update up to and including lastID as seen.
 	MarkSeen(ctx context.Context, lastID int64) error
 	// DismissNotification clears one update/preview card for good by its
 	// notification id (user swiped it away). Idempotent on an unknown/gone id.
 	DismissNotification(ctx context.Context, id int64) error
+	// DismissAllNotifications clears every feed notification at once (the user's
+	// "clear all" header trash affordance). Idempotent: a no-op when none active.
+	DismissAllNotifications(ctx context.Context) error
 }
 
 // TicketSeeder is the DEV-ONLY port behind POST /api/dev/tickets: seed a ticket
@@ -336,6 +340,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/feed", s.handleFeed)
 	mux.HandleFunc("GET /api/feed/history", s.handleFeedHistory)
 	mux.HandleFunc("POST /api/feed/seen", s.handleFeedSeen)
+	mux.HandleFunc("POST /api/feed/dismiss-all", s.handleFeedDismissAll)
 	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.handleFeedDismiss)
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/voice/token", s.handleVoiceToken)
@@ -621,6 +626,18 @@ func (s *Server) handleFeedDismiss(w http.ResponseWriter, r *http.Request) {
 	if err := s.seen.DismissNotification(r.Context(), id); err != nil {
 		slog.Error("api: dismiss card", "err", err)
 		http.Error(w, "dismiss card", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleFeedDismissAll clears every feed notification at once (08 §3, clear-all):
+// the user tapped the header trash affordance. Retracts all still-active
+// notifications for good. Idempotent — a no-op when nothing is active. Returns 202.
+func (s *Server) handleFeedDismissAll(w http.ResponseWriter, r *http.Request) {
+	if err := s.seen.DismissAllNotifications(r.Context()); err != nil {
+		slog.Error("api: dismiss all cards", "err", err)
+		http.Error(w, "dismiss all cards", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

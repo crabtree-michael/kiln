@@ -60,7 +60,7 @@ exports[`ActivityRow > matches the DOM-structure snapshot: say pill 1`] = `
         </span>
         <button
           aria-label="Dismiss"
-          data-role="say-dismiss"
+          data-role="toast-dismiss"
           type="button"
         >
           ×

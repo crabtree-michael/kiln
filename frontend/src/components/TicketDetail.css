@@ -18,7 +18,13 @@
   width: 100%;
   max-width: 32rem;
   max-height: 85dvh;
-  overflow-y: auto;
+  /* Flex column that clips: the header, top metadata and (pinned) Accept action
+   * hold their intrinsic height while the body between them takes the remaining
+   * space and scrolls on its own — the header no longer travels with the
+   * description (07 §7–§8). */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -92,6 +98,14 @@
 }
 
 [data-role='ticket-detail-body'] {
+  /* The only scrolling region: takes the leftover column height and scrolls its
+   * overflow under the fixed header. min-height:0 lets it shrink below its
+   * content's intrinsic height so the scrollbar engages instead of pushing the
+   * panel past its max-height. The border-top is the container's own edge, so it
+   * stays put as a divider beneath the pinned header. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   margin-top: 0.7rem;
   padding-top: 0.7rem;
   border-top: 1px solid var(--border-default);

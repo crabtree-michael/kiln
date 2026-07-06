@@ -42,11 +42,20 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
       >
         <label>
           Anthropic API key
-          <input
-            placeholder="configured · …x4Kd"
-            type="password"
-            value=""
-          />
+          <span
+            data-role="credential-input-row"
+          >
+            <input
+              placeholder="configured · …x4Kd"
+              type="password"
+              value=""
+            />
+            <span
+              data-name="anthropic_api_key"
+              data-role="credential-status"
+              data-status="skipped"
+            />
+          </span>
         </label>
         <span
           data-name="anthropic_api_key"
@@ -57,11 +66,20 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
         </span>
         <label>
           Amika API key
-          <input
-            placeholder=""
-            type="password"
-            value=""
-          />
+          <span
+            data-role="credential-input-row"
+          >
+            <input
+              placeholder=""
+              type="password"
+              value=""
+            />
+            <span
+              data-name="amika_api_key"
+              data-role="credential-status"
+              data-status="skipped"
+            />
+          </span>
         </label>
         <span
           data-name="amika_api_key"
@@ -72,11 +90,20 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
         </span>
         <label>
           GitHub token
-          <input
-            placeholder="configured · …abcd"
-            type="password"
-            value=""
-          />
+          <span
+            data-role="credential-input-row"
+          >
+            <input
+              placeholder="configured · …abcd"
+              type="password"
+              value=""
+            />
+            <span
+              data-name="github_auth_token"
+              data-role="credential-status"
+              data-status="skipped"
+            />
+          </span>
         </label>
         <span
           data-name="github_auth_token"
@@ -92,11 +119,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
             value="cred-1"
           />
         </label>
-        <button
-          type="submit"
-        >
-          Save credentials
-        </button>
       </form>
       <form
         data-role="project-form"
@@ -144,18 +166,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
           Save project
         </button>
       </form>
-      <section
-        data-role="verify-section"
-      >
-        <button
-          type="button"
-        >
-          Test connections
-        </button>
-        <ul
-          data-role="verify-checks"
-        />
-      </section>
       <p
         data-role="dashboard-footnote"
       >

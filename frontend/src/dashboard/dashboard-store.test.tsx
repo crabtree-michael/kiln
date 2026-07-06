@@ -47,6 +47,7 @@ function Probe(): JSX.Element {
       <div data-testid="checks">
         {store.verifyChecks === null ? 'none' : String(store.verifyChecks.length)}
       </div>
+      <div data-testid="pending-credential">{store.pendingCredential ?? 'none'}</div>
       <button
         type="button"
         onClick={() => void store.saveSettings({ anthropic_api_key: 'sk-new' })}
@@ -145,6 +146,9 @@ describe('DashboardProvider', () => {
       },
     });
     vi.mocked(transport.putSettings).mockResolvedValue(updated);
+    vi.mocked(transport.postVerify).mockResolvedValue({
+      checks: [{ name: 'anthropic', status: 'ok', message: 'reachable' }],
+    });
 
     render(
       <DashboardProvider>
@@ -166,6 +170,117 @@ describe('DashboardProvider', () => {
       expect(screen.getByTestId('saving').textContent).toBe('false');
     });
     expect(screen.getByTestId('login').textContent).toBe('octocat');
+  });
+
+  it('saveSettings success on a credential field automatically chains runVerify (postVerify called)', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
+    const updated = makeMe({
+      settings: {
+        anthropic_api_key: { set: true, tail: '-new' },
+        amika_api_key: { set: false, tail: '' },
+        github_auth_token: { set: true, tail: 'abcd' },
+        amika_claude_cred_id: '',
+      },
+    });
+    vi.mocked(transport.putSettings).mockResolvedValue(updated);
+    vi.mocked(transport.postVerify).mockResolvedValue({
+      checks: [{ name: 'anthropic', status: 'ok', message: 'reachable' }],
+    });
+
+    render(
+      <DashboardProvider>
+        <Probe />
+      </DashboardProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('ready');
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('save-settings'));
+    });
+
+    await waitFor(() => {
+      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-new' });
+    });
+    await waitFor(() => {
+      expect(transport.postVerify).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('checks').textContent).toBe('1');
+    });
+  });
+
+  it('saveProject does NOT chain runVerify', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
+    const updated = makeMe({
+      project: {
+        name: 'proj',
+        repo_url: 'https://github.com/a/b',
+        amika_snapshot: '',
+        brain_model: '',
+        worker_count: 1,
+      },
+    });
+    vi.mocked(transport.putProject).mockResolvedValue(updated);
+
+    render(
+      <DashboardProvider>
+        <Probe />
+      </DashboardProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('ready');
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('save-project'));
+    });
+
+    await waitFor(() => {
+      expect(transport.putProject).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('saving').textContent).toBe('false');
+    });
+    expect(transport.postVerify).not.toHaveBeenCalled();
+  });
+
+  it('pendingCredential names the field mid-save, then clears once the chained verify settles', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
+    let resolvePut: ((me: Me) => void) | undefined;
+    vi.mocked(transport.putSettings).mockImplementationOnce(
+      () =>
+        new Promise<Me>((resolve) => {
+          resolvePut = resolve;
+        }),
+    );
+    vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
+
+    render(
+      <DashboardProvider>
+        <Probe />
+      </DashboardProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('ready');
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('save-settings'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-credential').textContent).toBe('anthropic_api_key');
+    });
+
+    act(() => {
+      resolvePut?.(makeMe());
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-credential').textContent).toBe('none');
+    });
   });
 
   it('saveProject calls putProject and swaps in the returned Me', async () => {

@@ -1,8 +1,9 @@
 // Account view (11 §5): the signed-in user has a project — this is where
-// credentials, project config, and connectivity verification all live
-// together. Composes `CredentialFields` + `ProjectFields` (the controlled
-// forms) around the account card, the "Test connections" verify section, and
-// sign-out.
+// credentials and project config live together. Composes `CredentialFields`
+// (auto-save per field + auto-verify, each with its own right-of-input
+// validity indicator — dashboard UX update superseding the old manual "Save
+// credentials" / "Test connections" controls) + `ProjectFields` (still an
+// explicit "Save project" submit) around the account card and sign-out.
 import type { JSX } from 'react';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { CredentialFields, ProjectFields } from '@/dashboard/ConfigFields';
@@ -15,7 +16,7 @@ export function Settings(): JSX.Element {
     saveProject,
     verifying,
     verifyChecks,
-    runVerify,
+    pendingCredential,
     signOut,
     error,
   } = useDashboardStore();
@@ -50,34 +51,15 @@ export function Settings(): JSX.Element {
         </button>
       </section>
 
-      <CredentialFields settings={me.settings} saving={saving} onSave={saveSettings} />
+      <CredentialFields
+        settings={me.settings}
+        pendingCredential={pendingCredential}
+        verifying={verifying}
+        verifyChecks={verifyChecks}
+        onSave={saveSettings}
+      />
 
       <ProjectFields project={project} saving={saving} onSave={saveProject} />
-
-      <section data-role="verify-section">
-        <button
-          type="button"
-          disabled={verifying}
-          onClick={() => {
-            void runVerify();
-          }}
-        >
-          Test connections
-        </button>
-        <ul data-role="verify-checks">
-          {(verifyChecks ?? []).map((check) => (
-            <li
-              key={check.name}
-              data-role="verify-check"
-              data-name={check.name}
-              data-status={check.status}
-            >
-              <span data-role="verify-check-name">{check.name}</span>
-              <span data-role="verify-check-message">{check.message}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
 
       {error !== null ? (
         <p data-role="dashboard-error" role="alert">

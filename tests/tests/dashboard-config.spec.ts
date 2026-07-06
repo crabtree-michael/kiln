@@ -18,9 +18,10 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   await page.getByLabel('Repo URL').fill('https://github.com/crabtree-michael/kiln');
   await page.getByRole('button', { name: 'Save project' }).click();
 
-  // Project saved → settings view; store credentials.
+  // Project saved → settings view; credentials auto-save as entered — fill
+  // and blur (no submit button exists anymore).
   await page.getByLabel('Anthropic API key').fill('sk-ant-e2e-fake-x4Kd');
-  await page.getByRole('button', { name: 'Save credentials' }).click();
+  await page.getByLabel('Anthropic API key').press('Tab');
   const status = page.locator('[data-role="secret-status"][data-name="anthropic_api_key"]');
   await expect(status).toHaveAttribute('data-set', 'true');
   await expect(status).toContainText('x4Kd');
@@ -29,10 +30,10 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   const me = await page.request.get('/api/me');
   expect(await me.text()).not.toContain('sk-ant-e2e-fake');
 
-  // Verify endpoint runs live: the fake key must FAIL against real Anthropic;
-  // amika reports skipped (never configured). The repo check RUNS (repo_url is
-  // set) and passes — public repo, ls-remote needs no token.
-  await page.getByRole('button', { name: 'Test connections' }).click();
-  await expect(page.locator('[data-role="verify-check"][data-name="anthropic"]')).toHaveAttribute(
-    'data-status', 'failed');
+  // The blur-triggered save automatically chains a live verify run (no
+  // manual "Test connections" step anymore) — the fake key must FAIL against
+  // real Anthropic. Generous timeout: this hits the real Anthropic API.
+  await expect(
+    page.locator('[data-role="credential-status"][data-name="anthropic_api_key"]'),
+  ).toHaveAttribute('data-status', 'failed', { timeout: 20_000 });
 });

@@ -19,6 +19,12 @@ import type {
  */
 export type DashboardPhase = 'loading' | 'signed-out' | 'ready';
 
+/** The three credential fields that auto-save independently on blur/Enter and
+ * each drive their own right-of-input validity indicator (dashboard UX
+ * update: auto-save + auto-verify, superseding the old "Save credentials" /
+ * "Test connections" buttons). */
+export type CredentialName = 'anthropic_api_key' | 'amika_api_key' | 'github_auth_token';
+
 export interface DashboardStoreValue {
   phase: DashboardPhase;
   /** The signed-in user's account view; `null` until loaded or when signed out. */
@@ -27,13 +33,25 @@ export interface DashboardStoreValue {
   saving: boolean;
   /** The most recent action's failure message, if any; cleared on the next attempt. */
   error: string | null;
-  /** `true` while `POST /api/settings/verify` is in flight. */
+  /** `true` while `POST /api/settings/verify` is in flight — every credential
+   * indicator reads this as "pending" too, since one verify run checks all
+   * three at once. */
   verifying: boolean;
   /** The most recent verify run's per-check results; `null` until one has run. */
   verifyChecks: VerifyCheck[] | null;
-  /** `PUT /api/settings`, then swaps `me` for the response. */
-  saveSettings: (body: SettingsUpdateRequest) => Promise<void>;
-  /** `PUT /api/project`, then swaps `me` for the response. */
+  /** The credential field whose save (and, on success, chained verify) is
+   * currently in flight; `null` when none is. Drives that one field's
+   * "pending" indicator state independently of the others. */
+  pendingCredential: CredentialName | null;
+  /** `PUT /api/settings` for the given field(s), swaps `me` for the response,
+   * and — when the body includes one of the three credential fields —
+   * automatically chains a `runVerify` so its indicator reflects the fresh
+   * result with no separate "test connections" step. Resolves `true` iff the
+   * save itself succeeded (callers use this to decide whether to clear a
+   * write-only draft). */
+  saveSettings: (body: SettingsUpdateRequest) => Promise<boolean>;
+  /** `PUT /api/project`, then swaps `me` for the response. Never chains
+   * verify — only credential saves do. */
   saveProject: (body: ProjectUpdateRequest) => Promise<void>;
   /** `POST /api/settings/verify`, populating `verifyChecks` from the response. */
   runVerify: () => Promise<void>;

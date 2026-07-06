@@ -119,7 +119,7 @@ describe('Dashboard', () => {
     expect(status).toHaveAttribute('data-set', 'true');
   });
 
-  it('filling the credentials form and submitting calls putSettings with only the filled fields', async () => {
+  it('blurring a filled credential field auto-saves only that field, then auto-verifies', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         project: {
@@ -131,25 +131,9 @@ describe('Dashboard', () => {
         },
       }),
     );
-    vi.mocked(transport.putSettings).mockResolvedValue(makeMe());
-    renderDashboard();
-
-    await screen.findByRole('button', { name: 'Save credentials' });
-    fireEvent.change(screen.getByLabelText('Anthropic API key'), {
-      target: { value: 'sk-new-ab' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save credentials' }));
-
-    await waitFor(() => {
-      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-new-ab' });
-    });
-    // Only the one filled field made it into the request — the untouched
-    // secret/text fields (empty by default here) are left out entirely.
-    expect(transport.putSettings).toHaveBeenCalledTimes(1);
-  });
-
-  it('"Test connections" renders three verify-check rows with data-status from postVerify', async () => {
-    vi.mocked(transport.fetchMe).mockResolvedValue(
+    // The save response must keep the project — dropping it (e.g. a bare
+    // `makeMe()`) would bounce the view back to onboarding after the save.
+    vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
         project: {
           name: 'kiln',
@@ -164,25 +148,105 @@ describe('Dashboard', () => {
       checks: [
         { name: 'anthropic', status: 'ok', message: 'reachable' },
         { name: 'amika', status: 'skipped', message: 'not configured' },
-        { name: 'repo', status: 'failed', message: 'permission denied' },
+        { name: 'repo', status: 'skipped', message: 'not configured' },
       ],
     };
     vi.mocked(transport.postVerify).mockResolvedValue(response);
     renderDashboard();
 
-    const button = await screen.findByRole('button', { name: 'Test connections' });
-    fireEvent.click(button);
+    const input = await screen.findByLabelText('Anthropic API key');
+    fireEvent.change(input, { target: { value: 'sk-new-ab' } });
+    fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-role="verify-check"]')).toHaveLength(3);
+      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-new-ab' });
     });
-    const rows = Array.from(document.querySelectorAll('[data-role="verify-check"]'));
-    expect(rows.map((row) => row.getAttribute('data-name'))).toEqual([
-      'anthropic',
-      'amika',
-      'repo',
-    ]);
-    expect(rows.map((row) => row.getAttribute('data-status'))).toEqual(['ok', 'skipped', 'failed']);
+    // Only the one filled field made it into the request — the untouched
+    // secret/text fields (empty by default here) are left out entirely.
+    expect(transport.putSettings).toHaveBeenCalledTimes(1);
+
+    // A successful credential save automatically chains a verify run — no
+    // manual "Test connections" step exists anymore.
+    await waitFor(() => {
+      expect(transport.postVerify).toHaveBeenCalledTimes(1);
+    });
+
+    const indicator = await screen.findByText('✓');
+    expect(indicator).toHaveAttribute('data-role', 'credential-status');
+    expect(indicator).toHaveAttribute('data-name', 'anthropic_api_key');
+    expect(indicator).toHaveAttribute('data-status', 'ok');
+  });
+
+  it('blurring an empty credential field does not save', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    renderDashboard();
+
+    const input = await screen.findByLabelText('Anthropic API key');
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+
+    // Nothing to await on success, so give any errant async work a tick to
+    // land before asserting the negative.
+    await Promise.resolve();
+    expect(transport.putSettings).not.toHaveBeenCalled();
+    expect(transport.postVerify).not.toHaveBeenCalled();
+  });
+
+  it('a failed verify check renders a failed credential-status indicator with the message as its title', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    vi.mocked(transport.putSettings).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    const response: VerifyResponse = {
+      checks: [
+        { name: 'anthropic', status: 'failed', message: 'invalid key' },
+        { name: 'amika', status: 'skipped', message: 'not configured' },
+        { name: 'repo', status: 'skipped', message: 'not configured' },
+      ],
+    };
+    vi.mocked(transport.postVerify).mockResolvedValue(response);
+    renderDashboard();
+
+    const input = await screen.findByLabelText('Anthropic API key');
+    fireEvent.change(input, { target: { value: 'sk-bad' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      const indicator = document.querySelector(
+        '[data-role="credential-status"][data-name="anthropic_api_key"]',
+      );
+      expect(indicator).toHaveAttribute('data-status', 'failed');
+      expect(indicator).toHaveAttribute('title', 'invalid key');
+      expect(indicator?.textContent).toBe('✗');
+    });
   });
 
   it('matches the DOM-structure snapshot: settings view', async () => {

@@ -2,7 +2,10 @@
 // on mount, and drives the settings/project save, connectivity verify, and
 // sign-out actions — a straight transposition of the chat-store pattern
 // (`useState` for the value pieces, `useCallback` actions, `useEffect`
-// mount-load, `useMemo` context value).
+// mount-load, `useMemo` context value). `saveSettings` auto-chains a verify
+// run after any successful credential-field save (dashboard UX update:
+// per-field auto-save + auto-verify, superseding the old manual "Save
+// credentials" / "Test connections" buttons); `saveProject` never does.
 import { useCallback, useEffect, useMemo, useState, type JSX, type ReactNode } from 'react';
 import { fetchMe, postLogout, postVerify, putProject, putSettings } from '@/transport/transport';
 import type {
@@ -13,9 +16,32 @@ import type {
 } from '@/transport/transport';
 import {
   DashboardStoreContext,
+  type CredentialName,
   type DashboardPhase,
   type DashboardStoreValue,
 } from '@/dashboard/dashboard-context';
+
+/** The `SettingsUpdateRequest` keys that are write-only secrets with their own
+ * verify check and indicator — as opposed to `amika_claude_cred_id`, which is
+ * plain text and never chains a verify run. */
+const CREDENTIAL_KEYS: readonly CredentialName[] = [
+  'anthropic_api_key',
+  'amika_api_key',
+  'github_auth_token',
+];
+
+/** Which single credential field (if any) a partial `SettingsUpdateRequest`
+ * body is writing — each auto-save commits exactly one field, so at most one
+ * ever matches. */
+function credentialKeyIn(body: SettingsUpdateRequest): CredentialName | null {
+  for (const key of CREDENTIAL_KEYS) {
+    const value = body[key];
+    if (typeof value === 'string' && value !== '') {
+      return key;
+    }
+  }
+  return null;
+}
 
 export interface DashboardProviderProps {
   children: ReactNode;
@@ -28,6 +54,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyChecks, setVerifyChecks] = useState<VerifyCheck[] | null>(null);
+  const [pendingCredential, setPendingCredential] = useState<CredentialName | null>(null);
 
   // Shared by the mount effect and `signOut`'s re-fetch: passes through
   // `loading` while `GET /api/me` is in flight (the documented phase
@@ -70,18 +97,56 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
     };
   }, [load]);
 
-  const saveSettings = useCallback(async (body: SettingsUpdateRequest): Promise<void> => {
-    setSaving(true);
+  const runVerify = useCallback(async (): Promise<void> => {
+    setVerifying(true);
     setError(null);
     try {
-      const updated = await putSettings(body);
-      setMe(updated);
+      const response = await postVerify();
+      setVerifyChecks(response.checks);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'saveSettings failed');
+      setError(err instanceof Error ? err.message : 'runVerify failed');
     } finally {
-      setSaving(false);
+      setVerifying(false);
     }
   }, []);
+
+  // Auto-save + auto-verify (dashboard UX update): each credential input
+  // commits its own partial body on blur/Enter, with no submit button at all.
+  // A save that touches one of the three secret fields automatically chains
+  // straight into `runVerify` on success, so the field's right-of-input
+  // indicator reflects a fresh result without a manual "test connections"
+  // step. `pendingCredential` stays set across both the save and (when
+  // chained) the verify, so the indicator reads "pending" for that whole
+  // window; `saving` itself only covers the save call, matching its existing
+  // use for the project/sign-out buttons.
+  const saveSettings = useCallback(
+    async (body: SettingsUpdateRequest): Promise<boolean> => {
+      const credentialKey = credentialKeyIn(body);
+      if (credentialKey !== null) {
+        setPendingCredential(credentialKey);
+      }
+      setSaving(true);
+      setError(null);
+      let succeeded = false;
+      try {
+        const updated = await putSettings(body);
+        setMe(updated);
+        succeeded = true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'saveSettings failed');
+      } finally {
+        setSaving(false);
+      }
+      if (succeeded && credentialKey !== null) {
+        await runVerify();
+      }
+      if (credentialKey !== null) {
+        setPendingCredential(null);
+      }
+      return succeeded;
+    },
+    [runVerify],
+  );
 
   const saveProject = useCallback(async (body: ProjectUpdateRequest): Promise<void> => {
     setSaving(true);
@@ -93,19 +158,6 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       setError(err instanceof Error ? err.message : 'saveProject failed');
     } finally {
       setSaving(false);
-    }
-  }, []);
-
-  const runVerify = useCallback(async (): Promise<void> => {
-    setVerifying(true);
-    setError(null);
-    try {
-      const response = await postVerify();
-      setVerifyChecks(response.checks);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'runVerify failed');
-    } finally {
-      setVerifying(false);
     }
   }, []);
 
@@ -130,6 +182,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       error,
       verifying,
       verifyChecks,
+      pendingCredential,
       saveSettings,
       saveProject,
       runVerify,
@@ -142,6 +195,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       error,
       verifying,
       verifyChecks,
+      pendingCredential,
       saveSettings,
       saveProject,
       runVerify,

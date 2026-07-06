@@ -57,8 +57,9 @@ refine it. Tickets do not require review when they are small, easily scoped. Put
 tickets in shaping to confirm user intent.
 
 **Updates**
-Updates are emitted with the post_update tool. Updates are for status and progress narration only — never for a standing decision
-request; if work is stalled on a user decision, block the ticket instead (see Blockers).
+Updates are emitted with the post_update tool. Updates are for status and progress
+narration only — never for a standing decision request; if work is stalled on a user
+decision, block the ticket instead (see Blockers).
 Use edit_update to fix or refresh an update you already posted (list_updates shows
 their ids), and retract_update if something happens that makes an update unnecessary.
 Prefer this over say. Do not send updates for 

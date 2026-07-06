@@ -331,6 +331,18 @@ func (s *Service) PostNotification(ctx context.Context, kind, body string, ticke
 	return nil
 }
 
+// PostPoke posts the steward's feed-only poke card for a ticket: a KindPoke
+// notification with an empty body, tagged to the ticket so the feed renders its
+// current title with a 👉 (notificationToCard takes the label from the board
+// view). Excluded from the unseen badge and the brain's update list at the store
+// layer — a mechanical signal, not a brain-authored note.
+func (s *Service) PostPoke(ctx context.Context, ticketID string) error {
+	if _, err := s.notifications.PostNotification(ctx, string(KindPoke), "", &ticketID, nil); err != nil {
+		return fmt.Errorf("runtime: post poke: %w", err)
+	}
+	return nil
+}
+
 // RetractNotification is the brain-facing port for retract_update (08 §3):
 // stamp the row retracted and append feed.updated in one tx. Delegates to the
 // store.

@@ -280,6 +280,23 @@ describe('PrimaryScreenView', () => {
     expect(image).toHaveAttribute('src', 'https://cdn.example/login.png');
   });
 
+  it('renders a poke card as the ticket title with a 👉 and no body', () => {
+    const poke = makeFeedCard({
+      kind: 'poke',
+      id: 'update:51',
+      label: 'Auth',
+      body: '',
+      notificationId: 51,
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [poke] }));
+    const card = screen.getByText('Auth').closest('[data-role="feed-card"]');
+    expect(card).toHaveAttribute('data-kind', 'poke');
+    expect(card?.querySelector('[data-role="feed-card-poke"]')?.textContent).toContain('👉');
+    // A poke carries no body — the emoji is the whole signal.
+    expect(card?.querySelector('[data-role="feed-card-body"]')).toBeNull();
+  });
+
   it('renders the all-clear empty state with only the building count and an active ember pulse (4d)', () => {
     renderView(
       makeFeedSnapshot({

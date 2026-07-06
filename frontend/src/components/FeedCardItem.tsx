@@ -150,6 +150,10 @@ export function FeedCardItem({
   onOpenDetail,
 }: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
+  // A poke card is the steward's mechanical stall nudge: just the ticket title
+  // with a 👉 pointing at it, no body (08 §3 poke kind). It carries no tag and
+  // no body — the emoji is the whole signal.
+  const isPoke = card.kind === 'poke';
   // Update and blocker cards drop the kind tag — their title colour carries the
   // kind. Proposal and preview keep it (the colour scheme doesn't cover them).
   const showTag = card.kind === 'proposal' || card.kind === 'preview';
@@ -170,25 +174,31 @@ export function FeedCardItem({
     <article data-role="feed-card" data-kind={card.kind} data-seen={seen ? 'true' : undefined}>
       <div data-role="feed-card-head">
         {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
+        {isPoke && (
+          <span data-role="feed-card-poke" aria-label="poke">
+            👉
+          </span>
+        )}
         {showTag && <span data-role="feed-card-tag">{cardTag(card.kind)}</span>}
         <span data-role="feed-card-label">{card.label}</span>
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>
-      {openDetail !== null ? (
-        <button
-          type="button"
-          data-role="feed-card-open"
-          aria-label={`Open ticket: ${card.label}`}
-          onClick={openDetail}
-        >
-          <span data-role="feed-card-body">{card.body}</span>
-          <span data-role="feed-card-open-hint" aria-hidden="true">
-            Read full ticket
-          </span>
-        </button>
-      ) : (
-        <FeedCardBody body={card.body} seen={seen} />
-      )}
+      {!isPoke &&
+        (openDetail !== null ? (
+          <button
+            type="button"
+            data-role="feed-card-open"
+            aria-label={`Open ticket: ${card.label}`}
+            onClick={openDetail}
+          >
+            <span data-role="feed-card-body">{card.body}</span>
+            <span data-role="feed-card-open-hint" aria-hidden="true">
+              Read full ticket
+            </span>
+          </button>
+        ) : (
+          <FeedCardBody body={card.body} seen={seen} />
+        ))}
       {card.kind === 'preview' && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />
       )}

@@ -79,6 +79,7 @@ func (e AgentStatusStatus) Valid() bool {
 // Defines values for FeedCardKind.
 const (
 	Blocker  FeedCardKind = "blocker"
+	Done     FeedCardKind = "done"
 	Poke     FeedCardKind = "poke"
 	Preview  FeedCardKind = "preview"
 	Proposal FeedCardKind = "proposal"
@@ -89,6 +90,8 @@ const (
 func (e FeedCardKind) Valid() bool {
 	switch e {
 	case Blocker:
+		return true
+	case Done:
 		return true
 	case Poke:
 		return true
@@ -297,7 +300,7 @@ type FeedCard struct {
 	TicketId *string `json:"ticket_id,omitempty"`
 }
 
-// FeedCardKind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image; poke -> mechanical stall nudge (body empty; the ticket title carries a 👉).
+// FeedCardKind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image; poke -> mechanical stall nudge (body empty; the ticket title carries a 👉); done -> mechanical completion card (body empty; the ticket title carries a ✅).
 type FeedCardKind string
 
 // FeedHistoryPage One older page of retained update/preview history (GET /api/feed/history — 08 §3, D2′): notification-backed cards only, newest-first, older than the request's `before` cursor. Board-derived blocker/proposal cards are never paged.

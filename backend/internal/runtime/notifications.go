@@ -20,6 +20,11 @@ const (
 	// body empty). Not brain-authored — excluded from the brain's editable update
 	// list and the unseen-updates badge, but retained in the feed like any note.
 	KindPoke NotificationKind = "poke"
+	// KindDone is the mechanical completion card the runtime posts when a ticket
+	// is accepted to Done (08 §7): feed-only, body empty, the ticket title carries
+	// a ✅. Like a poke it is not brain-authored — excluded from the brain's
+	// editable update list and the unseen-updates badge, but retained in the feed.
+	KindDone NotificationKind = "done"
 )
 
 // Notification is one row of the notifications table (08 §3, §7): a
@@ -50,7 +55,7 @@ type NotificationStore interface {
 	// "preview"; ticketID/imageURL are optional.
 	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) (Notification, error)
 
-	// PostCompletionCard inserts a mechanical "done" feed card (kind "update")
+	// PostCompletionCard inserts a mechanical "done" feed card (kind "done")
 	// for a completed ticket and appends a feed.updated outbox row — the
 	// persistent counterpart to the ephemeral finished toast (08 §7). Not
 	// brain-authored: the board's feed.completion outbox entry drives it. key is

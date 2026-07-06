@@ -641,8 +641,10 @@ components:
             proposal -> Shaping ticket with approval_requested (body is the
             shaped summary, Accept affordance shown); update -> brain-authored
             note; preview -> brain-authored note with an image; poke ->
-            mechanical stall nudge (body empty; the ticket title carries a 👉).
-          enum: [blocker, proposal, update, preview, poke]
+            mechanical stall nudge (body empty; the ticket title carries a 👉);
+            done -> mechanical completion card (body empty; the ticket title
+            carries a ✅).
+          enum: [blocker, proposal, update, preview, poke, done]
         id:
           type: string
           description: >

@@ -212,9 +212,13 @@ export function FeedCardItem({
   // with a 👉 pointing at it, no body (08 §3 poke kind). The emoji is the whole
   // signal.
   const isPoke = card.kind === 'poke';
+  // A done card is the mechanical completion notice (08 §7): just the ticket
+  // title with a ✅ in front of it, no body. Styled like a poke — the emoji is
+  // the whole signal.
+  const isDone = card.kind === 'done';
   // Update, blocker and proposal cards drop the kind tag — their title colour
   // carries the kind (muted, fire and fire respectively). Only preview keeps it,
-  // since the colour scheme doesn't cover it. Poke carries no tag either.
+  // since the colour scheme doesn't cover it. Poke and done carry no tag either.
   const showTag = card.kind === 'preview';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
@@ -238,11 +242,17 @@ export function FeedCardItem({
             👉
           </span>
         )}
+        {isDone && (
+          <span data-role="feed-card-done" aria-label="done">
+            ✅
+          </span>
+        )}
         {showTag && <span data-role="feed-card-tag">{cardTag(card.kind)}</span>}
         <span data-role="feed-card-label">{card.label}</span>
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>
       {!isPoke &&
+        !isDone &&
         (openDetail !== null ? (
           <ProposalCardBody body={card.body} label={card.label} onOpen={openDetail} />
         ) : (

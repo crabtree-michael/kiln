@@ -31,17 +31,23 @@ const HISTORY_PAGE_SIZE = 30;
 const OPTIMISTIC_ACCEPT_TTL_MS = 5 * 60 * 1000;
 
 // Notification-backed card kinds (08 §3, §7): update/preview are brain-authored,
-// poke is the steward's mechanical stall nudge. All three are rows in the
-// `notifications` table — the runtime returns them in the feed's retained,
-// paginated update stream — so the store accumulates them across snapshots the
-// same way. (Blocker/proposal cards are board-derived and taken fresh from every
-// snapshot instead.) A poke that isn't accumulated here never reaches the merged
-// feed, so its card silently vanishes even though FeedCardItem renders it.
+// poke is the steward's mechanical stall nudge, done is the runtime's mechanical
+// completion card. All four are rows in the `notifications` table — the runtime
+// returns them in the feed's retained, paginated update stream — so the store
+// accumulates them across snapshots the same way. (Blocker/proposal cards are
+// board-derived and taken fresh from every snapshot instead.) A card that isn't
+// accumulated here never reaches the merged feed, so it silently vanishes even
+// though FeedCardItem renders it.
 function isUpdateCard(card: FeedCard): boolean {
-  return card.kind === 'update' || card.kind === 'preview' || card.kind === 'poke';
+  return (
+    card.kind === 'update' ||
+    card.kind === 'preview' ||
+    card.kind === 'poke' ||
+    card.kind === 'done'
+  );
 }
 
-/** A notification-backed card (update/preview/poke) with a usable numeric
+/** A notification-backed card (update/preview/poke/done) with a usable numeric
  * notification_id, narrowed. */
 function updateId(card: FeedCard): number | null {
   return isUpdateCard(card) && typeof card.notification_id === 'number'

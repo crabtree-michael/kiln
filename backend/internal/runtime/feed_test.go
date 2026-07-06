@@ -484,10 +484,10 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	if posts[0].TicketID != "t1" {
 		t.Errorf("completion TicketID = %q, want t1", posts[0].TicketID)
 	}
-	// Styled like the toast: a bare checkmark, with the ticket title rendered
-	// separately as the card label (no prose in the body).
-	if posts[0].Body != "✓" {
-		t.Errorf("completion body = %q, want a bare checkmark", posts[0].Body)
+	// Styled like a poke: an empty body, with the ticket title rendered
+	// separately as the card label and the client fronting a ✅ (no prose).
+	if posts[0].Body != "" {
+		t.Errorf("completion body = %q, want empty", posts[0].Body)
 	}
 	if posts[0].Key == 0 {
 		t.Error("completion must be keyed on the outbox id for idempotency, got key 0")

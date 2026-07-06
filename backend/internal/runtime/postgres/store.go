@@ -303,7 +303,7 @@ func (s *Store) PostCompletionCard(
 	txErr := s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO notifications (kind, ticket_id, body, idempotency_key)
-			 VALUES ('update', $1, $2, $3)
+			 VALUES ('done', $1, $2, $3)
 			 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
 			ticketID, body, key)
 		if err != nil {
@@ -370,14 +370,15 @@ func (s *Store) MarkSeen(ctx context.Context, lastID int64) error {
 
 // UnseenNotifications implements runtime.NotificationStore: the
 // neither-seen-nor-retracted rows, newest-first — the brain's active-card view
-// (list_updates, 06 §4). Mechanical poke cards are excluded (kind <> 'poke') —
-// they are the steward's, not the brain's to edit or retract. The feed reads
-// RecentNotifications instead now that history is retained (08 D2′).
+// (list_updates, 06 §4). Mechanical poke and done cards are excluded
+// (kind NOT IN ('poke','done')) — they are posted by the steward/runtime, not
+// the brain's to edit or retract. The feed reads RecentNotifications instead now
+// that history is retained (08 D2′).
 func (s *Store) UnseenNotifications(ctx context.Context) ([]runtime.Notification, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, kind, ticket_id, body, image_url, created_at
 		 FROM notifications
-		 WHERE seen_at IS NULL AND retracted_at IS NULL AND kind <> 'poke'
+		 WHERE seen_at IS NULL AND retracted_at IS NULL AND kind NOT IN ('poke', 'done')
 		 ORDER BY id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("runtime/postgres: query unseen notifications: %w", err)
@@ -444,12 +445,12 @@ func (s *Store) LastSeenID(ctx context.Context) (*int64, error) {
 
 // UnseenCount implements runtime.NotificationStore (08 §2): how many unseen,
 // unretracted notifications remain — the header's "N updates" count. Mechanical
-// poke cards are excluded (kind <> 'poke'): a poke is a feed entry, not an
-// "update" the user is being counted as owing a look.
+// poke and done cards are excluded (kind NOT IN ('poke','done')): they are feed
+// entries, not "updates" the user is being counted as owing a look.
 func (s *Store) UnseenCount(ctx context.Context) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM notifications WHERE seen_at IS NULL AND retracted_at IS NULL AND kind <> 'poke'`).
+		`SELECT count(*) FROM notifications WHERE seen_at IS NULL AND retracted_at IS NULL AND kind NOT IN ('poke', 'done')`).
 		Scan(&n); err != nil {
 		return 0, fmt.Errorf("runtime/postgres: query unseen count: %w", err)
 	}

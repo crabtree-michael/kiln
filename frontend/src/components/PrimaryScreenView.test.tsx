@@ -314,6 +314,40 @@ describe('PrimaryScreenView', () => {
     expect(card?.querySelector('[data-role="feed-card-body"]')).toBeNull();
   });
 
+  it('wraps a done card in the swipe-to-clear affordance when a dismiss handler is wired (08 §3)', () => {
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:73',
+      label: 'Auth',
+      body: '',
+      notificationId: 73,
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [done] }), {
+      onDismissCard: noop,
+    });
+    const card = screen.getByText('Auth').closest('[data-role="feed-card"]');
+    // Like update/preview, a done card is a stray notification the user can wave
+    // off — it rides inside the swipe-content the gesture translates.
+    expect(card?.closest('[data-role="swipe-content"]')).not.toBeNull();
+  });
+
+  it('leaves a poke card static even when a dismiss handler is wired — it is not the user’s to clear (08 §3)', () => {
+    const poke = makeFeedCard({
+      kind: 'poke',
+      id: 'update:51',
+      label: 'Auth',
+      body: '',
+      notificationId: 51,
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [poke] }), {
+      onDismissCard: noop,
+    });
+    const card = screen.getByText('Auth').closest('[data-role="feed-card"]');
+    expect(card?.closest('[data-role="swipe-content"]')).toBeNull();
+  });
+
   it('renders the all-clear empty state with only the building count and an active ember pulse (4d)', () => {
     renderView(
       makeFeedSnapshot({

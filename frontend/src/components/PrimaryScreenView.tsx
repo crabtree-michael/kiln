@@ -82,10 +82,23 @@ export interface PrimaryScreenViewProps {
   now?: number;
 }
 
-/** An update/preview card's numeric notification_id, or null for board cards. */
+/** An update/preview card's numeric notification_id, or null for board cards.
+ * Drives the last-seen divider — the "new since last visit" boundary is about
+ * brain-authored update/preview history, so the mechanical poke/done notices
+ * stay out of it. */
 function updateId(card: FeedCard): number | null {
   const isUpdate = card.kind === 'update' || card.kind === 'preview';
   return isUpdate && typeof card.notification_id === 'number' ? card.notification_id : null;
+}
+
+/** The numeric notification_id of a card the user can swipe to clear, or null.
+ * The brain-authored update/preview cards plus the runtime's mechanical "done"
+ * completion notice — all stray notifications the user can wave off once read
+ * (this change). Board cards (blocker/proposal) carry no notification_id, and
+ * the steward's poke stays put, so those never gain the gesture. */
+function dismissableId(card: FeedCard): number | null {
+  const isDismissable = card.kind === 'update' || card.kind === 'preview' || card.kind === 'done';
+  return isDismissable && typeof card.notification_id === 'number' ? card.notification_id : null;
 }
 
 /** The index of the first update card at/below the last-seen boundary — the
@@ -231,10 +244,11 @@ export function PrimaryScreenView({
             ) : (
               <>
                 {cards.map((card, index) => {
-                  // Only notification-backed cards can be cleared; blockers/
-                  // proposals/pokes are board state the brain owns, so they stay
+                  // Only notification-backed cards can be cleared: update/
+                  // preview plus the runtime's "done" notice. Blockers/proposals
+                  // (board state the brain owns) and the steward's poke stay
                   // static even when a dismiss handler is wired.
-                  const dismissId = updateId(card);
+                  const dismissId = dismissableId(card);
                   const item = (
                     <FeedCardItem
                       card={card}

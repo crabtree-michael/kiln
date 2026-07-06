@@ -382,9 +382,10 @@
   color: var(--text-muted);
 }
 
-/* Ticket name — the bolded focal element of the card. Flexes to fill the row
-   and truncates with an ellipsis so a long title keeps the head to one line
-   (the age stays pinned right). */
+/* Ticket name — the de-emphasized head of the card. Muted by default across
+   every kind so the emphasis sits on the body copy below, not the title.
+   Flexes to fill the row and truncates with an ellipsis so a long title keeps
+   the head to one line (the age stays pinned right). */
 [data-role='feed-card-label'] {
   flex: 1;
   min-width: 0;
@@ -394,13 +395,6 @@
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.006em;
-  color: var(--text-body);
-}
-
-/* Update cards drop the kind tag; the muted (still bold) ticket name carries the
-   kind instead of a chip. Colour only — the base weight (700) and the seen
-   override (400 below) stay in charge, so a seen update card still recedes. */
-[data-role='feed-card'][data-kind='update'] [data-role='feed-card-label'] {
   color: var(--text-muted);
 }
 
@@ -417,9 +411,10 @@
   color: var(--text-faint);
 }
 
-/* Body: normal-weight update-style copy on every kind, clamped to three lines by
-   default; the emphasis lives on the ticket name in the head, not here. Position
-   context so the "tap to see more" cue can pin to the clamped bottom-right. */
+/* Body: the emphasized copy on every kind — primary text colour so it carries
+   the weight of the card while the muted ticket name in the head recedes.
+   Clamped to three lines by default. Position context so the "tap to see more"
+   cue can pin to the clamped bottom-right. */
 [data-role='feed-card-body'] {
   position: relative;
   margin: 0;

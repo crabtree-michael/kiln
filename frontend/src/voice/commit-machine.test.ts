@@ -38,18 +38,38 @@ describe('commit machine', () => {
     expect(s.settledText).toBe('Hello, world.');
     expect(s.tailText).toBe('');
     // The grace window closes with the send still armed -> exactly one commit, and
-    // the mic stops (drops to Paused) rather than listening on into the next turn.
+    // the mic KEEPS listening for the next turn: an auto-send never stops the
+    // hands-free session (only an explicit stop / the send button / background does).
     s = voiceReducer(s, { type: 'commitDelayElapsed' });
     expect(s.pending).toBeUndefined();
     expect(s.commit).toBe('Hello, world.');
-    expect(s.micState).toBe('paused');
+    expect(s.micState).toBe('listening');
     // next tick: a successful POST clears the transcript back to idle so stale
-    // text can't linger (09 §4); the mic stays off until the next tap.
+    // text can't linger (09 §4); the mic stays listening, ready for the next turn.
     s = voiceReducer(s, { type: 'commitConsumed' });
     expect(s.commit).toBeUndefined();
     expect(s.settledText).toBe('');
     expect(s.tailText).toBe('');
-    expect(s.micState).toBe('paused');
+    expect(s.micState).toBe('listening');
+  });
+
+  it('auto-send keeps the mic listening across turns (hands-free continues)', () => {
+    let s = listening();
+    // First turn: speak, end-of-turn final, grace window closes -> auto-send.
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'First.' } });
+    s = voiceReducer(s, { type: 'commitDelayElapsed' });
+    expect(s.commit).toBe('First.');
+    expect(s.micState).toBe('listening'); // still live, no tap needed
+    s = voiceReducer(s, { type: 'commitConsumed' });
+    expect(s.settledText).toBe('');
+    expect(s.micState).toBe('listening');
+    // Second turn flows on the same session without another tap.
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'sec' } });
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Second.' } });
+    expect(s.settledText).toBe('Second.');
+    s = voiceReducer(s, { type: 'commitDelayElapsed' });
+    expect(s.commit).toBe('Second.');
+    expect(s.micState).toBe('listening');
   });
 
   it('resumed speech within the grace window cancels the armed send', () => {
@@ -179,16 +199,17 @@ describe('commit machine', () => {
   it('failed commit keeps the finalized text on screen for a retry', () => {
     let s = listening();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
-    s = voiceReducer(s, { type: 'commitDelayElapsed' }); // grace window closes -> commit + Paused
+    s = voiceReducer(s, { type: 'commitDelayElapsed' }); // grace window closes -> commit; mic keeps listening
     expect(s.settledText).toBe('Ship it.');
     expect(s.commit).toBe('Ship it.');
-    expect(s.micState).toBe('paused');
-    // POST failed: drop the one-tick commit but keep the ink visible (09 §4). The
-    // mic stays off — the user re-taps (or taps send again) to retry.
+    expect(s.micState).toBe('listening');
+    // POST failed: drop the one-tick commit but keep the ink visible (09 §4). An
+    // auto-send never stopped the mic, so it stays listening — the failed text
+    // stays on screen and the user can just speak again to retry.
     s = voiceReducer(s, { type: 'commitFailed' });
     expect(s.commit).toBeUndefined();
     expect(s.settledText).toBe('Ship it.');
-    expect(s.micState).toBe('paused');
+    expect(s.micState).toBe('listening');
   });
 
   it('empty / whitespace final -> no commit', () => {

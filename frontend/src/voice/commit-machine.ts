@@ -62,10 +62,15 @@ function fireArmedSend(state: VoiceState): VoiceState {
   if (state.pending === undefined) {
     return state;
   }
-  // Sending stops the mic: it drops to Paused so it never keeps listening past a
-  // sent message. The user taps the mic again to speak the next one (the store
-  // tears the socket down off the same `commit`).
-  return { ...state, pending: undefined, commit: state.pending, micState: 'paused' };
+  // An auto-send KEEPS the mic listening: the end-of-turn final commits, but the
+  // user-started hands-free session stays live for the next turn — `micState`
+  // stays `listening`, so the store leaves the socket open (it only tears the
+  // socket down on a commit that dropped to `paused`). This is safe because the
+  // turn already ended: the committed words can't come back in a trailing final,
+  // so unlike the send button (which fires mid-turn interim text) there's no
+  // double-post risk. Only an explicit stop, the send button, backgrounding, or
+  // unmount ends the session.
+  return { ...state, pending: undefined, commit: state.pending };
 }
 
 /** Commit whatever transcript is on screen right now — the settled ink plus any

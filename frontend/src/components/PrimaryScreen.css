@@ -110,6 +110,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* Hairline under the bar, matching the dock's own top separator, so the nav
+     bar reads as its own surface clipped off from the feed below the same way
+     the dock is clipped off from the feed above. */
+  border-bottom: 1px solid var(--border-default);
 }
 
 [data-role='kiln-mark'] {

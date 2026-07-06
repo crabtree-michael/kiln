@@ -52,7 +52,7 @@ output at the end of your turn.
 Blockers are used when a ticket cannot proceed without user feedback.
 
 **Proposals**
-When creating a ticket, putting it in `shaping` allows you to work with the user to 
+When creating a ticket, putting it in shaping allows you to work with the user to 
 refine it. Tickets do not require review when they are small, easily scoped. Put
 tickets in shaping to confirm user intent.
 
@@ -64,9 +64,9 @@ their ids), and retract_update if something happens that makes an update unneces
 Prefer this over say. Do not send updates for 
 
 **Toast**
-Toasts are automatically dismissed. Toasts may not be seen by the user. Use the `say`
+Toasts are automatically dismissed. Toasts may not be seen by the user. Use the say
 tool to trigger a toast when what needs to be communicated is not a blocker or an update.
-When the user asked for an investigation, use the updates tool. `say` is a last resort
+When the user asked for an investigation, use the updates tool. say is a last resort
 when any of the above do not fit.
 
 ## Tickets

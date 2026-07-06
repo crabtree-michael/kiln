@@ -181,7 +181,9 @@ export function CredentialFields({ settings, saving, onSave }: CredentialFieldsP
         <input
           type="password"
           value={anthropicApiKey}
-          placeholder={settings.anthropic_api_key.set ? secretStatusText(settings.anthropic_api_key) : ''}
+          placeholder={
+            settings.anthropic_api_key.set ? secretStatusText(settings.anthropic_api_key) : ''
+          }
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
             setAnthropicApiKey(event.target.value);
           }}
@@ -207,7 +209,9 @@ export function CredentialFields({ settings, saving, onSave }: CredentialFieldsP
         <input
           type="password"
           value={githubAuthToken}
-          placeholder={settings.github_auth_token.set ? secretStatusText(settings.github_auth_token) : ''}
+          placeholder={
+            settings.github_auth_token.set ? secretStatusText(settings.github_auth_token) : ''
+          }
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
             setGithubAuthToken(event.target.value);
           }}

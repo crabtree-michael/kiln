@@ -8,8 +8,17 @@ import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { CredentialFields, ProjectFields } from '@/dashboard/ConfigFields';
 
 export function Settings(): JSX.Element {
-  const { me, saving, saveSettings, saveProject, verifying, verifyChecks, runVerify, signOut, error } =
-    useDashboardStore();
+  const {
+    me,
+    saving,
+    saveSettings,
+    saveProject,
+    verifying,
+    verifyChecks,
+    runVerify,
+    signOut,
+    error,
+  } = useDashboardStore();
   if (me === null) {
     // See Onboarding's identical guard: Dashboard only mounts this view for a
     // populated `me` — narrows the type without an escape hatch.

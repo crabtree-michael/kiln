@@ -167,7 +167,11 @@ describe('Dashboard', () => {
       expect(document.querySelectorAll('[data-role="verify-check"]')).toHaveLength(3);
     });
     const rows = Array.from(document.querySelectorAll('[data-role="verify-check"]'));
-    expect(rows.map((row) => row.getAttribute('data-name'))).toEqual(['anthropic', 'amika', 'repo']);
+    expect(rows.map((row) => row.getAttribute('data-name'))).toEqual([
+      'anthropic',
+      'amika',
+      'repo',
+    ]);
     expect(rows.map((row) => row.getAttribute('data-status'))).toEqual(['ok', 'skipped', 'failed']);
   });
 

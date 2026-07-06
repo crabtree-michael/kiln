@@ -60,6 +60,12 @@ services:
       # Dev/e2e only: mount POST /api/dev/tickets so a test can seed a ticket without
       # the brain. v1 is local-only (02 §1); default on for this stack, never prod.
       KILN_DEV_ENDPOINTS: ${KILN_DEV_ENDPOINTS:-1}
+      # Multi-user phase 1 (spec 11 §2, §7): dashboard GitHub sign-in. All
+      # optional locally — unset ⇒ /dashboard shows sign-in but auth 404s.
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      KILN_ALLOWED_GITHUB_USERS: ${KILN_ALLOWED_GITHUB_USERS:-}
+      KILN_SECRETS_KEY: ${KILN_SECRETS_KEY:-}
     depends_on:
       db:
         condition: service_healthy

@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
@@ -68,6 +69,13 @@ type Config struct {
 	// is a no-op: make up and tests are unaffected.
 	SentryDSN         string // SENTRY_BACKEND_DSN — backend project DSN; empty ⇒ Sentry disabled
 	SentryEnvironment string // SENTRY_ENVIRONMENT — deployment env label (e.g. "production")
+
+	// Multi-user phase 1 (11 §2, §7): dashboard auth. All four unset ⇒ the
+	// identity surface is not mounted and the binary behaves exactly as before.
+	GitHubOAuthClientID     string   // GITHUB_OAUTH_CLIENT_ID
+	GitHubOAuthClientSecret string   // GITHUB_OAUTH_CLIENT_SECRET
+	AllowedGitHubUsers      []string // KILN_ALLOWED_GITHUB_USERS — comma-separated logins
+	SecretsKey              string   // KILN_SECRETS_KEY — 64 hex chars; malformed-but-set ⇒ refuse boot
 }
 
 // Defaults for the composition root's configuration.
@@ -113,6 +121,11 @@ func loadConfig() Config {
 
 		SentryDSN:         os.Getenv("SENTRY_BACKEND_DSN"),
 		SentryEnvironment: os.Getenv("SENTRY_ENVIRONMENT"),
+
+		GitHubOAuthClientID:     os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
+		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
+		AllowedGitHubUsers:      splitCSV(os.Getenv("KILN_ALLOWED_GITHUB_USERS")),
+		SecretsKey:              os.Getenv("KILN_SECRETS_KEY"),
 	}
 }
 
@@ -136,6 +149,24 @@ func getenvInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// splitCSV splits a comma-separated env value into its trimmed, non-empty
+// parts — used for KILN_ALLOWED_GITHUB_USERS. An empty/unset input yields a
+// nil (not empty-string) slice, so the allowlist check treats "nobody
+// configured" and "empty list" identically.
+func splitCSV(v string) []string {
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func main() {

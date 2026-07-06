@@ -24,7 +24,10 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	boardpg "github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
+	"github.com/crabtree-michael/kiln/backend/internal/identity/githubapi"
 	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/identity/verify"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
@@ -156,25 +159,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
 
-	// The brain's repo-inspection shell (design 2026-07-04): clone the project
-	// repo once at boot; the bash tool runs allowlisted git/gh/rg in it. repo.New
-	// is non-fatal — an unconfigured/failed clone yields a disabled shell whose
-	// tool calls report "unavailable", and it logs the outcome itself.
-	repoShell := repo.New(ctx, repo.Config{
-		RepoURL:   cfg.GitHubRepoURL,
-		AuthToken: cfg.GitHubAuthToken,
-		Dir:       cfg.RepoDir,
-	})
-
-	brainSvc := brain.NewService(
-		boardSvc, boardSvc, rtSvc, rtSvc, &feedReaderAdapter{rt: rtSvc},
-		&convoAdapter{rt: rtSvc},
-		&agentInspectorAdapter{inner: agentSvc},
-		&repoShellAdapter{inner: repoShell},
-		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),
-		brain.Config{Model: cfg.BrainModel},
-	)
-	brainPort.inner = brainSvc // close the runtime↔brain cycle.
+	brainPort.inner = buildBrain(ctx, cfg, boardSvc, rtSvc, agentSvc) // close the runtime↔brain cycle.
 
 	// STT token minter (09 §6): the api handler mints a short-lived AssemblyAI
 	// streaming token; the browser opens the STT socket directly, so the key
@@ -183,8 +168,14 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 		APIKey:  cfg.AssemblyAIAPIKey,
 		BaseURL: cfg.AssemblyAIBaseURL,
 	})
+
+	idSvc, err := buildIdentity(cfg, db, log)
+	if err != nil {
+		return graph{}, err
+	}
+
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
-	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore)
+	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc)
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
@@ -195,6 +186,59 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	}, nil
 }
 
+// buildBrain constructs the brain service, including its repo-inspection
+// shell (design 2026-07-04): a maintained local clone the bash tool runs
+// allowlisted git/gh/rg commands in, cloned once at boot. repo.New is
+// non-fatal — an unconfigured/failed clone yields a disabled shell whose tool
+// calls report "unavailable", and it logs the outcome itself. Extracted from
+// buildGraph to keep that function within the complexity budget.
+func buildBrain(
+	ctx context.Context, cfg Config, boardSvc *board.Service, rtSvc *runtime.Service, agentSvc *agent.Service,
+) *brain.Service {
+	repoShell := repo.New(ctx, repo.Config{
+		RepoURL:   cfg.GitHubRepoURL,
+		AuthToken: cfg.GitHubAuthToken,
+		Dir:       cfg.RepoDir,
+	})
+	return brain.NewService(
+		boardSvc, boardSvc, rtSvc, rtSvc, &feedReaderAdapter{rt: rtSvc},
+		&convoAdapter{rt: rtSvc},
+		&agentInspectorAdapter{inner: agentSvc},
+		&repoShellAdapter{inner: repoShell},
+		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),
+		brain.Config{Model: cfg.BrainModel},
+	)
+}
+
+// buildIdentity constructs the dashboard-auth service (11 §2) when both
+// GITHUB_OAUTH_CLIENT_ID and KILN_SECRETS_KEY are set, returning a nil
+// *identity.Service (not mounted) when both are unset — an unconfigured boot
+// is today's boot. A malformed KILN_SECRETS_KEY fails hard (11 §3): a
+// half-working cipher must never silently store plaintext. Only one of the
+// two set is a misconfiguration too incomplete to run identity from, so it
+// logs a warning and stays unmounted rather than erroring.
+func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service, error) {
+	switch {
+	case cfg.GitHubOAuthClientID != "" && cfg.SecretsKey != "":
+		cipher, err := identity.NewCipher(cfg.SecretsKey)
+		if err != nil {
+			return nil, fmt.Errorf("kiln: identity cipher: %w", err)
+		}
+		gh := githubapi.New(githubapi.Config{
+			ClientID:     cfg.GitHubOAuthClientID,
+			ClientSecret: cfg.GitHubOAuthClientSecret,
+		}, nil)
+		idSvc := identity.NewService(identitypg.New(db), cipher, gh, cfg.AllowedGitHubUsers)
+		idSvc.SetVerifier(verify.New())
+		return idSvc, nil
+	case cfg.SecretsKey != "" || cfg.GitHubOAuthClientID != "":
+		log.Warn("identity disabled: need both GITHUB_OAUTH_CLIENT_ID and KILN_SECRETS_KEY")
+	}
+	//nolint:nilnil // a nil *identity.Service with a nil error IS "not configured" — the
+	// caller's idSvc != nil check is exactly this contract, not an ambiguous failure.
+	return nil, nil
+}
+
 // enableServerRoutes wires the api server's non-core routes: the unconditional
 // reset affordance and health/SPA, plus the dev-only seed routes when
 // KILN_DEV_ENDPOINTS is set. Extracted from buildGraph to keep that function
@@ -202,7 +246,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 func enableServerRoutes(
 	server *api.Server, cfg Config, db *sql.DB,
 	boardSvc *board.Service, rtSvc *runtime.Service,
-	agentSvc *agent.Service, boardStore *boardpg.Store,
+	agentSvc *agent.Service, boardStore *boardpg.Store, idSvc *identity.Service,
 ) {
 	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
@@ -214,6 +258,17 @@ func enableServerRoutes(
 	// with the API (design 2026-07-05).
 	server.EnableHealthz(version, db.PingContext)
 	server.EnableSPA(web.Handler())
+	// Dashboard auth (11 §2, §4): mounted only when idSvc was constructed
+	// (both GITHUB_OAUTH_CLIENT_ID and KILN_SECRETS_KEY set) — an unconfigured
+	// boot leaves /auth/* and /api/me absent (dark-when-unconfigured).
+	if idSvc != nil {
+		server.EnableIdentity(idSvc, idSvc)
+		if cfg.DevEndpoints {
+			// Dev/e2e only (11 §7): mint a session straight from a GitHub login,
+			// bypassing the real OAuth dance, so an e2e can sign in deterministically.
+			server.EnableDevSession(idSvc)
+		}
+	}
 	if cfg.DevEndpoints {
 		// Dev/e2e only: seed a ticket into any state (POST /api/dev/tickets) and
 		// post a feed notification (POST /api/dev/notifications), both without the

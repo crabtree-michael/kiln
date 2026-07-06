@@ -99,7 +99,11 @@ export function useWebPush(): WebPush {
         const registration = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_URL);
         const existing = registration ? await registration.pushManager.getSubscription() : null;
         const next: WebPushStatus =
-          existing !== null ? 'enabled' : Notification.permission === 'denied' ? 'denied' : 'default';
+          existing !== null
+            ? 'enabled'
+            : Notification.permission === 'denied'
+              ? 'denied'
+              : 'default';
         if (!cancelled) setStatus(next);
       } catch {
         if (!cancelled) setStatus('unconfigured');

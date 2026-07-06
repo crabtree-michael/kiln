@@ -188,9 +188,7 @@ export function PrimaryScreenView({
   // Whether any notification-backed card is present — the trash affordance clears
   // those (blockers/proposals are board state, untouched), so it's disabled when
   // there is nothing to clear.
-  const hasClearable = cards.some(
-    (card) => card.kind !== 'blocker' && card.kind !== 'proposal',
-  );
+  const hasClearable = cards.some((card) => card.kind !== 'blocker' && card.kind !== 'proposal');
 
   // Which proposal's full ticket is open in the click-through detail overlay
   // (08 §5). View-only state held here, mirroring how Board owns its selected

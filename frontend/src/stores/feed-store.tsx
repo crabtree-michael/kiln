@@ -368,9 +368,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   const dismissAll = useCallback((): void => {
     // Only the ids not already suppressed, so a rollback can't un-hide a card the
     // user had individually swiped before clearing all.
-    const cleared = [...updatesRef.current.keys()].filter(
-      (id) => !dismissedRef.current.has(id),
-    );
+    const cleared = [...updatesRef.current.keys()].filter((id) => !dismissedRef.current.has(id));
     if (cleared.length === 0 && dismissedRef.current.size === 0) {
       return; // nothing notification-backed to clear
     }
@@ -388,7 +386,12 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       }
       if (serverFeedRef.current !== null) {
         setFeed(
-          mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted(), dismissedRef.current),
+          mergeFeed(
+            serverFeedRef.current,
+            updatesRef.current,
+            liveAccepted(),
+            dismissedRef.current,
+          ),
         );
       }
     });

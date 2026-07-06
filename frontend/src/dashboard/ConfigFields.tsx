@@ -258,7 +258,11 @@ export function CredentialFields({
   const checkFor = (name: CredentialName): VerifyCheck | undefined =>
     verifyChecks?.find((candidate) => candidate.name === CHECK_NAME_FOR_CREDENTIAL[name]);
 
-  const commit = (field: CommitField, body: SettingsUpdateRequest, onSuccess?: () => void): void => {
+  const commit = (
+    field: CommitField,
+    body: SettingsUpdateRequest,
+    onSuccess?: () => void,
+  ): void => {
     if (inFlight.current.has(field)) {
       return;
     }

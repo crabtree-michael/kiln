@@ -36,9 +36,7 @@ export function Settings(): JSX.Element {
       <section data-role="account-card">
         <img src={me.user.avatar_url} alt="" data-role="account-avatar" />
         <div data-role="account-identity">
-          <div data-role="account-name">
-            {me.user.display_name || `@${me.user.github_login}`}
-          </div>
+          <div data-role="account-name">{me.user.display_name || `@${me.user.github_login}`}</div>
           <div data-role="account-login">@{me.user.github_login}</div>
         </div>
         <button

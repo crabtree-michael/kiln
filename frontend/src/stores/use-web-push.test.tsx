@@ -48,7 +48,9 @@ let registerMock: ReturnType<typeof vi.fn>;
 
 // Install the browser push APIs so browserSupportsPush() is satisfied.
 function installPushEnv(env: PushEnv): void {
-  getSubscriptionMock = vi.fn(() => Promise.resolve(env.existingSubscription ? FAKE_SUBSCRIPTION : null));
+  getSubscriptionMock = vi.fn(() =>
+    Promise.resolve(env.existingSubscription ? FAKE_SUBSCRIPTION : null),
+  );
   subscribeMock = vi.fn(() => Promise.resolve(FAKE_SUBSCRIPTION));
   const registration = {
     pushManager: { getSubscription: getSubscriptionMock, subscribe: subscribeMock },
@@ -109,7 +111,9 @@ describe('useWebPush', () => {
   it('reports enabled on mount when a subscription already exists', async () => {
     installPushEnv({ existingSubscription: true });
     // getRegistration must return a registration for the mount probe to find the sub.
-    const registration = { pushManager: { getSubscription: () => Promise.resolve(FAKE_SUBSCRIPTION) } };
+    const registration = {
+      pushManager: { getSubscription: () => Promise.resolve(FAKE_SUBSCRIPTION) },
+    };
     Object.defineProperty(navigator, 'serviceWorker', {
       value: { getRegistration: () => Promise.resolve(registration) },
       configurable: true,
@@ -132,9 +136,7 @@ describe('useWebPush', () => {
     await waitFor(() => {
       expect(screen.getByTestId('status').textContent).toBe('enabled');
     });
-    expect(subscribeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userVisibleOnly: true }),
-    );
+    expect(subscribeMock).toHaveBeenCalledWith(expect.objectContaining({ userVisibleOnly: true }));
     expect(vi.mocked(transport.postPushSubscription)).toHaveBeenCalledWith({
       endpoint: 'https://push.example/abc',
       keys: { p256dh: 'pub', auth: 'auth' },

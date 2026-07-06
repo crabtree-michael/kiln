@@ -179,21 +179,26 @@
   display: block;
 }
 
-/* The panel mirrors the stream menu's mount-and-animate mechanics, but anchors
- * to the bell (its own left edge) and is sized to its content rather than the
- * full feed width. */
+/* The panel mirrors the stream menu's mount-and-animate mechanics and is sized
+ * to its content rather than the full feed width. It is RIGHT-anchored (its right
+ * edge pinned to the bell's right edge) so it opens leftward, into the screen.
+ * The bell sits in the right-hand header-actions cluster, so a left-anchored
+ * panel opened rightward and ran off the right edge of the viewport; right-
+ * anchoring keeps all 264px on-screen. `max-width` clamps it to the viewport
+ * (minus a small margin) as a hard backstop on very narrow screens. */
 [data-role='notify-settings-panel'] {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
+  right: 0;
   z-index: 30;
   width: 264px;
+  max-width: calc(100vw - 24px);
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-overlay);
   overflow: hidden;
-  transform-origin: top left;
+  transform-origin: top right;
   opacity: 0;
   transform: translateY(-6px) scale(0.98);
   max-height: 0;

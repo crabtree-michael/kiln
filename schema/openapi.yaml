@@ -245,6 +245,46 @@ paths:
                 $ref: '#/components/schemas/VoiceToken'
         '502':
           description: The STT provider failed to mint a token.
+  /api/push/key:
+    get:
+      operationId: getPushKey
+      summary: The VAPID public key the client subscribes with (02 §10).
+      description: >
+        Returns the server's VAPID application server key, base64url-encoded, for
+        the client's `pushManager.subscribe({ applicationServerKey })` call. The
+        matching private key never leaves /backend. 404 when push is not
+        configured (the VAPID env vars are unset) — the client treats that as
+        "notifications unavailable" and hides the toggle.
+      responses:
+        '200':
+          description: The VAPID public key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushKey'
+        '404':
+          description: Push is not configured on this deployment.
+  /api/push/subscribe:
+    post:
+      operationId: postPushSubscribe
+      summary: Register a browser push subscription (02 §10).
+      description: >
+        Stores the browser `PushSubscription` (endpoint + p256dh/auth keys) so the
+        runtime's notify.send executor can deliver Web Push messages to it. Upsert
+        on endpoint — a re-subscribe from the same browser is idempotent. Single
+        user in v1: subscriptions are stored globally and every notification fans
+        out to all of them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushSubscription'
+      responses:
+        '204':
+          description: Subscription stored.
+        '400':
+          description: Invalid request body.
   /api/stream:
     get:
       operationId: getStream
@@ -799,3 +839,37 @@ components:
         checks:
           type: array
           items: { $ref: '#/components/schemas/VerifyCheck' }
+
+    PushKey:
+      type: object
+      description: The VAPID public key for pushManager.subscribe (02 §10).
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: Base64url-encoded VAPID application server key.
+      additionalProperties: false
+
+    PushSubscription:
+      type: object
+      description: >
+        A browser PushSubscription as produced by
+        `PushSubscription.toJSON()` — the endpoint URL plus the p256dh and auth
+        keys used to encrypt Web Push payloads (RFC 8291).
+      required: [endpoint, keys]
+      properties:
+        endpoint:
+          type: string
+          description: The push service URL messages are POSTed to.
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh:
+              type: string
+              description: Base64url client public key (ECDH P-256).
+            auth:
+              type: string
+              description: Base64url client auth secret.
+          additionalProperties: false
+      additionalProperties: false

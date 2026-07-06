@@ -1,0 +1,11 @@
+{
+  "name": "Kiln",
+  "short_name": "Kiln",
+  "description": "Voice-driven orchestrator for autonomous coding agents.",
+  "theme_color": "#faf6ef",
+  "background_color": "#faf6ef",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/",
+  "icons": [{ "src": "/kiln-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

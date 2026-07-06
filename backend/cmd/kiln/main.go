@@ -86,6 +86,13 @@ type Config struct {
 	GitHubOAuthClientSecret string   // GITHUB_OAUTH_CLIENT_SECRET
 	AllowedGitHubUsers      []string // KILN_ALLOWED_GITHUB_USERS — comma-separated logins
 	SecretsKey              string   // KILN_SECRETS_KEY — 64 hex chars; malformed-but-set ⇒ refuse boot
+
+	// Web Push notification transport (02 §10). The operator supplies the VAPID
+	// key pair; we never generate it. Both keys empty ⇒ push is disabled and the
+	// runtime keeps the log-only notifier (local dev + tests unaffected).
+	VAPIDPublicKey  string // VAPID_PUBLIC_KEY — served to the client as applicationServerKey
+	VAPIDPrivateKey string // VAPID_PRIVATE_KEY — signs the VAPID JWT; never leaves the backend
+	VAPIDSubject    string // VAPID_SUBJECT — mailto:/https contact in the VAPID "sub" claim
 }
 
 // Defaults for the composition root's configuration.
@@ -154,6 +161,10 @@ func loadConfig() Config {
 		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
 		AllowedGitHubUsers:      splitCSV(os.Getenv("KILN_ALLOWED_GITHUB_USERS")),
 		SecretsKey:              os.Getenv("KILN_SECRETS_KEY"),
+
+		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:    os.Getenv("VAPID_SUBJECT"),
 	}
 }
 

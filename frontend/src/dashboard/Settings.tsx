@@ -7,6 +7,7 @@
 import type { JSX } from 'react';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { CredentialFields, ProjectFields } from '@/dashboard/ConfigFields';
+import { NotificationsField } from '@/dashboard/NotificationsField';
 
 export function Settings(): JSX.Element {
   const {
@@ -58,6 +59,8 @@ export function Settings(): JSX.Element {
         verifyChecks={verifyChecks}
         onSave={saveSettings}
       />
+
+      <NotificationsField />
 
       <ProjectFields project={project} saving={saving} onSave={saveProject} />
 

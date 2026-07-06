@@ -11,7 +11,10 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'dev-dist', 'coverage', 'src/schema/generated.ts'],
+    // public/push-sw.js is a hand-written static service worker served verbatim;
+    // its ServiceWorkerGlobalScope globals (self/clients/registration/caches)
+    // don't fit the app's browser-DOM lint program (see the file header).
+    ignores: ['dist', 'dev-dist', 'coverage', 'src/schema/generated.ts', 'public/push-sw.js'],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,

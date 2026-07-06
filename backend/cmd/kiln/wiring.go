@@ -29,6 +29,8 @@ import (
 	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/verify"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
+	"github.com/crabtree-michael/kiln/backend/internal/push"
+	pushpg "github.com/crabtree-michael/kiln/backend/internal/push/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
@@ -56,11 +58,12 @@ type migrationSet struct {
 	fsys fs.FS  // rooted at the module's .sql files
 }
 
-// moduleMigrations lists the four modules' embedded migrations in dependency
-// order (board first — the outbox's FK-free tables — then runtime's
-// events/messages, then agent_turns, then identity's users/sessions/config).
-// Embedding (see each module's migrations.go) ships them in the single static
-// binary, so there is no runtime file dependency (backend/Dockerfile).
+// moduleMigrations lists each module's embedded migrations in dependency order
+// (board first — the outbox's FK-free tables — then runtime's events/messages,
+// then agent_turns, then identity's users/sessions/config, then push's
+// subscriptions). Embedding (see each module's migrations.go) ships them in the
+// single static binary, so there is no runtime file dependency
+// (backend/Dockerfile).
 func moduleMigrations() ([]migrationSet, error) {
 	mods := []struct {
 		key string
@@ -71,6 +74,7 @@ func moduleMigrations() ([]migrationSet, error) {
 		{"internal/agent/postgres/migrations", agentpg.Migrations},
 		{"internal/steward/postgres/migrations", stewardpg.Migrations},
 		{"internal/identity/postgres/migrations", identitypg.Migrations},
+		{"internal/push/postgres/migrations", pushpg.Migrations},
 	}
 	sets := make([]migrationSet, 0, len(mods))
 	for _, m := range mods {
@@ -157,9 +161,12 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	// worker's real session status for the Streams view.
 	hub.SetAgentInspector(&agentStatusAdapter{inner: agentSvc})
 
+	// notify.send executor (02 §10): a real Web Push sender when the operator has
+	// configured a VAPID key pair, else the log-only fallback (local dev + tests).
+	pushStore := pushpg.New(db)
 	rtSvc := runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), brainPort, boardSvc,
-		&blockerAdapter{inner: boardSvc}, agentSvc, &logNotifier{log: log}, hub, hub,
+		&blockerAdapter{inner: boardSvc}, agentSvc, newNotifier(cfg, pushStore, log), hub, hub,
 		runtimepg.New(db), &boardViewAdapter{inner: boardSvc}, hub, hub,
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
@@ -180,7 +187,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	}
 
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
-	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc)
+	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore)
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
@@ -284,7 +291,12 @@ func enableServerRoutes(
 	server *api.Server, cfg Config, db *sql.DB,
 	boardSvc *board.Service, rtSvc *runtime.Service,
 	agentSvc *agent.Service, boardStore *boardpg.Store, idSvc *identity.Service,
+	pushStore push.Store,
 ) {
+	// Web Push registration (02 §10): the subscribe route is always mounted (the
+	// store always exists); the VAPID public key is served only when configured,
+	// else GET /api/push/key 404s and the client hides the notifications toggle.
+	server.EnablePush(&pushRegistrarAdapter{store: pushStore}, cfg.VAPIDPublicKey)
 	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
 	// It re-seeds the worker pool to WorkerCount, mirroring startup, so a fresh

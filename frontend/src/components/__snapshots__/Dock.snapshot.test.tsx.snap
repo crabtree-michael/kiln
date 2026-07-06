@@ -7,6 +7,7 @@ exports[`Dock snapshots > Denied 1`] = `
     data-role="dock"
   >
     <div
+      data-mode="voice"
       data-role="dock-controls"
     >
       <button
@@ -38,6 +39,99 @@ exports[`Dock snapshots > Denied 1`] = `
         >
           Tap to enable mic
         </span>
+      </button>
+      <button
+        aria-label="Type a message"
+        data-role="dock-keyboard"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="22"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          viewBox="0 0 24 24"
+          width="22"
+        >
+          <rect
+            height="11"
+            rx="2.5"
+            width="19"
+            x="2.5"
+            y="4.5"
+          />
+          <path
+            d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+          />
+          <path
+            d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+          />
+          <path
+            d="M8.5 13.6h7"
+          />
+          <path
+            d="M8.8 21l3.2-3 3.2 3"
+          />
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Dock snapshots > Keyboard mode: typed field replaces the transcript, mic gives way to X + send 1`] = `
+<div>
+  <div
+    data-dock-state="keyboard"
+    data-role="dock"
+  >
+    <div
+      data-dock-state="keyboard"
+      data-role="dock-transcript"
+    >
+      <textarea
+        aria-label="Message"
+        data-role="dock-input"
+        placeholder="Type a message…"
+        rows="1"
+        style="height: 0px;"
+      />
+    </div>
+    <div
+      data-mode="keyboard"
+      data-role="dock-controls"
+    >
+      <button
+        aria-label="Close keyboard"
+        data-role="dock-cancel"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+        >
+          ×
+        </span>
+      </button>
+      <button
+        aria-label="Send"
+        data-role="dock-send"
+        disabled=""
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          height="22"
+          viewBox="0 0 24 24"
+          width="22"
+        >
+          <path
+            d="M12 4l-8 8h5v8h6v-8h5z"
+            fill="currentColor"
+          />
+        </svg>
       </button>
     </div>
   </div>
@@ -73,6 +167,7 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
       </span>
     </div>
     <div
+      data-mode="voice"
       data-role="dock-controls"
     >
       <button
@@ -161,6 +256,7 @@ exports[`Dock snapshots > Listening with settled ink only (send + X flank the mi
       </span>
     </div>
     <div
+      data-mode="voice"
       data-role="dock-controls"
     >
       <button
@@ -233,6 +329,7 @@ exports[`Dock snapshots > Paused 1`] = `
     data-role="dock"
   >
     <div
+      data-mode="voice"
       data-role="dock-controls"
     >
       <button
@@ -265,6 +362,43 @@ exports[`Dock snapshots > Paused 1`] = `
           Tap to talk
         </span>
       </button>
+      <button
+        aria-label="Type a message"
+        data-role="dock-keyboard"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="22"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          viewBox="0 0 24 24"
+          width="22"
+        >
+          <rect
+            height="11"
+            rx="2.5"
+            width="19"
+            x="2.5"
+            y="4.5"
+          />
+          <path
+            d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+          />
+          <path
+            d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+          />
+          <path
+            d="M8.5 13.6h7"
+          />
+          <path
+            d="M8.8 21l3.2-3 3.2 3"
+          />
+        </svg>
+      </button>
     </div>
   </div>
 </div>
@@ -288,6 +422,7 @@ exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §
       </span>
     </div>
     <div
+      data-mode="voice"
       data-role="dock-controls"
     >
       <button

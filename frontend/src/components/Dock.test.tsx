@@ -5,7 +5,7 @@
 // (settled + ghosted tail), and the X (cancel, only while there is an
 // un-committed tail).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Dock } from '@/components/Dock';
 import type { VoiceStoreValue } from '@/voice/voice-context';
 
@@ -25,6 +25,10 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     cancel: vi.fn(),
     sendNow: vi.fn(),
     getLevel: vi.fn(() => 0),
+    keyboardMode: false,
+    openKeyboard: vi.fn(),
+    closeKeyboard: vi.fn(),
+    submitText: vi.fn(() => Promise.resolve(true)),
     ...overrides,
   };
 }
@@ -198,5 +202,96 @@ describe('Dock', () => {
     );
     const root = container.querySelector('[data-role="primary-screen"]');
     expect(root?.getAttribute('style') ?? '').not.toContain('--dock-overlay-height');
+  });
+
+  // Keyboard input (the alternate to voice): a right-side toggle opens a typed
+  // field in place of the live transcript; submitting rides the same downstream
+  // seam as a spoken utterance. Voice stays the default — the toggle only shows in
+  // the resting state, never mid-dictation.
+  describe('keyboard input', () => {
+    it('shows the keyboard toggle in the resting state and forwards taps', () => {
+      const openKeyboard = vi.fn();
+      mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '', openKeyboard });
+      render(<Dock />);
+      fireEvent.click(screen.getByRole('button', { name: 'Type a message' }));
+      expect(openKeyboard).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the keyboard toggle while a transcript is on screen', () => {
+      mockVoiceValue = stubVoice({ micState: 'listening', tailText: 'mid thought' });
+      render(<Dock />);
+      expect(screen.queryByRole('button', { name: 'Type a message' })).toBeNull();
+    });
+
+    it('hides the keyboard toggle once keyboard mode is open', () => {
+      mockVoiceValue = stubVoice({ keyboardMode: true });
+      render(<Dock />);
+      expect(screen.queryByRole('button', { name: 'Type a message' })).toBeNull();
+    });
+
+    it('renders the typed field (not the transcript) in keyboard mode, and the mic is gone', () => {
+      mockVoiceValue = stubVoice({ keyboardMode: true });
+      render(<Dock />);
+      expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Talk' })).toBeNull();
+    });
+
+    it('submits the typed text through submitText and clears the field on success', async () => {
+      const submitText = vi.fn(() => Promise.resolve(true));
+      mockVoiceValue = stubVoice({ keyboardMode: true, submitText });
+      render(<Dock />);
+      const field = screen.getByRole('textbox', { name: 'Message' });
+      fireEvent.change(field, { target: { value: 'ship it' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+      expect(submitText).toHaveBeenCalledWith('ship it');
+      await waitFor(() => {
+        expect(field).toHaveValue('');
+      });
+    });
+
+    it('keeps the typed text in the field when the POST fails', async () => {
+      const submitText = vi.fn(() => Promise.resolve(false));
+      mockVoiceValue = stubVoice({ keyboardMode: true, submitText });
+      render(<Dock />);
+      const field = screen.getByRole('textbox', { name: 'Message' });
+      fireEvent.change(field, { target: { value: 'try again' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+      await waitFor(() => {
+        expect(submitText).toHaveBeenCalledTimes(1);
+      });
+      expect(field).toHaveValue('try again');
+    });
+
+    it('submits on Enter and inserts a newline on Shift+Enter', () => {
+      const submitText = vi.fn(() => Promise.resolve(true));
+      mockVoiceValue = stubVoice({ keyboardMode: true, submitText });
+      render(<Dock />);
+      const field = screen.getByRole('textbox', { name: 'Message' });
+      fireEvent.change(field, { target: { value: 'hello' } });
+      fireEvent.keyDown(field, { key: 'Enter', shiftKey: true });
+      expect(submitText).not.toHaveBeenCalled();
+      fireEvent.keyDown(field, { key: 'Enter' });
+      expect(submitText).toHaveBeenCalledWith('hello');
+    });
+
+    it('does not submit an empty/whitespace draft', () => {
+      const submitText = vi.fn(() => Promise.resolve(true));
+      mockVoiceValue = stubVoice({ keyboardMode: true, submitText });
+      render(<Dock />);
+      const field = screen.getByRole('textbox', { name: 'Message' });
+      fireEvent.change(field, { target: { value: '   ' } });
+      // The send button is disabled and Enter is a no-op for a blank draft.
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      fireEvent.keyDown(field, { key: 'Enter' });
+      expect(submitText).not.toHaveBeenCalled();
+    });
+
+    it('exits keyboard mode via the close button', () => {
+      const closeKeyboard = vi.fn();
+      mockVoiceValue = stubVoice({ keyboardMode: true, closeKeyboard });
+      render(<Dock />);
+      fireEvent.click(screen.getByRole('button', { name: 'Close keyboard' }));
+      expect(closeKeyboard).toHaveBeenCalledTimes(1);
+    });
   });
 });

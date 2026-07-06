@@ -24,6 +24,10 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     cancel: noop,
     sendNow: noop,
     getLevel: () => 0,
+    keyboardMode: false,
+    openKeyboard: noop,
+    closeKeyboard: noop,
+    submitText: () => Promise.resolve(true),
     ...overrides,
   };
 }
@@ -63,6 +67,12 @@ describe('Dock snapshots', () => {
 
   it('Retry with an un-committed transcript preserved (09 §5)', () => {
     mockVoiceValue = stubVoice({ micState: 'retry', tailText: 'half a thought' });
+    const { container } = render(<Dock />);
+    expect(container).toMatchSnapshot();
+  });
+
+  it('Keyboard mode: typed field replaces the transcript, mic gives way to X + send', () => {
+    mockVoiceValue = stubVoice({ keyboardMode: true });
     const { container } = render(<Dock />);
     expect(container).toMatchSnapshot();
   });

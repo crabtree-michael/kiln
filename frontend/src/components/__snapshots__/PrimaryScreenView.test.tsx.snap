@@ -109,6 +109,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
         data-role="dock"
       >
         <div
+          data-mode="voice"
           data-role="dock-controls"
         >
           <button
@@ -140,6 +141,43 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             >
               Listening…
             </span>
+          </button>
+          <button
+            aria-label="Type a message"
+            data-role="dock-keyboard"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="22"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+              width="22"
+            >
+              <rect
+                height="11"
+                rx="2.5"
+                width="19"
+                x="2.5"
+                y="4.5"
+              />
+              <path
+                d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+              />
+              <path
+                d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+              />
+              <path
+                d="M8.5 13.6h7"
+              />
+              <path
+                d="M8.8 21l3.2-3 3.2 3"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -382,6 +420,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
         data-role="dock"
       >
         <div
+          data-mode="voice"
           data-role="dock-controls"
         >
           <button
@@ -413,6 +452,43 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             >
               Listening…
             </span>
+          </button>
+          <button
+            aria-label="Type a message"
+            data-role="dock-keyboard"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="22"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+              width="22"
+            >
+              <rect
+                height="11"
+                rx="2.5"
+                width="19"
+                x="2.5"
+                y="4.5"
+              />
+              <path
+                d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+              />
+              <path
+                d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+              />
+              <path
+                d="M8.5 13.6h7"
+              />
+              <path
+                d="M8.8 21l3.2-3 3.2 3"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -574,6 +650,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
         data-role="dock"
       >
         <div
+          data-mode="voice"
           data-role="dock-controls"
         >
           <button
@@ -605,6 +682,43 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
             >
               Listening…
             </span>
+          </button>
+          <button
+            aria-label="Type a message"
+            data-role="dock-keyboard"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="22"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+              width="22"
+            >
+              <rect
+                height="11"
+                rx="2.5"
+                width="19"
+                x="2.5"
+                y="4.5"
+              />
+              <path
+                d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+              />
+              <path
+                d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+              />
+              <path
+                d="M8.5 13.6h7"
+              />
+              <path
+                d="M8.8 21l3.2-3 3.2 3"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -750,6 +864,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
         data-role="dock"
       >
         <div
+          data-mode="voice"
           data-role="dock-controls"
         >
           <button
@@ -781,6 +896,43 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
             >
               Listening…
             </span>
+          </button>
+          <button
+            aria-label="Type a message"
+            data-role="dock-keyboard"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="22"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+              width="22"
+            >
+              <rect
+                height="11"
+                rx="2.5"
+                width="19"
+                x="2.5"
+                y="4.5"
+              />
+              <path
+                d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+              />
+              <path
+                d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+              />
+              <path
+                d="M8.5 13.6h7"
+              />
+              <path
+                d="M8.8 21l3.2-3 3.2 3"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -970,6 +1122,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
         data-role="dock"
       >
         <div
+          data-mode="voice"
           data-role="dock-controls"
         >
           <button
@@ -1001,6 +1154,43 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
             >
               Listening…
             </span>
+          </button>
+          <button
+            aria-label="Type a message"
+            data-role="dock-keyboard"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="22"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+              width="22"
+            >
+              <rect
+                height="11"
+                rx="2.5"
+                width="19"
+                x="2.5"
+                y="4.5"
+              />
+              <path
+                d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+              />
+              <path
+                d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+              />
+              <path
+                d="M8.5 13.6h7"
+              />
+              <path
+                d="M8.8 21l3.2-3 3.2 3"
+              />
+            </svg>
           </button>
         </div>
       </div>

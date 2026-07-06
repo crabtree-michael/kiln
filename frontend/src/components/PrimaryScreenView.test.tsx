@@ -332,7 +332,7 @@ describe('PrimaryScreenView', () => {
     expect(card?.closest('[data-role="swipe-content"]')).not.toBeNull();
   });
 
-  it('leaves a poke card static even when a dismiss handler is wired — it is not the user’s to clear (08 §3)', () => {
+  it('wraps a poke card in the swipe-to-clear affordance when a dismiss handler is wired (08 §3)', () => {
     const poke = makeFeedCard({
       kind: 'poke',
       id: 'update:51',
@@ -345,6 +345,22 @@ describe('PrimaryScreenView', () => {
       onDismissCard: noop,
     });
     const card = screen.getByText('Auth').closest('[data-role="feed-card"]');
+    // Like update/preview/done, a poke is a stray notification the user can wave
+    // off — only a blocker (which needs an explicit decision) stays static.
+    expect(card?.closest('[data-role="swipe-content"]')).not.toBeNull();
+  });
+
+  it('leaves a blocker card static even when a dismiss handler is wired — it needs an explicit decision (08 §3)', () => {
+    renderView(
+      makeFeedSnapshot({
+        summary: { blocker_count: 1, stream_count: 5 },
+        cards: [blockerCard],
+      }),
+      { onDismissCard: noop },
+    );
+    const card = screen.getByText(blockerCard.label).closest('[data-role="feed-card"]');
+    expect(card).toHaveAttribute('data-kind', 'blocker');
+    // A blocker is board state that demands a user decision — never swipe-clearable.
     expect(card?.closest('[data-role="swipe-content"]')).toBeNull();
   });
 

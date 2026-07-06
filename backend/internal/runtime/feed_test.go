@@ -6,6 +6,7 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -341,6 +342,10 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 
 // ---- feed.updated / activity.toast outbox routing (08 §7) -----------------
 
+// modeAll is the "all" notification frequency (02 §10) — push on every feed
+// update, not just blocks.
+const modeAll = "all"
+
 func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
@@ -375,7 +380,7 @@ func TestService_Outbox_FeedUpdatedNotifiesInAllMode(t *testing.T) {
 	notifier := &fakeNotifier{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: "all"}, &fakeSnapshotPusher{},
+		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
 		&fakeActivityPusher{},
 	)
@@ -389,6 +394,76 @@ func TestService_Outbox_FeedUpdatedNotifiesInAllMode(t *testing.T) {
 	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
 	if got := notifier.count("Send"); got != 1 {
 		t.Fatalf("Send calls = %d, want exactly 1 for one feed.updated in all mode", got)
+	}
+}
+
+// A descriptive feed.updated payload drives a specific push (Title = ticket,
+// Body = what changed) rather than the generic "board was updated" placeholder.
+func TestService_Outbox_FeedUpdatedNotifiesWithChangeDescription(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	notifier := &fakeNotifier{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
+		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
+		&fakeActivityPusher{},
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "feed.updated",
+		[]byte(`{"title":"Login Redesign","verb":"finished"}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
+	calls := notifier.callsFor("Send")
+	if len(calls) != 1 {
+		t.Fatalf("Send calls = %d, want exactly 1", len(calls))
+	}
+	var got struct {
+		Title  string `json:"title"`
+		Reason string `json:"reason"`
+	}
+	payload, ok := calls[0].Args[0].([]byte)
+	if !ok {
+		t.Fatalf("Send payload arg type = %T, want []byte", calls[0].Args[0])
+	}
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("decode push payload: %v", err)
+	}
+	if got.Title != "Login Redesign" || got.Reason != "Finished" {
+		t.Errorf("push payload = %+v, want title=Login Redesign reason=Finished (not a generic placeholder)", got)
+	}
+}
+
+// A block emits its own, more-specific notify.send; the feed.updated it also
+// emits must not fire a second, vaguer push (verb "blocked" is suppressed).
+func TestService_Outbox_FeedUpdatedBlockedVerbSkipsGenericPush(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	notifier := &fakeNotifier{}
+	feed := &fakeFeedPusher{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
+		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
+		&fakeActivityPusher{},
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "feed.updated",
+		[]byte(`{"title":"Login Redesign","verb":"blocked"}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	// The feed push confirms the entry was handled; the notifier must stay
+	// untouched — the dedicated notify.send is the block's push.
+	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+	if got := notifier.count("Send"); got != 0 {
+		t.Errorf("Send calls = %d, want 0 — a block's push comes from notify.send, not feed.updated", got)
 	}
 }
 

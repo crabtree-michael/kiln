@@ -512,7 +512,7 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 	case topicBoardUpdated:
 		return wrapOutbox("push board", s.pusher.PushBoard(ctx))
 	case topicFeedUpdated:
-		s.handleFeedUpdated(ctx)
+		s.handleFeedUpdated(ctx, e)
 		return nil
 	case topicActivityToast:
 		s.handleActivityToast(ctx, e)
@@ -572,6 +572,16 @@ type toastPayload struct {
 	TicketTitle string `json:"ticket_title"`
 }
 
+// feedUpdatedPayload mirrors the board's FeedUpdatedPayload (03 §7.1) by value —
+// this module never imports internal/board. Title names the changed ticket;
+// Verb labels the nature of the change and drives the "all"-mode push copy (02
+// §10). Empty when a feed.updated carries no descriptor (the push falls back to
+// a generic line).
+type feedUpdatedPayload struct {
+	Title string `json:"title"`
+	Verb  string `json:"verb"`
+}
+
 // completionPayload is the feed.completion outbox payload (08 §7), mirroring the
 // board's CompletionPayload by value — this module never imports internal/board.
 type completionPayload struct {
@@ -584,7 +594,7 @@ type completionPayload struct {
 // transitions) and the runtime itself (notification mutations). Self-heals —
 // a failed assembly or push logs-and-drops (like board.updated) rather than
 // wedging the outbox, since the next emission re-renders from scratch.
-func (s *Service) handleFeedUpdated(ctx context.Context) {
+func (s *Service) handleFeedUpdated(ctx context.Context, e Entry) {
 	snap, err := s.Feed(ctx)
 	if err != nil {
 		slog.Error("runtime: feed.updated assemble", "err", err)
@@ -593,18 +603,29 @@ func (s *Service) handleFeedUpdated(ctx context.Context) {
 	if err := s.feedPusher.PushFeed(ctx, snap); err != nil {
 		slog.Error("runtime: feed.updated push", "err", err)
 	}
-	s.pushFeedUpdateNotification(ctx)
+	// Decode the change descriptor for the "all"-mode push. A decode failure or
+	// an empty payload leaves p zero-valued, and the notification falls back to a
+	// generic line rather than dropping the push.
+	var p feedUpdatedPayload
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			slog.Error("runtime: feed.updated decode", "id", e.ID, "err", err)
+		}
+	}
+	s.pushFeedUpdateNotification(ctx, p)
 }
 
-// pushFeedUpdateNotification fires a Web Push on every feed update when the user
-// has opted into the "all" notification frequency (02 §10) — a testing aid for
-// confirming push delivery. In the default "blocked" mode it is a no-op; the
-// only pushes then come from the notify.send entries a block emits. Self-heals
-// like the feed push itself: a mode-read or send failure logs-and-drops rather
-// than wedging the outbox (the notification is best-effort, 04 §3). A block in
-// "all" mode still emits its own notify.send, so it also gets its specific
-// blocked notification — the extra generic one is accepted as benign.
-func (s *Service) pushFeedUpdateNotification(ctx context.Context) {
+// pushFeedUpdateNotification fires a Web Push on a feed update when the user has
+// opted into the "all" notification frequency (02 §10). The push names the
+// ticket and what happened (feedUpdateNotification), so it is informative at a
+// glance rather than a generic "board was updated". In the default "blocked"
+// mode it is a no-op; the only pushes then come from the notify.send entries a
+// block emits. Self-heals like the feed push itself: a mode-read or send failure
+// logs-and-drops rather than wedging the outbox (the notification is
+// best-effort, 04 §3). A block emits its own, more-specific notify.send, so the
+// feed-update push for a block is skipped here (feedUpdateNotification returns
+// ok=false) to avoid a duplicate.
+func (s *Service) pushFeedUpdateNotification(ctx context.Context, p feedUpdatedPayload) {
 	if s.notifyMode == nil {
 		return
 	}
@@ -616,10 +637,14 @@ func (s *Service) pushFeedUpdateNotification(ctx context.Context) {
 	if mode != notifyModeAll {
 		return
 	}
+	note, ok := feedUpdateNotification(p)
+	if !ok {
+		return
+	}
 	// The notifier decodes a board.NotifyPayload (Title/Reason → Title/Body);
 	// this marshals the same shape by value so this module keeps not importing
 	// internal/board.
-	payload, err := json.Marshal(notifyPayload{Title: "Kiln", Reason: "The board was updated."})
+	payload, err := json.Marshal(note)
 	if err != nil {
 		slog.Error("runtime: feed.updated notify marshal", "err", err)
 		return
@@ -627,6 +652,37 @@ func (s *Service) pushFeedUpdateNotification(ctx context.Context) {
 	if err := s.notifier.Send(ctx, payload); err != nil {
 		slog.Error("runtime: feed.updated notify send", "err", err)
 	}
+}
+
+// feedUpdateVerbBody maps a feed.updated change verb (board.FeedUpdatedPayload)
+// to the push body describing what happened, keeping the "all"-mode push copy in
+// sync with the board's feed-update verbs (03 §7.1) and the feed's own verb
+// vocabulary (08 §5). A block has no entry: it emits a dedicated notify.send
+// carrying the actual blocker question, so its feed-update push is suppressed.
+var feedUpdateVerbBody = map[string]string{
+	"proposal": "New proposal",
+	"reshaped": "Proposal updated",
+	"queued":   "Queued for work",
+	"nudged":   "Nudged",
+	"finished": "Finished",
+	"archived": "Archived",
+}
+
+// feedUpdateNotification builds the "all"-mode push payload for a feed change,
+// naming the ticket (Title) and what happened (Body). ok is false when the
+// change warrants no generic push — a block, which already emits its own
+// specific notify.send. An unrecognized or empty descriptor falls back to a
+// non-empty generic line so the push still fires (e.g. a bare feed.updated with
+// no payload).
+func feedUpdateNotification(p feedUpdatedPayload) (notifyPayload, bool) {
+	if p.Verb == "blocked" {
+		return notifyPayload{}, false
+	}
+	body, known := feedUpdateVerbBody[p.Verb]
+	if !known || p.Title == "" {
+		return notifyPayload{Title: "Kiln", Reason: "The board was updated."}, true
+	}
+	return notifyPayload{Title: p.Title, Reason: body}, true
 }
 
 // handleActivityToast realizes the activity.toast topic (08 §4, §7): decode

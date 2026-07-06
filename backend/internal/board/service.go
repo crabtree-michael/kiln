@@ -54,7 +54,10 @@ func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket,
 		// A ticket is created in shaping, and every shaping ticket is a
 		// proposal card (08 §5, superseding D5's approval_requested gate), so
 		// the feed must reassemble to show it.
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			Title: created.Title,
+			Verb:  FeedVerbProposal,
+		}}); err != nil {
 			return fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		out = created
@@ -92,7 +95,10 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 		// card's title/summary, so the feed must reassemble. A ready ticket has
 		// no feed surface, so it emits board.updated only.
 		if t.State == StateShaping {
-			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+				Title: updated.Title,
+				Verb:  FeedVerbReshaped,
+			}}); err != nil {
 				return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 			}
 		}
@@ -113,7 +119,10 @@ func (s *Service) RequestApproval(ctx context.Context, id TicketID) (Ticket, err
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			Title: updated.Title,
+			Verb:  FeedVerbProposal,
+		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		return updated, nil
@@ -140,7 +149,10 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicPullEvaluate}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			Title: updated.Title,
+			Verb:  FeedVerbQueued,
+		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
@@ -180,7 +192,10 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 			return Ticket{}, fmt.Errorf("board: append agent.send: %w", err)
 		}
 		if leavingBlocked {
-			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+				Title: updated.Title,
+				Verb:  FeedVerbNudged,
+			}}); err != nil {
 				return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 			}
 			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
@@ -218,7 +233,10 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
 		}
 		// A blocker becomes a feed card (08 §5); no toast — the card is the surface.
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			Title: updated.Title,
+			Verb:  FeedVerbBlocked,
+		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		return updated, nil
@@ -251,7 +269,10 @@ func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error)
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append agent.release: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			Title: updated.Title,
+			Verb:  FeedVerbFinished,
+		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
@@ -314,13 +335,8 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
-		// A blocker card (blocked) or a proposal card (any shaping ticket —
-		// 08 §5, superseding D5's approval_requested gate) is a feed surface,
-		// so the feed must reassemble.
-		if state == StateBlocked || state == StateShaping {
-			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
-				return fmt.Errorf("board: append feed.updated: %w", err)
-			}
+		if err := appendSeedFeedUpdated(ctx, tx, state, created.Title); err != nil {
+			return err
 		}
 		out = created
 		return nil
@@ -330,6 +346,27 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 	}
 	logTransition(ctx, "seed_ticket", string(out.ID), "", out.State)
 	return out, nil
+}
+
+// appendSeedFeedUpdated emits the seed's feed.updated when the seeded state is a
+// feed surface — a blocker card (blocked) or a proposal card (any shaping ticket
+// — 08 §5, superseding D5's approval_requested gate) — so the feed reassembles
+// immediately. Other states have no feed surface and emit nothing here.
+func appendSeedFeedUpdated(ctx context.Context, tx Tx, state State, title string) error {
+	if state != StateBlocked && state != StateShaping {
+		return nil // ready/working/done have no feed surface here
+	}
+	verb := FeedVerbProposal
+	if state == StateBlocked {
+		verb = FeedVerbBlocked
+	}
+	if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		Title: title,
+		Verb:  verb,
+	}}); err != nil {
+		return fmt.Errorf("board: append feed.updated: %w", err)
+	}
+	return nil
 }
 
 // buildSeedTicket assembles the invariant-honoring Ticket for SeedTicket: a
@@ -384,7 +421,10 @@ func (s *Service) ArchiveTicket(ctx context.Context, id TicketID) (Ticket, error
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			Title: updated.Title,
+			Verb:  FeedVerbArchived,
+		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
 		return updated, nil

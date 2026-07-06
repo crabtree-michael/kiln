@@ -28,6 +28,22 @@ func toastVerbs(t *testing.T, ems []board.Emission) []string {
 	return verbs
 }
 
+// soleFeedUpdated returns the single feed.updated emission's descriptor,
+// asserting there is exactly one — the runtime uses this to name the change in
+// its "all"-mode push (02 §10), so every feed change must carry it.
+func soleFeedUpdated(t *testing.T, ems []board.Emission) board.FeedUpdatedPayload {
+	t.Helper()
+	feeds := emissionsWithTopic(ems, board.TopicFeedUpdated)
+	if len(feeds) != 1 {
+		t.Fatalf("want exactly one feed.updated, got %d: %+v", len(feeds), ems)
+	}
+	p, ok := feeds[0].Payload.(board.FeedUpdatedPayload)
+	if !ok {
+		t.Fatalf("feed.updated payload type = %T, want board.FeedUpdatedPayload", feeds[0].Payload)
+	}
+	return p
+}
+
 // ---- RequestApproval (08 §B.2) ----------------------------------------
 
 func TestRequestApproval_FromShaping_SetsFlagAndEmitsFeedUpdated(t *testing.T) {
@@ -222,6 +238,61 @@ func TestMarkBlocked_EmitsFeedUpdatedNoToast(t *testing.T) {
 	if len(emissionsWithTopic(ems, board.TopicActivityToast)) != 0 {
 		t.Errorf("MarkBlocked must not emit an activity.toast (blocker is a feed card), got: %+v", ems)
 	}
+}
+
+// Every feed.updated names the ticket and the nature of the change, so the
+// runtime's "all"-mode push is specific rather than a generic placeholder.
+func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
+	t.Run("create is a proposal", func(t *testing.T) {
+		svc, store := newTestService()
+		if _, err := svc.CreateTicket(context.Background(), "Login Redesign", ""); err != nil {
+			t.Fatalf("CreateTicket: %v", err)
+		}
+		p := soleFeedUpdated(t, store.outboxSnapshot())
+		if p.Title != "Login Redesign" || p.Verb != board.FeedVerbProposal {
+			t.Errorf("descriptor = %+v, want {Login Redesign proposal}", p)
+		}
+	})
+
+	t.Run("mark ready is queued", func(t *testing.T) {
+		svc, store := newTestService()
+		store.seedTicket(board.Ticket{ID: "t1", Title: "Queue me", State: board.StateShaping})
+		if _, err := svc.MarkReady(context.Background(), "t1"); err != nil {
+			t.Fatalf("MarkReady: %v", err)
+		}
+		p := soleFeedUpdated(t, store.outboxSnapshot())
+		if p.Title != "Queue me" || p.Verb != board.FeedVerbQueued {
+			t.Errorf("descriptor = %+v, want {Queue me queued}", p)
+		}
+	})
+
+	t.Run("mark blocked is blocked", func(t *testing.T) {
+		svc, store := newTestService()
+		worker := board.WorkerID("w1")
+		store.seedWorker(worker)
+		store.seedTicket(board.Ticket{ID: "t1", Title: "Fix auth", State: board.StateWorking, WorkerID: &worker})
+		if _, err := svc.MarkBlocked(context.Background(), "t1", "which provider?"); err != nil {
+			t.Fatalf("MarkBlocked: %v", err)
+		}
+		p := soleFeedUpdated(t, store.outboxSnapshot())
+		if p.Title != "Fix auth" || p.Verb != board.FeedVerbBlocked {
+			t.Errorf("descriptor = %+v, want {Fix auth blocked}", p)
+		}
+	})
+
+	t.Run("accept to done is finished", func(t *testing.T) {
+		svc, store := newTestService()
+		worker := board.WorkerID("w1")
+		store.seedWorker(worker)
+		store.seedTicket(board.Ticket{ID: "t1", Title: "Deploy done", State: board.StateWorking, WorkerID: &worker})
+		if _, err := svc.AcceptToDone(context.Background(), "t1"); err != nil {
+			t.Fatalf("AcceptToDone: %v", err)
+		}
+		p := soleFeedUpdated(t, store.outboxSnapshot())
+		if p.Title != "Deploy done" || p.Verb != board.FeedVerbFinished {
+			t.Errorf("descriptor = %+v, want {Deploy done finished}", p)
+		}
+	})
 }
 
 // ---- SeedTicket dev seam (08 §B.6) ------------------------------------

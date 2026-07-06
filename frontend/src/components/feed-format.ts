@@ -74,6 +74,9 @@ export interface TicketStatus {
   status: TicketRowStatus;
   /** The blocker reason for a blocked ticket, when one is set. */
   reason: string | null;
+  /** ISO time of the ticket's last change (`updated_at`) — the row renders its
+   * compact relative age as subtext ("time in status" since the last move). */
+  updatedAt: string;
 }
 
 /** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
@@ -134,6 +137,7 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       label: ticket.title,
       status: ticketRowStatus(ticket, byTicket),
       reason: ticket.blocked_reason ?? null,
+      updatedAt: ticket.updated_at,
     }));
 }
 

@@ -826,11 +826,14 @@
 }
 
 [data-role='say-pill'] {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   max-width: 100%;
-  padding: 10px 12px 10px 16px;
+  /* Extra right padding reserves room for the absolutely-positioned dismiss
+     button (shared toast-dismiss treatment) so text never slides under it. */
+  padding: 10px 26px 10px 16px;
   background: var(--surface-card);
   border: 1.5px solid var(--accent-soft);
   border-radius: var(--radius-md);
@@ -867,26 +870,6 @@
   -webkit-line-clamp: unset;
   line-clamp: unset;
   overflow: visible;
-}
-
-[data-role='say-dismiss'] {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--text-faint);
-  background: transparent;
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-[data-role='say-dismiss']:hover {
-  color: var(--text-body);
 }
 
 /* ------------------------------------------------------------------- dock */

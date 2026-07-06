@@ -1,23 +1,23 @@
 // The top-right header status, now a clickable dropdown (08 §2). Collapsed it
-// shows the same one-line summary as before (`feedStatus`); expanded it breaks
-// that summary out per-stream — which agents are building, which are idle —
-// from the same board state the counts derive from. Presentational: the board
-// comes in as a prop (PrimaryScreen bridges the board store), open/close is
-// local UI state. The panel stays mounted so its open/close animates both ways.
+// shows the same one-line summary as before (`feedStatus`); expanded it lists
+// every ticket on the board (amended 2026-07-06) — active ones first, then the
+// rest in decreasing-activity order with backlog at the bottom. Presentational:
+// the board comes in as a prop (PrimaryScreen bridges the board store),
+// open/close is local UI state. The panel stays mounted so it animates both ways.
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { Board, FeedSummary } from '@/transport/transport';
-import { feedStatus, streamStatuses, streamStatusLabel } from '@/components/feed-format';
+import { feedStatus, ticketStatuses, ticketStatusLabel } from '@/components/feed-format';
 
 export interface HeaderStatusMenuProps {
   summary: FeedSummary;
   board: Board | null;
   /** Fired when the panel opens (closed → open). Triggers an independent board
-   * fetch so the streams list reflects current state rather than waiting for
+   * fetch so the ticket list reflects current state rather than waiting for
    * the next agent-driven push. Optional so presentational tests can omit it. */
   onOpen?: (() => void) | undefined;
   /** True while that fetch is in flight. When there's nothing to show yet the
-   * panel renders a loading indicator instead of "No active streams", so a
-   * genuinely empty board reads differently from one still loading. */
+   * panel renders a loading indicator instead of "No tickets", so a genuinely
+   * empty board reads differently from one still loading. */
   refreshing?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function HeaderStatusMenu({
 }: HeaderStatusMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const streams = streamStatuses(board);
+  const tickets = ticketStatuses(board);
 
   // While open, a click anywhere outside the menu — or Escape — dismisses it.
   useEffect(() => {
@@ -82,23 +82,23 @@ export function HeaderStatusMenu({
         data-open={open}
         aria-hidden={!open}
       >
-        <div data-role="header-status-heading">Streams</div>
-        {refreshing && streams.length === 0 ? (
+        <div data-role="header-status-heading">Tickets</div>
+        {refreshing && tickets.length === 0 ? (
           <div data-role="header-status-loading">
             <span data-role="header-status-spinner" aria-hidden="true" />
-            <span>Loading streams…</span>
+            <span>Loading tickets…</span>
           </div>
-        ) : streams.length === 0 ? (
-          <div data-role="header-status-empty">No active streams</div>
+        ) : tickets.length === 0 ? (
+          <div data-role="header-status-empty">No tickets</div>
         ) : (
           <ul data-role="header-status-list">
-            {streams.map((stream) => (
-              <li key={stream.id} data-role="header-status-row" data-status={stream.status}>
+            {tickets.map((ticket) => (
+              <li key={ticket.id} data-role="header-status-row" data-status={ticket.status}>
                 <span data-role="header-status-dot" aria-hidden="true" />
-                <span data-role="header-status-label">{stream.label || 'Untitled stream'}</span>
-                <span data-role="header-status-state">{streamStatusLabel(stream.status)}</span>
-                {stream.reason !== null && (
-                  <span data-role="header-status-reason">{stream.reason}</span>
+                <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
+                <span data-role="header-status-state">{ticketStatusLabel(ticket.status)}</span>
+                {ticket.reason !== null && (
+                  <span data-role="header-status-reason">{ticket.reason}</span>
                 )}
               </li>
             ))}

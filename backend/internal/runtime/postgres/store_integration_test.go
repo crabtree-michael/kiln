@@ -187,6 +187,49 @@ func TestIntegration_PostNotification_InsertsRowAndEmitsFeedUpdated(t *testing.T
 	}
 }
 
+// A feed.completion outbox entry is at-least-once, so PostCompletionCard may be
+// invoked twice for the same outbox id. The partial unique index on
+// idempotency_key must make the redelivery a no-op: exactly one card, and only
+// the first delivery reports posted=true and fans out a feed.updated (08 §7).
+func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	const key = int64(4242)
+	tid := "tk-done"
+
+	posted, err := store.PostCompletionCard(ctx, key, tid, "✓")
+	if err != nil {
+		t.Fatalf("PostCompletionCard (first): %v", err)
+	}
+	if !posted {
+		t.Fatal("first PostCompletionCard reported posted=false, want true")
+	}
+
+	posted, err = store.PostCompletionCard(ctx, key, tid, "✓")
+	if err != nil {
+		t.Fatalf("PostCompletionCard (redelivery): %v", err)
+	}
+	if posted {
+		t.Error("redelivered PostCompletionCard reported posted=true, want false (idempotent no-op)")
+	}
+
+	var rows int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM notifications WHERE idempotency_key = $1`, key).Scan(&rows); err != nil {
+		t.Fatalf("count completion rows: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("completion rows for key %d = %d, want exactly 1", key, rows)
+	}
+
+	// Only the accepted insert fans out; the duplicate must not enqueue a second.
+	if got, ok := feedUpdatedCount(ctx, t, db); ok && got != 1 {
+		t.Errorf("feed.updated outbox rows = %d after a duplicate completion, want 1 (08 §7)", got)
+	}
+}
+
 func TestIntegration_EditNotification_AmendsActiveRowAndEmitsFeedUpdated(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)

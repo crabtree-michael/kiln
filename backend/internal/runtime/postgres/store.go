@@ -291,6 +291,40 @@ func (s *Store) PostNotification(
 	return n, nil
 }
 
+// PostCompletionCard implements runtime.NotificationStore (08 §7): insert the
+// mechanical "done" card keyed on the outbox entry id and append feed.updated —
+// both in one transaction, and only when the insert actually happened. The
+// partial unique index on idempotency_key makes a redelivery a no-op
+// (ON CONFLICT DO NOTHING), so we skip the feed.updated fan-out on a duplicate.
+func (s *Store) PostCompletionCard(
+	ctx context.Context, key int64, ticketID, body string,
+) (bool, error) {
+	var posted bool
+	txErr := s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO notifications (kind, ticket_id, body, idempotency_key)
+			 VALUES ('update', $1, $2, $3)
+			 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+			ticketID, body, key)
+		if err != nil {
+			return fmt.Errorf("runtime/postgres: insert completion card: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("runtime/postgres: completion card rows affected: %w", err)
+		}
+		if n == 0 {
+			return nil // duplicate delivery: card already posted, nothing to fan out
+		}
+		posted = true
+		return enqueueFeedUpdatedTx(ctx, tx)
+	})
+	if txErr != nil {
+		return false, txErr
+	}
+	return posted, nil
+}
+
 // RetractNotification implements runtime.NotificationStore (08 §3): stamp
 // retracted_at=now() and append feed.updated in one transaction.
 func (s *Store) RetractNotification(ctx context.Context, id int64) error {

@@ -512,6 +512,31 @@ func TestAcceptToDone_EmitsPullEvaluateAndAgentRelease(t *testing.T) {
 	}
 }
 
+// The completion card is emitted by the transition itself (08 §7), so a finished
+// ticket always posts a persistent feed card regardless of agent behavior.
+func TestAcceptToDone_EmitsFeedCompletion(t *testing.T) {
+	svc, store := newTestService()
+	worker := board.WorkerID("w1")
+	store.seedWorker(worker)
+	store.seedTicket(board.Ticket{ID: "t1", Title: "Ship it", State: board.StateWorking, WorkerID: &worker})
+
+	if _, err := svc.AcceptToDone(context.Background(), "t1"); err != nil {
+		t.Fatalf("AcceptToDone: unexpected error: %v", err)
+	}
+	ems := store.outboxSnapshot()
+	completions := emissionsWithTopic(ems, board.TopicFeedCompletion)
+	if len(completions) != 1 {
+		t.Fatalf("AcceptToDone must emit exactly one feed.completion, got: %+v", ems)
+	}
+	payload, ok := completions[0].Payload.(board.CompletionPayload)
+	if !ok {
+		t.Fatalf("feed.completion payload type = %T, want board.CompletionPayload", completions[0].Payload)
+	}
+	if payload.TicketID != "t1" || payload.TicketTitle != "Ship it" {
+		t.Errorf("feed.completion payload = %+v, want {t1 Ship it}", payload)
+	}
+}
+
 // D8: repeated AcceptToDone (done -> done) is also a "reopen" attempt via
 // D10 — no such edge exists, and it must reject loudly, not no-op.
 func TestAcceptToDone_AlreadyDone_Rejected(t *testing.T) {

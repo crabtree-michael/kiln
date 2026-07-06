@@ -50,6 +50,15 @@ type NotificationStore interface {
 	// "preview"; ticketID/imageURL are optional.
 	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) (Notification, error)
 
+	// PostCompletionCard inserts a mechanical "done" feed card (kind "update")
+	// for a completed ticket and appends a feed.updated outbox row — the
+	// persistent counterpart to the ephemeral finished toast (08 §7). Not
+	// brain-authored: the board's feed.completion outbox entry drives it. key is
+	// the outbox entry id, used as an idempotency key (ON CONFLICT DO NOTHING) so
+	// an at-least-once redelivery posts no duplicate card; posted is false (and no
+	// feed.updated is enqueued) when the row already existed.
+	PostCompletionCard(ctx context.Context, key int64, ticketID, body string) (posted bool, err error)
+
 	// RetractNotification stamps retracted_at=now() on the row and appends a
 	// feed.updated outbox row in one transaction (08 §3 — the brain withdrew a
 	// note that stopped mattering).

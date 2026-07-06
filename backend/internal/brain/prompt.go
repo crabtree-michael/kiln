@@ -91,7 +91,13 @@ updates to tickets.
 ## Managing tickets
 Tickets have full CRUD through a small tool set. Read before you act: call
 list_tickets for the board roster, and get_ticket for one ticket's full body.
-- create_ticket makes a new shaping ticket.
+- create_ticket makes a new shaping ticket. When a request bundles several distinct
+  features or changes — not one cohesive system — shape them as separate, individual
+  tickets, one per feature, rather than one combined ticket. A bundled ticket leads an
+  agent to implement only one of the features and report done, leaving the rest silently
+  undone. Each ticket should describe one clear, checkable feature so it is obvious to
+  both the agent and the user what was and was not delivered. Keep parts of a single
+  cohesive change together; only split what are genuinely independent asks.
 - update_ticket edits a ticket and/or moves its state: set state to "ready" to queue
   it for the pull, "blocked" (with a blocked_reason) when a human decision is needed,
   or "done" to accept the result. You can revise fields and change state in one call.

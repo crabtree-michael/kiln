@@ -410,3 +410,38 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 		t.Errorf("toast = %+v, want Verb=started TicketTitle='Build the widget'", *toast)
 	}
 }
+
+func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	notes := &fakeNotificationStore{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "feed.completion",
+		[]byte(`{"ticket_id":"t1","ticket_title":"Build the widget"}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	testutil.Eventually(t, func() bool { return len(notes.completionPosts()) >= 1 })
+	posts := notes.completionPosts()
+	if len(posts) != 1 {
+		t.Fatalf("completion posts = %d, want 1", len(posts))
+	}
+	if posts[0].TicketID != "t1" {
+		t.Errorf("completion TicketID = %q, want t1", posts[0].TicketID)
+	}
+	// Styled like the toast: a bare checkmark, with the ticket title rendered
+	// separately as the card label (no prose in the body).
+	if posts[0].Body != "✓" {
+		t.Errorf("completion body = %q, want a bare checkmark", posts[0].Body)
+	}
+	if posts[0].Key == 0 {
+		t.Error("completion must be keyed on the outbox id for idempotency, got key 0")
+	}
+}

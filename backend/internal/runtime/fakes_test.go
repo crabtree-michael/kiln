@@ -513,10 +513,19 @@ type fakeNotificationStore struct {
 	next  int64
 	posts []runtime.Notification
 
-	postFn    func(ctx context.Context, kind, body string, ticketID, imageURL *string) (runtime.Notification, error)
-	retractFn func(ctx context.Context, id int64) error
-	markSeenN []int64
-	edits     []notificationEdit
+	postFn         func(ctx context.Context, kind, body string, ticketID, imageURL *string) (runtime.Notification, error)
+	retractFn      func(ctx context.Context, id int64) error
+	markSeenN      []int64
+	edits          []notificationEdit
+	completionKeys map[int64]bool   // idempotency keys already posted
+	completions    []completionPost // one per accepted (non-duplicate) completion card
+}
+
+// completionPost records one accepted PostCompletionCard call.
+type completionPost struct {
+	Key      int64
+	TicketID string
+	Body     string
 }
 
 // notificationEdit records one EditNotification call for delegation assertions.
@@ -543,6 +552,27 @@ func (f *fakeNotificationStore) PostNotification(
 	f.rows = append(f.rows, n)
 	f.posts = append(f.posts, n)
 	return n, nil
+}
+
+func (f *fakeNotificationStore) PostCompletionCard(
+	_ context.Context, key int64, ticketID, body string,
+) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.completionKeys == nil {
+		f.completionKeys = map[int64]bool{}
+	}
+	if f.completionKeys[key] {
+		return false, nil // duplicate delivery: no-op
+	}
+	f.completionKeys[key] = true
+	f.next++
+	n := runtime.Notification{
+		ID: f.next, Kind: runtime.KindUpdate, Body: body, TicketID: &ticketID, CreatedAt: time.Now(),
+	}
+	f.rows = append(f.rows, n)
+	f.completions = append(f.completions, completionPost{Key: key, TicketID: ticketID, Body: body})
+	return true, nil
 }
 
 func (f *fakeNotificationStore) RetractNotification(ctx context.Context, id int64) error {
@@ -672,6 +702,12 @@ func (f *fakeNotificationStore) seed(n runtime.Notification) runtime.Notificatio
 	}
 	f.rows = append(f.rows, n)
 	return n
+}
+
+func (f *fakeNotificationStore) completionPosts() []completionPost {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]completionPost(nil), f.completions...)
 }
 
 var _ runtime.NotificationStore = (*fakeNotificationStore)(nil)

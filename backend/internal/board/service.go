@@ -227,8 +227,9 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 
 // AcceptToDone moves working|blocked → done, clearing the worker binding
 // and blocked_reason (03 §4).
-// Precondition: state ∈ {working, blocked}. Emits pull.evaluate and
-// agent.release (recycle the freed worker — 05 §4).
+// Precondition: state ∈ {working, blocked}. Emits pull.evaluate,
+// agent.release (recycle the freed worker — 05 §4), feed.updated, the ephemeral
+// finished activity.toast, and feed.completion (the persistent "done" card).
 func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
@@ -258,6 +259,14 @@ func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error)
 			TicketTitle: updated.Title,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
+		}
+		// Persistent completion card: the transition itself posts the "done" feed
+		// card, so completions are never missed when the agent forgets to (08 §7).
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedCompletion, Payload: CompletionPayload{
+			TicketID:    updated.ID,
+			TicketTitle: updated.Title,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append feed.completion: %w", err)
 		}
 		return updated, nil
 	})

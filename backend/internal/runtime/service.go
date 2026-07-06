@@ -76,6 +76,11 @@ const (
 	// board-emitted and carries a ToastPayload.
 	topicFeedUpdated   = "feed.updated"
 	topicActivityToast = "activity.toast"
+	// feed.completion is board-emitted by AcceptToDone and carries a
+	// CompletionPayload. The runtime posts the persistent "done" feed card,
+	// deduped on the outbox id — the deterministic replacement for the brain
+	// remembering to post a completion update.
+	topicFeedCompletion = "feed.completion"
 )
 
 // systemErrorMessage is the user-visible reply when a brain pass exhausts its
@@ -471,6 +476,8 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 	case topicActivityToast:
 		s.handleActivityToast(ctx, e)
 		return nil
+	case topicFeedCompletion:
+		return wrapOutbox("post completion card", s.handleFeedCompletion(ctx, e))
 	default:
 		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
 	}
@@ -514,6 +521,13 @@ type toastPayload struct {
 	TicketTitle string `json:"ticket_title"`
 }
 
+// completionPayload is the feed.completion outbox payload (08 §7), mirroring the
+// board's CompletionPayload by value — this module never imports internal/board.
+type completionPayload struct {
+	TicketID    string `json:"ticket_id"`
+	TicketTitle string `json:"ticket_title"`
+}
+
 // handleFeedUpdated realizes the feed.updated topic (08 §3, §7): re-assemble
 // the absolute feed and fan it out. Emitted by both the board (state
 // transitions) and the runtime itself (notification mutations). Self-heals —
@@ -545,6 +559,29 @@ func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
 		slog.Error("runtime: activity.toast push", "id", e.ID, "err", err)
 	}
 }
+
+// handleFeedCompletion realizes the feed.completion topic (08 §7): post the
+// persistent "done" feed card for a completed ticket. Unlike the ephemeral
+// toast, this card is durable, so a decode failure returns an error (the outbox
+// retries) rather than logging-and-dropping. The post is idempotent on the
+// outbox id (e.ID), so a redelivery is a safe no-op. The card is styled like the
+// ephemeral "finished" toast: notificationToCard renders the ticket title as the
+// label, and the body is a bare checkmark — no prose.
+func (s *Service) handleFeedCompletion(ctx context.Context, e Entry) error {
+	var p completionPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		return fmt.Errorf("decode feed.completion: %w", err)
+	}
+	if _, err := s.notifications.PostCompletionCard(ctx, e.ID, p.TicketID, completionCardBody); err != nil {
+		return fmt.Errorf("post completion card: %w", err)
+	}
+	return nil
+}
+
+// completionCardBody is the body of the auto-posted "done" feed card: a bare
+// checkmark. The ticket title is rendered separately as the card label, so the
+// card reads as "✓ <title>" with no description (matches the toast styling).
+const completionCardBody = "✓"
 
 // wrapOutbox annotates an executor error with the operation name, satisfying
 // the wrap-external-errors rule while keeping each route in handleOutbox a

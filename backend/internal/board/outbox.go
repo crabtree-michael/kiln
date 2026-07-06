@@ -7,13 +7,14 @@ package board
 type Topic string
 
 const (
-	TopicAgentSend     Topic = "agent.send"     // RunPull (work order) and SendToAgent (instruction)
-	TopicAgentRelease  Topic = "agent.release"  // AcceptToDone: recycle the worker to a fresh workspace
-	TopicNotifySend    Topic = "notify.send"    // MarkBlocked: push notification to the user
-	TopicPullEvaluate  Topic = "pull.evaluate"  // MarkReady, AcceptToDone: trigger RunPull
-	TopicBoardUpdated  Topic = "board.updated"  // every mutation: full-snapshot push (03 D7)
-	TopicFeedUpdated   Topic = "feed.updated"   // feed-relevant change: reassemble the feed (08 §7)
-	TopicActivityToast Topic = "activity.toast" // ephemeral activity pill (08 §5): started/nudged/finished/queued
+	TopicAgentSend      Topic = "agent.send"      // RunPull (work order) and SendToAgent (instruction)
+	TopicAgentRelease   Topic = "agent.release"   // AcceptToDone: recycle the worker to a fresh workspace
+	TopicNotifySend     Topic = "notify.send"     // MarkBlocked: push notification to the user
+	TopicPullEvaluate   Topic = "pull.evaluate"   // MarkReady, AcceptToDone: trigger RunPull
+	TopicBoardUpdated   Topic = "board.updated"   // every mutation: full-snapshot push (03 D7)
+	TopicFeedUpdated    Topic = "feed.updated"    // feed-relevant change: reassemble the feed (08 §7)
+	TopicActivityToast  Topic = "activity.toast"  // ephemeral activity pill (08 §5): started/nudged/finished/queued
+	TopicFeedCompletion Topic = "feed.completion" // AcceptToDone: post the persistent "done" feed card
 )
 
 // Emission is one outbox row, appended in the same transaction as the state
@@ -54,4 +55,16 @@ type NotifyPayload struct {
 type ToastPayload struct {
 	Verb        string `json:"verb"`
 	TicketTitle string `json:"ticket_title"`
+}
+
+// CompletionPayload — feed.completion (08 §7): the persistent counterpart to the
+// ephemeral "finished" activity.toast. Emitted by AcceptToDone so the runtime
+// posts a lasting feed card for the completion deterministically, independent of
+// whether the brain/agent remembers to. TicketID tags the card to its ticket
+// (the feed renders the current title as the card label); TicketTitle is carried
+// for the card body. The runtime uses the outbox id as the idempotency key so an
+// at-least-once redelivery posts no duplicate card.
+type CompletionPayload struct {
+	TicketID    TicketID `json:"ticket_id"`
+	TicketTitle string   `json:"ticket_title"`
 }

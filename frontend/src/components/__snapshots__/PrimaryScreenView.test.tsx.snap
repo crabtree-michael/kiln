@@ -78,11 +78,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             data-role="feed-empty-mark"
             src="/kiln-mark.svg"
           />
-          <span
-            data-role="feed-empty-title"
-          >
-            All good.
-          </span>
           <div
             data-role="feed-empty-status"
           >

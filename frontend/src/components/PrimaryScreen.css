@@ -634,14 +634,6 @@
   height: 64px;
 }
 
-/* The all-clear headline takes the calm register (Newsreader) — the design's
-   quiet, editorial voice for "nothing needs you". */
-[data-role='feed-empty-title'] {
-  font: 500 1.5rem/1.25 var(--font-editorial);
-  letter-spacing: var(--tracking-display);
-  color: var(--text-body);
-}
-
 [data-role='feed-empty-status'] {
   display: flex;
   align-items: center;

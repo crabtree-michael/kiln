@@ -309,7 +309,6 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    expect(screen.getByText('All good.')).toHaveAttribute('data-role', 'feed-empty-title');
     // The idle count is dropped entirely — only the building count (with the
     // last-word suffix) is shown.
     expect(screen.getByText('3 building · last word 6m ago')).toBeInTheDocument();

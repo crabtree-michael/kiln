@@ -928,7 +928,17 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(100% + var(--dock-overlay-height, 0px));
+  /* The `- 1px` overlaps the band's opaque fill onto the top edge of the layer
+     below (transcript, or the dock top when collapsed) so the two read as one
+     continuous surface with no seam. --dock-overlay-height is published from JS
+     as the transcript's integer offsetHeight, but the layer it must meet is
+     placed by CSS `bottom: 100%` at the true sub-pixel height; when that height
+     is fractional the rounded var lands the band a fraction of a pixel high,
+     leaving a hairline sliver where the feed shows through. The 1px overlap
+     absorbs that rounding in every state and across transitions (the fractional
+     part shifts as the transcript grows/shrinks), and since the band sits above
+     both layers (z-index 6) its fill simply covers the top pixel — no gap. */
+  bottom: calc(100% + var(--dock-overlay-height, 0px) - 1px);
   /* Belt-and-braces with the geometry above: also sit above the dock transcript
      (z-index 5) so that even mid-resize (before the offset settles) a toast still
      renders in front of, never behind, the transcript box. */
@@ -961,6 +971,23 @@
      grown upward via --dock-overlay-height as the transcript grows) is untouched,
      so the existing push/layout behavior is unchanged. */
   background: var(--surface-page);
+}
+
+/* When the band (thinking/toast) rests directly on the dock — no transcript
+   between them — the two must read as ONE continuous surface, exactly as the
+   transcript+dock do. The band already shares the dock's page tone (above), so
+   the only thing between the "Kiln is thinking…" band and the mic controls is
+   the dock's own top hairline: page tone above it, page tone below it, so the
+   line reads as a seam/gap under the indicator. Move the single separator line
+   to the TOP of the band (its edge against the feed) and drop the dock's own
+   hairline (below), so the band and dock sit flush as one surface topped by one
+   line — mirroring the transcript treatment. Scoped to the no-transcript case:
+   with a transcript up, the transcript already carries the line and merges the
+   dock, and the band floats above it, so this rule stays off to avoid a second
+   line. */
+[data-role='dock-region']:not(:has([data-role='dock-transcript']))
+  [data-role='activity-row']:not(:empty) {
+  border-top: 1px solid var(--border-default);
 }
 
 /* The notification stack: several live toasts list vertically, newest at the
@@ -1157,6 +1184,16 @@
    shifts. */
 [data-role='dock']:has([data-role='dock-transcript']) {
   background: var(--surface-page);
+  border-top-color: transparent;
+}
+
+/* Same merge when the activity band (thinking/toast) rests on a transcript-less
+   dock: the band carries the single separator line at its top (above), so the
+   dock drops its own hairline that would otherwise seam the two apart. */
+[data-role='dock-region']:not(:has([data-role='dock-transcript'])):has(
+    [data-role='activity-row']:not(:empty)
+  )
+  [data-role='dock'] {
   border-top-color: transparent;
 }
 

@@ -137,9 +137,9 @@ describe('PrimaryScreenView', () => {
     expect(screen.getByText('1 blocker · 3 updates')).toHaveAttribute('data-role', 'feed-status');
   });
 
-  it('derives the header status: no blockers → the active-stream count', () => {
+  it('derives the header status: no blockers → the active-ticket count', () => {
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
-    expect(screen.getByText('5 streams')).toBeInTheDocument();
+    expect(screen.getByText('5 tickets')).toBeInTheDocument();
   });
 
   it('renders the blocker pinned first and the last-seen "Earlier" divider at the boundary (08 D2′, 4a)', () => {

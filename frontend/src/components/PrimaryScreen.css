@@ -229,7 +229,7 @@
 
 [data-role='header-status-row'] {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
   column-gap: 9px;
   row-gap: 2px;
@@ -282,26 +282,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-[data-role='header-status-state'] {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-[data-role='header-status-row'][data-status='building'] [data-role='header-status-state'] {
-  color: var(--accent);
-}
-
-[data-role='header-status-row'][data-status='starting'] [data-role='header-status-state'] {
-  color: var(--warn);
-}
-
-[data-role='header-status-row'][data-status='errored'] [data-role='header-status-state'] {
-  color: var(--danger);
 }
 
 [data-role='header-status-reason'] {

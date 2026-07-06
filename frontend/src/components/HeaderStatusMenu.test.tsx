@@ -38,7 +38,7 @@ const summary = makeFeedSummary({ stream_count: 3, building: 2, idle: 1 });
 describe('HeaderStatusMenu', () => {
   it('keeps the collapsed summary text and starts closed', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
-    const trigger = screen.getByText('3 streams');
+    const trigger = screen.getByText('3 tickets');
     expect(trigger).toHaveAttribute('data-role', 'feed-status');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
@@ -54,10 +54,8 @@ describe('HeaderStatusMenu', () => {
     // Working tickets come first, then blocked.
     expect(rows[0]).toHaveAttribute('data-status', 'building');
     expect(within(rows[0]!).getByText('Auth')).toBeInTheDocument();
-    expect(within(rows[0]!).getByText('Building')).toBeInTheDocument();
     expect(rows[2]).toHaveAttribute('data-status', 'idle');
     expect(within(rows[2]!).getByText('Billing')).toBeInTheDocument();
-    expect(within(rows[2]!).getByText('Idle')).toBeInTheDocument();
     // The blocker reason rides along on the idle row.
     expect(screen.getByText('Which gateway should we bill through?')).toBeInTheDocument();
   });
@@ -103,11 +101,10 @@ describe('HeaderStatusMenu', () => {
 
     const rows = screen.getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    // w1's dead sandbox is visibly distinct from a building one.
+    // w1's dead sandbox is visibly distinct from a building one — the dot on
+    // its row carries the state now that the text label is gone.
     expect(rows[0]).toHaveAttribute('data-status', 'stopped');
-    expect(within(rows[0]!).getByText('Stopped')).toBeInTheDocument();
     expect(rows[1]).toHaveAttribute('data-status', 'building');
-    expect(within(rows[1]!).getByText('Building')).toBeInTheDocument();
     // b1 has no agent entry, so it falls back to the blocked-column default.
     expect(rows[2]).toHaveAttribute('data-status', 'idle');
   });
@@ -128,7 +125,7 @@ describe('HeaderStatusMenu', () => {
         <button type="button">outside</button>
       </div>,
     );
-    fireEvent.click(screen.getByText('3 streams'));
+    fireEvent.click(screen.getByText('3 tickets'));
     const [trigger] = screen.getAllByRole('button');
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     fireEvent.mouseDown(screen.getByText('outside'));

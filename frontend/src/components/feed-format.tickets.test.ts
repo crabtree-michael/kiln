@@ -5,7 +5,7 @@
 // worker's real session status from board.agents by ticket id, falling back to
 // the column default before a status has arrived.
 import { describe, expect, it } from 'vitest';
-import { ticketStatuses, ticketStatusLabel, type TicketRowStatus } from '@/components/feed-format';
+import { ticketStatuses } from '@/components/feed-format';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
 
 const baseFields = { createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' };
@@ -122,23 +122,5 @@ describe('ticketStatuses', () => {
     });
     const byId = new Map(ticketStatuses(board).map((t) => [t.id, t.status]));
     expect(byId.get('rd')).toBe('ready');
-  });
-});
-
-describe('ticketStatusLabel', () => {
-  it('renders a human label for every row status', () => {
-    const labels: [TicketRowStatus, string][] = [
-      ['building', 'Building'],
-      ['idle', 'Idle'],
-      ['stopped', 'Stopped'],
-      ['errored', 'Errored'],
-      ['starting', 'Starting'],
-      ['ready', 'Ready'],
-      ['shaping', 'Shaping'],
-      ['done', 'Done'],
-    ];
-    for (const [status, label] of labels) {
-      expect(ticketStatusLabel(status)).toBe(label);
-    }
   });
 });

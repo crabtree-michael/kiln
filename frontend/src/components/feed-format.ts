@@ -10,14 +10,14 @@ function plural(count: number, word: string): string {
 }
 
 /** The one-line header status derived from the feed summary (08 §2 / §F):
- * blockers first, then the live active-stream count, then "Nothing active" for
+ * blockers first, then the live active-ticket count, then "Nothing active" for
  * an empty feed. */
 export function feedStatus(summary: FeedSummary): string {
   if (summary.blocker_count > 0) {
     return `${plural(summary.blocker_count, 'blocker')} · ${plural(summary.update_count, 'update')}`;
   }
   if (summary.stream_count > 0) {
-    return plural(summary.stream_count, 'stream');
+    return plural(summary.stream_count, 'ticket');
   }
   return 'Nothing active';
 }
@@ -138,23 +138,6 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       status: ticketRowStatus(ticket, byTicket),
       reason: ticket.blocked_reason ?? null,
     }));
-}
-
-/** The uppercase state chip shown on a ticket row in the header dropdown. */
-const TICKET_STATUS_LABEL: Record<TicketRowStatus, string> = {
-  building: 'Building',
-  idle: 'Idle',
-  stopped: 'Stopped',
-  errored: 'Errored',
-  starting: 'Starting',
-  ready: 'Ready',
-  shaping: 'Shaping',
-  done: 'Done',
-};
-
-/** The uppercase state chip shown on a ticket row in the header dropdown. */
-export function ticketStatusLabel(status: TicketRowStatus): string {
-  return TICKET_STATUS_LABEL[status];
 }
 
 /** The short uppercase tag shown on each card kind. */

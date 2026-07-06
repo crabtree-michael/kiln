@@ -120,11 +120,11 @@ function ActivityToastPill({
 
   return (
     <div data-role="toast-pill" data-verb={pill.verb}>
-      <span data-role="toast-icon" aria-hidden="true">
+      <span data-role="toast-icon" role="img" aria-label={verbLabel(pill.verb)}>
         {verbEmoji(pill.verb)}
       </span>
-      <ClampedText role="toast-text" measureKey={`${pill.verb} ${pill.ticketTitle}`}>
-        {verbLabel(pill.verb)} <span data-role="toast-title">{pill.ticketTitle}</span>
+      <ClampedText role="toast-text" measureKey={pill.ticketTitle}>
+        <span data-role="toast-title">{pill.ticketTitle}</span>
       </ClampedText>
       <button
         type="button"

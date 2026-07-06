@@ -31,6 +31,13 @@ export interface FeedStoreValue {
   /** Fetch and append the next older page of update history (08 D2′). No-op when
    * `hasMoreHistory` is false or a fetch is already in flight. */
   loadMoreHistory: () => void;
+  /**
+   * Optimistically hide an accepted proposal card by ticket id: the card drops
+   * from the feed immediately, ahead of the server confirming the move. The hide
+   * is in-memory and time-boxed (~5 min, or until app reopen) — if the accept
+   * never lands, the proposal reappears so nothing is silently lost.
+   */
+  acceptProposal: (ticketId: string) => void;
 }
 
 export const FeedStoreContext = createContext<FeedStoreValue | undefined>(undefined);

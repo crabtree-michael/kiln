@@ -371,8 +371,9 @@
   box-shadow: var(--shadow-card);
 }
 
-/* Type label, leftmost: the small uppercase kind marker ("Update", "Proposal",
-   "Blocker") that anchors the scannable head. */
+/* Type label, leftmost: the small uppercase kind marker ("Preview") that anchors
+   the scannable head. Only preview still wears a tag — update/blocker/proposal
+   drop it and let the title colour carry the kind. */
 [data-role='feed-card-tag'] {
   flex-shrink: 0;
   font-size: 10.5px;
@@ -396,6 +397,13 @@
   font-weight: 700;
   letter-spacing: -0.006em;
   color: var(--text-muted);
+}
+
+/* Proposal cards drop the kind tag too; the fire (Kiln red) ticket name carries
+   the kind, mirroring the blocker treatment below. Colour only — weight stays
+   with the base/seen rules. */
+[data-role='feed-card'][data-kind='proposal'] [data-role='feed-card-label'] {
+  color: var(--accent);
 }
 
 /* Already-seen history (below the last-seen divider, 08 D2′): drop the ticket
@@ -486,12 +494,12 @@
 }
 
 /* proposal digest: the clamped body is a click-through to the full ticket detail
-   (08 §5). Button reset so it reads as plain body copy, with a quiet ember "read
-   full ticket" hint under the body that warms on hover/focus. */
+   (08 §5). Button reset so it reads as plain body copy — no distinct cue of its
+   own beyond the shared "tap to see more" the clamped body wears (like every
+   other kind); the tap just opens the detail overlay rather than expanding in
+   place. */
 [data-role='feed-card-open'] {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: block;
   width: 100%;
   margin: 0;
   padding: 0;
@@ -503,31 +511,10 @@
   cursor: pointer;
 }
 
-[data-role='feed-card-open'] [data-role='feed-card-body'] {
-  transition: color 0.12s ease;
-}
-
-[data-role='feed-card-open-hint'] {
-  align-self: flex-start;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ember);
-}
-
-[data-role='feed-card-open-hint']::after {
-  content: ' ›';
-}
-
-[data-role='feed-card-open']:hover [data-role='feed-card-body'] {
-  color: var(--ember);
-}
-
 [data-role='feed-card-open']:focus-visible {
-  outline: 2px solid var(--ember);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 [data-role='feed-card-image'] {

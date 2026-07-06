@@ -5,61 +5,57 @@
 // touching the transport or stores directly.
 //
 // Every kind shares one scannable layout: a left-aligned head (bolded ticket
-// name · age) over a normal-weight body clamped to three lines. Update and
-// blocker cards drop the kind tag — the title colour carries the kind (muted
-// for updates, fire for blockers, the latter also flagged by the pulse dot);
-// proposal and preview keep the tag since the colour scheme doesn't cover them.
-// For update/blocker/preview cards, when the body actually overflows, the whole
-// clamped body stays the tap target that expands it in place (tap again to
-// collapse) — but the third line now carries a small, light "tap to see more"
-// cue (right-aligned, with a tiny chevron) so the truncation reads as more, not
-// as text that just stops. The cue is decoration inside the body, not its own
-// tap target, and only appears while the body is actually clamped.
-// Proposal cards instead make
-// the clamped body a click-through button (`feed-card-open`) that opens the full
-// ticket detail overlay (08 §5) — the whole shaped ticket (title, full body,
-// actions) is one tap away rather than dumped in the feed. The inline Accept
-// stays a *sibling* of that button — never nested — so tapping Accept accepts
-// without also opening the detail.
+// name · age) over a normal-weight body clamped to three lines. Update, blocker
+// and proposal cards drop the kind tag — the title colour carries the kind
+// (muted for updates, fire for blockers — the latter also flagged by the pulse
+// dot — and fire for proposals too); only preview keeps the tag since the colour
+// scheme doesn't cover it.
+// Every kind clamps its body to three lines, and when the body actually
+// overflows the last line carries the same small, light "tap to see more" cue
+// (right-aligned, with a tiny chevron) so the truncation reads as more, not as
+// text that just stops. The cue is decoration inside the body, not its own tap
+// target, and only appears while the body is actually clamped.
+// The *action* behind the tap differs by kind: update/blocker/preview cards make
+// the whole clamped body the tap target that expands it in place (tap again to
+// collapse). Proposal cards instead make the clamped body a click-through button
+// (`feed-card-open`) that opens the full ticket detail overlay (08 §5) — the
+// whole shaped ticket (title, full body, actions) is one tap away rather than
+// dumped in the feed. Either way the cue is the same; only where the tap lands
+// changes. The inline Accept stays a *sibling* of that button — never nested —
+// so tapping Accept accepts without also opening the detail.
 //
 // Already-seen cards (below the last-seen divider, 08 D2′) render de-emphasized
 // via `seen`: an unbolded ticket name and a body collapsed tighter than the
 // three-line preview, so the new-since-last-visit cards above stay the focus.
 // The expand affordance is unchanged — a seen card just starts more collapsed.
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { JSX } from 'react';
+import type { JSX, RefObject } from 'react';
 import type { FeedCard } from '@/transport/transport';
 import { cardTag, relativeAge } from '@/components/feed-format';
 
 /**
- * The card body, clamped and expandable in place. Unseen cards clamp to three
- * lines; already-seen cards (`seen`) clamp tighter (a skim of the top) via the
- * `data-seen` hook, both driven from CSS. When the clamp actually bites, the
- * paragraph turns into a button (cursor + `data-clickable`) that reveals the
- * full body on tap and collapses it again on the next. The clamped state also
- * renders a small "tap to see more" cue on the last line (`feed-card-more`) —
- * a right-aligned label with a tiny chevron that fades over the clipped text.
- * It's `aria-hidden` decoration with pointer-events off, so it's not a separate
- * tap target: taps land on the body button underneath. It shows only while
- * clamped-and-overflowing, and disappears once expanded. A body that fits stays
- * inert plain copy with no cue.
- *
- * Truncation is measured (`scrollHeight` overflows the clamped `clientHeight`)
- * only while collapsed — once expanded the clamp is gone and the two heights
- * agree, so the flag is frozen rather than re-measured. Mirrors ActivityRow's
- * `ClampedText`; jsdom performs no layout, so the flag stays false under test
- * unless the heights are faked. `body` re-runs the check when the text changes.
+ * Measures whether the clamped body actually overflows its clamp — the single
+ * signal both card-body variants share to decide whether to show the "tap to see
+ * more" cue. Returns a ref to attach to the clamped element and the `truncated`
+ * flag (`scrollHeight` overflows the clamped `clientHeight`, `+1` absorbing
+ * sub-pixel rounding). Measured only while `active` (the clamp is applied): the
+ * expand-in-place body passes `active = !expanded` so the flag freezes once the
+ * clamp is gone; the open-detail body always clamps, so it passes `true`.
+ * Mirrors ActivityRow's `ClampedText`; jsdom performs no layout, so the flag
+ * stays false under test unless the heights are faked. Re-runs when `body`
+ * changes (the text) or `active` flips.
  */
-function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Element {
-  const ref = useRef<HTMLParagraphElement>(null);
+function useClampOverflow<T extends HTMLElement>(
+  body: string,
+  active: boolean,
+): { ref: RefObject<T>; truncated: boolean } {
+  const ref = useRef<T>(null);
   const [truncated, setTruncated] = useState(false);
-  const [expanded, setExpanded] = useState(false);
 
   useLayoutEffect(() => {
-    if (expanded) return;
+    if (!active) return;
     const el = ref.current;
     if (el === null) return;
-    // `+1` absorbs sub-pixel rounding between scroll/client height.
     const measure = (): void => {
       setTruncated(el.scrollHeight > el.clientHeight + 1);
     };
@@ -68,7 +64,49 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
     return () => {
       window.removeEventListener('resize', measure);
     };
-  }, [body, expanded]);
+  }, [body, active]);
+
+  return { ref, truncated };
+}
+
+/**
+ * The small, light "tap to see more" cue rendered on the clamped body's last
+ * line (`feed-card-more`) — a right-aligned label with a tiny chevron that fades
+ * over the clipped text. It's `aria-hidden` decoration with pointer-events off,
+ * so it's never a separate tap target: taps fall through to the body/button
+ * underneath. Shared by both card-body variants so the truncation reads
+ * identically whether the tap expands in place or opens the detail overlay.
+ */
+function SeeMoreCue(): JSX.Element {
+  return (
+    <span data-role="feed-card-more" aria-hidden="true">
+      tap to see more
+      <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+        <path
+          d="M9 6l6 6-6 6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * The card body for kinds that expand in place (update/blocker/preview). Unseen
+ * cards clamp to three lines; already-seen cards (`seen`) clamp tighter (a skim
+ * of the top) via the `data-seen` hook, both driven from CSS. When the clamp
+ * actually bites, the paragraph turns into a button (cursor + `data-clickable`)
+ * that reveals the full body on tap and collapses it again on the next, with the
+ * shared "tap to see more" cue on the last line while clamped. A body that fits
+ * stays inert plain copy with no cue.
+ */
+function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const { ref, truncated } = useClampOverflow<HTMLParagraphElement>(body, !expanded);
 
   // The clamp is the cue: only make the body a toggle once it actually overflows
   // (or is already expanded). A body that fits stays plain, non-interactive copy.
@@ -106,22 +144,42 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
       }
     >
       {body}
-      {showMore && (
-        <span data-role="feed-card-more" aria-hidden="true">
-          tap to see more
-          <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
-            <path
-              d="M9 6l6 6-6 6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </span>
-      )}
+      {showMore && <SeeMoreCue />}
     </p>
+  );
+}
+
+/**
+ * The proposal card body: a click-through button (`feed-card-open`) that opens
+ * the full ticket detail overlay (08 §5) instead of expanding in place. The body
+ * stays permanently clamped to three lines — the full record lives in the
+ * overlay, not the feed — so it wears the same "tap to see more" cue as every
+ * other kind whenever it overflows (measured here, `active` always true since it
+ * never expands). The Accept button is a sibling of this one, never nested (see
+ * FeedCardItem), so accepting doesn't also open the detail.
+ */
+function ProposalCardBody({
+  body,
+  label,
+  onOpen,
+}: {
+  body: string;
+  label: string;
+  onOpen: () => void;
+}): JSX.Element {
+  const { ref, truncated } = useClampOverflow<HTMLSpanElement>(body, true);
+  return (
+    <button
+      type="button"
+      data-role="feed-card-open"
+      aria-label={`Open ticket: ${label}`}
+      onClick={onOpen}
+    >
+      <span ref={ref} data-role="feed-card-body">
+        {body}
+        {truncated && <SeeMoreCue />}
+      </span>
+    </button>
   );
 }
 
@@ -150,9 +208,10 @@ export function FeedCardItem({
   onOpenDetail,
 }: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
-  // Update and blocker cards drop the kind tag — their title colour carries the
-  // kind. Proposal and preview keep it (the colour scheme doesn't cover them).
-  const showTag = card.kind === 'proposal' || card.kind === 'preview';
+  // Update, blocker and proposal cards drop the kind tag — their title colour
+  // carries the kind (muted, fire and fire respectively). Only preview keeps it,
+  // since the colour scheme doesn't cover it.
+  const showTag = card.kind === 'preview';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
   // A proposal card is a digest that opens the full ticket detail on tap (08 §5).
@@ -175,17 +234,7 @@ export function FeedCardItem({
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>
       {openDetail !== null ? (
-        <button
-          type="button"
-          data-role="feed-card-open"
-          aria-label={`Open ticket: ${card.label}`}
-          onClick={openDetail}
-        >
-          <span data-role="feed-card-body">{card.body}</span>
-          <span data-role="feed-card-open-hint" aria-hidden="true">
-            Read full ticket
-          </span>
-        </button>
+        <ProposalCardBody body={card.body} label={card.label} onOpen={openDetail} />
       ) : (
         <FeedCardBody body={card.body} seen={seen} />
       )}

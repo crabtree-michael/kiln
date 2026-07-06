@@ -416,11 +416,12 @@ describe('PrimaryScreenView', () => {
     // Nothing open until the card is tapped.
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    // The proposal body is a click-through button (not an inline paragraph),
-    // with the quiet "Read full ticket" hint.
+    // The proposal body is a click-through button (not an inline paragraph). Its
+    // only cue is the shared clamped-body "tap to see more" every kind wears; the
+    // old left-aligned "Read full ticket" hint is gone.
     const open = screen.getByRole('button', { name: 'Open ticket: Login Redesign' });
     expect(open).toHaveAttribute('data-role', 'feed-card-open');
-    expect(screen.getByText('Read full ticket')).toBeInTheDocument();
+    expect(screen.queryByText('Read full ticket')).toBeNull();
 
     fireEvent.click(open);
 

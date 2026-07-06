@@ -157,63 +157,70 @@ export function PrimaryScreenView({
         data-role="feed"
         data-connection-state={connectionState}
       >
-        <header data-role="feed-header">
-          <div data-role="kiln-mark">
-            <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-            <span data-role="kiln-wordmark">Kiln</span>
-          </div>
-          <HeaderStatusMenu
-            summary={summary}
-            board={board}
-            onOpen={onOpenTickets}
-            refreshing={ticketsRefreshing}
-          />
-        </header>
-
-        <div data-role="backlog">
-          {isEmpty ? (
-            <div data-role="feed-empty">
-              <img data-role="feed-empty-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-              <span data-role="feed-empty-title">All good.</span>
-              <div data-role="feed-empty-status">
-                <span
-                  data-role="feed-empty-pulse"
-                  data-active={summary.building > 0}
-                  aria-hidden="true"
-                />
-                <span>{streamDetail(summary, now)}</span>
-              </div>
+        {/* Single sizing wrapper for everything that scrolls. It is held a hair
+            taller than the feed scrollport (see [data-role='feed-scroll'] in
+            PrimaryScreen.css) so the feed is always scrollable and the native
+            rubber-band engages even when the backlog is short or empty — the app
+            feels elastic instead of stuck. */}
+        <div data-role="feed-scroll">
+          <header data-role="feed-header">
+            <div data-role="kiln-mark">
+              <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
+              <span data-role="kiln-wordmark">Kiln</span>
             </div>
-          ) : (
-            <>
-              {cards.map((card, index) => (
-                <div key={card.id} data-role="backlog-slot">
-                  {index === divider && (
-                    <div data-role="feed-divider" data-variant="last-seen">
-                      Earlier
-                    </div>
-                  )}
-                  <FeedCardItem
-                    card={card}
-                    now={now}
-                    onAccept={onAccept}
-                    seen={isSeen(card, lastSeenId)}
-                    onOpenDetail={setOpenTicketId}
+            <HeaderStatusMenu
+              summary={summary}
+              board={board}
+              onOpen={onOpenTickets}
+              refreshing={ticketsRefreshing}
+            />
+          </header>
+
+          <div data-role="backlog">
+            {isEmpty ? (
+              <div data-role="feed-empty">
+                <img data-role="feed-empty-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
+                <span data-role="feed-empty-title">All good.</span>
+                <div data-role="feed-empty-status">
+                  <span
+                    data-role="feed-empty-pulse"
+                    data-active={summary.building > 0}
+                    aria-hidden="true"
                   />
+                  <span>{streamDetail(summary, now)}</span>
                 </div>
-              ))}
-              {hasMoreHistory && onLoadMoreHistory !== undefined && (
-                <button
-                  type="button"
-                  data-role="feed-load-more"
-                  onClick={onLoadMoreHistory}
-                  disabled={loadingMoreHistory}
-                >
-                  {loadingMoreHistory ? 'Loading…' : 'Show earlier updates'}
-                </button>
-              )}
-            </>
-          )}
+              </div>
+            ) : (
+              <>
+                {cards.map((card, index) => (
+                  <div key={card.id} data-role="backlog-slot">
+                    {index === divider && (
+                      <div data-role="feed-divider" data-variant="last-seen">
+                        Earlier
+                      </div>
+                    )}
+                    <FeedCardItem
+                      card={card}
+                      now={now}
+                      onAccept={onAccept}
+                      seen={isSeen(card, lastSeenId)}
+                      onOpenDetail={setOpenTicketId}
+                    />
+                  </div>
+                ))}
+                {hasMoreHistory && onLoadMoreHistory !== undefined && (
+                  <button
+                    type="button"
+                    data-role="feed-load-more"
+                    onClick={onLoadMoreHistory}
+                    disabled={loadingMoreHistory}
+                  >
+                    {loadingMoreHistory ? 'Loading…' : 'Show earlier updates'}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </section>
 

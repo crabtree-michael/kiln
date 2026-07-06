@@ -17,15 +17,19 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
           src="https://example.com/a.png"
         />
         <div
-          data-role="account-name"
+          data-role="account-identity"
         >
-          Octocat
-        </div>
-        <div
-          data-role="account-login"
-        >
-          @
-          octocat
+          <div
+            data-role="account-name"
+          >
+            Octocat
+          </div>
+          <div
+            data-role="account-login"
+          >
+            @
+            octocat
+          </div>
         </div>
         <button
           type="button"

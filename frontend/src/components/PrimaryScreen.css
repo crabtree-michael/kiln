@@ -413,21 +413,23 @@
   color: var(--text-faint);
 }
 
-/* Body: normal-weight update-style copy on every kind, clamped to five lines by
-   default; the emphasis lives on the ticket name in the head, not here. */
+/* Body: normal-weight update-style copy on every kind, clamped to three lines by
+   default; the emphasis lives on the ticket name in the head, not here. Position
+   context so the "tap to see more" cue can pin to the clamped bottom-right. */
 [data-role='feed-card-body'] {
+  position: relative;
   margin: 0;
   font-size: 14.5px;
   line-height: 1.5;
   color: var(--text-body);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
-  line-clamp: 5;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
 }
 
-/* Already-seen bodies (08 D2′) collapse tighter than the five-line preview — a
+/* Already-seen bodies (08 D2′) collapse tighter than the three-line preview — a
    two-line skim of the top. Comes before the expanded rule so tapping to expand
    still fully wins (equal specificity, last-declared clamp applies). */
 [data-role='feed-card-body'][data-seen='true'] {
@@ -442,10 +444,9 @@
   overflow: visible;
 }
 
-/* When the body overflows (or is expanded) it becomes its own expand control —
-   no separate label. The clamp and the pointer cursor are the only cues; tap to
-   reveal in place, tap again to collapse. A body that fits carries no
-   `data-clickable` and stays inert plain copy. */
+/* When the body overflows (or is expanded) the whole clamped body is the expand
+   control — tap to reveal in place, tap again to collapse. A body that fits
+   carries no `data-clickable` and stays inert plain copy. */
 [data-role='feed-card-body'][data-clickable='true'] {
   cursor: pointer;
 }
@@ -454,6 +455,35 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 4px;
   border-radius: var(--radius-sm);
+}
+
+/* The "tap to see more" cue: a small, light label pinned to the bottom-right of
+   the clamped body, sitting on the last visible line (the third by default, the
+   second on already-seen cards). Kept deliberately small and faint so it hints
+   rather than shouts. A short gradient fades the
+   clipped text into the page tone behind it so the label doesn't collide with
+   the truncated words. It's decoration only — `aria-hidden` in markup and
+   pointer-events off here — so taps fall through to the body button underneath;
+   it's never a separate tap target. Only rendered while clamped-and-overflowing. */
+[data-role='feed-card-more'] {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 34px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--surface-page) 34px);
+}
+
+[data-role='feed-card-more'] svg {
+  flex-shrink: 0;
+  /* Nudge the chevron onto the text baseline. */
+  margin-top: 0.5px;
 }
 
 /* proposal digest: the clamped body is a click-through to the full ticket detail

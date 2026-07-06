@@ -447,7 +447,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             data-role="feed-status"
             type="button"
           >
-            1 blocker · 1 update
+            5 tickets
             <span
               aria-hidden="true"
               data-role="feed-status-caret"

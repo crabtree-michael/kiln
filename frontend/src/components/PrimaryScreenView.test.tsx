@@ -127,14 +127,14 @@ describe('PrimaryScreenView', () => {
     expect(region).toHaveAttribute('data-connection-state', 'connected');
   });
 
-  it('derives the header status: blockers → "N blocker(s) · M updates" (08 §2)', () => {
+  it('derives the header status: the ticket count, never blocker text, even with a blocker present (08 §2)', () => {
     renderView(
       makeFeedSnapshot({
         summary: { blocker_count: 1, update_count: 3, stream_count: 5 },
         cards: [blockerCard, ...updateCards],
       }),
     );
-    expect(screen.getByText('1 blocker · 3 updates')).toHaveAttribute('data-role', 'feed-status');
+    expect(screen.getByText('5 tickets')).toHaveAttribute('data-role', 'feed-status');
   });
 
   it('derives the header status: no blockers → the active-ticket count', () => {

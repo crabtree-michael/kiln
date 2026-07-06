@@ -226,6 +226,21 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Lock the document/scroll root to the viewport with no scrollable overflow, but
+   ONLY on the primary screen — the one shell that owns all its scrolling in inner
+   regions (the feed) and whose document must never move. With nothing for the
+   document to scroll, iOS Safari has nothing to shift when the bottom-anchored dock
+   input is focused, so it can't drag the pinned nav bar off the top; that's what
+   lets `use-keyboard-viewport` ride the keyboard with a transform instead of
+   fighting a document scroll. Scoped via `:has()` so the ordinary scrolling pages
+   (the /dashboard settings surface, /debug) still scroll the document normally when
+   their content exceeds the viewport. */
+html:has([data-role='primary-screen']),
+html:has([data-role='primary-screen']) body {
+  height: 100%;
+  overflow: hidden;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: var(--text-body);

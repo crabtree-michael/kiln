@@ -2,9 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- `interactive-widget=resizes-content`: on Chrome Android the soft keyboard
+         shrinks the layout viewport (and `dvh`) as it animates, so the 100dvh app
+         column follows the keyboard natively and smoothly — no JS. iOS Safari
+         ignores the key and keeps its visual-viewport behaviour, which
+         `use-keyboard-viewport` rides with a transform instead. -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content"
     />
     <!-- Deploy-rollover recovery (bootstrap). MUST run before the hashed entry
          module/CSS Vite injects into <head>: if one of those 404s (a stale shell

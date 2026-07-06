@@ -126,6 +126,16 @@ function ActivityToastPill({
       <ClampedText role="toast-text" measureKey={`${pill.verb} ${pill.ticketTitle}`}>
         {verbLabel(pill.verb)} <span data-role="toast-title">{pill.ticketTitle}</span>
       </ClampedText>
+      <button
+        type="button"
+        data-role="toast-dismiss"
+        aria-label="Dismiss"
+        onClick={() => {
+          onDismiss(id);
+        }}
+      >
+        ×
+      </button>
     </div>
   );
 }

@@ -745,6 +745,7 @@
 }
 
 [data-role='toast-pill'] {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -752,11 +753,36 @@
      mobile safe margin). Without this a long ticket title grew the pill wider
      than the screen; the text now clamps to 2 lines instead (see toast-text). */
   max-width: 100%;
-  padding: 9px 14px;
+  /* Extra right padding reserves room for the absolutely-positioned dismiss
+     button so text never slides under it. */
+  padding: 9px 26px 9px 14px;
   background: var(--surface-card);
   border: 1.5px solid var(--accent-soft);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
+}
+
+[data-role='toast-dismiss'] {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+[data-role='toast-dismiss']:hover {
+  color: var(--text-body);
 }
 
 [data-role='toast-icon'] {

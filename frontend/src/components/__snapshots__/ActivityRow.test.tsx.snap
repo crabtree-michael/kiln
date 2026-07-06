@@ -29,6 +29,13 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
             Login Redesign
           </span>
         </span>
+        <button
+          aria-label="Dismiss"
+          data-role="toast-dismiss"
+          type="button"
+        >
+          ×
+        </button>
       </div>
     </div>
   </div>

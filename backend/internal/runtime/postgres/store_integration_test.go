@@ -199,7 +199,7 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 	const key = int64(4242)
 	tid := "tk-done"
 
-	posted, err := store.PostCompletionCard(ctx, key, tid, "✓")
+	posted, err := store.PostCompletionCard(ctx, key, tid, "")
 	if err != nil {
 		t.Fatalf("PostCompletionCard (first): %v", err)
 	}
@@ -207,7 +207,7 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 		t.Fatal("first PostCompletionCard reported posted=false, want true")
 	}
 
-	posted, err = store.PostCompletionCard(ctx, key, tid, "✓")
+	posted, err = store.PostCompletionCard(ctx, key, tid, "")
 	if err != nil {
 		t.Fatalf("PostCompletionCard (redelivery): %v", err)
 	}
@@ -216,12 +216,19 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 	}
 
 	var rows int
+	var kind string
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM notifications WHERE idempotency_key = $1`, key).Scan(&rows); err != nil {
+		`SELECT count(*), max(kind) FROM notifications WHERE idempotency_key = $1`, key).
+		Scan(&rows, &kind); err != nil {
 		t.Fatalf("count completion rows: %v", err)
 	}
 	if rows != 1 {
 		t.Errorf("completion rows for key %d = %d, want exactly 1", key, rows)
+	}
+	// The completion card is its own "done" kind (08 §7), so it renders
+	// single-line like a poke and stays out of the brain's update list/badge.
+	if kind != "done" {
+		t.Errorf("completion card kind = %q, want done", kind)
 	}
 
 	// Only the accepted insert fans out; the duplicate must not enqueue a second.

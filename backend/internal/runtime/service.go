@@ -638,9 +638,9 @@ func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
 // persistent "done" feed card for a completed ticket. Unlike the ephemeral
 // toast, this card is durable, so a decode failure returns an error (the outbox
 // retries) rather than logging-and-dropping. The post is idempotent on the
-// outbox id (e.ID), so a redelivery is a safe no-op. The card is styled like the
-// ephemeral "finished" toast: notificationToCard renders the ticket title as the
-// label, and the body is a bare checkmark — no prose.
+// outbox id (e.ID), so a redelivery is a safe no-op. The card is a "done" kind
+// styled like a poke: notificationToCard renders the ticket title as the label,
+// the client prefixes a ✅, and the body is empty — no prose.
 func (s *Service) handleFeedCompletion(ctx context.Context, e Entry) error {
 	var p completionPayload
 	if err := json.Unmarshal(e.Payload, &p); err != nil {
@@ -652,10 +652,10 @@ func (s *Service) handleFeedCompletion(ctx context.Context, e Entry) error {
 	return nil
 }
 
-// completionCardBody is the body of the auto-posted "done" feed card: a bare
-// checkmark. The ticket title is rendered separately as the card label, so the
-// card reads as "✓ <title>" with no description (matches the toast styling).
-const completionCardBody = "✓"
+// completionCardBody is the body of the auto-posted "done" feed card: empty.
+// The card is a "done" kind, so the client renders it single-line like a poke —
+// the ticket title as the label with a ✅ prefix and no description body.
+const completionCardBody = ""
 
 // wrapOutbox annotates an executor error with the operation name, satisfying
 // the wrap-external-errors rule while keeping each route in handleOutbox a

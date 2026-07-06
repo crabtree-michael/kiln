@@ -297,6 +297,23 @@ describe('PrimaryScreenView', () => {
     expect(card?.querySelector('[data-role="feed-card-body"]')).toBeNull();
   });
 
+  it('renders a done card as the ticket title with a ✅ and no body', () => {
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:73',
+      label: 'Auth',
+      body: '',
+      notificationId: 73,
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [done] }));
+    const card = screen.getByText('Auth').closest('[data-role="feed-card"]');
+    expect(card).toHaveAttribute('data-kind', 'done');
+    expect(card?.querySelector('[data-role="feed-card-done"]')?.textContent).toContain('✅');
+    // Like a poke, a done card carries no body — the ✅ + title is the whole card.
+    expect(card?.querySelector('[data-role="feed-card-body"]')).toBeNull();
+  });
+
   it('renders the all-clear empty state with only the building count and an active ember pulse (4d)', () => {
     renderView(
       makeFeedSnapshot({

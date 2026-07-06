@@ -161,7 +161,8 @@ function isFeedCardKind(value: unknown): value is FeedCard['kind'] {
     value === 'proposal' ||
     value === 'update' ||
     value === 'preview' ||
-    value === 'poke'
+    value === 'poke' ||
+    value === 'done'
   );
 }
 

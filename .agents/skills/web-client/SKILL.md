@@ -67,6 +67,28 @@ hub, a banner): decide its place in this upward stack and anchor it to the *dyna
 height of the layers below it (via the same var / a measured offset), never to a fixed
 collapsed height that only happens to look right until the dock expands.
 
+## Dashboard (spec 11 phase 1)
+
+A second, separate surface at `/dashboard` — the signed-in account view (GitHub sign-in →
+first-run project onboarding → settings with credentials + live verify). It owns its own
+`DashboardProvider`; the primary screen at `/` never mounts it. **`/` and `/debug` stay
+session-free in phase 1** — no cookie is required to use the board/chat, only to reach
+`/dashboard`'s own endpoints (`/api/me`, `/api/settings`, `/api/project`, `/api/settings/verify`).
+
+- `src/dashboard/` reuses the store/context split from `src/stores/`: `dashboard-store.tsx`
+  (the provider + all mutation methods — `saveProject`, `saveSettings`, `runVerify`,
+  `signOut`) and `dashboard-context.ts` (the bare `useDashboardStore` hook) as two files,
+  same reason as `board`/`chat`/`feed` — the hook file has no JSX so components importing
+  only the hook don't drag the provider's implementation into their module graph.
+  `Dashboard.tsx` switches on the store's `phase` (`loading`/`signed-out`/`ready`) and
+  `me.project` to pick `SignIn`/`Onboarding`/`Settings`; `ConfigFields.tsx` holds the two
+  controlled forms (`ProjectFields`, `CredentialFields`) shared between Onboarding and
+  Settings — secrets are write-only, so credential inputs never seed from the stored value,
+  only a `configured · …tail` placeholder.
+- `vite.config.ts` proxies `/auth` to the backend alongside `/api` and `/api/stream` — the
+  GitHub OAuth redirect (`GET /auth/github/login` → `/callback`) needs to hit the backend
+  directly, not be intercepted by the SPA's client-side router.
+
 ## Common footguns
 
 - Reaching for a TS escape hatch to get past the type checker instead of fixing the schema/types.

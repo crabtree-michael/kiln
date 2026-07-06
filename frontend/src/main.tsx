@@ -19,6 +19,7 @@ import {
 import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
+import { Dashboard } from '@/dashboard/Dashboard';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
 import { installAssetRecovery } from '@/asset-recovery';
@@ -79,6 +80,7 @@ createRoot(root).render(
         <ThemeColorSync />
         <SentryRoutes>
           <Route path="/" element={<PrimaryScreen />} />
+          <Route path="/dashboard/*" element={<Dashboard />} />
           <Route path="/debug" element={<App />} />
         </SentryRoutes>
       </BrowserRouter>

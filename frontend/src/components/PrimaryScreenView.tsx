@@ -180,7 +180,6 @@ export function PrimaryScreenView({
             {isEmpty ? (
               <div data-role="feed-empty">
                 <img data-role="feed-empty-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-                <span data-role="feed-empty-title">All good.</span>
                 <div data-role="feed-empty-status">
                   <span
                     data-role="feed-empty-pulse"

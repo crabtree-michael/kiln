@@ -249,6 +249,68 @@ paths:
             text/event-stream:
               schema:
                 type: string
+  /api/me:
+    get:
+      operationId: getMe
+      summary: Current user, project, and config status (11 §4). Session-protected.
+      responses:
+        '200':
+          description: The signed-in user's account view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401':
+          description: No valid session.
+  /api/settings:
+    put:
+      operationId: putSettings
+      summary: Partial credential update (11 §4). Secrets are write-only; empty/omitted fields are unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettingsUpdateRequest' }
+      responses:
+        '200':
+          description: Updated account view (same shape as GET /api/me).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400':
+          description: Invalid request body.
+        '401':
+          description: No valid session.
+  /api/project:
+    put:
+      operationId: putProject
+      summary: Create-or-update the caller's single project (11 §3–§4).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdateRequest' }
+      responses:
+        '200':
+          description: Updated account view (same shape as GET /api/me).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400':
+          description: Invalid request body.
+        '401':
+          description: No valid session.
+  /api/settings/verify:
+    post:
+      operationId: postSettingsVerify
+      summary: Live connection checks for stored credentials (11 §4).
+      responses:
+        '200':
+          description: Per-check results; unconfigured checks report status "skipped".
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerifyResponse' }
+        '401':
+          description: No valid session.
 components:
   schemas:
     Health:
@@ -638,3 +700,78 @@ components:
           nullable: true
           description: For kind=toast — the affected ticket's title.
       additionalProperties: false
+
+    Me:
+      type: object
+      description: The signed-in user's account view (11 §4). Secret values never appear.
+      required: [user, settings]
+      properties:
+        user: { $ref: '#/components/schemas/MeUser' }
+        project:
+          allOf: [{ $ref: '#/components/schemas/MeProject' }]
+          description: Absent until the user creates their project.
+        settings: { $ref: '#/components/schemas/MeSettings' }
+    MeUser:
+      type: object
+      required: [github_login, display_name, avatar_url]
+      properties:
+        github_login: { type: string }
+        display_name: { type: string }
+        avatar_url: { type: string }
+    MeProject:
+      type: object
+      required: [name, repo_url, amika_snapshot, brain_model, worker_count]
+      properties:
+        name: { type: string }
+        repo_url: { type: string }
+        amika_snapshot: { type: string }
+        brain_model: { type: string }
+        worker_count: { type: integer }
+    MeSettings:
+      type: object
+      description: Config status — secrets as presence+fingerprint only (11 §3 D7).
+      required: [anthropic_api_key, amika_api_key, github_auth_token, amika_claude_cred_id]
+      properties:
+        anthropic_api_key: { $ref: '#/components/schemas/SecretStatus' }
+        amika_api_key: { $ref: '#/components/schemas/SecretStatus' }
+        github_auth_token: { $ref: '#/components/schemas/SecretStatus' }
+        amika_claude_cred_id: { type: string }
+    SecretStatus:
+      type: object
+      required: [set, tail]
+      properties:
+        set: { type: boolean }
+        tail:
+          type: string
+          description: Last 4 characters of the stored secret; empty when unset.
+    SettingsUpdateRequest:
+      type: object
+      description: All fields optional; empty or omitted means unchanged (write-only secrets).
+      properties:
+        anthropic_api_key: { type: string }
+        amika_api_key: { type: string }
+        github_auth_token: { type: string }
+        amika_claude_cred_id: { type: string }
+    ProjectUpdateRequest:
+      type: object
+      required: [name, repo_url]
+      properties:
+        name: { type: string }
+        repo_url: { type: string }
+        amika_snapshot: { type: string }
+        brain_model: { type: string }
+        worker_count: { type: integer }
+    VerifyCheck:
+      type: object
+      required: [name, status, message]
+      properties:
+        name: { type: string, enum: [anthropic, amika, repo] }
+        status: { type: string, enum: [ok, failed, skipped] }
+        message: { type: string }
+    VerifyResponse:
+      type: object
+      required: [checks]
+      properties:
+        checks:
+          type: array
+          items: { $ref: '#/components/schemas/VerifyCheck' }

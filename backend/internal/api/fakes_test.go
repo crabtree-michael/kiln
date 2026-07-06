@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
 
@@ -238,4 +239,174 @@ func (f *fakeNotificationPoster) posted() []devNote {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]devNote(nil), f.calls...)
+}
+
+// fakeAuth is api.Authenticator (11 §2 GitHub OAuth + cookie sessions): a
+// scripted double covering the whole login/session/logout lifecycle, with
+// call recording so the route tests can assert what reached the port.
+type fakeAuth struct {
+	mu sync.Mutex
+
+	loginURL string // base URL LoginURL appends "?state=" onto
+
+	completeLoginUser  identity.User
+	completeLoginErr   error
+	completeLoginCalls []string // codes CompleteLogin was called with, in order
+
+	sessionToken     string
+	sessionExpires   time.Time
+	createSessionErr error
+
+	resolveUser    identity.User
+	resolveExpires time.Time // zero unless a test cares about the re-issued cookie's Max-Age
+	resolveErr     error
+
+	logoutErr   error
+	logoutCalls []string // tokens Logout was called with, in order
+}
+
+func (f *fakeAuth) LoginURL(state string) string {
+	return f.loginURL + "?state=" + state
+}
+
+func (f *fakeAuth) CompleteLogin(_ context.Context, code string) (identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.completeLoginCalls = append(f.completeLoginCalls, code)
+	return f.completeLoginUser, f.completeLoginErr
+}
+
+func (f *fakeAuth) CreateSession(_ context.Context, _ string) (string, time.Time, error) {
+	return f.sessionToken, f.sessionExpires, f.createSessionErr
+}
+
+func (f *fakeAuth) ResolveSession(_ context.Context, _ string) (identity.User, time.Time, error) {
+	return f.resolveUser, f.resolveExpires, f.resolveErr
+}
+
+func (f *fakeAuth) Logout(_ context.Context, token string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logoutCalls = append(f.logoutCalls, token)
+	return f.logoutErr
+}
+
+func (f *fakeAuth) completeLoginCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.completeLoginCalls)
+}
+
+func (f *fakeAuth) lastCompleteLoginCode() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.completeLoginCalls) == 0 {
+		return ""
+	}
+	return f.completeLoginCalls[len(f.completeLoginCalls)-1]
+}
+
+func (f *fakeAuth) logoutCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.logoutCalls)
+}
+
+func (f *fakeAuth) lastLogoutToken() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.logoutCalls) == 0 {
+		return ""
+	}
+	return f.logoutCalls[len(f.logoutCalls)-1]
+}
+
+// fakeAccount is api.AccountService (11 §4 GET /api/me, PUT /api/settings,
+// PUT /api/project, POST /api/settings/verify): a scripted double recording
+// every write's arguments so the route tests can assert what reached the
+// port, alongside canned Me/Verify results.
+type fakeAccount struct {
+	mu sync.Mutex
+
+	me    identity.Me
+	meErr error
+
+	settingsUpd  identity.SettingsUpdate
+	settingsErr  error
+	settingsCall int
+
+	projectUpd    identity.ProjectUpdate
+	projectResult identity.Project
+	projectErr    error
+	projectCall   int
+
+	verifyChecks []identity.CheckResult
+	verifyErr    error
+}
+
+func (f *fakeAccount) Me(context.Context, string) (identity.Me, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.me, f.meErr
+}
+
+func (f *fakeAccount) UpdateSettings(_ context.Context, _ string, upd identity.SettingsUpdate) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.settingsUpd = upd
+	f.settingsCall++
+	return f.settingsErr
+}
+
+func (f *fakeAccount) UpsertProject(_ context.Context, _ string, upd identity.ProjectUpdate) (identity.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.projectUpd = upd
+	f.projectCall++
+	return f.projectResult, f.projectErr
+}
+
+func (f *fakeAccount) Verify(context.Context, string) ([]identity.CheckResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.verifyChecks, f.verifyErr
+}
+
+func (f *fakeAccount) lastSettingsUpdate() identity.SettingsUpdate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.settingsUpd
+}
+
+func (f *fakeAccount) lastProjectUpdate() identity.ProjectUpdate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.projectUpd
+}
+
+// fakeDevSession is api.DevSessionMinter (11 §7 POST /api/dev/session): mint a
+// session for a dev-supplied GitHub login without the real OAuth dance.
+type fakeDevSession struct {
+	mu sync.Mutex
+
+	signInLogins []string
+	signInUser   identity.User
+	signInErr    error
+
+	sessionToken     string
+	sessionExpires   time.Time
+	createSessionErr error
+}
+
+func (f *fakeDevSession) DevSignIn(_ context.Context, login string) (identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signInLogins = append(f.signInLogins, login)
+	return f.signInUser, f.signInErr
+}
+
+func (f *fakeDevSession) CreateSession(context.Context, string) (string, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sessionToken, f.sessionExpires, f.createSessionErr
 }

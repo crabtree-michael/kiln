@@ -201,6 +201,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current user, project, and config status (11 §4). Session-protected. */
+        get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Partial credential update (11 §4). Secrets are write-only; empty/omitted fields are unchanged. */
+        put: operations["putSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Create-or-update the caller's single project (11 §3–§4). */
+        put: operations["putProject"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Live connection checks for stored credentials (11 §4). */
+        post: operations["postSettingsVerify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -379,6 +447,61 @@ export interface components {
             verb?: "started" | "nudged" | "finished" | "queued" | null;
             /** @description For kind=toast — the affected ticket's title. */
             ticket_title?: string | null;
+        };
+        /** @description The signed-in user's account view (11 §4). Secret values never appear. */
+        Me: {
+            user: components["schemas"]["MeUser"];
+            /** @description Absent until the user creates their project. */
+            project?: components["schemas"]["MeProject"];
+            settings: components["schemas"]["MeSettings"];
+        };
+        MeUser: {
+            github_login: string;
+            display_name: string;
+            avatar_url: string;
+        };
+        MeProject: {
+            name: string;
+            repo_url: string;
+            amika_snapshot: string;
+            brain_model: string;
+            worker_count: number;
+        };
+        /** @description Config status — secrets as presence+fingerprint only (11 §3 D7). */
+        MeSettings: {
+            anthropic_api_key: components["schemas"]["SecretStatus"];
+            amika_api_key: components["schemas"]["SecretStatus"];
+            github_auth_token: components["schemas"]["SecretStatus"];
+            amika_claude_cred_id: string;
+        };
+        SecretStatus: {
+            set: boolean;
+            /** @description Last 4 characters of the stored secret; empty when unset. */
+            tail: string;
+        };
+        /** @description All fields optional; empty or omitted means unchanged (write-only secrets). */
+        SettingsUpdateRequest: {
+            anthropic_api_key?: string;
+            amika_api_key?: string;
+            github_auth_token?: string;
+            amika_claude_cred_id?: string;
+        };
+        ProjectUpdateRequest: {
+            name: string;
+            repo_url: string;
+            amika_snapshot?: string;
+            brain_model?: string;
+            worker_count?: number;
+        };
+        VerifyCheck: {
+            /** @enum {string} */
+            name: "anthropic" | "amika" | "repo";
+            /** @enum {string} */
+            status: "ok" | "failed" | "skipped";
+            message: string;
+        };
+        VerifyResponse: {
+            checks: components["schemas"]["VerifyCheck"][];
         };
     };
     responses: never;
@@ -610,6 +733,136 @@ export interface operations {
                 content: {
                     "text/event-stream": string;
                 };
+            };
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The signed-in user's account view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    putSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated account view (same shape as GET /api/me). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    putProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated account view (same shape as GET /api/me). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postSettingsVerify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-check results; unconfigured checks report status "skipped". */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyResponse"];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -477,8 +477,9 @@ components:
             blocker -> ticket in the Blocked zone (body is blocked_reason);
             proposal -> Shaping ticket with approval_requested (body is the
             shaped summary, Accept affordance shown); update -> brain-authored
-            note; preview -> brain-authored note with an image.
-          enum: [blocker, proposal, update, preview]
+            note; preview -> brain-authored note with an image; poke ->
+            mechanical stall nudge (body empty; the ticket title carries a 👉).
+          enum: [blocker, proposal, update, preview, poke]
         id:
           type: string
           description: >

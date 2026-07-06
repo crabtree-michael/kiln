@@ -371,6 +371,15 @@
   box-shadow: var(--shadow-card);
 }
 
+/* Poke card marker: the 👉 that points at a stalled ticket's title (08 §3 poke
+   kind). Sized to sit level with the ticket name and never shrink out of the
+   flex row; the emoji is the whole card body, so the head carries the signal. */
+[data-role='feed-card-poke'] {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* Type label, leftmost: the small uppercase kind marker ("Preview") that anchors
    the scannable head. Only preview still wears a tag — update/blocker/proposal
    drop it and let the title colour carry the kind. */

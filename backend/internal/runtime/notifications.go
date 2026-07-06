@@ -15,6 +15,11 @@ const (
 	KindUpdate NotificationKind = "update"
 	// KindPreview is a brain-authored note with an image (08 §3).
 	KindPreview NotificationKind = "preview"
+	// KindPoke is a mechanical stall-nudge card the steward posts when it pokes a
+	// stalled Working ticket's agent (feed-only: the ticket title carries a 👉,
+	// body empty). Not brain-authored — excluded from the brain's editable update
+	// list and the unseen-updates badge, but retained in the feed like any note.
+	KindPoke NotificationKind = "poke"
 )
 
 // Notification is one row of the notifications table (08 §3, §7): a

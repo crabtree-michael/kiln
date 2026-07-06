@@ -36,6 +36,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
+	"github.com/crabtree-michael/kiln/backend/internal/steward"
 )
 
 // brainAdapter satisfies runtime.Brain over *brain.Service (04 §2 Brain
@@ -268,6 +269,75 @@ func (a *boardRefreshAdapter) RefreshBoard(ctx context.Context) error {
 
 var _ agent.BoardRefresher = (*boardRefreshAdapter)(nil)
 
+// stewardBoardAdapter satisfies steward.Board over *board.Service: the Working
+// set (each ticket with its bound worker slot), a poke (a Working→Working new
+// turn carrying the generic "poke" message), and the escalation to Blocked. The
+// steward never imports internal/board — this is the only seam.
+type stewardBoardAdapter struct{ inner *board.Service }
+
+func (a *stewardBoardAdapter) WorkingTickets(ctx context.Context) ([]steward.WorkingTicket, error) {
+	snap, err := a.inner.GetBoard(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: steward working tickets: %w", err)
+	}
+	out := make([]steward.WorkingTicket, 0, len(snap.Working))
+	for _, t := range snap.Working {
+		if t.WorkerID == nil {
+			continue // a Working ticket always binds a worker (03 I3); skip if not.
+		}
+		out = append(out, steward.WorkingTicket{ID: string(t.ID), WorkerID: string(*t.WorkerID)})
+	}
+	return out, nil
+}
+
+func (a *stewardBoardAdapter) Poke(ctx context.Context, ticketID string) error {
+	if _, err := a.inner.SendToAgent(ctx, board.TicketID(ticketID), "poke"); err != nil {
+		return fmt.Errorf("kiln: steward poke: %w", err)
+	}
+	return nil
+}
+
+func (a *stewardBoardAdapter) Block(ctx context.Context, ticketID, reason string) error {
+	if _, err := a.inner.MarkBlocked(ctx, board.TicketID(ticketID), reason); err != nil {
+		return fmt.Errorf("kiln: steward block: %w", err)
+	}
+	return nil
+}
+
+var _ steward.Board = (*stewardBoardAdapter)(nil)
+
+// stewardAgentAdapter satisfies steward.Agents over *agent.Service.ListAgents:
+// each live worker's neutral status + last-activity time, keyed by worker slot
+// id. The status strings match steward's by value; no provider handle crosses.
+type stewardAgentAdapter struct{ inner *agent.Service }
+
+func (a *stewardAgentAdapter) States(ctx context.Context) (map[string]steward.AgentState, error) {
+	infos, err := a.inner.ListAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: steward agent states: %w", err)
+	}
+	out := make(map[string]steward.AgentState, len(infos))
+	for _, in := range infos {
+		out[in.WorkerID] = steward.AgentState{Status: string(in.Status), UpdatedAt: in.UpdatedAt}
+	}
+	return out, nil
+}
+
+var _ steward.Agents = (*stewardAgentAdapter)(nil)
+
+// stewardFeedAdapter satisfies steward.Feed over *runtime.Service.PostPoke: post
+// the feed-only poke card (ticket title + 👉, no body).
+type stewardFeedAdapter struct{ inner *runtime.Service }
+
+func (a *stewardFeedAdapter) PostPoke(ctx context.Context, ticketID string) error {
+	if err := a.inner.PostPoke(ctx, ticketID); err != nil {
+		return fmt.Errorf("kiln: steward post poke: %w", err)
+	}
+	return nil
+}
+
+var _ steward.Feed = (*stewardFeedAdapter)(nil)
+
 // repoShellAdapter bridges *repo.Shell to brain.RepoShell, converting the
 // repo module's Result to the brain's own value-copy (brain cannot import
 // internal/repo). *repo.Shell.Run never errors — a disabled shell or a failed
@@ -335,6 +405,7 @@ func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) 
 var (
 	_ runtime.Clock = realClock{}
 	_ agent.Clock   = realClock{}
+	_ steward.Clock = realClock{}
 )
 
 // resetCoordinator satisfies api.Resetter (docs/superpowers/specs/
@@ -413,7 +484,7 @@ var (
 type dbTruncator struct{ db *sql.DB }
 
 const truncateStateSQL = `TRUNCATE tickets, workers, outbox, messages, events, ` +
-	`agent_turns, notifications RESTART IDENTITY CASCADE`
+	`agent_turns, notifications, steward_pokes RESTART IDENTITY CASCADE`
 
 func (t *dbTruncator) TruncateState(ctx context.Context) error {
 	if _, err := t.db.ExecContext(ctx, truncateStateSQL); err != nil {

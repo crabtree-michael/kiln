@@ -163,6 +163,8 @@ export function cardTag(kind: FeedCard['kind']): string {
       return 'Proposal';
     case 'preview':
       return 'Preview';
+    case 'poke':
+      return 'Poke';
     default:
       return 'Update';
   }

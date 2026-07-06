@@ -208,9 +208,13 @@ export function FeedCardItem({
   onOpenDetail,
 }: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
+  // A poke card is the steward's mechanical stall nudge: just the ticket title
+  // with a 👉 pointing at it, no body (08 §3 poke kind). The emoji is the whole
+  // signal.
+  const isPoke = card.kind === 'poke';
   // Update, blocker and proposal cards drop the kind tag — their title colour
   // carries the kind (muted, fire and fire respectively). Only preview keeps it,
-  // since the colour scheme doesn't cover it.
+  // since the colour scheme doesn't cover it. Poke carries no tag either.
   const showTag = card.kind === 'preview';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
@@ -229,15 +233,21 @@ export function FeedCardItem({
     <article data-role="feed-card" data-kind={card.kind} data-seen={seen ? 'true' : undefined}>
       <div data-role="feed-card-head">
         {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
+        {isPoke && (
+          <span data-role="feed-card-poke" aria-label="poke">
+            👉
+          </span>
+        )}
         {showTag && <span data-role="feed-card-tag">{cardTag(card.kind)}</span>}
         <span data-role="feed-card-label">{card.label}</span>
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>
-      {openDetail !== null ? (
-        <ProposalCardBody body={card.body} label={card.label} onOpen={openDetail} />
-      ) : (
-        <FeedCardBody body={card.body} seen={seen} />
-      )}
+      {!isPoke &&
+        (openDetail !== null ? (
+          <ProposalCardBody body={card.body} label={card.label} onOpen={openDetail} />
+        ) : (
+          <FeedCardBody body={card.body} seen={seen} />
+        ))}
       {card.kind === 'preview' && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />
       )}

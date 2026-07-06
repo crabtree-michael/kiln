@@ -31,9 +31,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
+	"github.com/crabtree-michael/kiln/backend/internal/steward"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=..."; it
@@ -56,6 +58,12 @@ type Config struct {
 	WorkerCount     int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
 	WorkerPrefix    string // KILN_WORKER_PREFIX — per-environment provider worker-name scope (05 §4)
 	DevEndpoints    bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
+
+	// Mechanical stall watchdog (steward): how long a Working ticket's agent may
+	// sit idle/stopped before a poke, and how often the sweep runs. Zero ⇒ the
+	// steward's own defaults (5m / 1m).
+	PokeStall    time.Duration // KILN_POKE_STALL — idle time before the first poke
+	PokeInterval time.Duration // KILN_POKE_INTERVAL — sweep cadence
 
 	AssemblyAIAPIKey  string // ASSEMBLYAI_API_KEY — the STT provider's token-mint credential (09 §6)
 	AssemblyAIBaseURL string // ASSEMBLYAI_BASE_URL — override the streaming host (default in-adapter)
@@ -122,6 +130,9 @@ func loadConfig() Config {
 		WorkerPrefix:    resolveWorkerPrefix(),
 		DevEndpoints:    os.Getenv("KILN_DEV_ENDPOINTS") == "1",
 
+		PokeStall:    getenvDuration("KILN_POKE_STALL", steward.DefaultStall),
+		PokeInterval: getenvDuration("KILN_POKE_INTERVAL", steward.DefaultInterval),
+
 		AssemblyAIAPIKey:  os.Getenv("ASSEMBLYAI_API_KEY"),
 		AssemblyAIBaseURL: os.Getenv("ASSEMBLYAI_BASE_URL"),
 
@@ -154,6 +165,20 @@ func getenvInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// getenvDuration returns the Go-duration environment value for key (e.g. "5m",
+// "90s"), or def when unset or unparseable.
+func getenvDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 func main() {

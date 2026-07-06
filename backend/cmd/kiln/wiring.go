@@ -28,6 +28,8 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/steward"
+	stewardpg "github.com/crabtree-michael/kiln/backend/internal/steward/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/voice/assemblyai"
 	"github.com/crabtree-michael/kiln/backend/internal/web"
 )
@@ -63,6 +65,7 @@ func moduleMigrations() ([]migrationSet, error) {
 		{"internal/board/postgres/migrations", boardpg.Migrations},
 		{"internal/runtime/postgres/migrations", runtimepg.Migrations},
 		{"internal/agent/postgres/migrations", agentpg.Migrations},
+		{"internal/steward/postgres/migrations", stewardpg.Migrations},
 	}
 	sets := make([]migrationSet, 0, len(mods))
 	for _, m := range mods {
@@ -106,10 +109,11 @@ func serve(ctx context.Context, cfg Config, log *slog.Logger) error {
 // graph is the wired, ready-to-run object graph: the HTTP server plus the two
 // serial queue workers (04 §4).
 type graph struct {
-	server *api.Server
-	events *runtime.Worker
-	outbox *runtime.Worker
-	agent  *agent.Service
+	server  *api.Server
+	events  *runtime.Worker
+	outbox  *runtime.Worker
+	agent   *agent.Service
+	steward *steward.Service
 }
 
 // buildGraph constructs every service and adapter and resolves the two
@@ -187,11 +191,30 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
-		server: server,
-		events: events,
-		outbox: outbox,
-		agent:  agentSvc,
+		server:  server,
+		events:  events,
+		outbox:  outbox,
+		agent:   agentSvc,
+		steward: newSteward(cfg, db, clock, boardSvc, agentSvc, rtSvc),
 	}, nil
+}
+
+// newSteward builds the mechanical stall watchdog: a deterministic sweep over
+// Working tickets that pokes an idle/stopped agent and escalates a genuine stall
+// (re-stall or post-poke error) to Blocked. It reaches the board, agent runtime,
+// and feed only through its own narrow ports (adapters.go); no brain judgment.
+func newSteward(
+	cfg Config, db *sql.DB, clock realClock,
+	boardSvc *board.Service, agentSvc *agent.Service, rtSvc *runtime.Service,
+) *steward.Service {
+	return steward.NewService(
+		&stewardBoardAdapter{inner: boardSvc},
+		&stewardAgentAdapter{inner: agentSvc},
+		&stewardFeedAdapter{inner: rtSvc},
+		stewardpg.New(db),
+		clock,
+		steward.Config{Stall: cfg.PokeStall, Interval: cfg.PokeInterval},
+	)
 }
 
 // enableServerRoutes wires the api server's non-core routes: the unconditional
@@ -231,6 +254,9 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	// (advances turns → provider StartTurn/CheckTurn) and reconciler sweep (05 §4–§5).
 	// Without this the pool is never provisioned and agent.send turns never reach Amika.
 	go g.runAgent(ctx, log)
+	// The mechanical stall watchdog's sweep loop: poke idle/stopped Working-ticket
+	// agents, escalate genuine stalls to Blocked. Deterministic, no brain.
+	go g.runSteward(ctx, log)
 
 	// Wrap the mux with Sentry's HTTP middleware for request tracing + panic
 	// capture. Its ResponseWriter proxy preserves http.Flusher (it returns an
@@ -292,6 +318,20 @@ func (g graph) runAgent(ctx context.Context, log *slog.Logger) {
 	}()
 	if err := g.agent.Run(ctx); err != nil {
 		log.Error("kiln: agent runtime exited", "err", err)
+	}
+}
+
+// runSteward runs the mechanical stall watchdog's sweep loop, logging a
+// non-shutdown error. Like runAgent, a panic is captured to Sentry and re-logged
+// rather than crashing the process; Service.Run itself never returns an error.
+func (g graph) runSteward(ctx context.Context, log *slog.Logger) {
+	defer func() {
+		if r := recover(); r != nil {
+			obs.Capture(ctx, r)
+		}
+	}()
+	if err := g.steward.Run(ctx); err != nil {
+		log.Error("kiln: steward exited", "err", err)
 	}
 }
 

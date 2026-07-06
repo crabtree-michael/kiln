@@ -336,13 +336,14 @@ func (s *Store) MarkSeen(ctx context.Context, lastID int64) error {
 
 // UnseenNotifications implements runtime.NotificationStore: the
 // neither-seen-nor-retracted rows, newest-first — the brain's active-card view
-// (list_updates, 06 §4). The feed reads RecentNotifications instead now that
-// history is retained (08 D2′).
+// (list_updates, 06 §4). Mechanical poke cards are excluded (kind <> 'poke') —
+// they are the steward's, not the brain's to edit or retract. The feed reads
+// RecentNotifications instead now that history is retained (08 D2′).
 func (s *Store) UnseenNotifications(ctx context.Context) ([]runtime.Notification, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, kind, ticket_id, body, image_url, created_at
 		 FROM notifications
-		 WHERE seen_at IS NULL AND retracted_at IS NULL
+		 WHERE seen_at IS NULL AND retracted_at IS NULL AND kind <> 'poke'
 		 ORDER BY id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("runtime/postgres: query unseen notifications: %w", err)
@@ -408,11 +409,13 @@ func (s *Store) LastSeenID(ctx context.Context) (*int64, error) {
 }
 
 // UnseenCount implements runtime.NotificationStore (08 §2): how many unseen,
-// unretracted notifications remain — the header's "N updates" count.
+// unretracted notifications remain — the header's "N updates" count. Mechanical
+// poke cards are excluded (kind <> 'poke'): a poke is a feed entry, not an
+// "update" the user is being counted as owing a look.
 func (s *Store) UnseenCount(ctx context.Context) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM notifications WHERE seen_at IS NULL AND retracted_at IS NULL`).
+		`SELECT count(*) FROM notifications WHERE seen_at IS NULL AND retracted_at IS NULL AND kind <> 'poke'`).
 		Scan(&n); err != nil {
 		return 0, fmt.Errorf("runtime/postgres: query unseen count: %w", err)
 	}

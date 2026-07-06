@@ -302,10 +302,10 @@ export interface components {
         /** @description One backlog item on the primary screen (08 §3). Hybrid-sourced but the client renders one list and never knows the difference: `blocker` and `proposal` are derived from board state; `update` and `preview` are brain-authored notification rows. The visible tag (Blocker/Proposal/ Update/Preview) is derived from `kind` on the client. */
         FeedCard: {
             /**
-             * @description blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image.
+             * @description blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image; poke -> mechanical stall nudge (body empty; the ticket title carries a 👉).
              * @enum {string}
              */
-            kind: "blocker" | "proposal" | "update" | "preview";
+            kind: "blocker" | "proposal" | "update" | "preview" | "poke";
             /** @description Stable render key. `blocker:<ticket_id>`, `proposal:<ticket_id>`, or `update:<notification_id>`. */
             id: string;
             /** @description The short stream/ticket label shown above the card body (e.g. the ticket title). May be empty for an authored note with no linked ticket. */

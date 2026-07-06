@@ -232,7 +232,7 @@ func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service,
 			ClientSecret: cfg.GitHubOAuthClientSecret,
 		}, nil)
 		idSvc := identity.NewService(identitypg.New(db), cipher, gh, cfg.AllowedGitHubUsers)
-		idSvc.SetVerifier(verify.New())
+		idSvc.SetVerifier(verify.New(resolveAmikaBaseURL(cfg)))
 		return idSvc, nil
 	case cfg.GitHubOAuthClientID != "" || cfg.GitHubOAuthClientSecret != "" || cfg.SecretsKey != "":
 		log.Warn("identity disabled: need all of GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY")
@@ -240,6 +240,16 @@ func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service,
 	//nolint:nilnil // a nil *identity.Service with a nil error IS "not configured" — the
 	// caller's idSvc != nil check is exactly this contract, not an ambiguous failure.
 	return nil, nil
+}
+
+// resolveAmikaBaseURL is the platform-global Amika base URL (AMIKA_BASE_URL,
+// 11 §3 amended 2026-07-06): an unset env var falls back to the amika
+// adapter's own default rather than leaving the verifier unconfigured.
+func resolveAmikaBaseURL(cfg Config) string {
+	if cfg.AmikaBaseURL != "" {
+		return cfg.AmikaBaseURL
+	}
+	return amika.DefaultBaseURL
 }
 
 // enableServerRoutes wires the api server's non-core routes: the unconditional

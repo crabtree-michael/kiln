@@ -430,7 +430,6 @@ function isMeSettings(value: unknown): value is MeSettings {
     isSecretStatus(value.anthropic_api_key) &&
     isSecretStatus(value.amika_api_key) &&
     isSecretStatus(value.github_auth_token) &&
-    typeof value.amika_base_url === 'string' &&
     typeof value.amika_claude_cred_id === 'string'
   );
 }

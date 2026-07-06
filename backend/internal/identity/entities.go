@@ -28,7 +28,6 @@ type UserConfig struct {
 	AnthropicKeyEnc   []byte
 	AmikaKeyEnc       []byte
 	GitHubTokenEnc    []byte
-	AmikaBaseURL      string
 	AmikaClaudeCredID string
 }
 
@@ -56,7 +55,6 @@ type MeSettings struct {
 	AnthropicKey      SecretStatus
 	AmikaKey          SecretStatus
 	GitHubToken       SecretStatus
-	AmikaBaseURL      string
 	AmikaClaudeCredID string
 }
 
@@ -72,7 +70,6 @@ type SettingsUpdate struct {
 	AnthropicKey      string
 	AmikaKey          string
 	GitHubToken       string
-	AmikaBaseURL      string
 	AmikaClaudeCredID string
 }
 

@@ -138,12 +138,12 @@ func (s *Store) GetSessionUser(ctx context.Context, tokenHash string) (identity.
 func (s *Store) GetUserConfig(ctx context.Context, userID string) (identity.UserConfig, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT user_id, anthropic_api_key_enc, amika_api_key_enc, github_auth_token_enc,
-		       amika_base_url, amika_claude_cred_id
+		       amika_claude_cred_id
 		FROM user_config WHERE user_id = $1`, userID)
 
 	var cfg identity.UserConfig
 	if err := row.Scan(&cfg.UserID, &cfg.AnthropicKeyEnc, &cfg.AmikaKeyEnc, &cfg.GitHubTokenEnc,
-		&cfg.AmikaBaseURL, &cfg.AmikaClaudeCredID); err != nil {
+		&cfg.AmikaClaudeCredID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return identity.UserConfig{UserID: userID}, nil
 		}
@@ -157,17 +157,16 @@ func (s *Store) GetUserConfig(ctx context.Context, userID string) (identity.User
 func (s *Store) UpsertUserConfig(ctx context.Context, cfg identity.UserConfig) error {
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO user_config (user_id, anthropic_api_key_enc, amika_api_key_enc,
-		                         github_auth_token_enc, amika_base_url, amika_claude_cred_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
+		                         github_auth_token_enc, amika_claude_cred_id, updated_at)
+		VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (user_id) DO UPDATE
 		  SET anthropic_api_key_enc = EXCLUDED.anthropic_api_key_enc,
 		      amika_api_key_enc     = EXCLUDED.amika_api_key_enc,
 		      github_auth_token_enc = EXCLUDED.github_auth_token_enc,
-		      amika_base_url        = EXCLUDED.amika_base_url,
 		      amika_claude_cred_id  = EXCLUDED.amika_claude_cred_id,
 		      updated_at            = now()`,
 		cfg.UserID, cfg.AnthropicKeyEnc, cfg.AmikaKeyEnc, cfg.GitHubTokenEnc,
-		cfg.AmikaBaseURL, cfg.AmikaClaudeCredID); err != nil {
+		cfg.AmikaClaudeCredID); err != nil {
 		return fmt.Errorf("identity/postgres: upsert user config: %w", err)
 	}
 	return nil

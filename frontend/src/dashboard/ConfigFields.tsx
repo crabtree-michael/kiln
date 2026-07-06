@@ -139,7 +139,6 @@ export function CredentialFields({ settings, saving, onSave }: CredentialFieldsP
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [amikaApiKey, setAmikaApiKey] = useState('');
   const [githubAuthToken, setGithubAuthToken] = useState('');
-  const [amikaBaseUrl, setAmikaBaseUrl] = useState(settings.amika_base_url);
   const [amikaClaudeCredId, setAmikaClaudeCredId] = useState(settings.amika_claude_cred_id);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -156,10 +155,6 @@ export function CredentialFields({ settings, saving, onSave }: CredentialFieldsP
     const trimmedGithub = githubAuthToken.trim();
     if (trimmedGithub !== '') {
       body.github_auth_token = trimmedGithub;
-    }
-    const trimmedBaseUrl = amikaBaseUrl.trim();
-    if (trimmedBaseUrl !== '') {
-      body.amika_base_url = trimmedBaseUrl;
     }
     const trimmedCredId = amikaClaudeCredId.trim();
     if (trimmedCredId !== '') {
@@ -219,16 +214,6 @@ export function CredentialFields({ settings, saving, onSave }: CredentialFieldsP
       </label>
       <SecretStatusRow name="github_auth_token" status={settings.github_auth_token} />
 
-      <label>
-        Amika base URL
-        <input
-          type="text"
-          value={amikaBaseUrl}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setAmikaBaseUrl(event.target.value);
-          }}
-        />
-      </label>
       <label>
         Amika Claude credential ID
         <input

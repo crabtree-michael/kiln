@@ -45,16 +45,22 @@ type Verifier struct {
 	// AnthropicBaseURL overrides DefaultAnthropicBaseURL; exported so tests
 	// can point it at an httptest server.
 	AnthropicBaseURL string
+	// AmikaBaseURL is the platform-global Amika base URL (AMIKA_BASE_URL,
+	// 11 §3 amended 2026-07-06) — no longer per-user config. Empty means the
+	// platform itself is misconfigured, not a user error, so VerifyAmika
+	// reports that distinctly.
+	AmikaBaseURL string
 }
 
 var _ identity.Verifier = (*Verifier)(nil)
 
-// New builds a Verifier with a 10s HTTP client timeout and the default
-// Anthropic base URL.
-func New() *Verifier {
+// New builds a Verifier with a 10s HTTP client timeout, the default
+// Anthropic base URL, and the platform's Amika base URL.
+func New(amikaBaseURL string) *Verifier {
 	return &Verifier{
 		hc:               &http.Client{Timeout: httpTimeout},
 		AnthropicBaseURL: DefaultAnthropicBaseURL,
+		AmikaBaseURL:     amikaBaseURL,
 	}
 }
 
@@ -74,13 +80,15 @@ func (v *Verifier) VerifyAnthropic(ctx context.Context, apiKey string) identity.
 	return v.request(nameAnthropic, req)
 }
 
-// VerifyAmika hits GET {baseURL}/sandboxes — the same call
-// tests/global-teardown.ts uses to enumerate worker sandboxes.
-func (v *Verifier) VerifyAmika(ctx context.Context, baseURL, apiKey string) identity.CheckResult {
-	if baseURL == "" {
-		return identity.CheckResult{Name: nameAmika, Status: statusFailed, Message: "amika_base_url not set"}
+// VerifyAmika hits GET {AmikaBaseURL}/sandboxes — the same call
+// tests/global-teardown.ts uses to enumerate worker sandboxes. AmikaBaseURL is
+// platform config (AMIKA_BASE_URL); an empty value here is a platform
+// misconfiguration, not a user error.
+func (v *Verifier) VerifyAmika(ctx context.Context, apiKey string) identity.CheckResult {
+	if v.AmikaBaseURL == "" {
+		return identity.CheckResult{Name: nameAmika, Status: statusFailed, Message: "amika base url not configured"}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/sandboxes", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.AmikaBaseURL+"/sandboxes", nil)
 	if err != nil {
 		return identity.CheckResult{Name: nameAmika, Status: statusFailed, Message: "build request failed"}
 	}

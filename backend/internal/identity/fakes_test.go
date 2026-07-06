@@ -232,7 +232,6 @@ type fakeVerifier struct {
 	mu sync.Mutex
 
 	gotAnthropicKey string
-	gotAmikaBaseURL string
 	gotAmikaKey     string
 	gotRepoURL      string
 	gotRepoToken    string
@@ -245,10 +244,9 @@ func (v *fakeVerifier) VerifyAnthropic(_ context.Context, apiKey string) identit
 	return identity.CheckResult{Status: "ok"}
 }
 
-func (v *fakeVerifier) VerifyAmika(_ context.Context, baseURL, apiKey string) identity.CheckResult {
+func (v *fakeVerifier) VerifyAmika(_ context.Context, apiKey string) identity.CheckResult {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.gotAmikaBaseURL = baseURL
 	v.gotAmikaKey = apiKey
 	return identity.CheckResult{Status: "ok"}
 }

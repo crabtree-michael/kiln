@@ -361,7 +361,7 @@ func TestMeEmpty(t *testing.T) {
 			t.Fatalf("%s = %+v, want zero-value SecretStatus", name, got)
 		}
 	}
-	if me.Settings.AmikaBaseURL != "" || me.Settings.AmikaClaudeCredID != "" {
+	if me.Settings.AmikaClaudeCredID != "" {
 		t.Fatalf("clear fields not empty: %+v", me.Settings)
 	}
 }
@@ -373,7 +373,6 @@ func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 
 	err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
 		AnthropicKey: "sk-ant-abcx4Kd",
-		AmikaBaseURL: "https://api.amika.dev",
 	})
 	if err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
@@ -385,9 +384,6 @@ func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 	}
 	if want := (identity.SecretStatus{Set: true, Tail: "x4Kd"}); me.Settings.AnthropicKey != want {
 		t.Fatalf("AnthropicKey = %+v, want %+v", me.Settings.AnthropicKey, want)
-	}
-	if me.Settings.AmikaBaseURL != "https://api.amika.dev" {
-		t.Fatalf("AmikaBaseURL = %q, want round-tripped clear value", me.Settings.AmikaBaseURL)
 	}
 	if me.Settings.AmikaKey != (identity.SecretStatus{}) {
 		t.Fatalf("AmikaKey = %+v, want unset", me.Settings.AmikaKey)

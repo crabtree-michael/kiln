@@ -37,7 +37,7 @@ func TestVerifyAnthropicOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New()
+	v := verify.New("")
 	v.AnthropicBaseURL = srv.URL
 
 	res := v.VerifyAnthropic(context.Background(), "sk-ant-test")
@@ -62,7 +62,7 @@ func TestVerifyAnthropicBadKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New()
+	v := verify.New("")
 	v.AnthropicBaseURL = srv.URL
 
 	res := v.VerifyAnthropic(context.Background(), "bad-key")
@@ -83,8 +83,8 @@ func TestVerifyAmikaOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New()
-	res := v.VerifyAmika(context.Background(), srv.URL, "amk-test")
+	v := verify.New(srv.URL)
+	res := v.VerifyAmika(context.Background(), "amk-test")
 
 	if gotPath != "/sandboxes" {
 		t.Fatalf("request path = %q, want /sandboxes", gotPath)
@@ -103,8 +103,8 @@ func TestVerifyAmikaBadKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New()
-	res := v.VerifyAmika(context.Background(), srv.URL, "bad-key")
+	v := verify.New(srv.URL)
+	res := v.VerifyAmika(context.Background(), "bad-key")
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)
 	}
@@ -114,13 +114,13 @@ func TestVerifyAmikaBadKey(t *testing.T) {
 }
 
 func TestVerifyAmikaNoBaseURL(t *testing.T) {
-	v := verify.New()
-	res := v.VerifyAmika(context.Background(), "", "amk-test")
+	v := verify.New("")
+	res := v.VerifyAmika(context.Background(), "amk-test")
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)
 	}
-	if !strings.Contains(res.Message, "amika_base_url not set") {
-		t.Fatalf("message = %q, want to contain amika_base_url not set", res.Message)
+	if !strings.Contains(res.Message, "amika base url not configured") {
+		t.Fatalf("message = %q, want to contain amika base url not configured", res.Message)
 	}
 }
 
@@ -165,7 +165,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 func TestVerifyRepoOK(t *testing.T) {
 	bare := newBareRepo(t)
 
-	v := verify.New()
+	v := verify.New("")
 	res := v.VerifyRepo(context.Background(), "file://"+bare, "")
 	if res.Status != wantOK {
 		t.Fatalf("status = %q message = %q, want ok", res.Status, res.Message)
@@ -181,7 +181,7 @@ func TestVerifyRepoMissing(t *testing.T) {
 	}
 	empty := t.TempDir() // no repo here at all
 
-	v := verify.New()
+	v := verify.New("")
 	res := v.VerifyRepo(context.Background(), "file://"+empty, "")
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)

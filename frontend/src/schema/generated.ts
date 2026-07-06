@@ -472,7 +472,6 @@ export interface components {
             anthropic_api_key: components["schemas"]["SecretStatus"];
             amika_api_key: components["schemas"]["SecretStatus"];
             github_auth_token: components["schemas"]["SecretStatus"];
-            amika_base_url: string;
             amika_claude_cred_id: string;
         };
         SecretStatus: {
@@ -485,7 +484,6 @@ export interface components {
             anthropic_api_key?: string;
             amika_api_key?: string;
             github_auth_token?: string;
-            amika_base_url?: string;
             amika_claude_cred_id?: string;
         };
         ProjectUpdateRequest: {

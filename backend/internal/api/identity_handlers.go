@@ -36,7 +36,6 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request, user 
 		AnthropicKey:      derefOr(req.AnthropicApiKey, ""),
 		AmikaKey:          derefOr(req.AmikaApiKey, ""),
 		GitHubToken:       derefOr(req.GithubAuthToken, ""),
-		AmikaBaseURL:      derefOr(req.AmikaBaseUrl, ""),
 		AmikaClaudeCredID: derefOr(req.AmikaClaudeCredId, ""),
 	}
 	if err := s.account.UpdateSettings(r.Context(), user.ID, upd); err != nil {
@@ -155,7 +154,6 @@ func meToWire(me identity.Me) wire.Me {
 			AnthropicApiKey:   secretToWire(me.Settings.AnthropicKey),
 			AmikaApiKey:       secretToWire(me.Settings.AmikaKey),
 			GithubAuthToken:   secretToWire(me.Settings.GitHubToken),
-			AmikaBaseUrl:      me.Settings.AmikaBaseURL,
 			AmikaClaudeCredId: me.Settings.AmikaClaudeCredID,
 		},
 	}

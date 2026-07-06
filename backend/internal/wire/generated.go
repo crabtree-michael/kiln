@@ -357,7 +357,6 @@ type MeProject struct {
 // MeSettings Config status — secrets as presence+fingerprint only (11 §3 D7).
 type MeSettings struct {
 	AmikaApiKey       SecretStatus `json:"amika_api_key"`
-	AmikaBaseUrl      string       `json:"amika_base_url"`
 	AmikaClaudeCredId string       `json:"amika_claude_cred_id"`
 	AnthropicApiKey   SecretStatus `json:"anthropic_api_key"`
 	GithubAuthToken   SecretStatus `json:"github_auth_token"`
@@ -419,7 +418,6 @@ type SecretStatus struct {
 // SettingsUpdateRequest All fields optional; empty or omitted means unchanged (write-only secrets).
 type SettingsUpdateRequest struct {
 	AmikaApiKey       *string `json:"amika_api_key,omitempty"`
-	AmikaBaseUrl      *string `json:"amika_base_url,omitempty"`
 	AmikaClaudeCredId *string `json:"amika_claude_cred_id,omitempty"`
 	AnthropicApiKey   *string `json:"anthropic_api_key,omitempty"`
 	GithubAuthToken   *string `json:"github_auth_token,omitempty"`

@@ -50,7 +50,7 @@ type GitHub interface {
 // reports its outcome as a CheckResult and never returns a Go error.
 type Verifier interface {
 	VerifyAnthropic(ctx context.Context, apiKey string) CheckResult
-	VerifyAmika(ctx context.Context, baseURL, apiKey string) CheckResult
+	VerifyAmika(ctx context.Context, apiKey string) CheckResult
 	VerifyRepo(ctx context.Context, repoURL, token string) CheckResult
 }
 
@@ -175,7 +175,6 @@ func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
 		AnthropicKey:      s.secretStatus(cfg.AnthropicKeyEnc),
 		AmikaKey:          s.secretStatus(cfg.AmikaKeyEnc),
 		GitHubToken:       s.secretStatus(cfg.GitHubTokenEnc),
-		AmikaBaseURL:      cfg.AmikaBaseURL,
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 	}}
 	proj, err := s.store.GetProjectByOwner(ctx, userID)
@@ -205,9 +204,6 @@ func (s *Service) UpdateSettings(ctx context.Context, userID string, upd Setting
 	}
 	if err := s.mergeSecret(&cfg.GitHubTokenEnc, upd.GitHubToken); err != nil {
 		return err
-	}
-	if upd.AmikaBaseURL != "" {
-		cfg.AmikaBaseURL = upd.AmikaBaseURL
 	}
 	if upd.AmikaClaudeCredID != "" {
 		cfg.AmikaClaudeCredID = upd.AmikaClaudeCredID
@@ -273,7 +269,7 @@ func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, err
 		return s.verifier.VerifyAnthropic(ctx, anthropicKey)
 	}))
 	checks = append(checks, s.check(ctx, "amika", amikaKey != "", func(ctx context.Context) CheckResult {
-		return s.verifier.VerifyAmika(ctx, cfg.AmikaBaseURL, amikaKey)
+		return s.verifier.VerifyAmika(ctx, amikaKey)
 	}))
 	checks = append(checks, s.check(ctx, "repo", repoURL != "", func(ctx context.Context) CheckResult {
 		return s.verifier.VerifyRepo(ctx, repoURL, ghToken)

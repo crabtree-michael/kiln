@@ -29,7 +29,6 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
       github_auth_token: { set: true, tail: 'abcd' },
-      amika_base_url: '',
       amika_claude_cred_id: '',
     },
     ...overrides,
@@ -142,7 +141,6 @@ describe('DashboardProvider', () => {
         anthropic_api_key: { set: true, tail: '-new' },
         amika_api_key: { set: false, tail: '' },
         github_auth_token: { set: true, tail: 'abcd' },
-        amika_base_url: '',
         amika_claude_cred_id: '',
       },
     });

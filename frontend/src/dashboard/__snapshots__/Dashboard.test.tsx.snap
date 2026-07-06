@@ -82,13 +82,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
           configured · …abcd
         </span>
         <label>
-          Amika base URL
-          <input
-            type="text"
-            value="https://amika.example"
-          />
-        </label>
-        <label>
           Amika Claude credential ID
           <input
             type="text"

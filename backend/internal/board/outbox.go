@@ -57,6 +57,32 @@ type ToastPayload struct {
 	TicketTitle string `json:"ticket_title"`
 }
 
+// FeedUpdatedPayload — feed.updated (08 §7). A snapshot describing the change
+// that triggered the feed reassembly, so the runtime's "all"-mode push
+// notification (02 §10) can name what actually happened instead of a generic
+// placeholder. Title is the ticket the change is about; Verb (below) labels its
+// nature. The feed reassembles from scratch regardless of this payload — it
+// only enriches the notification, so an empty payload stays valid (the runtime
+// falls back to a generic push).
+type FeedUpdatedPayload struct {
+	Title string `json:"title"`
+	Verb  string `json:"verb"`
+}
+
+// Feed-update change verbs (03 §7.1): the nature of the change carried on a
+// FeedUpdatedPayload.Verb. A superset of the activity-toast verbs (08 §5) — it
+// also covers feed changes that emit no toast (a proposal appearing or being
+// reshaped, an archive, a block). The runtime maps these to push copy (02 §10).
+const (
+	FeedVerbProposal = "proposal" // a proposal card appeared (create / request-approval / shaping seed)
+	FeedVerbReshaped = "reshaped" // an existing proposal's fields changed (ShapeTicket while shaping)
+	FeedVerbQueued   = "queued"   // shaping → ready
+	FeedVerbNudged   = "nudged"   // blocked → working (resume)
+	FeedVerbBlocked  = "blocked"  // working → blocked (a dedicated notify.send also fires)
+	FeedVerbFinished = "finished" // working|blocked → done
+	FeedVerbArchived = "archived" // a proposal/blocker card disappears (ArchiveTicket)
+)
+
 // CompletionPayload — feed.completion (08 §7): the persistent counterpart to the
 // ephemeral "finished" activity.toast. Emitted by AcceptToDone so the runtime
 // posts a lasting feed card for the completion deterministically, independent of

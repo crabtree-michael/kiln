@@ -15,16 +15,29 @@ import { acceptTicket } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 
 function PrimaryScreenBody(): JSX.Element {
-  const { feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory } =
-    useFeedStore();
+  const {
+    feed,
+    connectionState,
+    lastSeenId,
+    hasMoreHistory,
+    loadingMoreHistory,
+    loadMoreHistory,
+    acceptProposal,
+  } = useFeedStore();
   const { board, refreshBoard, refreshing } = useBoardStore();
   const { thinking, toasts, dismiss } = useActivityStore();
 
-  const onAccept = useCallback((ticketId: string): void => {
-    // Tap-accept routes straight to the accept endpoint (08 §5 / D6); the
-    // resulting board + feed transitions come back over the stream.
-    void acceptTicket(ticketId);
-  }, []);
+  const onAccept = useCallback(
+    (ticketId: string): void => {
+      // Optimistically drop the proposal card so the tap feels instant; the hide
+      // is time-boxed and self-heals if the accept never lands (feed store).
+      acceptProposal(ticketId);
+      // Tap-accept routes straight to the accept endpoint (08 §5 / D6); the
+      // resulting board + feed transitions come back over the stream.
+      void acceptTicket(ticketId);
+    },
+    [acceptProposal],
+  );
 
   return (
     <PrimaryScreenView

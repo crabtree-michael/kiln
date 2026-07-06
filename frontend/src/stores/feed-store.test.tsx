@@ -6,7 +6,7 @@
 // the captured `StreamHandlers` drive live `feed` events (copy of
 // board-store.test.tsx's Probe pattern).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import type { JSX } from 'react';
 import { FeedProvider } from '@/stores/feed-store';
 import { useFeedStore } from '@/stores/feed-context';
@@ -43,9 +43,16 @@ function update(id: number, body: string): ReturnType<typeof makeFeedCard> {
   });
 }
 
-function Probe(): JSX.Element {
-  const { feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory } =
-    useFeedStore();
+function Probe({ acceptId }: { acceptId?: string }): JSX.Element {
+  const {
+    feed,
+    connectionState,
+    lastSeenId,
+    hasMoreHistory,
+    loadingMoreHistory,
+    loadMoreHistory,
+    acceptProposal,
+  } = useFeedStore();
   return (
     <div
       data-testid="probe"
@@ -59,8 +66,30 @@ function Probe(): JSX.Element {
       <button data-testid="load-more" type="button" onClick={loadMoreHistory}>
         more
       </button>
+      <button
+        data-testid="accept"
+        type="button"
+        onClick={() => {
+          if (acceptId !== undefined) {
+            acceptProposal(acceptId);
+          }
+        }}
+      >
+        accept
+      </button>
     </div>
   );
+}
+
+function proposal(id: string): ReturnType<typeof makeFeedCard> {
+  return makeFeedCard({
+    kind: 'proposal',
+    id: `proposal:${id}`,
+    label: id.toUpperCase(),
+    body: 'plan',
+    createdAt: '2026-07-01T00:00:00Z',
+    ticketId: id,
+  });
 }
 
 describe('FeedProvider', () => {
@@ -436,5 +465,133 @@ describe('FeedProvider', () => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:t2');
     });
     expect(transport.fetchFeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('optimistically drops an accepted proposal card immediately (tap-accept)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'blocker',
+            id: 'blocker:b1',
+            label: 'B1',
+            body: 'stuck',
+            createdAt: '2026-07-01T00:00:00Z',
+            ticketId: 'b1',
+          }),
+          proposal('p1'),
+        ],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe acceptId="p1" />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1,proposal:p1');
+    });
+
+    // Accept hides the proposal at once, without waiting on the backend; the
+    // blocker card is untouched.
+    act(() => {
+      screen.getByTestId('accept').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1');
+    });
+  });
+
+  it('keeps an accepted proposal hidden across later snapshots that still list it', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [proposal('p1'), proposal('p2')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe acceptId="p1" />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1,proposal:p2');
+    });
+
+    act(() => {
+      screen.getByTestId('accept').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p2');
+    });
+
+    // An unrelated feed event that still carries p1 must not resurrect it — the
+    // optimistic hide outlives wholesale re-merges until it confirms or expires.
+    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [proposal('p1'), proposal('p2')] }));
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p2');
+    });
+  });
+
+  it('restores an optimistically-accepted proposal once the TTL lapses (self-heal)', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(transport.fetchFeed).mockResolvedValue(
+        makeFeedSnapshot({ cards: [proposal('p1')] }),
+      );
+
+      render(
+        <FeedProvider>
+          <Probe acceptId="p1" />
+        </FeedProvider>,
+      );
+      // Flush the async mount fetch under fake timers.
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
+
+      act(() => {
+        screen.getByTestId('accept').click();
+      });
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+
+      // The accept never confirmed (no snapshot ever drops p1); after the 5-minute
+      // window the proposal must reappear so nothing is silently lost.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      });
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the optimistic marker once the server confirms the acceptance', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(makeFeedSnapshot({ cards: [proposal('p1')] }));
+
+    render(
+      <FeedProvider>
+        <Probe acceptId="p1" />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
+    });
+
+    act(() => {
+      screen.getByTestId('accept').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+    });
+
+    // The accept lands: the proposal leaves the snapshot, clearing the marker.
+    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [] }));
+    // A brand-new proposal for the same ticket later must NOT be suppressed by the
+    // stale marker — it should render.
+    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [proposal('p1')] }));
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
+    });
   });
 });

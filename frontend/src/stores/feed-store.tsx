@@ -23,6 +23,13 @@ export interface FeedProviderProps {
 // GET /api/feed/history).
 const HISTORY_PAGE_SIZE = 30;
 
+// How long an optimistically-accepted proposal stays hidden before it is allowed
+// to reappear if the server never confirmed the acceptance (08 tap-accept, this
+// change). Held only in memory, so it also clears on app reopen — whichever comes
+// first. Long enough to cover the round-trip + brain transition, short enough that
+// a genuinely-failed accept resurfaces the proposal so nothing is silently lost.
+const OPTIMISTIC_ACCEPT_TTL_MS = 5 * 60 * 1000;
+
 function isUpdateCard(card: FeedCard): boolean {
   return card.kind === 'update' || card.kind === 'preview';
 }
@@ -60,10 +67,20 @@ function newestUpdateId(updates: Map<number, FeedCard>): number {
 
 /** Merge the wholesale board-derived cards from the server snapshot with the
  * accumulated (retained) update cards. Order (08 §3): blockers, then proposals,
- * then updates newest-first by `notification_id`. */
-function mergeFeed(server: FeedSnapshot, updates: Map<number, FeedCard>): FeedSnapshot {
+ * then updates newest-first by `notification_id`. Proposals whose ticket is in
+ * `acceptedTicketIds` are optimistically dropped — the user tapped Accept and the
+ * card is hidden ahead of the server confirming the move (this change). */
+function mergeFeed(
+  server: FeedSnapshot,
+  updates: Map<number, FeedCard>,
+  acceptedTicketIds: Set<string>,
+): FeedSnapshot {
   const blockers = server.cards.filter((card) => card.kind === 'blocker');
-  const proposals = server.cards.filter((card) => card.kind === 'proposal');
+  const proposals = server.cards.filter(
+    (card) =>
+      card.kind === 'proposal' &&
+      !(card.ticket_id != null && acceptedTicketIds.has(card.ticket_id)),
+  );
   const sortedUpdates = [...updates.values()].sort(
     (a, b) => (b.notification_id ?? 0) - (a.notification_id ?? 0),
   );
@@ -84,6 +101,24 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   const sessionLastSeenRef = useRef<number | null>(null); // the frozen divider boundary
   const ackedRef = useRef(0); // highest notification_id already POSTed to /feed/seen this session
   const pagedBelowWindowRef = useRef(false); // has the user paged older than the snapshot window?
+  // Optimistically-accepted proposal tickets: ticket_id -> expiry timestamp (ms).
+  // Purely in-memory, so it also clears on app reopen (this change).
+  const acceptedRef = useRef<Map<string, number>>(new Map());
+  // Live timers that force the proposal back into view when its TTL lapses.
+  const reappearTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Prune expired optimistic acceptances and return the still-live ticket ids —
+  // the set `mergeFeed` filters proposals against. Called on every merge, so a
+  // lapsed acceptance stops hiding its proposal the next time the feed re-renders.
+  const liveAccepted = useCallback((): Set<string> => {
+    const now = Date.now();
+    for (const [ticketId, expiry] of acceptedRef.current) {
+      if (expiry <= now) {
+        acceptedRef.current.delete(ticketId);
+      }
+    }
+    return new Set(acceptedRef.current.keys());
+  }, []);
 
   // Mark unseen update cards seen — but only on a visible screen (08 §3). Seen
   // updates are RETAINED now (they stay as history); the ack just advances the
@@ -153,10 +188,28 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         setHasMoreHistory(snapshot.has_more_history);
       }
 
+      // An optimistically-accepted proposal the server no longer lists has
+      // resolved (the accept took, or the brain withdrew it): drop its marker so
+      // it neither lingers nor wrongly suppresses a future re-proposal of the same
+      // ticket. Proposals are board-derived and always sent in full, so absence
+      // here is authoritative regardless of `has_more_history` (which is about
+      // update history only).
+      const proposalIds = new Set<string>();
+      for (const card of snapshot.cards) {
+        if (card.kind === 'proposal' && card.ticket_id != null) {
+          proposalIds.add(card.ticket_id);
+        }
+      }
+      for (const ticketId of [...acceptedRef.current.keys()]) {
+        if (!proposalIds.has(ticketId)) {
+          acceptedRef.current.delete(ticketId);
+        }
+      }
+
       ackVisibleSeen();
-      setFeed(mergeFeed(snapshot, updatesRef.current));
+      setFeed(mergeFeed(snapshot, updatesRef.current, liveAccepted()));
     },
-    [ackVisibleSeen],
+    [ackVisibleSeen, liveAccepted],
   );
 
   const loadMoreHistory = useCallback((): void => {
@@ -180,7 +233,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
           pagedBelowWindowRef.current = true;
           setHasMoreHistory(page.has_more);
           if (serverFeedRef.current !== null) {
-            setFeed(mergeFeed(serverFeedRef.current, updatesRef.current));
+            setFeed(mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted()));
           }
         } catch {
           // Leave the existing feed in place; the button stays available to retry.
@@ -190,6 +243,39 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       })();
       return true;
     });
+  }, [liveAccepted]);
+
+  // Optimistically drop an accepted proposal card ahead of the server confirming
+  // the move (08 tap-accept, this change): mark the ticket, re-merge to hide it
+  // now, and arm a timer to restore it once the TTL lapses if the accept never
+  // lands (a resolved accept clears the marker earlier, in `applySnapshot`).
+  const acceptProposal = useCallback(
+    (ticketId: string): void => {
+      acceptedRef.current.set(ticketId, Date.now() + OPTIMISTIC_ACCEPT_TTL_MS);
+      const timer = setTimeout(() => {
+        reappearTimersRef.current.delete(timer);
+        if (serverFeedRef.current !== null) {
+          setFeed(mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted()));
+        }
+      }, OPTIMISTIC_ACCEPT_TTL_MS);
+      reappearTimersRef.current.add(timer);
+      if (serverFeedRef.current !== null) {
+        setFeed(mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted()));
+      }
+    },
+    [liveAccepted],
+  );
+
+  // Clear any pending reappear timers on unmount so they don't fire into an
+  // unmounted store.
+  useEffect(() => {
+    const timers = reappearTimersRef.current;
+    return () => {
+      for (const timer of timers) {
+        clearTimeout(timer);
+      }
+      timers.clear();
+    };
   }, []);
 
   // First paint: fetch the current snapshot directly (08 §3). Unlike the board
@@ -285,8 +371,17 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       hasMoreHistory,
       loadingMoreHistory,
       loadMoreHistory,
+      acceptProposal,
     }),
-    [feed, connectionState, lastSeenId, hasMoreHistory, loadingMoreHistory, loadMoreHistory],
+    [
+      feed,
+      connectionState,
+      lastSeenId,
+      hasMoreHistory,
+      loadingMoreHistory,
+      loadMoreHistory,
+      acceptProposal,
+    ],
   );
 
   return <FeedStoreContext.Provider value={value}>{children}</FeedStoreContext.Provider>;

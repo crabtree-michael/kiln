@@ -1,9 +1,10 @@
-// Board composition tests (07 §7): three column groups in spec order —
-// Backlog [Shaping, Ready], Developing [Blocked above Working], Done — Ready
-// rendered in the exact order the store hands it (no client-side re-sort,
-// 03 §5/07 §7), the capacity chip fed from the snapshot, the connection
-// state exposed for the "dim while reconnecting" treatment (07 §8), and no
-// drag-and-drop mutation path (D5 — board is read-only).
+// Board composition tests (07 §7): two column groups surfacing only the
+// active work states — Backlog [Ready], Developing [Working]. Shaping,
+// Blocked, and Done are hidden from the list. Ready rendered in the exact
+// order the store hands it (no client-side re-sort, 03 §5/07 §7), the
+// capacity chip fed from the snapshot, the connection state exposed for the
+// "dim while reconnecting" treatment (07 §8), and no drag-and-drop mutation
+// path (D5 — board is read-only).
 //
 // `useBoardStore` is mocked directly so this file targets Board.tsx's own
 // derivation/composition contract independent of the store's transport
@@ -33,7 +34,7 @@ function mockStore(value: Pick<BoardStoreValue, 'board' | 'connectionState'>): v
 }
 
 describe('Board', () => {
-  it('groups tickets into Backlog[Shaping,Ready], Developing[Blocked,Working], Done (07 §7)', () => {
+  it('surfaces only Backlog[Ready] and Developing[Working], hiding Shaping/Blocked/Done (07 §7)', () => {
     const board = makeBoard({
       shaping: [
         makeTicket({
@@ -96,7 +97,7 @@ describe('Board', () => {
     const columns = Array.from(
       screen.getByRole('region', { name: 'Board' }).querySelectorAll('[data-role="board-column"]'),
     ).map((column) => column.getAttribute('aria-label'));
-    expect(columns).toEqual(['Backlog', 'Developing', 'Done']);
+    expect(columns).toEqual(['Backlog', 'Developing']);
 
     // Scope to the zone-label headings (`[data-role="board-zone"] > h3`),
     // not the ticket cards' own `<h3>` titles nested underneath.
@@ -105,53 +106,31 @@ describe('Board', () => {
       Array.from(backlog.querySelectorAll('[data-role="board-zone"] > h3')).map(
         (h) => h.textContent,
       ),
-    ).toEqual(['Shaping', 'Ready']);
+    ).toEqual(['Ready']);
 
     const developing = screen.getByRole('region', { name: 'Developing' });
     expect(
       Array.from(developing.querySelectorAll('[data-role="board-zone"] > h3')).map(
         (h) => h.textContent,
       ),
-    ).toEqual(['Blocked', 'Working']);
+    ).toEqual(['Working']);
 
-    const done = screen.getByRole('region', { name: 'Done' });
-    expect(
-      Array.from(done.querySelectorAll('[data-role="board-zone"] > h3')).map((h) => h.textContent),
-    ).toEqual(['Done']);
-  });
+    // Hidden states never render a zone or a Done column.
+    expect(screen.queryByRole('region', { name: 'Done' })).toBeNull();
+    const zoneLabels = Array.from(
+      screen.getByRole('region', { name: 'Board' }).querySelectorAll('[data-role="board-zone"] > h3'),
+    ).map((h) => h.textContent);
+    expect(zoneLabels).not.toContain('Shaping');
+    expect(zoneLabels).not.toContain('Blocked');
+    expect(zoneLabels).not.toContain('Done');
 
-  it('stacks Blocked above Working in the Developing column (01 §5, 07 §7)', () => {
-    const board = makeBoard({
-      blocked: [
-        makeTicket({
-          ...baseFields,
-          id: 'b1',
-          title: 'blocked',
-          body: '',
-          state: 'blocked',
-          priority: 0,
-        }),
-      ],
-      working: [
-        makeTicket({
-          ...baseFields,
-          id: 'w1',
-          title: 'working',
-          body: '',
-          state: 'working',
-          priority: 0,
-        }),
-      ],
-    });
-    mockStore({ board, connectionState: 'connected' });
-
-    render(<Board />);
-
-    const developing = screen.getByRole('region', { name: 'Developing' });
-    const zones = developing.querySelectorAll('[data-role="board-zone"]');
-    expect(zones[0]?.querySelector('h3')?.textContent).toBe('Blocked');
-    expect(zones[1]?.querySelector('h3')?.textContent).toBe('Working');
-    expect(zones[0]?.getAttribute('data-emphasis')).toBe('loud');
+    // The hidden states' tickets are not rendered anywhere on the board.
+    expect(screen.queryByText('shaping')).toBeNull();
+    expect(screen.queryByText('blocked')).toBeNull();
+    expect(screen.queryByText('done')).toBeNull();
+    // Ready/Working tickets are present.
+    expect(screen.getByText('ready')).toBeTruthy();
+    expect(screen.getByText('working')).toBeTruthy();
   });
 
   it('renders Ready tickets in the exact order the board snapshot gives (no client re-sort) (03 §5)', () => {
@@ -214,7 +193,7 @@ describe('Board', () => {
       'reconnecting',
     );
     // Stale-but-visible: the board content must still be rendered, not blank.
-    expect(screen.getAllByRole('region')).toHaveLength(4); // Board + 3 columns
+    expect(screen.getAllByRole('region')).toHaveLength(3); // Board + 2 columns
   });
 
   it('is read-only: no drag-and-drop affordances or handlers anywhere on the board (D5)', () => {

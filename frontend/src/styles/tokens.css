@@ -211,8 +211,10 @@ html {
      never meant to scroll — so any drag past a shell's edge otherwise bounces the
      whole document (moving the pinned header/dock on iOS Safari). Disabling
      overscroll on the viewport scroller here confines the elastic bounce to the
-     inner scrollers (the feed backlog additionally carries `overscroll-behavior:
-     contain` so its bounce never chains back out to this level). */
+     inner scrollers: a feed overscroll that chains up to this level finds a locked
+     document with nothing to scroll or bounce, so the bounce stays in the feed.
+     The feed deliberately keeps DEFAULT overscroll-behavior (no `contain`) so its
+     own rubber-band isn't suppressed on iOS WebKit — see PrimaryScreen.css. */
   overscroll-behavior: none;
 }
 

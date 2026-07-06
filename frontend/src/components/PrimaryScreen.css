@@ -46,12 +46,16 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Contain the feed's own rubber-band/overscroll to this region (iOS Safari):
-     dragging past the top or bottom of the backlog must not chain out to the
-     screen column or the document, so the sticky header and the dock below stay
-     pinned while only the feed content bounces. Pairs with the document-level
-     `overscroll-behavior: none` in tokens.css. */
-  overscroll-behavior: contain;
+  /* Deliberately NO `overscroll-behavior` here — the feed must keep its native
+     rubber-band. On iOS WebKit `overscroll-behavior: contain`/`none` doesn't just
+     stop scroll chaining, it SUPPRESSES the element's own elastic bounce, which
+     left a short backlog feeling frozen despite the always-scrollable +1px trick
+     below (the feed was scrollable but wouldn't bounce). We instead dead-end any
+     chaining at the document: html/body are locked (`overflow: hidden` +
+     `overscroll-behavior: none`, tokens.css) so a feed overscroll that propagates
+     up finds nothing to scroll or bounce, and the nav bar and dock are out-of-flow
+     siblings (not inside this scroller), so they can't be dragged either way. Net:
+     the feed bounces locally, everything else stays pinned. */
   display: flex;
   flex-direction: column;
   /* Slight top inset: the nav bar sits directly above the feed as a pinned

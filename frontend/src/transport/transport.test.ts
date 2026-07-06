@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchBoard,
+  fetchFeed,
   fetchMessages,
   postMessage,
   openStream,
@@ -15,6 +16,7 @@ import {
   postVerify,
   postLogout,
   type Board,
+  type FeedSnapshot,
   type SayEvent,
   type ConnectionState,
   type StreamHandlers,
@@ -117,6 +119,48 @@ describe('transport', () => {
       const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
       expect(urlOf(requestedUrl)).toContain('/api/board');
       expect(result).toEqual(board);
+    });
+  });
+
+  describe('fetchFeed (GET /api/feed)', () => {
+    // Regression: the steward posts a `poke` feed card (mechanical stall nudge).
+    // `poke` is a valid FeedCard kind in the wire schema, but the response-shape
+    // guard once omitted it, so a single poke card made `fetchFeed` reject the
+    // whole snapshot as malformed — the feed then stayed null and the primary
+    // screen was stuck on its empty "0 building" state while /api/board (which
+    // never carries a poke) kept the debug view working. The guard must accept
+    // every schema kind, `poke` included.
+    it('accepts a snapshot containing a poke card', async () => {
+      const snapshot: FeedSnapshot = {
+        summary: {
+          blocker_count: 0,
+          update_count: 0,
+          stream_count: 1,
+          building: 1,
+          idle: 0,
+        },
+        cards: [
+          {
+            kind: 'poke',
+            id: 'update:1',
+            label: 'Stalled ticket',
+            body: '',
+            created_at: '2026-07-06T00:00:00Z',
+            notification_id: 1,
+          },
+        ],
+        has_more_history: false,
+      };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(snapshot))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await fetchFeed();
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/feed');
+      expect(result).toEqual(snapshot);
     });
   });
 

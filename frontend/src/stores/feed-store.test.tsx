@@ -157,6 +157,37 @@ describe('FeedProvider', () => {
     expect(transport.fetchFeed).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a poke card in the rendered feed (steward stall nudge, 08 §3)', async () => {
+    // Regression: a `poke` card is notification-backed (a row the runtime returns
+    // in the feed's update stream), but the store once accumulated only
+    // update/preview, so poke cards were silently dropped from the merged feed and
+    // never rendered — the steward's stall nudge vanished.
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'poke',
+            id: 'update:11',
+            label: '',
+            body: '',
+            createdAt: '2026-07-01T00:00:00Z',
+            notificationId: 11,
+          }),
+        ],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:11');
+    });
+  });
+
   it('opens exactly one stream connection on mount', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(makeFeedSnapshot());
 

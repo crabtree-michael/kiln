@@ -151,7 +151,13 @@ function isNullableNumber(value: unknown): value is number | null | undefined {
 }
 
 function isFeedCardKind(value: unknown): value is FeedCard['kind'] {
-  return value === 'blocker' || value === 'proposal' || value === 'update' || value === 'preview';
+  return (
+    value === 'blocker' ||
+    value === 'proposal' ||
+    value === 'update' ||
+    value === 'preview' ||
+    value === 'poke'
+  );
 }
 
 function isFeedCard(value: unknown): value is FeedCard {

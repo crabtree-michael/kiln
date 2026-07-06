@@ -1056,6 +1056,79 @@
   color: var(--text-body);
 }
 
+/* Keyboard toggle: the alternate-input entry point (icon-only), parked on the
+   right of the controls row in the resting voice state. Same neutral 40px circle
+   as the cancel (X) box so it reads as a peer control; justify-self:end pins it to
+   the row's right edge while the mic stays centred. */
+[data-role='dock-keyboard'] {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+[data-role='dock-keyboard']:hover {
+  color: var(--text-body);
+  border-color: var(--border-strong);
+}
+
+/* Keyboard mode: no mic in the centre — just the exit (X) on the left and the
+   send on the right, each hugging the row's outer edges so the pair reads as a
+   balanced two-button bar. Overrides the voice-mode column assignments. */
+[data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-cancel'] {
+  grid-column: 1;
+  justify-self: start;
+}
+
+[data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-send'] {
+  grid-column: 3;
+  justify-self: end;
+}
+
+[data-role='dock-send']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+[data-role='dock-send']:disabled:hover {
+  background: var(--surface-card);
+  border-color: var(--border-default);
+}
+
+/* Typed-input field: sits inside the same overlay container as the live voice
+   transcript (above), so it inherits the panel's paper fill, centred text, and
+   28vh scroll cap. Borderless/transparent so the typed words read like the
+   transcript rather than a boxed form input; the height is grown to fit its
+   content by the dock (bounded by the container). */
+[data-role='dock-input'] {
+  display: block;
+  width: 100%;
+  min-height: 1.5em;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  resize: none;
+  overflow-y: hidden;
+  font: inherit;
+  line-height: inherit;
+  text-align: center;
+  color: var(--text-body);
+}
+
+[data-role='dock-input']::placeholder {
+  color: var(--text-faint);
+}
+
 [data-role='dock-mic'] {
   position: relative;
   display: flex;

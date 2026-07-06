@@ -25,6 +25,21 @@ export interface VoiceStoreValue {
   /** Current mic input loudness as a raw RMS (0..~1); the dock samples this each
    *  animation frame to size the volume orb (09 §3). 0 when not listening. */
   getLevel: () => number;
+  /** True while the keyboard-input mode is active: voice is an alternate to the
+   *  default mic, never intermixed with it. Entering it stops the mic; leaving it
+   *  resumes listening. Drives the dock to swap the live transcript for an
+   *  editable field. */
+  keyboardMode: boolean;
+  /** The keyboard toggle → switch from voice to typed input. Stops the mic and
+   *  clears any un-committed transcript so the two inputs never overlap. */
+  openKeyboard: () => void;
+  /** Leave keyboard mode → back to the default voice input (mic resumes). */
+  closeKeyboard: () => void;
+  /** Submit a typed message through the same downstream seam as a transcribed
+   *  utterance (`POST /api/message`, 07 §4). Resolves `true` on a successful POST
+   *  (the dock clears the field) and `false` on failure (the text is kept so the
+   *  user can retry). A no-op resolving `false` when the text is empty. */
+  submitText: (text: string) => Promise<boolean>;
 }
 
 export const VoiceStoreContext = createContext<VoiceStoreValue | undefined>(undefined);

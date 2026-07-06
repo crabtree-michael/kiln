@@ -13,6 +13,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
   type JSX,
   type ReactNode,
 } from 'react';
@@ -37,6 +38,13 @@ const COMMIT_DELAY_MS = 5_000;
 
 export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const [state, dispatch] = useReducer(voiceReducer, undefined, initialVoiceState);
+
+  // Keyboard-input mode is a UI-level toggle sitting alongside the voice machine,
+  // never woven into it: entering it stops the mic and the two inputs stay
+  // separate (a typed message is not merged with a spoken one). Kept as plain
+  // React state rather than a new voice-machine action so `commit-machine` stays
+  // the pure voice reducer it was built to be.
+  const [keyboardMode, setKeyboardMode] = useState(false);
 
   // Sending a finalized utterance supersedes any toast on the activity row
   // (08 §4); the commit effect calls this to clear it. Held in a ref so the
@@ -263,6 +271,44 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     }
   }, [stopStream, startStream]);
 
+  const openKeyboard = useCallback((): void => {
+    // Switch from the default voice input to typed input. Stop the mic (pause is
+    // sticky, so foregrounding won't silently resume it while the field is up) and
+    // clear any un-committed transcript, so a spoken and a typed message never
+    // overlap in one submission.
+    setKeyboardMode(true);
+    pause();
+    dispatch({ type: 'cancel' });
+  }, [pause]);
+
+  const closeKeyboard = useCallback((): void => {
+    // Back to the default voice input: drop keyboard mode and resume listening.
+    setKeyboardMode(false);
+    resume();
+  }, [resume]);
+
+  const submitText = useCallback(async (text: string): Promise<boolean> => {
+    // Typed input rides the exact same seam as a transcribed utterance — a plain
+    // POST to /api/message (07 §4) that lands as a `human.message` — so the brain
+    // handles it identically. It deliberately does NOT touch the voice machine's
+    // transcript state (keyboard and voice are separate inputs). Mirrors the
+    // commit effect's error stance: keep the text on failure (the dock retains the
+    // field), no modal.
+    const trimmed = text.trim();
+    if (trimmed === '') {
+      return false;
+    }
+    // A sent message supersedes any toast on the activity row (08 §4), same as a
+    // committed utterance.
+    dismissToastRef.current();
+    try {
+      await postMessage(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Live mic loudness for the dock's volume orb (09 §3). Reads the current
   // stream's AnalyserNode each call; 0 while no stream is up (paused/denied/
   // between reconnects) so the orb naturally shrinks away.
@@ -278,8 +324,25 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       cancel,
       sendNow,
       getLevel,
+      keyboardMode,
+      openKeyboard,
+      closeKeyboard,
+      submitText,
     }),
-    [state.micState, state.settledText, state.tailText, pause, resume, cancel, sendNow, getLevel],
+    [
+      state.micState,
+      state.settledText,
+      state.tailText,
+      pause,
+      resume,
+      cancel,
+      sendNow,
+      getLevel,
+      keyboardMode,
+      openKeyboard,
+      closeKeyboard,
+      submitText,
+    ],
   );
 
   return <VoiceStoreContext.Provider value={value}>{children}</VoiceStoreContext.Provider>;

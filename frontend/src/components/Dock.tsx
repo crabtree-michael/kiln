@@ -8,7 +8,7 @@
 // `"dock-talk"`, `aria-label="Talk"`, and the mic-glyph sub-elements) so
 // `PrimaryScreen.css` and existing selectors keep working; `data-dock-state` now
 // reflects the live `micState` instead of the placeholder `"idle"`.
-import { useEffect, useRef, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { useVoice } from '@/voice/voice-context';
 import type { MicState } from '@/voice/commit-machine';
 import { VolumeSmoother, toDisplayLevel, toGlowResponse } from '@/voice/volume-meter';
@@ -23,9 +23,27 @@ const LABELS: Record<MicState, string> = {
 };
 
 export function Dock(): JSX.Element {
-  const { micState, settledText, tailText, pause, resume, cancel, sendNow, getLevel } = useVoice();
+  const {
+    micState,
+    settledText,
+    tailText,
+    pause,
+    resume,
+    cancel,
+    sendNow,
+    getLevel,
+    keyboardMode,
+    openKeyboard,
+    closeKeyboard,
+    submitText,
+  } = useVoice();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const orbRef = useRef<HTMLSpanElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // The typed draft is pure view state local to the dock — the store only sees it
+  // on submit (via `submitText`). Kept out of the voice machine so keystrokes
+  // don't churn the transcript reducer.
+  const [draft, setDraft] = useState('');
 
   // One mic tap: pause while listening, otherwise resume/retry (09 §3, §5). This
   // only stops/starts the mic — it does NOT send (use the send button for that).
@@ -45,6 +63,65 @@ export function Dock(): JSX.Element {
   const hasTranscript = settledText !== '' || tailText !== '';
   const showSend = hasTranscript;
   const showCancel = hasTranscript;
+  // The overlay field is shown for the live voice transcript OR the keyboard input
+  // (they reuse the same container). The keyboard toggle only appears in the
+  // resting voice state — never mid-dictation (where the flanks are send + X) and
+  // never in keyboard mode — so it never competes with the X for the right slot.
+  const showField = hasTranscript || keyboardMode;
+  const showKeyboardToggle = !keyboardMode && !hasTranscript;
+
+  // Submit the typed draft through the same seam as a spoken utterance. Clear the
+  // field only on a successful POST; on failure keep the text so the user can
+  // retry (mirrors the commit effect's no-modal stance, 09 §4). Stay in keyboard
+  // mode after a send so consecutive messages can be typed.
+  const submitDraft = (): void => {
+    const text = draft.trim();
+    if (text === '') {
+      return;
+    }
+    void submitText(text).then((sent) => {
+      if (sent) {
+        setDraft('');
+      }
+    });
+  };
+
+  const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Enter sends; Shift+Enter inserts a newline for a multi-line message.
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submitDraft();
+    }
+  };
+
+  // Leaving keyboard mode discards the un-sent draft (like the X on a voice
+  // transcript) so reopening starts clean, then hands back to voice.
+  const exitKeyboard = (): void => {
+    setDraft('');
+    closeKeyboard();
+  };
+
+  // Focus the field the moment keyboard mode opens so the user can type straight
+  // away, and grow it with its content (bounded by the container's own cap).
+  useEffect(() => {
+    if (!keyboardMode) {
+      return;
+    }
+    const el = inputRef.current;
+    if (el === null) {
+      return;
+    }
+    el.focus();
+  }, [keyboardMode]);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (el === null) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight.toString()}px`;
+  }, [draft, keyboardMode]);
 
   // Keep the notification hub clear of the dock as the transcript grows (08 §4 /
   // the bottom-anchored-UI layering principle — see the web-client skill). The
@@ -77,7 +154,7 @@ export function Dock(): JSX.Element {
       observer.disconnect();
       root.style.removeProperty('--dock-overlay-height');
     };
-  }, [hasTranscript]);
+  }, [showField]);
 
   // Keep the latest words in view as text streams in. The transcript grows
   // upward but scrolls internally (`overflow-y: auto`, `max-height: 28vh`), and
@@ -121,53 +198,130 @@ export function Dock(): JSX.Element {
   }, [micState, getLevel]);
 
   return (
-    <div data-role="dock" data-dock-state={micState}>
-      {hasTranscript && (
-        <div data-role="dock-transcript" data-dock-state={micState} ref={transcriptRef}>
-          {settledText !== '' && <span data-role="dock-settled">{settledText}</span>}
-          {tailText !== '' && (
-            <span data-role="dock-tail" data-ghost="true">
-              {tailText}
-            </span>
-          )}
-          {micState === 'listening' && (
-            <span data-role="dock-caret" aria-hidden="true">
-              |
-            </span>
+    <div data-role="dock" data-dock-state={keyboardMode ? 'keyboard' : micState}>
+      {showField && (
+        <div
+          data-role="dock-transcript"
+          data-dock-state={keyboardMode ? 'keyboard' : micState}
+          ref={transcriptRef}
+        >
+          {keyboardMode ? (
+            // Reuse the very container that shows the live voice transcript, swapping
+            // its read-only spans for an editable field (09 §4 seam, keyboard input).
+            <textarea
+              data-role="dock-input"
+              ref={inputRef}
+              rows={1}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+              onKeyDown={onInputKeyDown}
+              placeholder="Type a message…"
+              aria-label="Message"
+            />
+          ) : (
+            <>
+              {settledText !== '' && <span data-role="dock-settled">{settledText}</span>}
+              {tailText !== '' && (
+                <span data-role="dock-tail" data-ghost="true">
+                  {tailText}
+                </span>
+              )}
+              {micState === 'listening' && (
+                <span data-role="dock-caret" aria-hidden="true">
+                  |
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
 
-      <div data-role="dock-controls">
-        {showSend && (
-          <button type="button" data-role="dock-send" aria-label="Send" onClick={sendNow}>
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-              <path d="M12 4l-8 8h5v8h6v-8h5z" fill="currentColor" />
-            </svg>
-          </button>
-        )}
+      <div data-role="dock-controls" data-mode={keyboardMode ? 'keyboard' : 'voice'}>
+        {keyboardMode ? (
+          <>
+            {/* Leave keyboard mode → back to the default voice input. */}
+            <button
+              type="button"
+              data-role="dock-cancel"
+              aria-label="Close keyboard"
+              onClick={exitKeyboard}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+            <button
+              type="button"
+              data-role="dock-send"
+              aria-label="Send"
+              onClick={submitDraft}
+              disabled={draft.trim() === ''}
+            >
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path d="M12 4l-8 8h5v8h6v-8h5z" fill="currentColor" />
+              </svg>
+            </button>
+          </>
+        ) : (
+          <>
+            {showSend && (
+              <button type="button" data-role="dock-send" aria-label="Send" onClick={sendNow}>
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path d="M12 4l-8 8h5v8h6v-8h5z" fill="currentColor" />
+                </svg>
+              </button>
+            )}
 
-        <button
-          type="button"
-          data-role="dock-talk"
-          data-dock-state={micState}
-          aria-label="Talk"
-          aria-pressed={micState === 'listening'}
-          onClick={onMicTap}
-        >
-          <span data-role="dock-mic" aria-hidden="true">
-            <span data-role="dock-mic-orb" ref={orbRef} />
-            <span data-role="dock-mic-capsule" />
-            <span data-role="dock-mic-arc" />
-            <span data-role="dock-mic-stem" />
-          </span>
-          <span data-role="dock-label">{LABELS[micState]}</span>
-        </button>
+            <button
+              type="button"
+              data-role="dock-talk"
+              data-dock-state={micState}
+              aria-label="Talk"
+              aria-pressed={micState === 'listening'}
+              onClick={onMicTap}
+            >
+              <span data-role="dock-mic" aria-hidden="true">
+                <span data-role="dock-mic-orb" ref={orbRef} />
+                <span data-role="dock-mic-capsule" />
+                <span data-role="dock-mic-arc" />
+                <span data-role="dock-mic-stem" />
+              </span>
+              <span data-role="dock-label">{LABELS[micState]}</span>
+            </button>
 
-        {showCancel && (
-          <button type="button" data-role="dock-cancel" aria-label="Cancel" onClick={cancel}>
-            <span aria-hidden="true">×</span>
-          </button>
+            {showCancel && (
+              <button type="button" data-role="dock-cancel" aria-label="Cancel" onClick={cancel}>
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
+
+            {showKeyboardToggle && (
+              <button
+                type="button"
+                data-role="dock-keyboard"
+                aria-label="Type a message"
+                onClick={openKeyboard}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="22"
+                  height="22"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="2.5" y="4.5" width="19" height="11" rx="2.5" />
+                  <path d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01" />
+                  <path d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01" />
+                  <path d="M8.5 13.6h7" />
+                  <path d="M8.8 21l3.2-3 3.2 3" />
+                </svg>
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

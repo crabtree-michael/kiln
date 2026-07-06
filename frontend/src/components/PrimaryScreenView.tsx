@@ -97,12 +97,17 @@ function updateId(card: FeedCard): number | null {
 }
 
 /** The numeric notification_id of a card the user can swipe to clear, or null.
- * The brain-authored update/preview cards plus the runtime's mechanical "done"
- * completion notice — all stray notifications the user can wave off once read
- * (this change). Board cards (blocker/proposal) carry no notification_id, and
- * the steward's poke stays put, so those never gain the gesture. */
+ * Every notification-backed card — the brain-authored update/preview cards, the
+ * runtime's "done" completion notice, and the steward's "poke" stall nudge — is
+ * a stray notification the user can wave off once read. Only blockers stay put:
+ * a blocker demands an explicit decision, not a swipe. Board cards
+ * (blocker/proposal) carry no notification_id, so they never gain the gesture. */
 function dismissableId(card: FeedCard): number | null {
-  const isDismissable = card.kind === 'update' || card.kind === 'preview' || card.kind === 'done';
+  const isDismissable =
+    card.kind === 'update' ||
+    card.kind === 'preview' ||
+    card.kind === 'done' ||
+    card.kind === 'poke';
   return isDismissable && typeof card.notification_id === 'number' ? card.notification_id : null;
 }
 
@@ -280,10 +285,11 @@ export function PrimaryScreenView({
             ) : (
               <>
                 {cards.map((card, index) => {
-                  // Only notification-backed cards can be cleared: update/
-                  // preview plus the runtime's "done" notice. Blockers/proposals
-                  // (board state the brain owns) and the steward's poke stay
-                  // static even when a dismiss handler is wired.
+                  // Every notification-backed card can be cleared: update/
+                  // preview, the runtime's "done" notice, and the steward's
+                  // "poke" nudge. Blockers/proposals (board state the brain
+                  // owns) carry no notification_id and stay static — a blocker
+                  // needs an explicit decision, not a swipe.
                   const dismissId = dismissableId(card);
                   const item = (
                     <FeedCardItem

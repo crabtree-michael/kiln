@@ -47,7 +47,7 @@ const PUSH_LABEL: Record<WebPushStatus, string> = {
   default: 'Enable notifications',
   denied: 'Notifications blocked in browser',
   enabling: 'Enabling…',
-  enabled: 'Notifications enabled — send test prompt',
+  enabled: 'Notifications enabled',
   error: 'Retry enabling notifications',
 };
 

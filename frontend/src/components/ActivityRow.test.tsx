@@ -32,17 +32,25 @@ afterEach(() => {
 });
 
 describe('ActivityRow', () => {
-  it('renders the thinking indicator only when the stack is empty (6a)', () => {
+  it('renders the thinking indicator when thinking with an empty stack (6a)', () => {
     render(<ActivityRow thinking={true} toasts={[]} onDismiss={noop} />);
     expect(screen.getByText('Kiln is thinking…')).toBeInTheDocument();
     const indicator = document.querySelector('[data-role="thinking-indicator"]');
     expect(indicator).not.toBeNull();
   });
 
-  it('does not render the thinking indicator while a toast is present (08 §4 contention)', () => {
+  it('renders the thinking indicator below the toast stack when both are present (08 §4)', () => {
     const toasts = [toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign' })];
     render(<ActivityRow thinking={true} toasts={toasts} onDismiss={noop} />);
-    expect(document.querySelector('[data-role="thinking-indicator"]')).toBeNull();
+    const row = document.querySelector('[data-role="activity-row"]');
+    const stack = document.querySelector('[data-role="toast-stack"]');
+    const indicator = document.querySelector('[data-role="thinking-indicator"]');
+    // Both share the one activity row (a single stacking layer)...
+    expect(stack).not.toBeNull();
+    expect(indicator).not.toBeNull();
+    // ...with the toast stack ordered before (visually above) the thinking indicator.
+    expect(row?.children[0]).toBe(stack);
+    expect(row?.children[1]).toBe(indicator);
   });
 
   it('renders the toast pill with its verb (6b)', () => {

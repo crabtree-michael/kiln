@@ -702,8 +702,13 @@
      renders in front of, never behind, the transcript box. */
   z-index: 6;
   display: flex;
+  /* Column so the toast stack and the thinking indicator stack vertically on the
+     one layer (toast rendered first → above; thinking below, nearest the dock)
+     rather than sharing a single centered row slot. */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 0 26px;
   /* Let taps fall through the empty margins to the feed; the pills re-enable
      pointer events for their own dismiss button. */

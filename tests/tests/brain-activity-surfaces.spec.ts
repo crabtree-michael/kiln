@@ -55,8 +55,9 @@ test('the brain thinking spinner and its say reply appear on the primary screen'
   expect(post.status(), `POST /api/message -> ${post.status()}`).toBe(202);
 
   // Signal 1 (thinking): while the pass runs, the activity row shows the spinner. It is
-  // visible for the whole pass (a real-LLM turn is seconds), so the poll catches it. It is
-  // shown only when the pill is empty (08 §4) — true here until the say arrives.
+  // visible for the whole pass (a real-LLM turn is seconds), so the poll catches it. The
+  // spinner coexists with any pill on the one activity layer (08 §4), so it stays up
+  // whether or not the say has landed yet.
   await expect(
     page.locator('[data-role="thinking-indicator"]'),
     'the "Kiln is thinking" spinner never appeared during the brain pass',

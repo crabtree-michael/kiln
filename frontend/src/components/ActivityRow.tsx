@@ -145,6 +145,12 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
 
   return (
     <div data-role="activity-row">
+      {/* Toasts sit above the thinking indicator, both as children of the one
+          activity row (a single stacking context, z-index 6). The row is a flex
+          column, so the toast stack renders first (higher on screen) and the
+          thinking indicator sits directly below it, nearest the dock — a
+          predictable vertical order on a shared layer, not a toast floating on a
+          separate plane above the "Kiln is thinking…" text. */}
       {!empty && (
         <div data-role="toast-stack">
           {toasts.map((toast) => (
@@ -153,7 +159,7 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
         </div>
       )}
 
-      {empty && thinking && (
+      {thinking && (
         <div data-role="thinking-indicator">
           <span data-role="thinking-spinner" aria-hidden="true" />
           <span data-role="thinking-text">Kiln is thinking…</span>

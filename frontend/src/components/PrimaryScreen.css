@@ -809,9 +809,19 @@
   border: none;
   border-radius: 50%;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-[data-role='toast-dismiss']:hover {
+[data-role='toast-dismiss']:hover,
+[data-role='toast-dismiss']:focus-visible {
+  color: var(--text-body);
+}
+
+[data-role='toast-dismiss']:active {
+  background: transparent;
   color: var(--text-body);
 }
 

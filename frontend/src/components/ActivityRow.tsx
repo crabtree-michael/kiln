@@ -106,7 +106,7 @@ function ActivityToastPill({
         </ClampedText>
         <button
           type="button"
-          data-role="say-dismiss"
+          data-role="toast-dismiss"
           aria-label="Dismiss"
           onClick={() => {
             onDismiss(id);

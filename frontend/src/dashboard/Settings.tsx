@@ -16,7 +16,7 @@ export function Settings(): JSX.Element {
     saveProject,
     verifying,
     verifyChecks,
-    pendingCredential,
+    pendingCredentials,
     signOut,
     error,
   } = useDashboardStore();
@@ -53,7 +53,7 @@ export function Settings(): JSX.Element {
 
       <CredentialFields
         settings={me.settings}
-        pendingCredential={pendingCredential}
+        pendingCredentials={pendingCredentials}
         verifying={verifying}
         verifyChecks={verifyChecks}
         onSave={saveSettings}

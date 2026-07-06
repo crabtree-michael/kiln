@@ -202,6 +202,96 @@ describe('Dashboard', () => {
     expect(transport.postVerify).not.toHaveBeenCalled();
   });
 
+  it('Enter in a filled credential field fires exactly one save, with no form submission', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    vi.mocked(transport.putSettings).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
+    renderDashboard();
+
+    const input = await screen.findByLabelText('Anthropic API key');
+    const form = document.querySelector('[data-role="settings-form"]');
+    const submitSpy = vi.fn();
+    form?.addEventListener('submit', submitSpy);
+
+    fireEvent.change(input, { target: { value: 'sk-enter' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-enter' });
+    });
+    // Let the chained verify settle so a late duplicate would have surfaced.
+    await waitFor(() => {
+      expect(transport.postVerify).toHaveBeenCalledTimes(1);
+    });
+    expect(transport.putSettings).toHaveBeenCalledTimes(1);
+    // Enter is preventDefault-ed inside the handler — it must never bubble up
+    // into a form submission (the credentials form has no submit path at all).
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
+  it('Enter followed immediately by blur fires exactly one save (per-field in-flight guard)', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    vi.mocked(transport.putSettings).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+        },
+      }),
+    );
+    vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
+    renderDashboard();
+
+    const input = await screen.findByLabelText('Anthropic API key');
+    fireEvent.change(input, { target: { value: 'sk-once' } });
+    // The classic double-fire: committing with Enter also moves focus away
+    // (or the user tabs out immediately) — the blur lands while the Enter
+    // save is still in flight and must be swallowed by the guard.
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-once' });
+    });
+    await waitFor(() => {
+      expect(transport.postVerify).toHaveBeenCalledTimes(1);
+    });
+    expect(transport.putSettings).toHaveBeenCalledTimes(1);
+  });
+
   it('a failed verify check renders a failed credential-status indicator with the message as its title', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({

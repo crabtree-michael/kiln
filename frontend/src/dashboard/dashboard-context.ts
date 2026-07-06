@@ -39,10 +39,12 @@ export interface DashboardStoreValue {
   verifying: boolean;
   /** The most recent verify run's per-check results; `null` until one has run. */
   verifyChecks: VerifyCheck[] | null;
-  /** The credential field whose save (and, on success, chained verify) is
-   * currently in flight; `null` when none is. Drives that one field's
-   * "pending" indicator state independently of the others. */
-  pendingCredential: CredentialName | null;
+  /** The credential fields whose save (and, on success, chained verify) is
+   * currently in flight — a set, not a single value, so field A stays
+   * pending while its PUT/verify is outstanding even if field B starts its
+   * own save. Drives each field's "pending" indicator state (and its input's
+   * disabled state) independently. */
+  pendingCredentials: ReadonlySet<CredentialName>;
   /** `PUT /api/settings` for the given field(s), swaps `me` for the response,
    * and — when the body includes one of the three credential fields —
    * automatically chains a `runVerify` so its indicator reflects the fresh

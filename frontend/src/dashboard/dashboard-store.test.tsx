@@ -47,12 +47,17 @@ function Probe(): JSX.Element {
       <div data-testid="checks">
         {store.verifyChecks === null ? 'none' : String(store.verifyChecks.length)}
       </div>
-      <div data-testid="pending-credential">{store.pendingCredential ?? 'none'}</div>
+      <div data-testid="pending-credentials">
+        {store.pendingCredentials.size === 0 ? 'none' : [...store.pendingCredentials].join(',')}
+      </div>
       <button
         type="button"
         onClick={() => void store.saveSettings({ anthropic_api_key: 'sk-new' })}
       >
         save-settings
+      </button>
+      <button type="button" onClick={() => void store.saveSettings({ amika_api_key: 'am-new' })}>
+        save-settings-amika
       </button>
       <button
         type="button"
@@ -246,7 +251,7 @@ describe('DashboardProvider', () => {
     expect(transport.postVerify).not.toHaveBeenCalled();
   });
 
-  it('pendingCredential names the field mid-save, then clears once the chained verify settles', async () => {
+  it('pendingCredentials names the field mid-save, then clears once the chained verify settles', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     let resolvePut: ((me: Me) => void) | undefined;
     vi.mocked(transport.putSettings).mockImplementationOnce(
@@ -271,7 +276,7 @@ describe('DashboardProvider', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('pending-credential').textContent).toBe('anthropic_api_key');
+      expect(screen.getByTestId('pending-credentials').textContent).toBe('anthropic_api_key');
     });
 
     act(() => {
@@ -279,7 +284,58 @@ describe('DashboardProvider', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('pending-credential').textContent).toBe('none');
+      expect(screen.getByTestId('pending-credentials').textContent).toBe('none');
+    });
+  });
+
+  it('two credential saves in flight stay pending independently — the first is not clobbered by the second', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
+    // Hold every PUT open, resolving them by hand in order.
+    const resolvers: ((me: Me) => void)[] = [];
+    vi.mocked(transport.putSettings).mockImplementation(
+      () =>
+        new Promise<Me>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
+
+    render(
+      <DashboardProvider>
+        <Probe />
+      </DashboardProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('ready');
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('save-settings'));
+      fireEvent.click(screen.getByText('save-settings-amika'));
+    });
+
+    // Both fields pending at once — a single-value `pendingCredential` would
+    // have clobbered anthropic with amika here.
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-credentials').textContent).toBe(
+        'anthropic_api_key,amika_api_key',
+      );
+    });
+
+    // First PUT resolves (its chained verify is mocked resolved) → only the
+    // second field remains pending.
+    act(() => {
+      resolvers[0]?.(makeMe());
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-credentials').textContent).toBe('amika_api_key');
+    });
+
+    act(() => {
+      resolvers[1]?.(makeMe());
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-credentials').textContent).toBe('none');
     });
   });
 

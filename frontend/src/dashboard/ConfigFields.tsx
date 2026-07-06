@@ -10,7 +10,14 @@
 // verify run (dashboard-store's `saveSettings`), so the right-of-input
 // `credential-status` indicator picks up the fresh check result with no
 // separate "test connections" step.
-import { useState, type ChangeEvent, type FormEvent, type JSX, type KeyboardEvent } from 'react';
+import {
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type JSX,
+  type KeyboardEvent,
+} from 'react';
 import type {
   MeProject,
   ProjectUpdateRequest,
@@ -55,19 +62,21 @@ const CHECK_NAME_FOR_CREDENTIAL: Record<CredentialName, VerifyCheck['name']> = {
 
 type CredentialIndicatorStatus = 'ok' | 'failed' | 'skipped' | 'pending';
 
-/** `pending` covers two windows: this field's own save request, and any
- * verify run at all (one verify call checks all three at once, so every
- * indicator goes pending together while it's in flight) — either means "the
- * last known result can't be trusted yet". Absent any check result, the
- * field reads `skipped` (nothing has verified it — same as an explicit
- * "skipped" check, and rendered the same way: no glyph). */
+/** `pending` covers two windows: this field's own save request (it stays in
+ * `pendingCredentials` for the whole save + chained-verify span, independent
+ * of any other field's in-flight save), and any verify run at all (one
+ * verify call checks all three at once, so every indicator goes pending
+ * together while it's in flight) — either means "the last known result
+ * can't be trusted yet". Absent any check result, the field reads `skipped`
+ * (nothing has verified it — same as an explicit "skipped" check, and
+ * rendered the same way: no glyph). */
 function credentialIndicatorStatus(
   name: CredentialName,
-  pendingCredential: CredentialName | null,
+  pendingCredentials: ReadonlySet<CredentialName>,
   verifying: boolean,
   check: VerifyCheck | undefined,
 ): CredentialIndicatorStatus {
-  if (pendingCredential === name || verifying) {
+  if (pendingCredentials.has(name) || verifying) {
     return 'pending';
   }
   return check?.status ?? 'skipped';
@@ -210,9 +219,10 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
 
 export interface CredentialFieldsProps {
   settings: MeSettings;
-  /** The credential field (if any) whose save/verify is currently in flight —
-   * threaded straight through from the store to compute each indicator. */
-  pendingCredential: CredentialName | null;
+  /** The credential fields whose save/verify is currently in flight —
+   * threaded straight through from the store; drives each field's indicator
+   * and its input's disabled state independently. */
+  pendingCredentials: ReadonlySet<CredentialName>;
   /** `true` while a verify run is in flight — applies to every indicator at
    * once (one run checks all three fields). */
   verifying: boolean;
@@ -220,9 +230,14 @@ export interface CredentialFieldsProps {
   onSave: (body: SettingsUpdateRequest) => Promise<boolean>;
 }
 
+/** Every field that auto-commits from this form — the three secrets plus the
+ * plain-text Amika credential ID (which never chains a verify but still
+ * needs the same re-entrancy guard). */
+type CommitField = CredentialName | 'amika_claude_cred_id';
+
 export function CredentialFields({
   settings,
-  pendingCredential,
+  pendingCredentials,
   verifying,
   verifyChecks,
   onSave,
@@ -232,22 +247,45 @@ export function CredentialFields({
   const [githubAuthToken, setGithubAuthToken] = useState('');
   const [amikaClaudeCredId, setAmikaClaudeCredId] = useState(settings.amika_claude_cred_id);
 
+  // Per-field in-flight guard, synchronous on purpose: Enter fires a commit
+  // and the resulting focus loss (or an explicit Tab) fires blur in the same
+  // task, long before the store's pending state re-renders — a ref is the
+  // only thing that reliably makes that pair a single save. The store's
+  // `pendingCredentials` mirrors this asynchronously for rendering (the
+  // indicator + disabled input); this ref is what enforces it.
+  const inFlight = useRef<Set<CommitField>>(new Set());
+
   const checkFor = (name: CredentialName): VerifyCheck | undefined =>
     verifyChecks?.find((candidate) => candidate.name === CHECK_NAME_FOR_CREDENTIAL[name]);
 
+  const commit = (field: CommitField, body: SettingsUpdateRequest, onSuccess?: () => void): void => {
+    if (inFlight.current.has(field)) {
+      return;
+    }
+    inFlight.current.add(field);
+    void onSave(body)
+      .then((succeeded) => {
+        if (succeeded) {
+          onSuccess?.();
+        }
+      })
+      .finally(() => {
+        inFlight.current.delete(field);
+      });
+  };
+
   // Fires on blur AND on Enter — never gated behind a submit button anymore.
-  // Only sends the one field, only when its draft is non-empty; the draft
-  // clears once the save actually succeeds (a failed save leaves the typed
-  // value in place rather than silently discarding it).
+  // Only sends the one field, only when its draft is non-empty and no save
+  // for that same field is already in flight; the draft clears once the save
+  // actually succeeds (a failed save leaves the typed value in place rather
+  // than silently discarding it).
   const commitAnthropic = (): void => {
     const trimmed = anthropicApiKey.trim();
     if (trimmed === '') {
       return;
     }
-    void onSave({ anthropic_api_key: trimmed }).then((succeeded) => {
-      if (succeeded) {
-        setAnthropicApiKey('');
-      }
+    commit('anthropic_api_key', { anthropic_api_key: trimmed }, () => {
+      setAnthropicApiKey('');
     });
   };
 
@@ -256,10 +294,8 @@ export function CredentialFields({
     if (trimmed === '') {
       return;
     }
-    void onSave({ amika_api_key: trimmed }).then((succeeded) => {
-      if (succeeded) {
-        setAmikaApiKey('');
-      }
+    commit('amika_api_key', { amika_api_key: trimmed }, () => {
+      setAmikaApiKey('');
     });
   };
 
@@ -268,10 +304,8 @@ export function CredentialFields({
     if (trimmed === '') {
       return;
     }
-    void onSave({ github_auth_token: trimmed }).then((succeeded) => {
-      if (succeeded) {
-        setGithubAuthToken('');
-      }
+    commit('github_auth_token', { github_auth_token: trimmed }, () => {
+      setGithubAuthToken('');
     });
   };
 
@@ -282,7 +316,7 @@ export function CredentialFields({
     if (trimmed === '' || trimmed === settings.amika_claude_cred_id) {
       return;
     }
-    void onSave({ amika_claude_cred_id: trimmed });
+    commit('amika_claude_cred_id', { amika_claude_cred_id: trimmed });
   };
 
   const onEnter =
@@ -305,6 +339,7 @@ export function CredentialFields({
             placeholder={
               settings.anthropic_api_key.set ? secretStatusText(settings.anthropic_api_key) : ''
             }
+            disabled={pendingCredentials.has('anthropic_api_key')}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
               setAnthropicApiKey(event.target.value);
             }}
@@ -315,7 +350,7 @@ export function CredentialFields({
             name="anthropic_api_key"
             status={credentialIndicatorStatus(
               'anthropic_api_key',
-              pendingCredential,
+              pendingCredentials,
               verifying,
               checkFor('anthropic_api_key'),
             )}
@@ -332,6 +367,7 @@ export function CredentialFields({
             type="password"
             value={amikaApiKey}
             placeholder={settings.amika_api_key.set ? secretStatusText(settings.amika_api_key) : ''}
+            disabled={pendingCredentials.has('amika_api_key')}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
               setAmikaApiKey(event.target.value);
             }}
@@ -342,7 +378,7 @@ export function CredentialFields({
             name="amika_api_key"
             status={credentialIndicatorStatus(
               'amika_api_key',
-              pendingCredential,
+              pendingCredentials,
               verifying,
               checkFor('amika_api_key'),
             )}
@@ -361,6 +397,7 @@ export function CredentialFields({
             placeholder={
               settings.github_auth_token.set ? secretStatusText(settings.github_auth_token) : ''
             }
+            disabled={pendingCredentials.has('github_auth_token')}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
               setGithubAuthToken(event.target.value);
             }}
@@ -371,7 +408,7 @@ export function CredentialFields({
             name="github_auth_token"
             status={credentialIndicatorStatus(
               'github_auth_token',
-              pendingCredential,
+              pendingCredentials,
               verifying,
               checkFor('github_auth_token'),
             )}

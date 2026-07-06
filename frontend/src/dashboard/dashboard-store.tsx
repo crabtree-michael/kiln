@@ -54,7 +54,9 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyChecks, setVerifyChecks] = useState<VerifyCheck[] | null>(null);
-  const [pendingCredential, setPendingCredential] = useState<CredentialName | null>(null);
+  const [pendingCredentials, setPendingCredentials] = useState<ReadonlySet<CredentialName>>(
+    () => new Set(),
+  );
 
   // Shared by the mount effect and `signOut`'s re-fetch: passes through
   // `loading` while `GET /api/me` is in flight (the documented phase
@@ -115,15 +117,17 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   // A save that touches one of the three secret fields automatically chains
   // straight into `runVerify` on success, so the field's right-of-input
   // indicator reflects a fresh result without a manual "test connections"
-  // step. `pendingCredential` stays set across both the save and (when
-  // chained) the verify, so the indicator reads "pending" for that whole
-  // window; `saving` itself only covers the save call, matching its existing
-  // use for the project/sign-out buttons.
+  // step. `pendingCredentials` holds the field for the whole save + (when
+  // chained) verify window — as a set, so field A stays pending even if
+  // field B starts its own save mid-flight (the functional updates below
+  // keep concurrent add/delete pairs from clobbering each other); `saving`
+  // itself only covers the save call, matching its existing use for the
+  // project/sign-out buttons.
   const saveSettings = useCallback(
     async (body: SettingsUpdateRequest): Promise<boolean> => {
       const credentialKey = credentialKeyIn(body);
       if (credentialKey !== null) {
-        setPendingCredential(credentialKey);
+        setPendingCredentials((prev) => new Set(prev).add(credentialKey));
       }
       setSaving(true);
       setError(null);
@@ -141,7 +145,11 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
         await runVerify();
       }
       if (credentialKey !== null) {
-        setPendingCredential(null);
+        setPendingCredentials((prev) => {
+          const next = new Set(prev);
+          next.delete(credentialKey);
+          return next;
+        });
       }
       return succeeded;
     },
@@ -182,7 +190,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       error,
       verifying,
       verifyChecks,
-      pendingCredential,
+      pendingCredentials,
       saveSettings,
       saveProject,
       runVerify,
@@ -195,7 +203,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       error,
       verifying,
       verifyChecks,
-      pendingCredential,
+      pendingCredentials,
       saveSettings,
       saveProject,
       runVerify,

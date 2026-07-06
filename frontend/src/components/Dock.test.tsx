@@ -211,7 +211,12 @@ describe('Dock', () => {
   describe('keyboard input', () => {
     it('shows the keyboard toggle in the resting state and forwards taps', () => {
       const openKeyboard = vi.fn();
-      mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '', openKeyboard });
+      mockVoiceValue = stubVoice({
+        micState: 'listening',
+        settledText: '',
+        tailText: '',
+        openKeyboard,
+      });
       render(<Dock />);
       fireEvent.click(screen.getByRole('button', { name: 'Type a message' }));
       expect(openKeyboard).toHaveBeenCalledTimes(1);

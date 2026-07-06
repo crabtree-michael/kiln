@@ -2,9 +2,10 @@
 // avoids, so the mic/socket lifecycle is driven through fakes here — a stub
 // `startVoiceStream` whose `stop` spy stands in for tearing the mic down, and
 // whose captured `onEvent` lets a test push provider events through the seam.
-// These pin the core rule: the mic never starts on its own — no start on mount,
+// These pin the core rules: the mic never STARTS on its own — no start on mount,
 // none on foreground, none after a send — it opens ONLY on an explicit tap
-// (`resume`), and any send tears the socket back down.
+// (`resume`). The send button tears the socket back down, but an auto-send
+// (end-of-turn) leaves it open so the hands-free session keeps listening.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -74,6 +75,11 @@ function setVisibility(state: 'visible' | 'hidden'): void {
   document.dispatchEvent(new Event('visibilitychange'));
 }
 
+// Post-turn-end grace window the store holds an armed final for before it POSTs
+// (mirrors voice-store's COMMIT_DELAY_MS). Advancing fake timers past it fires
+// the auto-send.
+const GRACE_MS = 5_000;
+
 describe('VoiceProvider mic activation', () => {
   beforeEach(() => {
     streams.length = 0;
@@ -123,6 +129,39 @@ describe('VoiceProvider mic activation', () => {
     await act(async () => {
       await Promise.resolve();
     });
+  });
+
+  it('an auto-send (end-of-turn) keeps the mic listening — socket stays open, no restart', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      // One tap starts the hands-free session.
+      act(() => {
+        result.current.resume();
+      });
+      const live = liveStream();
+      // A turn completes: socket opens, then an end-of-turn final lands.
+      act(() => {
+        fireProviderEvent({ kind: 'open' });
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'final', text: 'Move it to done.' });
+      });
+      // The post-turn-end grace window closes -> the utterance auto-sends (POST)
+      // and the transcript clears back to idle.
+      await act(async () => {
+        vi.advanceTimersByTime(GRACE_MS);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      // The session stays live for the next turn with no second tap: the same
+      // stream is still up (never stopped) and no fresh stream was started.
+      expect(live.stop).not.toHaveBeenCalled();
+      expect(startVoiceStream).toHaveBeenCalledTimes(1);
+      expect(result.current.micState).toBe('listening');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('backgrounding stops the mic and returning does NOT restart it', () => {

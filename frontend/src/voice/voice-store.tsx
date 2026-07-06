@@ -189,11 +189,17 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     if (pending === undefined) {
       return;
     }
-    // Sending stops the mic (the machine already dropped to Paused): tear the
-    // socket down so the mic never keeps listening past a sent message and the
-    // just-sent words can't return in a trailing final. Idempotent, so it's safe
-    // whether we got here from an auto-commit or the send button.
-    stopStream();
+    // Whether this commit stops the mic is the machine's call, read off the
+    // resulting `micState`. The send button drops to `paused` (it fires mid-turn
+    // interim text, so the socket must close to keep the just-sent words from
+    // returning in a trailing final and double-posting) — tear it down. An
+    // auto-send (end-of-turn) leaves `micState` at `listening`: the hands-free
+    // session keeps listening for the next turn, so we leave the socket open and
+    // do NOT restart it (no new getUserMedia / socket — still the user's one
+    // tapped-on session).
+    if (state.micState !== 'listening') {
+      stopStream();
+    }
     // Dismiss any toast on the activity row as part of handling this submission
     // (a no-op when the row shows a say or is already clear).
     dismissToastRef.current();
@@ -216,7 +222,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [state.commit, stopStream]);
+  }, [state.commit, state.micState, stopStream]);
 
   // Leaving the app stops the mic (09 §3): close the socket on hide and drop a
   // live listen to Paused. Returning does NOT reopen it — the mic only ever

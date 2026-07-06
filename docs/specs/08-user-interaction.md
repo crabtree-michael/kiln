@@ -120,8 +120,11 @@ commits or they dismiss it. The pill is Kiln's half of a live exchange (user dec
 remains the brain's answer channel in conversation memory (`06` §3) — unchanged.
 
 Pill contention resolves simply: a `say` reply replaces any toast on screen; toasts
-queue behind an active `say` and drain when it dismisses; `thinking` renders only when
-the pill is empty.
+queue behind an active `say` and drain when it dismisses. `thinking` renders alongside
+the pill on the **same stacking layer** (the one activity row, z-index 6): the toast
+stack sits vertically above the "Kiln is thinking…" indicator, which stays nearest the
+dock. The order is fixed, so a toast never floats on a separate plane over the thinking
+text.
 
 ## 5. The acceptance gate (Shaping, realized)
 
@@ -216,7 +219,7 @@ emission on Shaping create/shape; toast emission per transition verb.
 - **Unit (frontend):** feed store (board cards replace wholesale; update history
 **accumulates** across snapshots with window reconciliation; frozen last-seen divider;
 `loadMoreHistory` paging — D2′), activity store (pill contention: say replaces toast,
-toasts queue, thinking only when empty; auto-dismiss timing), seen-ack firing only when
+toasts queue, thinking coexists with the pill stacked above it; auto-dismiss timing), seen-ack firing only when
 visible.
 - **Image snapshots (**`02` **§4a):** backlog with blocker on top (4a), updates-only (4b),
 embedded preview (4c), all-clear (4d); pill in thinking (6a), toast (6b), and

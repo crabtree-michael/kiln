@@ -86,7 +86,7 @@ const (
 	defaultAgentMode   = "amika"
 	defaultHTTPAddr    = ":8080"
 	defaultLogLevel    = "info"
-	defaultWorkerCount = 3
+	defaultWorkerCount = 5
 	defaultRepoDir     = "/var/lib/kiln/repo"
 )
 

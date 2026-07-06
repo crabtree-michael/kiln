@@ -25,6 +25,16 @@ export type FeedHistoryPage = components['schemas']['FeedHistoryPage'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
+export type Me = components['schemas']['Me'];
+export type MeProject = components['schemas']['MeProject'];
+export type SettingsUpdateRequest = components['schemas']['SettingsUpdateRequest'];
+export type ProjectUpdateRequest = components['schemas']['ProjectUpdateRequest'];
+export type VerifyResponse = components['schemas']['VerifyResponse'];
+export type VerifyCheck = components['schemas']['VerifyCheck'];
+
+type MeUser = components['schemas']['MeUser'];
+type MeSettings = components['schemas']['MeSettings'];
+type SecretStatus = components['schemas']['SecretStatus'];
 
 /**
  * Stream connection state (07 §8): `EventSource` retries natively, so this is
@@ -388,6 +398,152 @@ export async function postReset(): Promise<void> {
 
 function isVoiceToken(value: unknown): value is VoiceToken {
   return isRecord(value) && typeof value.token === 'string' && typeof value.expires_at === 'string';
+}
+
+function isMeUser(value: unknown): value is MeUser {
+  return (
+    isRecord(value) &&
+    typeof value.github_login === 'string' &&
+    typeof value.display_name === 'string' &&
+    typeof value.avatar_url === 'string'
+  );
+}
+
+function isMeProject(value: unknown): value is MeProject {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    typeof value.repo_url === 'string' &&
+    typeof value.amika_snapshot === 'string' &&
+    typeof value.brain_model === 'string' &&
+    typeof value.worker_count === 'number'
+  );
+}
+
+function isSecretStatus(value: unknown): value is SecretStatus {
+  return isRecord(value) && typeof value.set === 'boolean' && typeof value.tail === 'string';
+}
+
+function isMeSettings(value: unknown): value is MeSettings {
+  return (
+    isRecord(value) &&
+    isSecretStatus(value.anthropic_api_key) &&
+    isSecretStatus(value.amika_api_key) &&
+    isSecretStatus(value.github_auth_token) &&
+    typeof value.amika_claude_cred_id === 'string'
+  );
+}
+
+function isMe(value: unknown): value is Me {
+  return (
+    isRecord(value) &&
+    isMeUser(value.user) &&
+    (value.project === undefined || isMeProject(value.project)) &&
+    isMeSettings(value.settings)
+  );
+}
+
+function isVerifyCheckName(value: unknown): value is VerifyCheck['name'] {
+  return value === 'anthropic' || value === 'amika' || value === 'repo';
+}
+
+function isVerifyCheckStatus(value: unknown): value is VerifyCheck['status'] {
+  return value === 'ok' || value === 'failed' || value === 'skipped';
+}
+
+function isVerifyCheck(value: unknown): value is VerifyCheck {
+  return (
+    isRecord(value) &&
+    isVerifyCheckName(value.name) &&
+    isVerifyCheckStatus(value.status) &&
+    typeof value.message === 'string'
+  );
+}
+
+function isVerifyCheckArray(value: unknown): value is VerifyCheck[] {
+  return Array.isArray(value) && value.every(isVerifyCheck);
+}
+
+function isVerifyResponse(value: unknown): value is VerifyResponse {
+  return isRecord(value) && isVerifyCheckArray(value.checks);
+}
+
+/** `GET /api/me` — the signed-in user's account view (11 §4). A `401` means no
+ * valid session, which is a normal signed-out state, not an error — resolves
+ * `null` rather than throwing so callers can branch on it directly. */
+export async function fetchMe(): Promise<Me | null> {
+  const response = await fetch('/api/me');
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`fetchMe: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isMe(payload)) {
+    throw new Error('fetchMe: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `PUT /api/settings` — updates config/secrets; empty/omitted fields are
+ * left unchanged (write-only secrets, 11 §3 D7). Returns the refreshed `Me`. */
+export async function putSettings(body: SettingsUpdateRequest): Promise<Me> {
+  const response = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`putSettings: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isMe(payload)) {
+    throw new Error('putSettings: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `PUT /api/project` — creates/updates the user's single project. Returns the
+ * refreshed `Me`. */
+export async function putProject(body: ProjectUpdateRequest): Promise<Me> {
+  const response = await fetch('/api/project', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`putProject: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isMe(payload)) {
+    throw new Error('putProject: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `POST /api/settings/verify` — runs the per-check connectivity verification
+ * (anthropic/amika/repo); unconfigured checks report status "skipped". */
+export async function postVerify(): Promise<VerifyResponse> {
+  const response = await fetch('/api/settings/verify', { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`postVerify: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isVerifyResponse(payload)) {
+    throw new Error('postVerify: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `POST /auth/logout` — ends the signed-in session. Not part of the wire
+ * schema (like `postReset`); the caller re-fetches `/api/me` afterward to
+ * observe the resulting signed-out state. */
+export async function postLogout(): Promise<void> {
+  const response = await fetch('/auth/logout', { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`postLogout: HTTP ${String(response.status)}`);
+  }
 }
 
 /** `POST /api/voice/token` — mint a short-lived AssemblyAI streaming token (09 §2).

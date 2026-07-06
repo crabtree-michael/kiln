@@ -107,6 +107,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      '/auth': {
+        target: process.env.KILN_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   test: {

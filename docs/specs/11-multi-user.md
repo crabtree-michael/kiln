@@ -95,9 +95,8 @@ New tables (runtime Postgres, same database — `02` §3):
   `display_name`, `avatar_url`, `created_at`.
 - **`sessions`** — `token_hash` (PK), `user_id` (FK), `created_at`, `expires_at`.
 - **`user_config`** — one row per user; **credentials only** (§10, D4):
-  `anthropic_api_key`, `amika_api_key`, `amika_base_url`, `amika_claude_cred_id`,
-  `github_auth_token`. Credentials follow the person and are shared by every brain the
-  user owns.
+  `anthropic_api_key`, `amika_api_key`, `amika_claude_cred_id`, `github_auth_token`.
+  Credentials follow the person and are shared by every brain the user owns.
 - **`projects`** — `id`, `owner_user_id` (FK), `name`, `created_at`, plus the fields
   that parameterize *this* project's brain and board (§10, D4, D5):
   - `repo_url` — **one** field replacing today's `AMIKA_REPO_URL` + `GITHUB_REPO_URL`
@@ -125,7 +124,9 @@ predicate; uniqueness constraints and the deterministic pull (`03`) become per-p
 
 **Stays platform-level:** `ASSEMBLYAI_API_KEY` (voice works for everyone on the company
 key; the mint endpoint requires a session from phase 2), Sentry DSNs, `DATABASE_URL`,
-and the new auth/crypto vars (§7).
+the new auth/crypto vars (§7), and `AMIKA_BASE_URL` (amended 2026-07-06: the Amika
+sandbox host is one deployment's env, not a per-user credential — every user's
+sandboxes are provisioned against the same Amika account and endpoint).
 
 ## 4. API surface & wire types
 
@@ -162,9 +163,9 @@ dashboard).
 
 1. **Signed out** → one screen: "Continue with GitHub" → `/auth/github/login`.
 2. **Signed in, project unconfigured** → onboarding flow: name the project + repo URL +
-   snapshot → paste credentials (Anthropic key, Amika key/base URL/cred id, GitHub
-   PAT) → verify connections (`POST /api/settings/verify`, per-check results inline) →
-   done.
+   snapshot → paste credentials (Anthropic key, Amika key/cred id, GitHub PAT — the
+   Amika base URL is platform env, not a user credential, amended 2026-07-06) → verify
+   connections (`POST /api/settings/verify`, per-check results inline) → done.
 3. **Signed in, configured** → settings: account card (GitHub identity, sign out) ·
    credentials section (write-only secret inputs showing "configured · …x4Kd", per-
    credential test button) · project section (repo URL, snapshot, brain model, worker

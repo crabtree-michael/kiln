@@ -10,7 +10,7 @@ import { acceptTicket } from '@/transport/transport';
 
 /**
  * jsdom performs no layout, so a card body's `scrollHeight`/`clientHeight` are
- * both 0 and the five-line clamp never registers as overflowing. Fake a clamped
+ * both 0 and the three-line clamp never registers as overflowing. Fake a clamped
  * box (content taller than the window) so the tap-body-to-expand affordance can
  * be exercised; restore after each test so the layout-free default holds for the
  * snapshot cases (mirrors ActivityRow.test's `fakeClampedOverflow`).
@@ -435,7 +435,7 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('leaves the body non-interactive (no toggle) when it fits within the clamp', () => {
+  it('leaves the body non-interactive (no toggle, no cue) when it fits within the clamp', () => {
     const update = makeFeedCard({
       kind: 'update',
       id: 'update:short',
@@ -449,6 +449,8 @@ describe('PrimaryScreenView', () => {
     expect(body).not.toHaveAttribute('data-clickable');
     expect(body).not.toHaveAttribute('role', 'button');
     expect(screen.queryByRole('button', { name: /A short body/ })).toBeNull();
+    // A body that fits carries no "tap to see more" cue.
+    expect(body?.querySelector('[data-role="feed-card-more"]')).toBeNull();
   });
 
   it('reveals an overflowing card body in place on tap and collapses it again (uniform across kinds)', () => {
@@ -457,7 +459,7 @@ describe('PrimaryScreenView', () => {
       kind: 'update',
       id: 'update:99',
       label: 'Verbose',
-      body: 'A long update body that overflows the five-line clamp and must expand in place.',
+      body: 'A long update body that overflows the three-line clamp and must expand in place.',
       notificationId: 99,
       createdAt: minutesAgo(1),
     });
@@ -480,6 +482,35 @@ describe('PrimaryScreenView', () => {
     fireEvent.click(body);
     expect(body).not.toHaveAttribute('data-expanded');
     expect(body).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('shows a "tap to see more" cue only while the body is clamped, as decoration (not a tap target)', () => {
+    fakeClampedOverflow();
+    const update = makeFeedCard({
+      kind: 'update',
+      id: 'update:cue',
+      label: 'Verbose',
+      body: 'A long update body that overflows the three-line clamp and must expand in place.',
+      notificationId: 42,
+      createdAt: minutesAgo(1),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }));
+
+    const body = document.querySelector('[data-role="feed-card-body"]');
+    if (!(body instanceof HTMLElement)) {
+      throw new Error('expected the update feed card body');
+    }
+    // While clamped, the cue is present, labelled, and aria-hidden so it isn't a
+    // separate control — the body button underneath owns the tap.
+    const cue = body.querySelector('[data-role="feed-card-more"]');
+    expect(cue).not.toBeNull();
+    expect(cue).toHaveTextContent('tap to see more');
+    expect(cue).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByRole('button', { name: /tap to see more/i })).toBeNull();
+
+    // Expanding drops the cue — the full body is visible, so it would be a lie.
+    fireEvent.click(body);
+    expect(body.querySelector('[data-role="feed-card-more"]')).toBeNull();
   });
 
   it('matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′)', () => {

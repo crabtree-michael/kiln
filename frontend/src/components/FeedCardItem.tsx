@@ -5,13 +5,17 @@
 // touching the transport or stores directly.
 //
 // Every kind shares one scannable layout: a left-aligned head (bolded ticket
-// name · age) over a normal-weight body clamped to five lines. Update and
+// name · age) over a normal-weight body clamped to three lines. Update and
 // blocker cards drop the kind tag — the title colour carries the kind (muted
 // for updates, fire for blockers, the latter also flagged by the pulse dot);
 // proposal and preview keep the tag since the colour scheme doesn't cover them.
-// For update/blocker/preview cards, when the body actually overflows the clamp
-// becomes its own affordance: tapping the clamped text expands it in place and
-// tapping again collapses it — no separate label. Proposal cards instead make
+// For update/blocker/preview cards, when the body actually overflows, the whole
+// clamped body stays the tap target that expands it in place (tap again to
+// collapse) — but the third line now carries a small, light "tap to see more"
+// cue (right-aligned, with a tiny chevron) so the truncation reads as more, not
+// as text that just stops. The cue is decoration inside the body, not its own
+// tap target, and only appears while the body is actually clamped.
+// Proposal cards instead make
 // the clamped body a click-through button (`feed-card-open`) that opens the full
 // ticket detail overlay (08 §5) — the whole shaped ticket (title, full body,
 // actions) is one tap away rather than dumped in the feed. The inline Accept
@@ -20,7 +24,7 @@
 //
 // Already-seen cards (below the last-seen divider, 08 D2′) render de-emphasized
 // via `seen`: an unbolded ticket name and a body collapsed tighter than the
-// five-line preview, so the new-since-last-visit cards above stay the focus.
+// three-line preview, so the new-since-last-visit cards above stay the focus.
 // The expand affordance is unchanged — a seen card just starts more collapsed.
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
@@ -28,13 +32,17 @@ import type { FeedCard } from '@/transport/transport';
 import { cardTag, relativeAge } from '@/components/feed-format';
 
 /**
- * The card body, clamped and expandable in place. Unseen cards clamp to five
+ * The card body, clamped and expandable in place. Unseen cards clamp to three
  * lines; already-seen cards (`seen`) clamp tighter (a skim of the top) via the
  * `data-seen` hook, both driven from CSS. When the clamp actually bites, the
- * clamped text becomes its own affordance: the paragraph turns into a button
- * (cursor + `data-clickable`) that reveals the full body on tap and collapses
- * it again on the next — no separate "tap to see more" label. A body that fits
- * stays inert plain copy.
+ * paragraph turns into a button (cursor + `data-clickable`) that reveals the
+ * full body on tap and collapses it again on the next. The clamped state also
+ * renders a small "tap to see more" cue on the last line (`feed-card-more`) —
+ * a right-aligned label with a tiny chevron that fades over the clipped text.
+ * It's `aria-hidden` decoration with pointer-events off, so it's not a separate
+ * tap target: taps land on the body button underneath. It shows only while
+ * clamped-and-overflowing, and disappears once expanded. A body that fits stays
+ * inert plain copy with no cue.
  *
  * Truncation is measured (`scrollHeight` overflows the clamped `clientHeight`)
  * only while collapsed — once expanded the clamp is gone and the two heights
@@ -65,6 +73,10 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
   // The clamp is the cue: only make the body a toggle once it actually overflows
   // (or is already expanded). A body that fits stays plain, non-interactive copy.
   const interactive = truncated || expanded;
+  // Show the "tap to see more" cue only while the clamp is actually biting —
+  // i.e. overflowing and still collapsed. Once expanded the full body is visible
+  // and the cue would be a lie, so it drops.
+  const showMore = truncated && !expanded;
   const toggle = (): void => {
     setExpanded((value) => !value);
   };
@@ -94,6 +106,21 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
       }
     >
       {body}
+      {showMore && (
+        <span data-role="feed-card-more" aria-hidden="true">
+          tap to see more
+          <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+            <path
+              d="M9 6l6 6-6 6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      )}
     </p>
   );
 }

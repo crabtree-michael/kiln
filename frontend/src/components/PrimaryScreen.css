@@ -54,11 +54,12 @@
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  /* No top padding: the nav bar sits directly above the feed as a pinned sibling
-     (not inside the scroll region), so the backlog begins flush at the feed's
-     content edge (y=0), immediately under the bar. Sides/bottom keep their
-     padding. */
-  padding: 0 26px 8px;
+  /* Slight top inset: the nav bar sits directly above the feed as a pinned
+     sibling (not inside the scroll region), and its hairline separator would
+     otherwise butt right up against the first card. A small top pad gives the
+     backlog breathing room under the bar without a large gap. Sides/bottom keep
+     their padding. */
+  padding: 8px 26px;
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav

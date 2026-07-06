@@ -157,8 +157,12 @@
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
-  min-width: 236px;
-  max-width: 320px;
+  /* Span the full feed content width: the panel stays right-anchored (its right
+   * edge already sits at the cards' right edge), and this width carries its left
+   * edge out to the cards' left edge — flush with the feed content rather than
+   * indented and cramped. The column is capped at 520px with 26px side padding,
+   * so the content run is min(100vw, 520px) − 52px. */
+  width: calc(min(100vw, 520px) - 52px);
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);

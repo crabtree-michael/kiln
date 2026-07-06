@@ -1,9 +1,9 @@
 // Unit tests for the ticket-list derivation behind the header dropdown (amended
-// 2026-07-06: every ticket, not just the active ones). Active tickets
-// (working/blocked) come first, then the rest in decreasing-activity order with
-// the backlog-type states (ready/shaping) at the bottom. Active rows still join
-// their worker's real session status from board.agents by ticket id, falling
-// back to the column default before a status has arrived.
+// 2026-07-06: only working, blocked, and ready tickets — done and shaping are
+// excluded entirely). Active tickets (working/blocked) come first, then the
+// ready backlog, each in decreasing-activity order. Active rows still join their
+// worker's real session status from board.agents by ticket id, falling back to
+// the column default before a status has arrived.
 import { describe, expect, it } from 'vitest';
 import { ticketStatuses, ticketStatusLabel, type TicketRowStatus } from '@/components/feed-format';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
@@ -68,7 +68,7 @@ describe('ticketStatuses', () => {
     expect(ticketStatuses(board).map((t) => t.id)).toEqual(['t1', 'b1']);
   });
 
-  it('includes every ticket, active first then done then backlog (ready/shaping) last', () => {
+  it('lists working then blocked (active) then the ready backlog, excluding done and shaping', () => {
     const at = (id: string, state: ReturnType<typeof makeTicket>['state'], updatedAt: string) =>
       makeTicket({ ...baseFields, id, title: id, body: '', state, priority: 0, updatedAt });
     const board = makeBoard({
@@ -78,36 +78,50 @@ describe('ticketStatuses', () => {
       blocked: [at('bl', 'blocked', '2026-07-02T00:00:00Z')],
       done: [at('dn', 'done', '2026-07-03T00:00:00Z')],
     });
-    // working, blocked (active), then done, then ready, then shaping — regardless
-    // of the raw updated_at recency, which only breaks ties within a rank.
-    expect(ticketStatuses(board).map((t) => t.id)).toEqual(['wk', 'bl', 'dn', 'rd', 'sh']);
+    // working, blocked (active), then ready — done and shaping are dropped
+    // entirely, regardless of raw updated_at recency (which only breaks ties).
+    expect(ticketStatuses(board).map((t) => t.id)).toEqual(['wk', 'bl', 'rd']);
+  });
+
+  it('excludes done and shaping tickets even when nothing else is on the board', () => {
+    const at = (id: string, state: ReturnType<typeof makeTicket>['state']) =>
+      makeTicket({ ...baseFields, id, title: id, body: '', state, priority: 0 });
+    const board = makeBoard({
+      done: [at('dn', 'done')],
+      shaping: [at('sh', 'shaping')],
+    });
+    expect(ticketStatuses(board)).toEqual([]);
   });
 
   it('orders same-rank tickets by decreasing activity (most-recently-updated first)', () => {
-    const done = (id: string, updatedAt: string) =>
-      makeTicket({ ...baseFields, id, title: id, body: '', state: 'done', priority: 0, updatedAt });
+    const ready = (id: string, updatedAt: string) =>
+      makeTicket({
+        ...baseFields,
+        id,
+        title: id,
+        body: '',
+        state: 'ready',
+        priority: 0,
+        updatedAt,
+      });
     const board = makeBoard({
-      done: [
-        done('old', '2026-07-01T00:00:00Z'),
-        done('new', '2026-07-05T00:00:00Z'),
-        done('mid', '2026-07-03T00:00:00Z'),
+      ready: [
+        ready('old', '2026-07-01T00:00:00Z'),
+        ready('new', '2026-07-05T00:00:00Z'),
+        ready('mid', '2026-07-03T00:00:00Z'),
       ],
     });
     expect(ticketStatuses(board).map((t) => t.id)).toEqual(['new', 'mid', 'old']);
   });
 
-  it('shows the lifecycle state for tickets with no live worker', () => {
-    const at = (id: string, state: ReturnType<typeof makeTicket>['state']) =>
-      makeTicket({ ...baseFields, id, title: id, body: '', state, priority: 0 });
+  it('shows the lifecycle state for a ready ticket with no live worker', () => {
     const board = makeBoard({
-      done: [at('dn', 'done')],
-      ready: [at('rd', 'ready')],
-      shaping: [at('sh', 'shaping')],
+      ready: [
+        makeTicket({ ...baseFields, id: 'rd', title: 'rd', body: '', state: 'ready', priority: 0 }),
+      ],
     });
     const byId = new Map(ticketStatuses(board).map((t) => [t.id, t.status]));
-    expect(byId.get('dn')).toBe('done');
     expect(byId.get('rd')).toBe('ready');
-    expect(byId.get('sh')).toBe('shaping');
   });
 });
 

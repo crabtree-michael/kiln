@@ -11,7 +11,7 @@ import { acceptTicket } from '@/transport/transport';
 /**
  * jsdom performs no layout, so a card body's `scrollHeight`/`clientHeight` are
  * both 0 and the five-line clamp never registers as overflowing. Fake a clamped
- * box (content taller than the window) so the "tap to see more" affordance can
+ * box (content taller than the window) so the tap-body-to-expand affordance can
  * be exercised; restore after each test so the layout-free default holds for the
  * snapshot cases (mirrors ActivityRow.test's `fakeClampedOverflow`).
  */
@@ -209,9 +209,13 @@ describe('PrimaryScreenView', () => {
     }
     expect(emailCard).toHaveAttribute('data-seen', 'true');
     const body = emailCard.querySelector('[data-role="feed-card-body"]');
-    const more = within(emailCard).getByRole('button', { name: 'Tap to see more' });
+    if (!(body instanceof HTMLElement)) {
+      throw new Error('expected the Email feed card body');
+    }
+    // The clamped body is itself the toggle — no separate control.
+    expect(body).toHaveAttribute('data-clickable', 'true');
     expect(body).not.toHaveAttribute('data-expanded');
-    fireEvent.click(more);
+    fireEvent.click(body);
     expect(body).toHaveAttribute('data-expanded', 'true');
   });
 
@@ -284,10 +288,7 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    expect(screen.getByText('All good.')).toHaveAttribute(
-      'data-role',
-      'feed-empty-title',
-    );
+    expect(screen.getByText('All good.')).toHaveAttribute('data-role', 'feed-empty-title');
     // The idle count is dropped entirely — only the building count (with the
     // last-word suffix) is shown.
     expect(screen.getByText('3 building · last word 6m ago')).toBeInTheDocument();
@@ -434,7 +435,7 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('shows no "tap to see more" affordance when a card body fits within the clamp', () => {
+  it('leaves the body non-interactive (no toggle) when it fits within the clamp', () => {
     const update = makeFeedCard({
       kind: 'update',
       id: 'update:short',
@@ -444,7 +445,10 @@ describe('PrimaryScreenView', () => {
       createdAt: minutesAgo(1),
     });
     renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }));
-    expect(document.querySelector('[data-role="feed-card-more"]')).toBeNull();
+    const body = document.querySelector('[data-role="feed-card-body"]');
+    expect(body).not.toHaveAttribute('data-clickable');
+    expect(body).not.toHaveAttribute('role', 'button');
+    expect(screen.queryByRole('button', { name: /A short body/ })).toBeNull();
   });
 
   it('reveals an overflowing card body in place on tap and collapses it again (uniform across kinds)', () => {
@@ -459,21 +463,23 @@ describe('PrimaryScreenView', () => {
     });
     renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }));
 
+    // The clamped body is the toggle itself — tap it to expand, tap again to collapse.
     const body = document.querySelector('[data-role="feed-card-body"]');
-    const more = screen.getByRole('button', { name: 'Tap to see more' });
-    expect(more).toHaveAttribute('aria-expanded', 'false');
+    if (!(body instanceof HTMLElement)) {
+      throw new Error('expected the update feed card body');
+    }
+    expect(body).toHaveAttribute('data-clickable', 'true');
+    expect(body).toHaveAttribute('role', 'button');
+    expect(body).toHaveAttribute('aria-expanded', 'false');
     expect(body).not.toHaveAttribute('data-expanded');
 
-    fireEvent.click(more);
+    fireEvent.click(body);
     expect(body).toHaveAttribute('data-expanded', 'true');
-    const less = screen.getByRole('button', { name: 'Show less' });
-    expect(less).toHaveAttribute('aria-expanded', 'true');
+    expect(body).toHaveAttribute('aria-expanded', 'true');
 
-    fireEvent.click(less);
-    expect(document.querySelector('[data-role="feed-card-body"]')).not.toHaveAttribute(
-      'data-expanded',
-    );
-    expect(screen.getByRole('button', { name: 'Tap to see more' })).toBeInTheDocument();
+    fireEvent.click(body);
+    expect(body).not.toHaveAttribute('data-expanded');
+    expect(body).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′)', () => {

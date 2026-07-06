@@ -4,11 +4,15 @@
 // (`proposal-accept`). Presentational only: it takes a card and callbacks, never
 // touching the transport or stores directly.
 //
-// Every kind shares one scannable layout: a left-aligned head (type · bolded
-// ticket name · age) over a normal-weight body clamped to five lines. For
-// update/blocker/preview cards a long body gets a quiet "tap to see more"
-// affordance that expands the text in place. Proposal cards instead make the
-// clamped body a click-through button (`feed-card-open`) that opens the full
+// Every kind shares one scannable layout: a left-aligned head (bolded ticket
+// name · age) over a normal-weight body clamped to five lines. Update and
+// blocker cards drop the kind tag — the title colour carries the kind (muted
+// for updates, fire for blockers, the latter also flagged by the pulse dot);
+// proposal and preview keep the tag since the colour scheme doesn't cover them.
+// For update/blocker/preview cards, when the body actually overflows the clamp
+// becomes its own affordance: tapping the clamped text expands it in place and
+// tapping again collapses it — no separate label. Proposal cards instead make
+// the clamped body a click-through button (`feed-card-open`) that opens the full
 // ticket detail overlay (08 §5) — the whole shaped ticket (title, full body,
 // actions) is one tap away rather than dumped in the feed. The inline Accept
 // stays a *sibling* of that button — never nested — so tapping Accept accepts
@@ -26,10 +30,11 @@ import { cardTag, relativeAge } from '@/components/feed-format';
 /**
  * The card body, clamped and expandable in place. Unseen cards clamp to five
  * lines; already-seen cards (`seen`) clamp tighter (a skim of the top) via the
- * `data-seen` hook, both driven from CSS. When the clamp actually bites we
- * surface a "tap to see more" control (the "read full ticket" text-link style,
- * but a quiet gray rather than red) that reveals the full body and toggles back
- * to "Show less".
+ * `data-seen` hook, both driven from CSS. When the clamp actually bites, the
+ * clamped text becomes its own affordance: the paragraph turns into a button
+ * (cursor + `data-clickable`) that reveals the full body on tap and collapses
+ * it again on the next — no separate "tap to see more" label. A body that fits
+ * stays inert plain copy.
  *
  * Truncation is measured (`scrollHeight` overflows the clamped `clientHeight`)
  * only while collapsed — once expanded the clamp is gone and the two heights
@@ -57,32 +62,39 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
     };
   }, [body, expanded]);
 
+  // The clamp is the cue: only make the body a toggle once it actually overflows
+  // (or is already expanded). A body that fits stays plain, non-interactive copy.
+  const interactive = truncated || expanded;
   const toggle = (): void => {
     setExpanded((value) => !value);
   };
 
   return (
-    <>
-      <p
-        ref={ref}
-        data-role="feed-card-body"
-        data-seen={seen ? 'true' : undefined}
-        data-expanded={expanded ? 'true' : undefined}
-      >
-        {body}
-      </p>
-      {(truncated || expanded) && (
-        <button
-          type="button"
-          data-role="feed-card-more"
-          data-expanded={expanded ? 'true' : undefined}
-          aria-expanded={expanded}
-          onClick={toggle}
-        >
-          {expanded ? 'Show less' : 'Tap to see more'}
-        </button>
-      )}
-    </>
+    <p
+      ref={ref}
+      data-role="feed-card-body"
+      data-seen={seen ? 'true' : undefined}
+      data-expanded={expanded ? 'true' : undefined}
+      data-clickable={interactive ? 'true' : undefined}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-expanded={interactive ? expanded : undefined}
+      onClick={interactive ? toggle : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => {
+              // Enter/Space toggle, matching native button semantics for the
+              // role we've taken on; preventDefault stops Space from scrolling.
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggle();
+              }
+            }
+          : undefined
+      }
+    >
+      {body}
+    </p>
   );
 }
 
@@ -111,6 +123,9 @@ export function FeedCardItem({
   onOpenDetail,
 }: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
+  // Update and blocker cards drop the kind tag — their title colour carries the
+  // kind. Proposal and preview keep it (the colour scheme doesn't cover them).
+  const showTag = card.kind === 'proposal' || card.kind === 'preview';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
   // A proposal card is a digest that opens the full ticket detail on tap (08 §5).
@@ -128,7 +143,7 @@ export function FeedCardItem({
     <article data-role="feed-card" data-kind={card.kind} data-seen={seen ? 'true' : undefined}>
       <div data-role="feed-card-head">
         {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
-        <span data-role="feed-card-tag">{cardTag(card.kind)}</span>
+        {showTag && <span data-role="feed-card-tag">{cardTag(card.kind)}</span>}
         <span data-role="feed-card-label">{card.label}</span>
         <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
       </div>

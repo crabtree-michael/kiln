@@ -232,11 +232,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                 data-role="feed-card-dot"
               />
               <span
-                data-role="feed-card-tag"
-              >
-                Blocker
-              </span>
-              <span
                 data-role="feed-card-label"
               >
                 Auth
@@ -264,11 +259,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             <div
               data-role="feed-card-head"
             >
-              <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
               <span
                 data-role="feed-card-label"
               >
@@ -305,11 +295,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
-              <span
                 data-role="feed-card-label"
               >
                 Email
@@ -339,11 +324,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             <div
               data-role="feed-card-head"
             >
-              <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
               <span
                 data-role="feed-card-label"
               >
@@ -538,11 +518,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
             <div
               data-role="feed-card-head"
             >
-              <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
               <span
                 data-role="feed-card-label"
               >
@@ -869,11 +844,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
-              <span
                 data-role="feed-card-label"
               >
                 Rate limiting
@@ -902,11 +872,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
               data-role="feed-card-head"
             >
               <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
-              <span
                 data-role="feed-card-label"
               >
                 Email
@@ -934,11 +899,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
             <div
               data-role="feed-card-head"
             >
-              <span
-                data-role="feed-card-tag"
-              >
-                Update
-              </span>
               <span
                 data-role="feed-card-label"
               >

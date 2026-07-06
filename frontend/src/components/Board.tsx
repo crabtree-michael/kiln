@@ -1,7 +1,7 @@
-// Composes the board region (07 §7): two columns — Backlog (Ready) and
-// Developing (Blocked above Working) — plus the capacity chip. Shaping and
-// Done are hidden from the list; the active work states (Ready, Blocked,
-// Working) stay visible. Board is read-only: no drag-and-drop, all mutation
+// Composes the board region (07 §7): three columns — Backlog (Shaping above
+// Ready), Developing (Blocked above Working), and Done — plus the capacity
+// chip. This is the debug view: every ticket state is shown with no filtering,
+// so nothing is hidden here. Board is read-only: no drag-and-drop, all mutation
 // flows through chat (D5). Reads from the board store; `connectionState` also
 // drives the "dim while reconnecting" treatment (07 §8), left to the solution
 // phase's styling.
@@ -19,11 +19,15 @@ export function Board(): JSX.Element {
   // the client holds no authoritative state (02 §11).
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const backlogZones: BoardColumnZone[] = [{ label: 'Ready', tickets: board?.ready ?? [] }];
+  const backlogZones: BoardColumnZone[] = [
+    { label: 'Shaping', tickets: board?.shaping ?? [] },
+    { label: 'Ready', tickets: board?.ready ?? [] },
+  ];
   const developingZones: BoardColumnZone[] = [
     { label: 'Blocked', tickets: board?.blocked ?? [], emphasis: 'loud' },
     { label: 'Working', tickets: board?.working ?? [] },
   ];
+  const doneZones: BoardColumnZone[] = [{ label: 'Done', tickets: board?.done ?? [] }];
 
   // Re-derive the open ticket from the live board each render so the detail
   // reflects incoming `board` snapshots; if it left the board, close.
@@ -46,6 +50,7 @@ export function Board(): JSX.Element {
       <div data-role="board-columns">
         <BoardColumn title="Backlog" zones={backlogZones} onSelectTicket={onSelectTicket} />
         <BoardColumn title="Developing" zones={developingZones} onSelectTicket={onSelectTicket} />
+        <BoardColumn title="Done" zones={doneZones} onSelectTicket={onSelectTicket} />
       </div>
       {selectedTicket != null && (
         <TicketDetail

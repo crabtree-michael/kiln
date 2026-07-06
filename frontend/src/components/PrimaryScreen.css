@@ -17,13 +17,14 @@
   position: relative;
   /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
      (its overflow-y:auto) with the dock pinned, rather than growing the page.
-     `--app-viewport-height` is published by `use-keyboard-viewport` only while
-     the on-screen keyboard is open: it holds the visual-viewport height so the
-     column shrinks to the visible area and the dock rides above the keyboard
-     instead of being pushed off-screen behind it (iOS Safari / Chrome Android
-     don't shrink the `dvh` layout viewport for the keyboard). Unset otherwise,
-     so the normal case keeps the tuned `100dvh` behaviour. */
-  height: var(--app-viewport-height, 100dvh);
+     The column keeps its full height when the on-screen keyboard opens (iOS
+     Safari doesn't shrink the `dvh` layout viewport for the keyboard); the dock
+     is instead lifted above the keyboard by a compositor transform driven from
+     the visual viewport (see the `dock-region` rule + use-keyboard-viewport),
+     so no per-event resize/reflow of this column is needed. On Chrome Android
+     `interactive-widget=resizes-content` (index.html) does shrink `dvh` as the
+     keyboard animates, so this column follows the keyboard natively there. */
+  height: 100dvh;
   margin: 0 auto;
   max-width: 520px;
   /* Flat paper (design system: "paper sits flat") — the same --surface-page the
@@ -925,6 +926,15 @@
 [data-role='dock-region'] {
   position: relative;
   flex-shrink: 0;
+  /* Ride the on-screen keyboard: `use-keyboard-viewport` publishes the keyboard's
+     overlap of the bottom edge as `--keyboard-inset` (0px when closed), frame-synced
+     to the visual viewport, and we lift the dock by exactly that so it sits flush on
+     top of the keyboard. A compositor transform (no layout, no reflow, no column
+     resize) rides the OS open/close animation smoothly instead of snapping, and it
+     carries the absolutely-positioned activity row (toasts) anchored above it. No
+     CSS transition: the transform tracks the OS animation frame-by-frame, so a
+     transition here would lag behind and double it. */
+  transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
 }
 
 /* The toast stack floats above the dock as an overlay rather than sitting in

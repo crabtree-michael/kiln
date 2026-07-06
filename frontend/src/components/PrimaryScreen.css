@@ -47,16 +47,17 @@
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  /* No top padding: the top breathing room lives in the sticky header instead,
-     so the header pins flush to the feed's content edge (y=0) and its opaque
-     fill reaches the physical top — through the safe-area strip — in every
-     scroll state. Sides/bottom keep their padding. */
+  /* No top padding: the nav bar sits directly above the feed as a pinned sibling
+     (not inside the scroll region), so the backlog begins flush at the feed's
+     content edge (y=0), immediately under the bar. Sides/bottom keep their
+     padding. */
   padding: 0 26px 8px;
 }
 
-/* Single in-flow wrapper holding everything that scrolls (sticky header +
-   backlog). It grows to fill the feed and never shrinks below its content, so
-   a tall backlog scrolls exactly as before. On touch devices it is forced a
+/* Single in-flow wrapper holding everything that scrolls (the backlog; the nav
+   bar is a pinned sibling above the feed, not in here). It grows to fill the feed
+   and never shrinks below its content, so a tall backlog scrolls exactly as
+   before. On touch devices it is forced a
    single pixel taller than the scrollport (below) so the feed is ALWAYS
    scrollable — that is what lets the native rubber-band engage even when the
    backlog is short or empty, giving the whole app an elastic feel instead of
@@ -80,23 +81,21 @@
 }
 
 [data-role='feed-header'] {
-  /* Pinned to the top of the feed region: the backlog scrolls behind it rather
-     than pushing it off-screen. Sticky (not fixed) so it stays scoped to the
-     feed's own scroll container and the 520px max-width column. */
-  position: sticky;
-  top: 0;
-  /* Above the scrolling cards, matching the dock/transcript occluders so feed
-     content passing behind is covered rather than showing through. */
+  /* Pinned nav bar: a flex sibling ABOVE the feed scroll region (not inside it),
+     so an overscroll/rubber-band at the top of the feed can never drag it down —
+     the elastic bounce shows as blank space inside the feed scrollport instead,
+     with the bar held fast at the physical top. It spans the full 520px column,
+     so the backlog scrolls up and clips at its flush bottom edge just as it did
+     when the bar was sticky. */
+  flex-shrink: 0;
+  /* Positioned so z-index applies and the header-status dropdown (which drops
+     below the bar over the feed) paints above the scrolling cards, matching the
+     dock/transcript occluders. */
+  position: relative;
   z-index: 5;
-  /* Opaque page tone so the header occludes cards as the app's own background —
-     same fill the dock + live transcript use. */
+  /* Opaque page tone so the bar reads as the app's own background — same fill the
+     dock + live transcript use — and occludes the feed edge beneath it. */
   background: var(--surface-page);
-  /* Bleed over the feed's side padding (26px) so cards are occluded to the left
-     and right edges. The top needs no negative margin now — the feed carries no
-     top padding, so sticky top:0 pins the bar's top to y=0 (the physical top,
-     under the notch with viewport-fit=cover), where its opaque fill abuts the
-     safe-area top with no seam in any scroll state. */
-  margin: 0 -26px 0;
   /* Push the header content below the notch / Dynamic Island: the safe-area top
      inset plus the 22px design breathing room the feed used to carry. On a
      device with no top inset (desktop, non-notched phones) this collapses to

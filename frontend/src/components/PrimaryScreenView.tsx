@@ -151,31 +151,37 @@ export function PrimaryScreenView({
 
   return (
     <div data-role="primary-screen" data-connection-state={connectionState}>
+      {/* The nav bar lives OUTSIDE the scrolling feed region so it stays pinned to
+          the physical top in every scroll state. When it sat inside the feed
+          (position: sticky), an overscroll/rubber-band at the top of the feed
+          dragged the whole scroll content — the header with it — down, revealing
+          blank space above the nav bar. As a flex sibling above the feed it can't
+          be pulled: the elastic bounce now shows as blank space inside the feed
+          scrollport, below the pinned bar. */}
+      <header data-role="feed-header">
+        <div data-role="kiln-mark">
+          <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
+          <span data-role="kiln-wordmark">Kiln</span>
+        </div>
+        <HeaderStatusMenu
+          summary={summary}
+          board={board}
+          onOpen={onOpenTickets}
+          refreshing={ticketsRefreshing}
+        />
+      </header>
       <section
         role="region"
         aria-label="Feed"
         data-role="feed"
         data-connection-state={connectionState}
       >
-        {/* Single sizing wrapper for everything that scrolls. It is held a hair
-            taller than the feed scrollport (see [data-role='feed-scroll'] in
-            PrimaryScreen.css) so the feed is always scrollable and the native
+        {/* Single sizing wrapper for everything that scrolls (the backlog). It is
+            held a hair taller than the feed scrollport (see [data-role='feed-scroll']
+            in PrimaryScreen.css) so the feed is always scrollable and the native
             rubber-band engages even when the backlog is short or empty — the app
             feels elastic instead of stuck. */}
         <div data-role="feed-scroll">
-          <header data-role="feed-header">
-            <div data-role="kiln-mark">
-              <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-              <span data-role="kiln-wordmark">Kiln</span>
-            </div>
-            <HeaderStatusMenu
-              summary={summary}
-              board={board}
-              onOpen={onOpenTickets}
-              refreshing={ticketsRefreshing}
-            />
-          </header>
-
           <div data-role="backlog">
             {isEmpty ? (
               <div data-role="feed-empty">

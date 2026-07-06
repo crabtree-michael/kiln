@@ -25,6 +25,8 @@ export type FeedHistoryPage = components['schemas']['FeedHistoryPage'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
+export type PushKey = components['schemas']['PushKey'];
+export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
 export type Me = components['schemas']['Me'];
 export type MeProject = components['schemas']['MeProject'];
 export type SettingsUpdateRequest = components['schemas']['SettingsUpdateRequest'];
@@ -495,6 +497,42 @@ export async function fetchMe(): Promise<Me | null> {
     throw new Error('fetchMe: unexpected response shape');
   }
   return payload;
+}
+
+function isPushKey(value: unknown): value is PushKey {
+  return isRecord(value) && typeof value.key === 'string';
+}
+
+/** `GET /api/push/key` — the VAPID public key for pushManager.subscribe (02 §10).
+ * Returns `null` when push is not configured on the backend (404), which the
+ * caller treats as "notifications unavailable". */
+export async function fetchPushKey(): Promise<string | null> {
+  const response = await fetch('/api/push/key');
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`fetchPushKey: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isPushKey(payload)) {
+    throw new Error('fetchPushKey: unexpected response shape');
+  }
+  return payload.key;
+}
+
+/** `POST /api/push/subscribe` — register a browser push subscription (02 §10).
+ * The body is the browser `PushSubscription.toJSON()` shape; upsert on endpoint,
+ * so a re-subscribe is idempotent. */
+export async function postPushSubscription(sub: PushSubscriptionPayload): Promise<void> {
+  const response = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sub),
+  });
+  if (!response.ok) {
+    throw new Error(`postPushSubscription: HTTP ${String(response.status)}`);
+  }
 }
 
 /** `PUT /api/settings` — updates config/secrets; empty/omitted fields are

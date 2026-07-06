@@ -120,6 +120,30 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
           />
         </label>
       </form>
+      <section
+        data-role="notifications-field"
+      >
+        <div
+          data-role="notifications-header"
+        >
+          <span
+            data-role="notifications-title"
+          >
+            Notifications
+          </span>
+          <span
+            data-role="notifications-status"
+            data-status="unsupported"
+          >
+            Unavailable
+          </span>
+        </div>
+        <p
+          data-role="notifications-note"
+        >
+          This browser doesn’t support push notifications.
+        </p>
+      </section>
       <form
         data-role="project-form"
       >

@@ -47,6 +47,10 @@ const healthPingTimeout = 3 * time.Second
 // larger up front.
 const maxMessageBody = 64 << 10
 
+// maxPushBody caps the POST /api/push/subscribe body before decoding. A browser
+// PushSubscription (endpoint URL + two short base64url keys) is well under 8 KiB.
+const maxPushBody = 8 << 10
+
 // BoardReader is the api's port onto the board's read path (03 §4 GetBoard).
 type BoardReader interface {
 	GetBoard(ctx context.Context) (board.Snapshot, error)
@@ -156,6 +160,24 @@ type VoiceTokenMinter interface {
 	MintStreamingToken(ctx context.Context) (token string, expiresAt time.Time, err error)
 }
 
+// PushSubscription is one browser Web Push registration as the registrar
+// receives it (02 §10) — the api's own shape, so this package never imports
+// internal/push (same boundary rule the other ports follow). A cmd/kiln adapter
+// maps it to push.Subscription.
+type PushSubscription struct {
+	Endpoint string
+	P256dh   string
+	Auth     string
+}
+
+// PushRegistrar is the api's port onto the push subscription store's write side
+// (02 §10): POST /api/push/subscribe lands a browser subscription that the
+// runtime's notify.send executor later delivers to. Satisfied by a cmd/kiln
+// adapter over the push store.
+type PushRegistrar interface {
+	Subscribe(ctx context.Context, sub PushSubscription) error
+}
+
 // Authenticator is the api's port onto the GitHub OAuth + cookie-session
 // lifecycle (11 §2): start the dance, complete it against the allowlist,
 // mint/resolve/revoke a session. Satisfied directly by *identity.Service —
@@ -217,6 +239,8 @@ type Server struct {
 	seen     FeedMutator
 	hub      *Hub
 	voice    VoiceTokenMinter
+	push     PushRegistrar      // non-nil ⇒ POST /api/push/subscribe + GET /api/push/key are mounted (02 §10)
+	vapidKey string             // VAPID public key served by GET /api/push/key; empty ⇒ that route 404s (push disabled)
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
@@ -253,6 +277,17 @@ func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes 
 // dev seed routes it is wired unconditionally at the composition root — the
 // /debug "Reset session" button relies on it always being present.
 func (s *Server) EnableReset(r Resetter) { s.resetter = r }
+
+// EnablePush turns on the Web Push registration routes (call before Handler):
+// POST /api/push/subscribe stores a browser subscription; GET /api/push/key
+// serves the VAPID public key. The registrar (subscription store) is always
+// available, so subscribe is always mounted; vapidPublicKey is empty when the
+// operator has not configured a VAPID key pair, in which case the key route
+// reports 404 and the client hides the notifications toggle (02 §10).
+func (s *Server) EnablePush(registrar PushRegistrar, vapidPublicKey string) {
+	s.push = registrar
+	s.vapidKey = vapidPublicKey
+}
 
 // EnableIdentity turns on the GitHub OAuth + cookie-session routes (11 §2):
 // GET /auth/github/login, GET /auth/github/callback, POST /auth/logout —
@@ -299,6 +334,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.handleFeedDismiss)
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/voice/token", s.handleVoiceToken)
+	if s.push != nil {
+		mux.HandleFunc("POST /api/push/subscribe", s.handlePushSubscribe)
+		mux.HandleFunc("GET /api/push/key", s.handlePushKey)
+	}
 	if s.seeder != nil {
 		mux.HandleFunc("POST /api/dev/tickets", s.handleDevCreateTicket)
 	}
@@ -620,6 +659,47 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, wire.VoiceToken{Token: token, ExpiresAt: expiresAt})
+}
+
+// handlePushKey serves the VAPID public key for pushManager.subscribe (02 §10).
+// When no key is configured (the VAPID env vars are unset) it 404s, and the
+// client treats notifications as unavailable.
+func (s *Server) handlePushKey(w http.ResponseWriter, _ *http.Request) {
+	if s.vapidKey == "" {
+		http.Error(w, "push not configured", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, wire.PushKey{Key: s.vapidKey})
+}
+
+// handlePushSubscribe stores a browser PushSubscription (02 §10). Upsert on
+// endpoint (via the registrar), so a re-subscribe is idempotent; 204 on success.
+func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushBody)
+	var req wire.PushSubscription
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Endpoint == "" || req.Keys.P256dh == "" || req.Keys.Auth == "" {
+		http.Error(w, "endpoint and keys are required", http.StatusBadRequest)
+		return
+	}
+	if err := s.push.Subscribe(r.Context(), PushSubscription{
+		Endpoint: req.Endpoint,
+		P256dh:   req.Keys.P256dh,
+		Auth:     req.Keys.Auth,
+	}); err != nil {
+		slog.Error("api: store push subscription", "err", err)
+		http.Error(w, "store subscription", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // findTicket locates a ticket by id across every group of a board snapshot.

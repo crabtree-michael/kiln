@@ -26,6 +26,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -34,6 +35,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/api"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/push"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	"github.com/crabtree-michael/kiln/backend/internal/steward"
@@ -382,10 +384,10 @@ func (a *slotsAdapter) WorkerIDs(ctx context.Context) ([]string, error) {
 var _ agent.Slots = (*slotsAdapter)(nil)
 
 // logNotifier satisfies runtime.Notifier (02 §10 executor for notify.send).
-// v1 descope (07 §6): a structured log line, no real push — the outbox
-// contract is unchanged, so 10 swaps this adapter for a real one and nothing
-// else. A log line cannot fail, and "a rare duplicate notification is accepted
-// as benign" (04 §3) applies trivially.
+// It is the fallback when no VAPID key pair is configured — a structured log
+// line, no real push. The outbox contract is unchanged either way. A log line
+// cannot fail, and "a rare duplicate notification is accepted as benign"
+// (04 §3) applies trivially.
 type logNotifier struct{ log *slog.Logger }
 
 func (n *logNotifier) Send(_ context.Context, payload []byte) error {
@@ -394,6 +396,69 @@ func (n *logNotifier) Send(_ context.Context, payload []byte) error {
 }
 
 var _ runtime.Notifier = (*logNotifier)(nil)
+
+// webPushNotifier satisfies runtime.Notifier by delivering real Web Push
+// messages (02 §10). It decodes the notify.send payload — a board.NotifyPayload
+// snapshot (03 §7.1) — into the user-facing Notification (Title/Reason →
+// Title/Body) and hands it to the push.Sender, which fans out to every stored
+// browser subscription. URL is the deep link the service worker opens on tap;
+// "/" lands on the (already-updated) board (02 §10).
+type webPushNotifier struct{ sender *push.Sender }
+
+func (n *webPushNotifier) Send(ctx context.Context, payload []byte) error {
+	var p board.NotifyPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("kiln: decode notify payload: %w", err)
+	}
+	if err := n.sender.Send(ctx, push.Notification{
+		Title: p.Title,
+		Body:  p.Reason,
+		URL:   "/",
+	}); err != nil {
+		return fmt.Errorf("kiln: web push send: %w", err)
+	}
+	return nil
+}
+
+var _ runtime.Notifier = (*webPushNotifier)(nil)
+
+// pushRegistrarAdapter satisfies api.PushRegistrar over the push store's write
+// side: the client's POST /api/push/subscribe lands a browser subscription that
+// webPushNotifier later reads. wire.PushSubscription → push.Subscription.
+type pushRegistrarAdapter struct{ store push.Store }
+
+func (a *pushRegistrarAdapter) Subscribe(ctx context.Context, sub api.PushSubscription) error {
+	if err := a.store.Save(ctx, push.Subscription{
+		Endpoint: sub.Endpoint,
+		P256dh:   sub.P256dh,
+		Auth:     sub.Auth,
+	}); err != nil {
+		return fmt.Errorf("kiln: save push subscription: %w", err)
+	}
+	return nil
+}
+
+var _ api.PushRegistrar = (*pushRegistrarAdapter)(nil)
+
+// newNotifier chooses the notify.send executor (02 §10): a real Web Push sender
+// when the operator has supplied a VAPID key pair (VAPID_PUBLIC_KEY +
+// VAPID_PRIVATE_KEY), otherwise the log-only fallback — so an unconfigured boot
+// (local dev, tests) behaves exactly as before. Both keys are required; a lone
+// key cannot sign, so a partial config falls back to logging with a warning.
+func newNotifier(cfg Config, store push.Store, log *slog.Logger) runtime.Notifier {
+	switch {
+	case cfg.VAPIDPublicKey != "" && cfg.VAPIDPrivateKey != "":
+		log.Info("notify.send: web push enabled")
+		return &webPushNotifier{
+			sender: push.NewSender(store, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, nil, log),
+		}
+	case cfg.VAPIDPublicKey != "" || cfg.VAPIDPrivateKey != "":
+		log.Warn("notify.send: partial VAPID config (need both public and private key) — falling back to log-only")
+		return &logNotifier{log: log}
+	default:
+		return &logNotifier{log: log}
+	}
+}
 
 // realClock is the wall-clock Clock both runtime (04 §9) and agent (05 §10)
 // want, satisfying both ports with the same value.

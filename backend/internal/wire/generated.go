@@ -403,6 +403,25 @@ type ProjectUpdateRequest struct {
 	WorkerCount   *int    `json:"worker_count,omitempty"`
 }
 
+// PushKey The VAPID public key for pushManager.subscribe (02 §10).
+type PushKey struct {
+	// Key Base64url-encoded VAPID application server key.
+	Key string `json:"key"`
+}
+
+// PushSubscription A browser PushSubscription as produced by `PushSubscription.toJSON()` — the endpoint URL plus the p256dh and auth keys used to encrypt Web Push payloads (RFC 8291).
+type PushSubscription struct {
+	// Endpoint The push service URL messages are POSTed to.
+	Endpoint string `json:"endpoint"`
+	Keys     struct {
+		// Auth Base64url client auth secret.
+		Auth string `json:"auth"`
+
+		// P256dh Base64url client public key (ECDH P-256).
+		P256dh string `json:"p256dh"`
+	} `json:"keys"`
+}
+
 // SayEvent The `say` SSE event payload (07 §4) — one event per brain say (renamed from `speak`, 07 A1). message_id matches the corresponding Message row from GET /api/messages/the transcript.
 type SayEvent struct {
 	At        time.Time `json:"at"`
@@ -502,6 +521,9 @@ type PostMessageJSONRequestBody = MessageRequest
 
 // PutProjectJSONRequestBody defines body for PutProject for application/json ContentType.
 type PutProjectJSONRequestBody = ProjectUpdateRequest
+
+// PostPushSubscribeJSONRequestBody defines body for PostPushSubscribe for application/json ContentType.
+type PostPushSubscribeJSONRequestBody = PushSubscription
 
 // PutSettingsJSONRequestBody defines body for PutSettings for application/json ContentType.
 type PutSettingsJSONRequestBody = SettingsUpdateRequest

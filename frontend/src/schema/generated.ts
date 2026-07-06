@@ -201,6 +201,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/push/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The VAPID public key the client subscribes with (02 §10).
+         * @description Returns the server's VAPID application server key, base64url-encoded, for the client's `pushManager.subscribe({ applicationServerKey })` call. The matching private key never leaves /backend. 404 when push is not configured (the VAPID env vars are unset) — the client treats that as "notifications unavailable" and hides the toggle.
+         */
+        get: operations["getPushKey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a browser push subscription (02 §10).
+         * @description Stores the browser `PushSubscription` (endpoint + p256dh/auth keys) so the runtime's notify.send executor can deliver Web Push messages to it. Upsert on endpoint — a re-subscribe from the same browser is idempotent. Single user in v1: subscriptions are stored globally and every notification fans out to all of them.
+         */
+        post: operations["postPushSubscribe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream": {
         parameters: {
             query?: never;
@@ -523,6 +563,22 @@ export interface components {
         VerifyResponse: {
             checks: components["schemas"]["VerifyCheck"][];
         };
+        /** @description The VAPID public key for pushManager.subscribe (02 §10). */
+        PushKey: {
+            /** @description Base64url-encoded VAPID application server key. */
+            key: string;
+        };
+        /** @description A browser PushSubscription as produced by `PushSubscription.toJSON()` — the endpoint URL plus the p256dh and auth keys used to encrypt Web Push payloads (RFC 8291). */
+        PushSubscription: {
+            /** @description The push service URL messages are POSTed to. */
+            endpoint: string;
+            keys: {
+                /** @description Base64url client public key (ECDH P-256). */
+                p256dh: string;
+                /** @description Base64url client auth secret. */
+                auth: string;
+            };
+        };
     };
     responses: never;
     parameters: never;
@@ -750,6 +806,62 @@ export interface operations {
             };
             /** @description The STT provider failed to mint a token. */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPushKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The VAPID public key. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushKey"];
+                };
+            };
+            /** @description Push is not configured on this deployment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postPushSubscribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscription"];
+            };
+        };
+        responses: {
+            /** @description Subscription stored. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body. */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

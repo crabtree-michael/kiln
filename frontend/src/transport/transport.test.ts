@@ -14,6 +14,8 @@ import {
   putProject,
   postVerify,
   postLogout,
+  fetchPushKey,
+  postPushSubscription,
   type Board,
   type SayEvent,
   type ConnectionState,
@@ -378,6 +380,62 @@ describe('transport', () => {
       connection.close();
 
       expect(FakeEventSource.instances[0]?.closed).toBe(true);
+    });
+  });
+
+  describe('fetchPushKey (GET /api/push/key)', () => {
+    it('returns the key on 200', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ key: 'BPUBLIC' }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const key = await fetchPushKey();
+
+      expect(urlOf(fetchMock.mock.calls[0]?.[0])).toContain('/api/push/key');
+      expect(key).toBe('BPUBLIC');
+    });
+
+    it('returns null when push is not configured (404)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response('push not configured', { status: 404 }))),
+      );
+      expect(await fetchPushKey()).toBeNull();
+    });
+
+    it('throws on an unexpected response shape', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(JSON.stringify({ nope: true })))),
+      );
+      await expect(fetchPushKey()).rejects.toThrow('unexpected response shape');
+    });
+  });
+
+  describe('postPushSubscription (POST /api/push/subscribe)', () => {
+    const sub = { endpoint: 'https://push.example/a', keys: { p256dh: 'pub', auth: 'auth' } };
+
+    it('POSTs the subscription JSON and resolves on 204', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 204 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await postPushSubscription(sub);
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/push/subscribe');
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBe(JSON.stringify(sub));
+    });
+
+    it('throws on a non-ok response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response('store subscription', { status: 500 }))),
+      );
+      await expect(postPushSubscription(sub)).rejects.toThrow('HTTP 500');
     });
   });
 });

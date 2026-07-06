@@ -1,6 +1,5 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import { VitePWA } from 'vite-plugin-pwa';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 // This config runs in Node (build-time), not the browser, so `process` exists at
@@ -34,52 +33,17 @@ const sentryPlugins =
       ]
     : [];
 
-// Kiln client is a mobile-first PWA (02 §11). The service worker + manifest make
-// it installable and enable push/notification handling in later surface areas.
+// Kiln client is a mobile-first PWA (02 §11). Notifications (02 §10) need a real
+// service worker, which now ships as a static, purpose-built `public/push-sw.js`
+// (push + notificationclick only, PRECACHES NOTHING) registered on opt-in — see
+// that file and `src/stores/use-web-push.ts`. It replaces the former
+// vite-plugin-pwa self-destroying worker: a hand-written static worker is served
+// verbatim and can never precache a stale app shell (the outage that motivated
+// selfDestroying), so we no longer need the plugin. The web app manifest is now a
+// static `public/manifest.webmanifest` linked from index.html.
 export default defineConfig({
   plugins: [
     react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      // Self-destroying SW (recovery mechanism). The app is an online-only,
-      // SSE-driven dashboard, and per the web-client spec the PWA/offline surface
-      // is deferred to specs 09/10 — so precaching the app shell buys nothing here
-      // and actively caused an outage: a previously-installed client kept serving
-      // a stale precached `index.html` whose hashed CSS/JS no longer exist after a
-      // deploy, so the page rendered unstyled. `selfDestroying` ships a worker that
-      // unregisters itself and clears every cache on the client's next visit, after
-      // which the app loads straight from the always-consistent (no-cache) server.
-      // This auto-recovers already-installed clients with no manual clear. A real,
-      // purpose-built service worker returns when notifications (09/10) need one.
-      selfDestroying: true,
-      workbox: {
-        // Never precache source maps: they are upload-only artifacts (deleted
-        // after upload) and must not be cached by — or shipped in — the SW.
-        globIgnores: ['**/*.map'],
-        // Don't emit maps for the generated SW (`sw.js`/`workbox-*.js`). When
-        // `build.sourcemap` is on (token present), the PWA plugin runs after
-        // Sentry's post-upload `.map` cleanup, so its maps would otherwise
-        // survive in `dist`. We don't symbolicate the SW, so skip them.
-        sourcemap: false,
-      },
-      manifest: {
-        name: 'Kiln',
-        short_name: 'Kiln',
-        description: 'Voice-driven orchestrator for autonomous coding agents.',
-        // Light paper surface (--surface-page, docs/ui/Kiln Colors.html).
-        // `start_url` is `/`, so both the standalone system chrome
-        // (`theme_color`) and the launch splash (`background_color`) read as
-        // the app's own light surface rather than a dark value that
-        // letterboxes the safe-area insets black. The manifest is static —
-        // ThemeColorSync takes over at runtime for the dark theme.
-        theme_color: '#faf6ef',
-        background_color: '#faf6ef',
-        display: 'standalone',
-        orientation: 'portrait',
-        start_url: '/',
-        icons: [{ src: '/kiln-mark.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
-      },
-    }),
     // Sentry goes last (per its docs) and only when a token is present; empty
     // otherwise, so local builds are untouched.
     ...sentryPlugins,

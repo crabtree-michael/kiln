@@ -56,12 +56,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             <div
               data-role="header-status-heading"
             >
-              Streams
+              Tickets
             </div>
             <div
               data-role="header-status-empty"
             >
-              No active streams
+              No tickets
             </div>
           </div>
         </div>
@@ -204,12 +204,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             <div
               data-role="header-status-heading"
             >
-              Streams
+              Tickets
             </div>
             <div
               data-role="header-status-empty"
             >
-              No active streams
+              No tickets
             </div>
           </div>
         </div>
@@ -457,12 +457,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
             <div
               data-role="header-status-heading"
             >
-              Streams
+              Tickets
             </div>
             <div
               data-role="header-status-empty"
             >
-              No active streams
+              No tickets
             </div>
           </div>
         </div>
@@ -644,12 +644,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
             <div
               data-role="header-status-heading"
             >
-              Streams
+              Tickets
             </div>
             <div
               data-role="header-status-empty"
             >
-              No active streams
+              No tickets
             </div>
           </div>
         </div>
@@ -820,12 +820,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
             <div
               data-role="header-status-heading"
             >
-              Streams
+              Tickets
             </div>
             <div
               data-role="header-status-empty"
             >
-              No active streams
+              No tickets
             </div>
           </div>
         </div>

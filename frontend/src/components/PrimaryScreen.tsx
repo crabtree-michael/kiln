@@ -35,8 +35,8 @@ function PrimaryScreenBody(): JSX.Element {
       toasts={toasts}
       onDismiss={dismiss}
       onAccept={onAccept}
-      onOpenStreams={refreshBoard}
-      streamsRefreshing={refreshing}
+      onOpenTickets={refreshBoard}
+      ticketsRefreshing={refreshing}
       lastSeenId={lastSeenId}
       hasMoreHistory={hasMoreHistory}
       loadingMoreHistory={loadingMoreHistory}

@@ -2,7 +2,7 @@
 // `.ts` module (no components) so the presentational `.tsx` files stay clean of
 // react-refresh/only-export-components warnings, and so the header-status /
 // relative-age logic is unit-testable on its own.
-import type { AgentStatus, Board, FeedCard, FeedSummary } from '@/transport/transport';
+import type { AgentStatus, Board, FeedCard, FeedSummary, Ticket } from '@/transport/transport';
 import type { ToastVerb } from '@/stores/activity-context';
 
 function plural(count: number, word: string): string {
@@ -53,68 +53,105 @@ export function streamDetail(summary: FeedSummary, now: number = Date.now()): st
   return `${base} · last word ${relativeAge(summary.last_word_at, now)} ago`;
 }
 
-/** The real session running-state of a stream (amended 2026-07-05): the actual
+/** The real session running-state of a worker (amended 2026-07-05): the actual
  * status of the underlying agent session, joined from `board.agents` — not a
  * hardcoded guess from the ticket's board column. A stopped/errored session is
  * now visibly distinct from one actively building. */
 export type StreamState = AgentStatus['status'];
 
-/** One active stream, broken out for the header dropdown (08 §2). The collapsed
- * header carries only the aggregate counts (`building`/`idle`); this expands
- * them per-stream, using each worker's real session status where the board
- * reports one and falling back to the ticket's column while a first status is
- * still in flight. */
-export interface StreamStatus {
+/** The status chip shown on a ticket row in the header dropdown. For a ticket
+ * with a live worker (working/blocked) it's that worker's real session state;
+ * for one without (ready/shaping/done) it's the ticket's own lifecycle state. */
+export type TicketRowStatus = StreamState | 'ready' | 'shaping' | 'done';
+
+/** One ticket, broken out for the header dropdown (08 §2, amended 2026-07-06:
+ * every ticket, not just the active ones). Each row's status is its bound
+ * worker's real session state from `board.agents` where one exists, falling
+ * back to the ticket's own state otherwise. */
+export interface TicketStatus {
   /** The ticket id — a stable render key. */
   id: string;
-  /** The ticket title shown as the stream label. */
+  /** The ticket title shown as the row label. */
   label: string;
-  /** The real underlying session state (building/idle/stopped/errored/starting). */
-  status: StreamState;
-  /** The blocker reason for a blocked stream, when one is set. */
+  /** The session state where a worker is bound, else the lifecycle state. */
+  status: TicketRowStatus;
+  /** The blocker reason for a blocked ticket, when one is set. */
   reason: string | null;
 }
 
-/** Break the board's active streams out per-stream, working first then blocked —
- * the same order the header counts them (08 §2). Each stream's status is its
- * bound worker's real session state from `board.agents`, keyed by ticket id;
- * before a status has arrived it falls back to the board-column default
- * (`building` for working, `idle` for blocked) so the row is never blank.
- * Returns [] before the first board snapshot lands. */
-export function streamStatuses(board: Board | null): StreamStatus[] {
+/** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
+ * (working then blocked) first, then done, then the backlog-type states (ready,
+ * shaping) at the bottom. Within a rank rows sort by decreasing activity
+ * (most-recently-updated first). */
+const STATE_RANK: Record<Ticket['state'], number> = {
+  working: 0,
+  blocked: 1,
+  done: 2,
+  ready: 3,
+  shaping: 4,
+};
+
+/** The row status for one ticket: its worker's real session state where the
+ * board reports one, else the ticket's own lifecycle state — with the column
+ * defaults (`building` for working, `idle` for blocked) preserved for an active
+ * ticket whose first status is still in flight, so the row is never blank. */
+function ticketRowStatus(ticket: Ticket, byTicket: Map<string, StreamState>): TicketRowStatus {
+  const session = byTicket.get(ticket.id);
+  if (session !== undefined) {
+    return session;
+  }
+  switch (ticket.state) {
+    case 'working':
+      return 'building';
+    case 'blocked':
+      return 'idle';
+    default:
+      return ticket.state;
+  }
+}
+
+/** Break the whole board out per-ticket for the header dropdown, active first
+ * then everything else in decreasing-activity order with backlog at the bottom
+ * (08 §2, amended 2026-07-06). Returns [] before the first board snapshot. */
+export function ticketStatuses(board: Board | null): TicketStatus[] {
   if (board === null) {
     return [];
   }
   const byTicket = new Map<string, StreamState>(
     board.agents.map((agent) => [agent.ticket_id, agent.status]),
   );
-  const working: StreamStatus[] = board.working.map((ticket) => ({
-    id: ticket.id,
-    label: ticket.title,
-    status: byTicket.get(ticket.id) ?? 'building',
-    reason: null,
-  }));
-  const blocked: StreamStatus[] = board.blocked.map((ticket) => ({
-    id: ticket.id,
-    label: ticket.title,
-    status: byTicket.get(ticket.id) ?? 'idle',
-    reason: ticket.blocked_reason ?? null,
-  }));
-  return [...working, ...blocked];
+  const all = [...board.working, ...board.blocked, ...board.done, ...board.ready, ...board.shaping];
+  return all
+    .sort((a, b) => {
+      const rank = STATE_RANK[a.state] - STATE_RANK[b.state];
+      if (rank !== 0) {
+        return rank;
+      }
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    })
+    .map((ticket) => ({
+      id: ticket.id,
+      label: ticket.title,
+      status: ticketRowStatus(ticket, byTicket),
+      reason: ticket.blocked_reason ?? null,
+    }));
 }
 
-/** The uppercase state chip shown on a stream row in the header dropdown. */
-const STREAM_STATE_LABEL: Record<StreamState, string> = {
+/** The uppercase state chip shown on a ticket row in the header dropdown. */
+const TICKET_STATUS_LABEL: Record<TicketRowStatus, string> = {
   building: 'Building',
   idle: 'Idle',
   stopped: 'Stopped',
   errored: 'Errored',
   starting: 'Starting',
+  ready: 'Ready',
+  shaping: 'Shaping',
+  done: 'Done',
 };
 
-/** The uppercase state chip shown on a stream row in the header dropdown. */
-export function streamStatusLabel(status: StreamState): string {
-  return STREAM_STATE_LABEL[status];
+/** The uppercase state chip shown on a ticket row in the header dropdown. */
+export function ticketStatusLabel(status: TicketRowStatus): string {
+  return TICKET_STATUS_LABEL[status];
 }
 
 /** The short uppercase tag shown on each card kind. */

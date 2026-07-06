@@ -31,22 +31,22 @@ const EMPTY_SUMMARY: FeedSummary = {
 
 export interface PrimaryScreenViewProps {
   feed: FeedSnapshot | null;
-  /** The latest board snapshot, broken out per-stream in the header dropdown.
+  /** The latest board snapshot, broken out per-ticket in the header dropdown.
    * Optional so presentational tests can omit it (the menu then shows no
-   * active streams). */
+   * tickets). */
   board?: Board | null;
   connectionState: ConnectionState;
   thinking: boolean;
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
   onAccept: (ticketId: string) => void;
-  /** Fired when the streams dropdown opens — triggers an independent board
-   * refresh so the streams view isn't stale until the next agent push.
+  /** Fired when the tickets dropdown opens — triggers an independent board
+   * refresh so the ticket list isn't stale until the next agent push.
    * Optional so presentational tests can omit it. */
-  onOpenStreams?: (() => void) | undefined;
+  onOpenTickets?: (() => void) | undefined;
   /** True while that refresh is in flight, so the dropdown can show a loading
    * indicator instead of a blank/empty state. */
-  streamsRefreshing?: boolean;
+  ticketsRefreshing?: boolean;
   /** The last-seen divider boundary (08 D2′): update/preview cards with a greater
    * `notification_id` are new since the last visit; those at or below it are
    * older history. `null` (default) shows no divider. */
@@ -129,8 +129,8 @@ export function PrimaryScreenView({
   toasts,
   onDismiss,
   onAccept,
-  onOpenStreams,
-  streamsRefreshing = false,
+  onOpenTickets,
+  ticketsRefreshing = false,
   lastSeenId = null,
   hasMoreHistory = false,
   loadingMoreHistory = false,
@@ -165,8 +165,8 @@ export function PrimaryScreenView({
           <HeaderStatusMenu
             summary={summary}
             board={board}
-            onOpen={onOpenStreams}
-            refreshing={streamsRefreshing}
+            onOpen={onOpenTickets}
+            refreshing={ticketsRefreshing}
           />
         </header>
 

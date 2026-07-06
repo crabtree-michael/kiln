@@ -1,6 +1,6 @@
 // Header status dropdown tests (08 §2): the collapsed summary stays put, and
-// the panel breaks the streams out per-agent — building first, then idle — with
-// toggle / outside-click / Escape dismissal.
+// the panel lists every ticket — active first (working then blocked), each row's
+// chip its worker's session status — with toggle / outside-click / Escape dismissal.
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
@@ -44,14 +44,14 @@ describe('HeaderStatusMenu', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('opens on click and lists each stream broken out per-agent (building first)', () => {
+  it('opens on click and lists each ticket broken out per-agent (working first)', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
 
     const rows = screen.getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    // Building streams (working) come first, then idle (blocked).
+    // Working tickets come first, then blocked.
     expect(rows[0]).toHaveAttribute('data-status', 'building');
     expect(within(rows[0]!).getByText('Auth')).toBeInTheDocument();
     expect(within(rows[0]!).getByText('Building')).toBeInTheDocument();
@@ -62,8 +62,8 @@ describe('HeaderStatusMenu', () => {
     expect(screen.getByText('Which gateway should we bill through?')).toBeInTheDocument();
   });
 
-  it('shows each stream real session status from board.agents, overriding the column default', () => {
-    // The Streams view must reflect the actual agent session state, not a
+  it('shows each ticket real session status from board.agents, overriding the column default', () => {
+    // The ticket view must reflect the actual agent session state, not a
     // hardcoded "building" derived from the board column (amended 2026-07-05):
     // w1 has silently stopped, w2 is genuinely building, and b1 (blocked, no
     // agent entry) falls back to idle.
@@ -144,22 +144,19 @@ describe('HeaderStatusMenu', () => {
     expect(button).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('shows an empty affordance when there are no active streams', () => {
+  it('shows an empty affordance when the board has no tickets', () => {
     render(<HeaderStatusMenu summary={makeFeedSummary()} board={makeBoard()} />);
     // The collapsed trigger reads "Nothing active" rather than a count at zero.
     expect(screen.getByText('Nothing active')).toHaveAttribute('data-role', 'feed-status');
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('No active streams')).toHaveAttribute(
-      'data-role',
-      'header-status-empty',
-    );
+    expect(screen.getByText('No tickets')).toHaveAttribute('data-role', 'header-status-empty');
     expect(screen.queryAllByRole('listitem')).toHaveLength(0);
   });
 
-  it('treats a null board as no active streams (pre-first-snapshot)', () => {
+  it('treats a null board as no tickets (pre-first-snapshot)', () => {
     render(<HeaderStatusMenu summary={makeFeedSummary({ stream_count: 2 })} board={null} />);
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('No active streams')).toBeInTheDocument();
+    expect(screen.getByText('No tickets')).toBeInTheDocument();
   });
 
   it('fires onOpen when opening, but not when closing', () => {
@@ -180,17 +177,17 @@ describe('HeaderStatusMenu', () => {
     );
     fireEvent.click(screen.getByRole('button'));
     expect(
-      screen.getByText('Loading streams…').closest('[data-role="header-status-loading"]'),
+      screen.getByText('Loading tickets…').closest('[data-role="header-status-loading"]'),
     ).not.toBeNull();
     // The loading state is distinct from the genuinely-empty affordance.
-    expect(screen.queryByText('No active streams')).not.toBeInTheDocument();
+    expect(screen.queryByText('No tickets')).not.toBeInTheDocument();
   });
 
-  it('keeps showing streams while a background refresh is in flight', () => {
+  it('keeps showing tickets while a background refresh is in flight', () => {
     render(<HeaderStatusMenu summary={summary} board={board} refreshing />);
     fireEvent.click(screen.getByRole('button'));
-    // A refresh over already-loaded streams doesn't blank the list.
-    expect(screen.queryByText('Loading streams…')).not.toBeInTheDocument();
+    // A refresh over an already-loaded list doesn't blank it.
+    expect(screen.queryByText('Loading tickets…')).not.toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
   });
 });

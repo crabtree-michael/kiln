@@ -1,0 +1,77 @@
+# The CI half of the hard gate (02 §4): the same wall as local `make check`
+# (lint → type-check/build → unit → integration), run on every push to main and
+# every PR. The Makefile has promised this since day one ("Git hooks and CI both
+# run this"); this workflow makes it true. It runs `make check` itself — one
+# command, identical to local — rather than re-listing the steps, so the two
+# can't drift.
+#
+# The Postgres service feeds TEST_DATABASE_URL so the `-tags=integration` store
+# tests actually run instead of skipping (they self-skip when the var is unset,
+# which would quietly weaken the wall). E2e (`make e2e`) stays out: it needs a
+# live stack and real provider keys (02 §4a) and is run deliberately, not on
+# every push.
+#
+# NOTE: Render auto-deploys main on push regardless of this workflow (owner's
+# choice, spec-10 delta d) — a red run here flags the break but does not block
+# the deploy. Branch protection on main could later make it a true wall.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kiln
+          POSTGRES_PASSWORD: kiln
+          POSTGRES_DB: kiln_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kiln"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # Pinned to the version the repo lints with locally; .golangci.yml is v2
+      # format and needs golangci-lint >= 2.0.
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: make check
+        run: make check

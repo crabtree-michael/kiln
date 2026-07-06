@@ -1,9 +1,10 @@
 // Composes the board region (07 §7): two columns — Backlog (Ready) and
-// Developing (Working) — plus the capacity chip. Only the active work states
-// are surfaced; Shaping, Blocked, and Done are hidden from the list. Board is
-// read-only: no drag-and-drop, all mutation flows through chat (D5). Reads
-// from the board store; `connectionState` also drives the "dim while
-// reconnecting" treatment (07 §8), left to the solution phase's styling.
+// Developing (Blocked above Working) — plus the capacity chip. Shaping and
+// Done are hidden from the list; the active work states (Ready, Blocked,
+// Working) stay visible. Board is read-only: no drag-and-drop, all mutation
+// flows through chat (D5). Reads from the board store; `connectionState` also
+// drives the "dim while reconnecting" treatment (07 §8), left to the solution
+// phase's styling.
 import { useState, type JSX } from 'react';
 import { useBoardStore } from '@/stores/board-context';
 import type { ConnectionState } from '@/transport/transport';
@@ -20,6 +21,7 @@ export function Board(): JSX.Element {
 
   const backlogZones: BoardColumnZone[] = [{ label: 'Ready', tickets: board?.ready ?? [] }];
   const developingZones: BoardColumnZone[] = [
+    { label: 'Blocked', tickets: board?.blocked ?? [], emphasis: 'loud' },
     { label: 'Working', tickets: board?.working ?? [] },
   ];
 

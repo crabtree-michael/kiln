@@ -65,6 +65,41 @@ backend/cmd/kiln/
 push; ConversationReader port feeds the brain's context). notify.send executor is a
 structured log line until 10 lands.
 
+**Identity (spec 11 phase 1).** A sibling module, not part of runtime/board — `api`
+consumes it through two ports (`Authenticator`, `AccountService` in `routes.go`), same
+pattern as `BoardReader`.
+
+```
+backend/internal/identity/
+  service.go       Service — OAuth login + allowlist, sliding-window sessions,
+                    Me/UpdateSettings/UpsertProject/Verify
+  cipher.go         AES-GCM envelope for secrets-at-rest (KILN_SECRETS_KEY)
+  entities.go/store.go   User/Project/Settings + the Store port
+  postgres/         Store adapter + migrations (users, projects, settings, sessions)
+  githubapi/        GitHub OAuth + user-info client
+  verify/           live connection checks (anthropic/amika/repo) — 11 §4
+backend/internal/api/
+  identity_handlers.go   GET/POST /auth/github/*, /auth/logout, GET /api/me,
+                          PUT /api/settings, PUT /api/project, POST /api/settings/verify,
+                          POST /api/dev/session (dev-only)
+```
+
+- **Env gating** (`buildIdentity` in `cmd/kiln/wiring.go`): identity is **all-or-nothing**.
+  Both `GITHUB_OAUTH_CLIENT_ID` and `KILN_SECRETS_KEY` unset → `EnableIdentity` is never
+  called, so `/auth/*` and `/api/me` etc. are simply **absent** (404, not 401) — today's
+  boot with nothing configured stays valid. A malformed `KILN_SECRETS_KEY` (wrong length/
+  encoding) fails the boot hard rather than silently running with broken crypto.
+- **Dev session mint**: `POST /api/dev/session` (gated by `KILN_DEV_ENDPOINTS=1` **and**
+  identity enabled) signs in — or creates — a user from a plain `{github_login}` body and
+  mints a real session cookie, bypassing the OAuth dance. This is how e2e establishes an
+  authenticated session (`tests/tests/dashboard-config.spec.ts`); never part of `/schema`,
+  never mounted without dev endpoints on.
+- **Write-only secrets**: `PUT /api/settings` accepts raw secret values but `GET /api/me`
+  only ever returns a `{set, tail}` status per secret (encrypted at rest via `cipher.go`,
+  fingerprint/tail derived at write time) — the plaintext never round-trips over the wire.
+- `/` and `/debug` stay session-free in phase 1 (see `web-client`'s skill note) — identity
+  only gates the `/dashboard` surface's own endpoints.
+
 ## Common footguns
 
 _(Accumulate: mistakes agents predictably make in these modules.)_

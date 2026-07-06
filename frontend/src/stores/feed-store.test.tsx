@@ -19,6 +19,7 @@ vi.mock('@/transport/transport', () => ({
   fetchFeedHistory: vi.fn(),
   postFeedSeen: vi.fn(),
   dismissFeedCard: vi.fn(),
+  dismissAllFeedCards: vi.fn(),
   acceptTicket: vi.fn(),
   fetchBoard: vi.fn(),
   fetchMessages: vi.fn(),
@@ -54,6 +55,7 @@ function Probe({ acceptId, dismissId }: { acceptId?: string; dismissId?: number 
     loadMoreHistory,
     acceptProposal,
     dismissCard,
+    dismissAll,
   } = useFeedStore();
   return (
     <div
@@ -90,6 +92,9 @@ function Probe({ acceptId, dismissId }: { acceptId?: string; dismissId?: number 
       >
         dismiss
       </button>
+      <button data-testid="dismiss-all" type="button" onClick={dismissAll}>
+        dismiss all
+      </button>
     </div>
   );
 }
@@ -115,6 +120,7 @@ describe('FeedProvider', () => {
     closeStream.mockClear();
     vi.mocked(transport.postFeedSeen).mockResolvedValue(undefined);
     vi.mocked(transport.dismissFeedCard).mockResolvedValue(undefined);
+    vi.mocked(transport.dismissAllFeedCards).mockResolvedValue(undefined);
     vi.mocked(transport.openStream).mockImplementation((handlers): StreamConnection => {
       capturedHandlers = handlers;
       return { close: closeStream };
@@ -126,6 +132,7 @@ describe('FeedProvider', () => {
     vi.mocked(transport.fetchFeedHistory).mockReset();
     vi.mocked(transport.postFeedSeen).mockReset();
     vi.mocked(transport.dismissFeedCard).mockReset();
+    vi.mocked(transport.dismissAllFeedCards).mockReset();
     vi.mocked(transport.openStream).mockReset();
   });
 
@@ -722,6 +729,55 @@ describe('FeedProvider', () => {
     // The card comes back once the failed retract resolves.
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
+    });
+  });
+
+  it('optimistically clears every update card at once and retracts them server-side (clear-all)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [proposal('a'), update(9, 'one'), update(8, 'two')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:a,update:9,update:8');
+    });
+
+    // Clearing all drops the notification-backed cards at once and fires the bulk
+    // retract; the board-derived proposal is untouched (it is board state).
+    act(() => {
+      screen.getByTestId('dismiss-all').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:a');
+    });
+    expect(transport.dismissAllFeedCards).toHaveBeenCalledTimes(1);
+  });
+
+  it('springs the cleared cards back when the clear-all request fails (nothing lost)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(9, 'one'), update(8, 'two')] }),
+    );
+    vi.mocked(transport.dismissAllFeedCards).mockRejectedValue(new Error('offline'));
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
+    });
+
+    act(() => {
+      screen.getByTestId('dismiss-all').click();
+    });
+    // The cards come back once the failed bulk retract resolves.
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
     });
   });
 });

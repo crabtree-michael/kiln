@@ -669,6 +669,31 @@ func TestHandleFeedDismiss_CallsDismiss(t *testing.T) {
 	}
 }
 
+func TestHandleFeedDismissAll_CallsDismissAll(t *testing.T) {
+	seen := &fakeSeenAcker{}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, seen, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/feed/dismiss-all", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if n := seen.dismissedAll(); n != 1 {
+		t.Fatalf("DismissAllNotifications called %d times, want 1", n)
+	}
+	// The literal /dismiss-all segment must not be captured by the {id}/dismiss
+	// route as an id — no single-card dismiss should fire.
+	if ids := seen.dismissed(); len(ids) != 0 {
+		t.Fatalf("DismissNotification called with %v, want none", ids)
+	}
+}
+
 func TestHandleFeedDismiss_RejectsBadID(t *testing.T) {
 	boards := &fakeBoardReader{}
 	srv := api.NewServer(

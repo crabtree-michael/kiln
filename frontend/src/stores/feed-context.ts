@@ -46,6 +46,15 @@ export interface FeedStoreValue {
    * silently lost. No-op for board-derived cards, which have no notification id.
    */
   dismissCard: (notificationId: number) => void;
+  /**
+   * Clear ALL notification-backed cards at once — the header trash affordance
+   * (08 §3). Every currently-known update/preview/poke/done card drops from the
+   * feed immediately (optimistic) and all are retracted server-side so none
+   * return on the next snapshot or reload; if the request fails the cards spring
+   * back so nothing is silently lost. Board-derived cards (blockers/proposals)
+   * are untouched — they are board state, not notifications.
+   */
+  dismissAll: () => void;
 }
 
 export const FeedStoreContext = createContext<FeedStoreValue | undefined>(undefined);

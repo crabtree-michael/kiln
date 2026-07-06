@@ -599,6 +599,18 @@ func (f *fakeNotificationStore) RetractNotification(ctx context.Context, id int6
 	return nil
 }
 
+func (f *fakeNotificationStore) RetractAllNotifications(_ context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := time.Now()
+	for i := range f.rows {
+		if f.rows[i].RetractedAt == nil {
+			f.rows[i].RetractedAt = &now
+		}
+	}
+	return nil
+}
+
 func (f *fakeNotificationStore) EditNotification(
 	_ context.Context, id int64, kind, body string, imageURL *string,
 ) error {

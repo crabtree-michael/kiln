@@ -10,7 +10,13 @@
 // the divider jumping mid-session. Live updates ride the single app-wide stream
 // connection (`@/stores/stream-connection`), shared with the board/chat stores.
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
-import { dismissFeedCard, fetchFeed, fetchFeedHistory, postFeedSeen } from '@/transport/transport';
+import {
+  dismissAllFeedCards,
+  dismissFeedCard,
+  fetchFeed,
+  fetchFeedHistory,
+  postFeedSeen,
+} from '@/transport/transport';
 import type { ConnectionState, FeedCard, FeedSnapshot } from '@/transport/transport';
 import { FeedStoreContext, type FeedStoreValue } from '@/stores/feed-context';
 import { subscribeStream } from '@/stores/stream-connection';
@@ -353,6 +359,41 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     [liveAccepted],
   );
 
+  // Clear ALL notification-backed cards at once — the header trash affordance
+  // (08 §3, this change). Suppress every currently-known update card locally so
+  // the feed empties instantly, then retract them all server-side; the resulting
+  // feed.updated snapshot drops them for good. A failed request removes only the
+  // suppressions we just added (a card already swiped away stays hidden) so the
+  // cleared cards spring back — nothing is silently lost. No-op on the empty feed.
+  const dismissAll = useCallback((): void => {
+    // Only the ids not already suppressed, so a rollback can't un-hide a card the
+    // user had individually swiped before clearing all.
+    const cleared = [...updatesRef.current.keys()].filter(
+      (id) => !dismissedRef.current.has(id),
+    );
+    if (cleared.length === 0 && dismissedRef.current.size === 0) {
+      return; // nothing notification-backed to clear
+    }
+    for (const id of cleared) {
+      dismissedRef.current.add(id);
+    }
+    if (serverFeedRef.current !== null) {
+      setFeed(
+        mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted(), dismissedRef.current),
+      );
+    }
+    void dismissAllFeedCards().catch(() => {
+      for (const id of cleared) {
+        dismissedRef.current.delete(id);
+      }
+      if (serverFeedRef.current !== null) {
+        setFeed(
+          mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted(), dismissedRef.current),
+        );
+      }
+    });
+  }, [liveAccepted]);
+
   // Clear any pending reappear timers on unmount so they don't fire into an
   // unmounted store.
   useEffect(() => {
@@ -460,6 +501,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadMoreHistory,
       acceptProposal,
       dismissCard,
+      dismissAll,
     }),
     [
       feed,
@@ -470,6 +512,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadMoreHistory,
       acceptProposal,
       dismissCard,
+      dismissAll,
     ],
   );
 

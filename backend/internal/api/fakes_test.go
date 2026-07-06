@@ -160,10 +160,11 @@ func (f *fakeFeedReader) callCount() int {
 // fakeSeenAcker is api.FeedMutator (08 §3: POST /api/feed/seen +
 // POST /api/feed/{id}/dismiss).
 type fakeSeenAcker struct {
-	mu           sync.Mutex
-	lastIDs      []int64
-	dismissedIDs []int64
-	err          error
+	mu             sync.Mutex
+	lastIDs        []int64
+	dismissedIDs   []int64
+	dismissAllCall int
+	err            error
 }
 
 func (f *fakeSeenAcker) MarkSeen(_ context.Context, lastID int64) error {
@@ -178,6 +179,19 @@ func (f *fakeSeenAcker) DismissNotification(_ context.Context, id int64) error {
 	defer f.mu.Unlock()
 	f.dismissedIDs = append(f.dismissedIDs, id)
 	return f.err
+}
+
+func (f *fakeSeenAcker) DismissAllNotifications(_ context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dismissAllCall++
+	return f.err
+}
+
+func (f *fakeSeenAcker) dismissedAll() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.dismissAllCall
 }
 
 func (f *fakeSeenAcker) dismissed() []int64 {

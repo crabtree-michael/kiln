@@ -161,6 +161,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/feed/dismiss-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear (dismiss) every feed notification at once — the header trash affordance (08 §3).
+         * @description Clears all notification-backed feed cards for good in one shot: retracts every still-active notification (the bulk sibling of the single-card dismiss), so they drop from the feed and none return on the next snapshot or reload. Board-derived cards (blockers and proposals) are untouched — they are board state the brain owns, not notifications. Emits one feed.updated so the cards leave every open client. Idempotent: clearing an already-empty feed is a no-op and still returns 202.
+         */
+        post: operations["dismissAllFeedCards"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/accept": {
         parameters: {
             query?: never;
@@ -795,6 +815,24 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Accepted — the card was dismissed. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dismissAllFeedCards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted — all notifications were dismissed. */
             202: {
                 headers: {
                     [name: string]: unknown;

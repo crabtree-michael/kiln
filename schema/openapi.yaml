@@ -198,6 +198,21 @@ paths:
       responses:
         '202':
           description: Accepted — the card was dismissed.
+  /api/feed/dismiss-all:
+    post:
+      operationId: dismissAllFeedCards
+      summary: Clear (dismiss) every feed notification at once — the header trash affordance (08 §3).
+      description: >
+        Clears all notification-backed feed cards for good in one shot: retracts
+        every still-active notification (the bulk sibling of the single-card
+        dismiss), so they drop from the feed and none return on the next snapshot
+        or reload. Board-derived cards (blockers and proposals) are untouched —
+        they are board state the brain owns, not notifications. Emits one
+        feed.updated so the cards leave every open client. Idempotent: clearing an
+        already-empty feed is a no-op and still returns 202.
+      responses:
+        '202':
+          description: Accepted — all notifications were dismissed.
   /api/tickets/{id}/accept:
     post:
       operationId: acceptTicket

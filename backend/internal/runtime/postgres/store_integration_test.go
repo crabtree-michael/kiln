@@ -282,6 +282,68 @@ func TestIntegration_EditNotification_AmendsActiveRowAndEmitsFeedUpdated(t *test
 	}
 }
 
+// RetractAllNotifications stamps retracted_at on every still-active row (the
+// user's "clear all", 08 §3) and emits one feed.updated; an already-retracted
+// row keeps its original timestamp and the drained feed reads empty.
+func TestIntegration_RetractAllNotifications_ClearsActiveAndEmitsFeedUpdated(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	n1, _ := store.PostNotification(ctx, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
+	already, _ := store.PostNotification(ctx, "update", "gone", nil, nil)
+	if err := store.RetractNotification(ctx, already.ID); err != nil {
+		t.Fatalf("RetractNotification: %v", err)
+	}
+	var wasRetractedAt time.Time
+	if err := db.QueryRowContext(ctx,
+		`SELECT retracted_at FROM notifications WHERE id = $1`, already.ID).
+		Scan(&wasRetractedAt); err != nil {
+		t.Fatalf("query pre-retracted row: %v", err)
+	}
+
+	if err := store.RetractAllNotifications(ctx); err != nil {
+		t.Fatalf("RetractAllNotifications: %v", err)
+	}
+
+	// Every row now retracted; the already-retracted one keeps its first stamp
+	// (the WHERE retracted_at IS NULL guard leaves it untouched).
+	for _, id := range []int64{n1.ID, n2.ID, already.ID} {
+		var retracted sql.NullTime
+		if err := db.QueryRowContext(ctx,
+			`SELECT retracted_at FROM notifications WHERE id = $1`, id).Scan(&retracted); err != nil {
+			t.Fatalf("query row %d: %v", id, err)
+		}
+		if !retracted.Valid {
+			t.Errorf("row %d retracted_at = NULL, want stamped after clear-all", id)
+		}
+	}
+	var stillRetractedAt time.Time
+	if err := db.QueryRowContext(ctx,
+		`SELECT retracted_at FROM notifications WHERE id = $1`, already.ID).
+		Scan(&stillRetractedAt); err != nil {
+		t.Fatalf("re-query pre-retracted row: %v", err)
+	}
+	if !stillRetractedAt.Equal(wasRetractedAt) {
+		t.Errorf("already-retracted row re-stamped: %v -> %v, want unchanged", wasRetractedAt, stillRetractedAt)
+	}
+
+	// The feed is drained: no unretracted rows remain.
+	got, _, err := store.RecentNotifications(ctx, 30)
+	if err != nil {
+		t.Fatalf("RecentNotifications: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("recent after clear-all = %+v, want empty", got)
+	}
+
+	// 3 posts + 1 single retract + 1 clear-all = 5 feed.updated rows.
+	if got, ok := feedUpdatedCount(ctx, t, db); ok && got != 5 {
+		t.Errorf("feed.updated outbox rows = %d, want 5 (3 posts + 1 retract + 1 clear-all)", got)
+	}
+}
+
 func TestIntegration_UnseenNotifications_NewestFirstFiltersSeenAndRetracted(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)

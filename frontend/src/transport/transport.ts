@@ -410,6 +410,16 @@ export async function dismissFeedCard(notificationId: number): Promise<void> {
   }
 }
 
+/** `POST /api/feed/dismiss-all` — clear (dismiss) every feed notification at
+ * once (the header trash affordance, 08 §3). Idempotent server-side; the
+ * resulting `feed` snapshot drops them all. */
+export async function dismissAllFeedCards(): Promise<void> {
+  const response = await fetch('/api/feed/dismiss-all', { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`dismissAllFeedCards: HTTP ${String(response.status)}`);
+  }
+}
+
 /** `POST /api/dev/reset` — wipe the board, chat, and live agent sandboxes for a
  * fresh agent session. Drives the /debug "Reset session" button; not part of the
  * wire schema. Throws on a non-2xx so the caller can skip the reload. */

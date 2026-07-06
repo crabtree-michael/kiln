@@ -388,6 +388,17 @@ func (s *Service) DismissNotification(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DismissAllNotifications is the api-facing port for POST /api/feed/dismiss-all
+// (08 §3, clear-all): the user tapped the header trash affordance to clear every
+// feed notification at once. Retracts all still-active rows and fans out one
+// feed.updated in a single tx — the bulk sibling of DismissNotification.
+func (s *Service) DismissAllNotifications(ctx context.Context) error {
+	if err := s.notifications.RetractAllNotifications(ctx); err != nil {
+		return fmt.Errorf("runtime: dismiss all notifications: %w", err)
+	}
+	return nil
+}
+
 // EditNotification is the brain-facing port for edit_update (08 §3 amended, 06
 // tool set): amend a still-active card's kind/body/image in place and append
 // feed.updated in one tx. Delegates to the store; the brain tool handler needs

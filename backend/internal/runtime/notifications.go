@@ -48,8 +48,19 @@ type Notification struct {
 // MessageStore. Every mutation (post, retract, mark-seen) appends a
 // feed.updated outbox row in the SAME transaction — this makes the runtime a
 // second outbox writer (08 §7), so a live feed re-render fans out exactly when
-// the feed's contents change.
+// the feed's contents change. Split into a write half (mutations, each
+// outbox-appending) and a read half (queries) — both satisfied by the one
+// ./postgres Store — so neither role interface bloats past the surface a single
+// interface should carry.
 type NotificationStore interface {
+	NotificationWriter
+	NotificationReader
+}
+
+// NotificationWriter is the mutation half of NotificationStore (08 §3, §7):
+// every method here appends a feed.updated outbox row in the SAME transaction as
+// its write, keeping the runtime's second-outbox-writer guarantee.
+type NotificationWriter interface {
 	// PostNotification inserts one brain-authored notification and appends a
 	// feed.updated outbox row in one transaction (08 §7). kind is "update" or
 	// "preview"; ticketID/imageURL are optional.
@@ -69,6 +80,13 @@ type NotificationStore interface {
 	// note that stopped mattering).
 	RetractNotification(ctx context.Context, id int64) error
 
+	// RetractAllNotifications stamps retracted_at=now() on EVERY still-active
+	// (un-retracted) notification and appends a single feed.updated outbox row in
+	// one transaction — the user's "clear all" (08 §3, header trash affordance).
+	// Idempotent: with nothing active it retracts no rows but still fans out one
+	// harmless re-render.
+	RetractAllNotifications(ctx context.Context) error
+
 	// EditNotification amends a still-active (non-retracted) notification's kind,
 	// body and image in place and appends a feed.updated outbox row in one
 	// transaction — the brain's edit_update (06 §4 amended): fix a card's wording
@@ -80,7 +98,12 @@ type NotificationStore interface {
 	// id <= lastID (the high-water mark the client reports), and appends a
 	// feed.updated outbox row in one transaction (08 §3).
 	MarkSeen(ctx context.Context, lastID int64) error
+}
 
+// NotificationReader is the query half of NotificationStore (08 §3, D2′): the
+// read paths the feed assembly and the brain's active-card view draw on. No
+// method here mutates state or touches the outbox.
+type NotificationReader interface {
 	// UnseenNotifications returns notifications that are neither seen nor
 	// retracted (seen_at IS NULL AND retracted_at IS NULL), newest-first — the
 	// brain's active-card view (list_updates: the ids it may edit or retract,

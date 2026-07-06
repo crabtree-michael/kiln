@@ -257,8 +257,9 @@ type fakeAuth struct {
 	sessionExpires   time.Time
 	createSessionErr error
 
-	resolveUser identity.User
-	resolveErr  error
+	resolveUser    identity.User
+	resolveExpires time.Time // zero unless a test cares about the re-issued cookie's Max-Age
+	resolveErr     error
 
 	logoutErr   error
 	logoutCalls []string // tokens Logout was called with, in order
@@ -279,8 +280,8 @@ func (f *fakeAuth) CreateSession(_ context.Context, _ string) (string, time.Time
 	return f.sessionToken, f.sessionExpires, f.createSessionErr
 }
 
-func (f *fakeAuth) ResolveSession(_ context.Context, _ string) (identity.User, error) {
-	return f.resolveUser, f.resolveErr
+func (f *fakeAuth) ResolveSession(_ context.Context, _ string) (identity.User, time.Time, error) {
+	return f.resolveUser, f.resolveExpires, f.resolveErr
 }
 
 func (f *fakeAuth) Logout(_ context.Context, token string) error {

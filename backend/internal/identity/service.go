@@ -121,28 +121,34 @@ func (s *Service) CreateSession(ctx context.Context, userID string) (string, tim
 }
 
 // ResolveSession authenticates a request: unknown/expired ⇒ ErrNoSession;
-// under half the TTL remaining ⇒ slide the window (11 §2).
-func (s *Service) ResolveSession(ctx context.Context, token string) (User, error) {
+// under half the TTL remaining ⇒ slide the window (11 §2). The returned
+// time.Time is the session's CURRENT expiry — the renewed one when the
+// window slid, else the existing (unchanged) one — so the caller (the api's
+// withSession) can re-issue the session cookie to match the DB row and keep
+// the "sliding" expiry visible to the browser, not just server-side.
+func (s *Service) ResolveSession(ctx context.Context, token string) (User, time.Time, error) {
 	if token == "" {
-		return User{}, ErrNoSession
+		return User{}, time.Time{}, ErrNoSession
 	}
 	sess, user, err := s.store.GetSessionUser(ctx, hashToken(token))
 	if err != nil {
-		return User{}, ErrNoSession
+		return User{}, time.Time{}, ErrNoSession
 	}
 	now := s.now()
 	if now.After(sess.ExpiresAt) {
 		if derr := s.store.DeleteSession(ctx, sess.TokenHash); derr != nil {
 			slog.ErrorContext(ctx, "identity: delete expired session", "err", derr)
 		}
-		return User{}, ErrNoSession
+		return User{}, time.Time{}, ErrNoSession
 	}
+	expiresAt := sess.ExpiresAt
 	if sess.ExpiresAt.Sub(now) < sessionRenewBelow {
-		if err := s.store.TouchSession(ctx, sess.TokenHash, now.Add(sessionTTL)); err != nil {
-			return User{}, fmt.Errorf("identity: touch session: %w", err)
+		expiresAt = now.Add(sessionTTL)
+		if err := s.store.TouchSession(ctx, sess.TokenHash, expiresAt); err != nil {
+			return User{}, time.Time{}, fmt.Errorf("identity: touch session: %w", err)
 		}
 	}
-	return user, nil
+	return user, expiresAt, nil
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {

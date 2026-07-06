@@ -61,7 +61,9 @@ services:
       # the brain. v1 is local-only (02 §1); default on for this stack, never prod.
       KILN_DEV_ENDPOINTS: ${KILN_DEV_ENDPOINTS:-1}
       # Multi-user phase 1 (spec 11 §2, §7): dashboard GitHub sign-in. All
-      # optional locally — unset ⇒ /dashboard shows sign-in but auth 404s.
+      # optional locally — unset ⇒ GET /api/me 404s, so /dashboard shows the
+      # sign-in view with an error notice above the link (the failed initial
+      # load), not a bare "Continue with GitHub" as if simply signed out.
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
       KILN_ALLOWED_GITHUB_USERS: ${KILN_ALLOWED_GITHUB_USERS:-}

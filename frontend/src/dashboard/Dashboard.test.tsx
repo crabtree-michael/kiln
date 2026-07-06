@@ -70,6 +70,18 @@ describe('Dashboard', () => {
     const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
     expect(link).toHaveAttribute('href', '/auth/github/login');
     expect(document.querySelector('[data-role="dashboard"]')).not.toBeNull();
+    expect(document.querySelector('[data-role="dashboard-error"]')).toBeNull();
+  });
+
+  it('initial load failure: sign-in view renders the error notice above the link', async () => {
+    vi.mocked(transport.fetchMe).mockRejectedValue(new Error('fetchMe: HTTP 500'));
+    renderDashboard();
+
+    const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
+    const errorEl = document.querySelector('[data-role="dashboard-error"]');
+    expect(errorEl).not.toBeNull();
+    expect(errorEl?.textContent).toContain('fetchMe: HTTP 500');
+    expect(link).toHaveAttribute('href', '/auth/github/login');
   });
 
   it('signed in, no project: shows the onboarding heading with the project form rendered first', async () => {

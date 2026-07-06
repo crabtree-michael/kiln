@@ -32,7 +32,11 @@ const randomTokenBytes = 32
 // withSession authenticates the request via the kiln_session cookie and
 // hands the resolved user to the wrapped handler; 401 otherwise. Phase 1
 // guards ONLY the new identity-aware routes (11 §2, added by Task 9/10) —
-// existing handlers are never wrapped.
+// existing handlers are never wrapped. On a successful resolve it re-issues
+// the session cookie against the (possibly slid) expiry ResolveSession
+// returns, so the browser's cookie lifetime tracks the DB's sliding window
+// instead of expiring ~30 days after the original login regardless of
+// activity (final review, Important #1).
 func (s *Server) withSession(next func(http.ResponseWriter, *http.Request, identity.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -40,11 +44,12 @@ func (s *Server) withSession(next func(http.ResponseWriter, *http.Request, ident
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
-		user, err := s.auth.ResolveSession(r.Context(), c.Value)
+		user, expiresAt, err := s.auth.ResolveSession(r.Context(), c.Value)
 		if err != nil {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
+		setCookie(w, r, sessionCookie, c.Value, time.Until(expiresAt))
 		next(w, r, user)
 	}
 }

@@ -160,7 +160,10 @@ type Authenticator interface {
 	LoginURL(state string) string
 	CompleteLogin(ctx context.Context, code string) (identity.User, error)
 	CreateSession(ctx context.Context, userID string) (string, time.Time, error)
-	ResolveSession(ctx context.Context, token string) (identity.User, error)
+	// ResolveSession returns the session's current expiry alongside the user
+	// (the renewed one when the sliding window fired, else the existing one)
+	// so withSession can re-issue the cookie to match (11 §2 final review).
+	ResolveSession(ctx context.Context, token string) (identity.User, time.Time, error)
 	Logout(ctx context.Context, token string) error
 }
 

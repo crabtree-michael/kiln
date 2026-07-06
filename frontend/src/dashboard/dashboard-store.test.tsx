@@ -119,6 +119,22 @@ describe('DashboardProvider', () => {
     expect(screen.getByTestId('login').textContent).toBe('none');
   });
 
+  it('mount-time fetchMe rejection → phase signed-out with error set, never stuck loading', async () => {
+    vi.mocked(transport.fetchMe).mockRejectedValue(new Error('fetchMe: HTTP 500'));
+
+    render(
+      <DashboardProvider>
+        <Probe />
+      </DashboardProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phase').textContent).toBe('signed-out');
+    });
+    expect(screen.getByTestId('error').textContent).not.toBe('none');
+    expect(screen.getByTestId('login').textContent).toBe('none');
+  });
+
   it('saveSettings calls putSettings and swaps in the returned Me (saving toggles true→false)', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     const updated = makeMe({

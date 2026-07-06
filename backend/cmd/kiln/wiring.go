@@ -210,16 +210,19 @@ func buildBrain(
 	)
 }
 
-// buildIdentity constructs the dashboard-auth service (11 §2) when both
-// GITHUB_OAUTH_CLIENT_ID and KILN_SECRETS_KEY are set, returning a nil
-// *identity.Service (not mounted) when both are unset — an unconfigured boot
-// is today's boot. A malformed KILN_SECRETS_KEY fails hard (11 §3): a
-// half-working cipher must never silently store plaintext. Only one of the
-// two set is a misconfiguration too incomplete to run identity from, so it
-// logs a warning and stays unmounted rather than erroring.
+// buildIdentity constructs the dashboard-auth service (11 §2) when
+// GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY
+// are ALL set, returning a nil *identity.Service (not mounted) when all three
+// are unset — an unconfigured boot is today's boot. A malformed
+// KILN_SECRETS_KEY fails hard (11 §3): a half-working cipher must never
+// silently store plaintext. Any partial subset (one or two of the three set)
+// is a misconfiguration too incomplete to run identity from — mounting on
+// ClientID+SecretsKey alone would serve a working-looking /auth/github/login
+// whose callback always fails the token exchange (final review, Minor #3) —
+// so it logs a warning and stays unmounted rather than erroring.
 func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service, error) {
 	switch {
-	case cfg.GitHubOAuthClientID != "" && cfg.SecretsKey != "":
+	case cfg.GitHubOAuthClientID != "" && cfg.GitHubOAuthClientSecret != "" && cfg.SecretsKey != "":
 		cipher, err := identity.NewCipher(cfg.SecretsKey)
 		if err != nil {
 			return nil, fmt.Errorf("kiln: identity cipher: %w", err)
@@ -231,8 +234,8 @@ func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service,
 		idSvc := identity.NewService(identitypg.New(db), cipher, gh, cfg.AllowedGitHubUsers)
 		idSvc.SetVerifier(verify.New())
 		return idSvc, nil
-	case cfg.SecretsKey != "" || cfg.GitHubOAuthClientID != "":
-		log.Warn("identity disabled: need both GITHUB_OAUTH_CLIENT_ID and KILN_SECRETS_KEY")
+	case cfg.GitHubOAuthClientID != "" || cfg.GitHubOAuthClientSecret != "" || cfg.SecretsKey != "":
+		log.Warn("identity disabled: need all of GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY")
 	}
 	//nolint:nilnil // a nil *identity.Service with a nil error IS "not configured" — the
 	// caller's idSvc != nil check is exactly this contract, not an ambiguous failure.

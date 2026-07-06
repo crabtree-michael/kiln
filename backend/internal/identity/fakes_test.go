@@ -15,12 +15,13 @@ import (
 
 // fakeStore is an in-memory identity.Store.
 type fakeStore struct {
-	mu       sync.Mutex
-	users    map[int64]identity.User // keyed by GitHubID
-	sessions map[string]identity.Session
-	configs  map[string]identity.UserConfig
-	projects map[string]identity.Project // keyed by OwnerUserID
-	seq      int
+	mu                sync.Mutex
+	users             map[int64]identity.User // keyed by GitHubID
+	sessions          map[string]identity.Session
+	configs           map[string]identity.UserConfig
+	projects          map[string]identity.Project // keyed by OwnerUserID
+	seq               int
+	touchSessionCalls int // how many times TouchSession was invoked, for negative-renewal assertions
 }
 
 var _ identity.Store = (*fakeStore)(nil)
@@ -84,6 +85,7 @@ func (s *fakeStore) GetSession(_ context.Context, tokenHash string) (identity.Se
 func (s *fakeStore) TouchSession(_ context.Context, tokenHash string, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.touchSessionCalls++
 	sess, ok := s.sessions[tokenHash]
 	if !ok {
 		return identity.ErrNotFound
@@ -151,6 +153,14 @@ func (s *fakeStore) UpsertProject(_ context.Context, p identity.Project) (identi
 	defer s.mu.Unlock()
 	s.projects[p.OwnerUserID] = p
 	return p, nil
+}
+
+// touchSessionCallCount reports how many times TouchSession was invoked, for
+// negative-renewal tests asserting a fresh session's expiry is left alone.
+func (s *fakeStore) touchSessionCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.touchSessionCalls
 }
 
 // allSessions returns every session currently stored, for tests to assert

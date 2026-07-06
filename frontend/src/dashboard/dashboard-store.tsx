@@ -35,14 +35,30 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   // go through here — they swap in the returned `Me` directly, so a save
   // never flashes a loading state. `isCancelled` lets the mount effect drop
   // the result after unmount (chat-store's `cancelled`-flag pattern).
+  //
+  // `fetchMe` only returns normally for the 200/401 cases (transport.ts
+  // resolves 401 to `null`); anything else — a 500, a network blip, an
+  // unconfigured deployment's 404 — rejects. Left uncaught, that rejection
+  // would strand `phase` at `'loading'` forever (final review, Important
+  // #2): catch it, surface a readable `error`, and land on `signed-out` so
+  // the loading view never spins indefinitely.
   const load = useCallback(async (isCancelled?: () => boolean): Promise<void> => {
     setPhase('loading');
-    const account = await fetchMe();
-    if (isCancelled?.() === true) {
-      return;
+    try {
+      const account = await fetchMe();
+      if (isCancelled?.() === true) {
+        return;
+      }
+      setMe(account);
+      setPhase(account === null ? 'signed-out' : 'ready');
+    } catch (err) {
+      if (isCancelled?.() === true) {
+        return;
+      }
+      setMe(null);
+      setError(err instanceof Error ? err.message : 'load failed');
+      setPhase('signed-out');
     }
-    setMe(account);
-    setPhase(account === null ? 'signed-out' : 'ready');
   }, []);
 
   // Load the account view on mount (11 §5).

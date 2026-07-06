@@ -82,8 +82,18 @@ func TestTail(t *testing.T) {
 	if got := identity.Tail("sk-ant-secret-x4Kd"); got != "x4Kd" {
 		t.Fatalf("Tail = %q", got)
 	}
-	if got := identity.Tail("ab"); got != "ab" {
-		t.Fatalf("Tail short = %q", got)
+	// 5 chars: over the tailLen boundary by one — the >4 case still returns
+	// the last 4, not the whole value.
+	if got := identity.Tail("abcde"); got != "bcde" {
+		t.Fatalf("Tail 5-char = %q, want last 4 (bcde)", got)
+	}
+	// 4 chars: exactly at the fingerprint length — the tail WOULD be the
+	// whole secret, so it must be withheld (final review, Minor #4).
+	if got := identity.Tail("abcd"); got != "" {
+		t.Fatalf("Tail 4-char = %q, want empty (tail would disclose the whole secret)", got)
+	}
+	if got := identity.Tail("ab"); got != "" {
+		t.Fatalf("Tail short = %q, want empty", got)
 	}
 	if got := identity.Tail(""); got != "" {
 		t.Fatalf("Tail empty = %q", got)

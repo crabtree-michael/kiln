@@ -145,12 +145,15 @@ func TestSessionRoundTrip(t *testing.T) {
 		t.Fatalf("expiresAt = %v, want %v", expiresAt, wantExpiry)
 	}
 
-	got, err := svc.ResolveSession(context.Background(), token)
+	got, gotExpiry, err := svc.ResolveSession(context.Background(), token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
 	if got.ID != u.ID {
 		t.Fatalf("resolved user = %q, want %q", got.ID, u.ID)
+	}
+	if !gotExpiry.Equal(expiresAt) {
+		t.Fatalf("ResolveSession expiry = %v, want unchanged %v (well inside renew-below)", gotExpiry, expiresAt)
 	}
 
 	for _, sess := range store.allSessions() {
@@ -177,7 +180,7 @@ func TestResolveSessionExpired(t *testing.T) {
 
 	clock.advance(31 * 24 * time.Hour) // beyond the 30d TTL
 
-	_, err = svc.ResolveSession(context.Background(), token)
+	_, _, err = svc.ResolveSession(context.Background(), token)
 	if !errors.Is(err, identity.ErrNoSession) {
 		t.Fatalf("err = %v, want ErrNoSession", err)
 	}
@@ -203,7 +206,8 @@ func TestResolveSessionSlides(t *testing.T) {
 
 	clock.advance(20 * 24 * time.Hour) // remaining 10d < the 15d renew-below threshold
 
-	if _, err := svc.ResolveSession(context.Background(), token); err != nil {
+	_, gotExpiry, err := svc.ResolveSession(context.Background(), token)
+	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
 
@@ -215,6 +219,47 @@ func TestResolveSessionSlides(t *testing.T) {
 	if !sessions[0].ExpiresAt.Equal(wantExpiry) {
 		t.Fatalf("ExpiresAt = %v, want %v (slid forward)", sessions[0].ExpiresAt, wantExpiry)
 	}
+	if !gotExpiry.Equal(wantExpiry) {
+		t.Fatalf("ResolveSession returned expiry = %v, want slid %v", gotExpiry, wantExpiry)
+	}
+}
+
+// TestResolveSessionFreshDoesNotRenew is the negative-renewal case (final
+// review deferred finding #5): resolving IMMEDIATELY after CreateSession —
+// well outside the 15d renew-below threshold — must NOT touch the session
+// row or change its expiry. Without this, a bug that always renews would
+// slide every request and this file's positive slide test (above) couldn't
+// tell the difference.
+func TestResolveSessionFreshDoesNotRenew(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	clock := newFakeClock(baseTime)
+	identity.SetClockForTest(svc, clock.now)
+
+	u, err := store.UpsertUser(context.Background(), identity.User{GitHubID: 30, GitHubLogin: "u30"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	token, createdExpiry, err := svc.CreateSession(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	_, gotExpiry, err := svc.ResolveSession(context.Background(), token)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if !gotExpiry.Equal(createdExpiry) {
+		t.Fatalf("ResolveSession expiry = %v, want unchanged %v (no renewal this soon)", gotExpiry, createdExpiry)
+	}
+	if n := store.touchSessionCallCount(); n != 0 {
+		t.Fatalf("TouchSession called %d times, want 0 for a fresh session", n)
+	}
+
+	sessions := store.allSessions()
+	if len(sessions) != 1 || !sessions[0].ExpiresAt.Equal(createdExpiry) {
+		t.Fatalf("stored session expiry = %+v, want unchanged %v", sessions, createdExpiry)
+	}
 }
 
 func TestResolveSessionUnknownOrEmpty(t *testing.T) {
@@ -222,7 +267,7 @@ func TestResolveSessionUnknownOrEmpty(t *testing.T) {
 	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
 
 	for _, token := range []string{"", "nope"} {
-		if _, err := svc.ResolveSession(context.Background(), token); !errors.Is(err, identity.ErrNoSession) {
+		if _, _, err := svc.ResolveSession(context.Background(), token); !errors.Is(err, identity.ErrNoSession) {
 			t.Fatalf("ResolveSession(%q) err = %v, want ErrNoSession", token, err)
 		}
 	}
@@ -244,7 +289,7 @@ func TestLogout(t *testing.T) {
 	if err := svc.Logout(context.Background(), token); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
-	if _, err := svc.ResolveSession(context.Background(), token); !errors.Is(err, identity.ErrNoSession) {
+	if _, _, err := svc.ResolveSession(context.Background(), token); !errors.Is(err, identity.ErrNoSession) {
 		t.Fatalf("ResolveSession after logout = %v, want ErrNoSession", err)
 	}
 

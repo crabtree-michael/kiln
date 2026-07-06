@@ -63,10 +63,13 @@ func (c *Cipher) Decrypt(box []byte) (string, error) {
 // tailLen is the fingerprint length shown by the API (11 §3 D7).
 const tailLen = 4
 
-// Tail is the last-4 fingerprint shown by the API ("configured · …x4Kd").
+// Tail is the last-4 fingerprint shown by the API ("configured · …x4Kd"). A
+// secret no longer than the fingerprint itself (≤4 chars) would have its tail
+// BE the whole value, defeating the "fingerprint, never the value" contract
+// (final review, Minor #4) — Tail reports "" for those instead of disclosing them.
 func Tail(s string) string {
 	if len(s) <= tailLen {
-		return s
+		return ""
 	}
 	return s[len(s)-tailLen:]
 }

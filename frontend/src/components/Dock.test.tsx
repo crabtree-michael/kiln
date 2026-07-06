@@ -136,12 +136,14 @@ describe('Dock', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 
-  it('idle after send: no transcript region, mic controls intact', () => {
-    // Post-send state (09 §4): the store cleared settledText + tailText, so the
-    // dock shows an empty transcript ready for the next turn — but still listens.
-    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
+  it('idle after send: back to Paused ("Tap to talk"), no transcript, mic controls intact', () => {
+    // Post-send state: sending stops the mic, so the store cleared settledText +
+    // tailText and dropped to Paused. The dock shows an empty transcript and the
+    // resting "Tap to talk" mic — the user taps to speak the next message.
+    mockVoiceValue = stubVoice({ micState: 'paused', settledText: '', tailText: '' });
     const { container } = render(<Dock />);
     expect(container.querySelector('[data-role="dock-transcript"]')).toBeNull();
+    expect(screen.getByText('Tap to talk')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Talk' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });

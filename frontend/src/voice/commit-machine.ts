@@ -26,8 +26,7 @@ export type VoiceAction =
   | { type: 'cancel' } // the X — discard the un-committed utterance (09 §4)
   | { type: 'sendNow' } // the send button — commit whatever is on screen now, without waiting for a final
   | { type: 'denied' }
-  | { type: 'background' } // visibilitychange -> hidden (09 §3)
-  | { type: 'foreground' } // visibilitychange -> visible
+  | { type: 'background' } // visibilitychange -> hidden: stop the mic (09 §3)
   | { type: 'commitConsumed' } // the store POSTed the pending commit successfully
   | { type: 'commitFailed' } // the POST failed — keep the finalized text on screen
   | { type: 'commitDelayElapsed' }; // the post-turn-end grace window closed — fire the armed send
@@ -49,8 +48,10 @@ export interface VoiceState {
 }
 
 export function initialVoiceState(): VoiceState {
-  // Mic on by default (09 §3 D3): the app opens straight into Listening.
-  return { micState: 'listening', settledText: '', tailText: '' };
+  // Mic off until an explicit tap: the app opens Paused ("Tap to talk"), never
+  // listening on its own. The mic only turns on when the user taps the mic
+  // control (→ `resume`); nothing here or in the store starts it automatically.
+  return { micState: 'paused', settledText: '', tailText: '' };
 }
 
 /** Promote an armed end-of-turn final (`pending`) to the one-tick `commit` the
@@ -61,7 +62,10 @@ function fireArmedSend(state: VoiceState): VoiceState {
   if (state.pending === undefined) {
     return state;
   }
-  return { ...state, pending: undefined, commit: state.pending };
+  // Sending stops the mic: it drops to Paused so it never keeps listening past a
+  // sent message. The user taps the mic again to speak the next one (the store
+  // tears the socket down off the same `commit`).
+  return { ...state, pending: undefined, commit: state.pending, micState: 'paused' };
 }
 
 /** Commit whatever transcript is on screen right now — the settled ink plus any
@@ -77,7 +81,16 @@ function fireDisplayedSend(state: VoiceState): VoiceState {
   if (text === '') {
     return state;
   }
-  return { ...state, settledText: text, tailText: '', pending: undefined, commit: text };
+  // Same as an auto-commit: sending stops the mic (→ Paused), so a tap on the
+  // send button never leaves the mic listening afterward.
+  return {
+    ...state,
+    settledText: text,
+    tailText: '',
+    pending: undefined,
+    commit: text,
+    micState: 'paused',
+  };
 }
 
 export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState {
@@ -106,11 +119,13 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
     case 'denied':
       return { ...state, micState: 'denied', tailText: '', pending: undefined, commit: undefined };
     case 'background':
-      // The store closes the socket; the desired state is unchanged so
-      // foregrounding resumes it. An explicit pause stays paused.
-      return state;
-    case 'foreground':
-      return state;
+      // Leaving the app stops the mic for good: the store closes the socket and
+      // the machine drops any live listen to Paused. Returning never re-opens the
+      // mic on its own — the user taps to talk again (denied/retry are left as-is
+      // so backgrounding doesn't paper over a permission/connection problem).
+      return state.micState === 'listening'
+        ? { ...state, micState: 'paused', pending: undefined, commit: undefined }
+        : state;
     case 'commitConsumed':
       // A sent utterance clears back to the idle transcript so stale text can't
       // linger or flash back (09 §4): both the on-screen ink and the one-tick
@@ -128,9 +143,9 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
     case 'sendNow':
       // The send button fires whatever is on screen *now* — interim tail included
       // — without waiting for an end-of-turn final (09 §4). Commit the displayed
-      // transcript verbatim; the store restarts the stream so the just-sent words
-      // don't return in a trailing final and double-post. A no-op if nothing is
-      // shown.
+      // transcript verbatim and drop to Paused; the store tears the socket down so
+      // the mic doesn't keep listening and the just-sent words can't return in a
+      // trailing final and double-post. A no-op if nothing is shown.
       return fireDisplayedSend(state);
     default:
       return state;

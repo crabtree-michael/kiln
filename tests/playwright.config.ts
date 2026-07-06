@@ -47,8 +47,9 @@ export default defineConfig({
       testIgnore: voiceSpec,
     },
     // The voice project: Chromium with a fake microphone fed by the canned clip.
-    // `--autoplay-policy=no-user-gesture-required` lets the VoiceProvider's
-    // AudioContext run without a click (it starts on mount); the fake-ui flag +
+    // The mic starts on an explicit tap (the spec clicks "Talk"), which supplies
+    // the user gesture the AudioContext needs; `--autoplay-policy=no-user-gesture-
+    // required` stays as a harmless belt-and-suspenders. The fake-ui flag +
     // granted permission auto-accept the getUserMedia prompt.
     {
       name: 'voice',

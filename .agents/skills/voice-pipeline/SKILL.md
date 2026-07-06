@@ -71,9 +71,9 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
 - **Full browser E2E** (`tests/tests/voice-mic-to-brain.spec.ts`, Playwright `voice` project):
   Chromium is launched with a **fake microphone** fed by a canned clip — no real mic. Flags:
   `--use-fake-device-for-media-stream`, `--use-fake-ui-for-media-stream`,
-  `--use-file-for-fake-audio-capture=<abs .wav>%noloop`, and crucially
-  `--autoplay-policy=no-user-gesture-required` (the VoiceProvider opens its AudioContext on
-  mount with no click; without this flag it stays suspended and no audio flows). The clip
+  `--use-file-for-fake-audio-capture=<abs .wav>%noloop`, and
+  `--autoplay-policy=no-user-gesture-required` (belt-and-suspenders for the AudioContext; the
+  spec taps "Talk" to start the mic — that click is itself a user gesture). The clip
   (`tests/fixtures/this-is-a-test.wav`, mono 16 kHz PCM16) is **padded with ~1 s leading + ~1.4 s
   trailing silence**: the lead covers the socket-open startup window (early frames are dropped
   until the socket is OPEN), the trailing silence lets AssemblyAI fire end-of-turn (a seamless
@@ -93,9 +93,17 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
 - **Don't proxy audio through the backend** (09 D2). The backend is SSE+POST only (04 D6);
   the client streams to AssemblyAI directly. Only the temp token crosses our API.
 - **Auth header is the raw key**, not `Bearer <key>`, on the `/v3/token` GET.
-- **Mic is ON by default** at app open (09 D3) — "Tap to talk" is only the *paused/retry/denied*
-  copy, never the resting state. Commit is **automatic** on end-of-turn (09 D4); the **X cancels**
-  the un-committed utterance client-side (nothing was sent). Empty/whitespace finals never POST.
+- **Mic is OFF until an explicit tap** (reverses the old 09 D3 "on by default"). The app opens
+  *Paused* ("Tap to talk") and the mic starts ONLY when the user taps the mic control (→ `resume`
+  → `startStream`). Nothing else starts it from rest: no start on mount, no foreground resume
+  (backgrounding drops a live listen to Paused and returning never reopens it), and no restart
+  after a send. **Sending stops the mic**: an end-of-turn auto-commit *or* the send button drops
+  the machine to Paused and the store tears the socket down — the user taps again to speak the
+  next message. The only `startStream` callers besides `resume` are the token-refresh timer and
+  the one-shot reconnect, and both run *only inside an already-tapped live session* (cleared by
+  `stopStream` the instant the mic stops), so they never activate the mic from rest. Commit is
+  still **automatic** on end-of-turn (09 D4); the **X cancels** the un-committed utterance
+  client-side (nothing was sent). Empty/whitespace finals never POST.
 - Keep decision logic in `commit-machine` (pure, testable); keep all I/O in `voice-store` /
   `assemblyai-client`. The machine returns a `commit` intent; the store performs the POST.
 - Escape-hatch ban (02 §4b): no `any`/`as` — narrow `unknown` with guards. The strict

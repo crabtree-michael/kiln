@@ -52,7 +52,9 @@ describe('ActivityRow', () => {
     expect(pill).not.toBeNull();
     expect(pill).toHaveAttribute('data-verb', 'started');
     expect(screen.getByText('Login Redesign')).toBeInTheDocument();
-    expect(screen.getByText(/Started/)).toBeInTheDocument();
+    // The verb is conveyed by the status emoji; its label carries the status for
+    // assistive tech rather than repeating it as a visible text prefix.
+    expect(screen.getByRole('img', { name: 'Started' })).toBeInTheDocument();
   });
 
   it('stacks multiple live toasts into a list', () => {

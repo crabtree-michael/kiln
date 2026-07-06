@@ -13,16 +13,15 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
         data-verb="started"
       >
         <span
-          aria-hidden="true"
+          aria-label="Started"
           data-role="toast-icon"
+          role="img"
         >
           🚀
         </span>
         <span
           data-role="toast-text"
         >
-          Started
-           
           <span
             data-role="toast-title"
           >

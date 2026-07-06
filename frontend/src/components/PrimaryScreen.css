@@ -54,6 +54,31 @@
   padding: 0 26px 8px;
 }
 
+/* Single in-flow wrapper holding everything that scrolls (sticky header +
+   backlog). It grows to fill the feed and never shrinks below its content, so
+   a tall backlog scrolls exactly as before. On touch devices it is forced a
+   single pixel taller than the scrollport (below) so the feed is ALWAYS
+   scrollable — that is what lets the native rubber-band engage even when the
+   backlog is short or empty, giving the whole app an elastic feel instead of
+   feeling stuck. */
+[data-role='feed-scroll'] {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Only touch devices have a rubber-band to unlock, and the 1px overflow would
+   otherwise surface a permanent scrollbar on desktop. Coarse-pointer / no-hover
+   scopes this to phones and tablets. */
+@media (hover: none) and (pointer: coarse) {
+  [data-role='feed-scroll'] {
+    /* +1px over the scrollport keeps scrollHeight > clientHeight at all times so
+       iOS/Android treat the feed as scrollable and show the elastic bounce. The
+       pixel is imperceptible and the sticky header/backlog layout is unchanged. */
+    min-height: calc(100% + 1px);
+  }
+}
+
 [data-role='feed-header'] {
   /* Pinned to the top of the feed region: the backlog scrolls behind it rather
      than pushing it off-screen. Sticky (not fixed) so it stays scoped to the

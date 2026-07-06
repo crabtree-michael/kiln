@@ -12,83 +12,87 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
       data-role="feed"
       role="region"
     >
-      <header
-        data-role="feed-header"
+      <div
+        data-role="feed-scroll"
       >
-        <div
-          data-role="kiln-mark"
+        <header
+          data-role="feed-header"
         >
-          <img
-            alt=""
-            aria-hidden="true"
-            data-role="kiln-glyph"
-            src="/kiln-mark.svg"
-          />
-          <span
-            data-role="kiln-wordmark"
-          >
-            Kiln
-          </span>
-        </div>
-        <div
-          data-role="header-status"
-        >
-          <button
-            aria-controls="header-status-panel"
-            aria-expanded="false"
-            aria-haspopup="true"
-            data-open="false"
-            data-role="feed-status"
-            type="button"
-          >
-            5 streams
-            <span
-              aria-hidden="true"
-              data-role="feed-status-caret"
-            />
-          </button>
           <div
-            aria-hidden="true"
-            data-open="false"
-            data-role="header-status-panel"
-            id="header-status-panel"
+            data-role="kiln-mark"
           >
-            <div
-              data-role="header-status-heading"
+            <img
+              alt=""
+              aria-hidden="true"
+              data-role="kiln-glyph"
+              src="/kiln-mark.svg"
+            />
+            <span
+              data-role="kiln-wordmark"
             >
-              Tickets
-            </div>
-            <div
-              data-role="header-status-empty"
+              Kiln
+            </span>
+          </div>
+          <div
+            data-role="header-status"
+          >
+            <button
+              aria-controls="header-status-panel"
+              aria-expanded="false"
+              aria-haspopup="true"
+              data-open="false"
+              data-role="feed-status"
+              type="button"
             >
-              No tickets
+              5 streams
+              <span
+                aria-hidden="true"
+                data-role="feed-status-caret"
+              />
+            </button>
+            <div
+              aria-hidden="true"
+              data-open="false"
+              data-role="header-status-panel"
+              id="header-status-panel"
+            >
+              <div
+                data-role="header-status-heading"
+              >
+                Tickets
+              </div>
+              <div
+                data-role="header-status-empty"
+              >
+                No tickets
+              </div>
             </div>
           </div>
-        </div>
-      </header>
-      <div
-        data-role="backlog"
-      >
+        </header>
         <div
-          data-role="feed-empty"
+          data-role="backlog"
         >
-          <img
-            alt=""
-            aria-hidden="true"
-            data-role="feed-empty-mark"
-            src="/kiln-mark.svg"
-          />
           <div
-            data-role="feed-empty-status"
+            data-role="feed-empty"
           >
-            <span
+            <img
+              alt=""
               aria-hidden="true"
-              data-active="true"
-              data-role="feed-empty-pulse"
+              data-role="feed-empty-mark"
+              src="/kiln-mark.svg"
             />
-            <span>
-              3 building · last word 6m ago
-            </span>
+            <div
+              data-role="feed-empty-status"
+            >
+              <span
+                aria-hidden="true"
+                data-active="true"
+                data-role="feed-empty-pulse"
+              />
+              <span>
+                3 building · last word 6m ago
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -193,195 +197,199 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
       data-role="feed"
       role="region"
     >
-      <header
-        data-role="feed-header"
-      >
-        <div
-          data-role="kiln-mark"
-        >
-          <img
-            alt=""
-            aria-hidden="true"
-            data-role="kiln-glyph"
-            src="/kiln-mark.svg"
-          />
-          <span
-            data-role="kiln-wordmark"
-          >
-            Kiln
-          </span>
-        </div>
-        <div
-          data-role="header-status"
-        >
-          <button
-            aria-controls="header-status-panel"
-            aria-expanded="false"
-            aria-haspopup="true"
-            data-open="false"
-            data-role="feed-status"
-            type="button"
-          >
-            1 blocker · 1 update
-            <span
-              aria-hidden="true"
-              data-role="feed-status-caret"
-            />
-          </button>
-          <div
-            aria-hidden="true"
-            data-open="false"
-            data-role="header-status-panel"
-            id="header-status-panel"
-          >
-            <div
-              data-role="header-status-heading"
-            >
-              Tickets
-            </div>
-            <div
-              data-role="header-status-empty"
-            >
-              No tickets
-            </div>
-          </div>
-        </div>
-      </header>
       <div
-        data-role="backlog"
+        data-role="feed-scroll"
       >
-        <div
-          data-role="backlog-slot"
+        <header
+          data-role="feed-header"
         >
-          <article
-            data-kind="blocker"
-            data-role="feed-card"
+          <div
+            data-role="kiln-mark"
           >
-            <div
-              data-role="feed-card-head"
+            <img
+              alt=""
+              aria-hidden="true"
+              data-role="kiln-glyph"
+              src="/kiln-mark.svg"
+            />
+            <span
+              data-role="kiln-wordmark"
             >
+              Kiln
+            </span>
+          </div>
+          <div
+            data-role="header-status"
+          >
+            <button
+              aria-controls="header-status-panel"
+              aria-expanded="false"
+              aria-haspopup="true"
+              data-open="false"
+              data-role="feed-status"
+              type="button"
+            >
+              1 blocker · 1 update
               <span
                 aria-hidden="true"
-                data-role="feed-card-dot"
+                data-role="feed-status-caret"
               />
-              <span
-                data-role="feed-card-label"
-              >
-                Auth
-              </span>
-              <span
-                data-role="feed-card-age"
-              >
-                now
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
-            >
-              The /auth endpoint hands back both a session cookie and a JWT. Which should the client trust as the source of truth?
-            </p>
-          </article>
-        </div>
-        <div
-          data-role="backlog-slot"
-        >
-          <article
-            data-kind="update"
-            data-role="feed-card"
-          >
+            </button>
             <div
-              data-role="feed-card-head"
+              aria-hidden="true"
+              data-open="false"
+              data-role="header-status-panel"
+              id="header-status-panel"
             >
-              <span
-                data-role="feed-card-label"
+              <div
+                data-role="header-status-heading"
               >
-                Rate limiting
-              </span>
-              <span
-                data-role="feed-card-age"
+                Tickets
+              </div>
+              <div
+                data-role="header-status-empty"
               >
-                2m
-              </span>
+                No tickets
+              </div>
             </div>
-            <p
-              data-role="feed-card-body"
-            >
-              Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
-            </p>
-          </article>
-        </div>
+          </div>
+        </header>
         <div
-          data-role="backlog-slot"
+          data-role="backlog"
         >
           <div
-            data-role="feed-divider"
-            data-variant="last-seen"
+            data-role="backlog-slot"
           >
-            Earlier
+            <article
+              data-kind="blocker"
+              data-role="feed-card"
+            >
+              <div
+                data-role="feed-card-head"
+              >
+                <span
+                  aria-hidden="true"
+                  data-role="feed-card-dot"
+                />
+                <span
+                  data-role="feed-card-label"
+                >
+                  Auth
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  now
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
+              >
+                The /auth endpoint hands back both a session cookie and a JWT. Which should the client trust as the source of truth?
+              </p>
+            </article>
           </div>
-          <article
-            data-kind="update"
-            data-role="feed-card"
-            data-seen="true"
+          <div
+            data-role="backlog-slot"
+          >
+            <article
+              data-kind="update"
+              data-role="feed-card"
+            >
+              <div
+                data-role="feed-card-head"
+              >
+                <span
+                  data-role="feed-card-label"
+                >
+                  Rate limiting
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  2m
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
+              >
+                Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
+              </p>
+            </article>
+          </div>
+          <div
+            data-role="backlog-slot"
           >
             <div
-              data-role="feed-card-head"
+              data-role="feed-divider"
+              data-variant="last-seen"
             >
-              <span
-                data-role="feed-card-label"
-              >
-                Email
-              </span>
-              <span
-                data-role="feed-card-age"
-              >
-                14m
-              </span>
+              Earlier
             </div>
-            <p
-              data-role="feed-card-body"
+            <article
+              data-kind="update"
+              data-role="feed-card"
               data-seen="true"
             >
-              Drafted three subject lines for the password-reset email and kept the clearest.
-            </p>
-          </article>
-        </div>
-        <div
-          data-role="backlog-slot"
-        >
-          <article
-            data-kind="update"
-            data-role="feed-card"
-            data-seen="true"
+              <div
+                data-role="feed-card-head"
+              >
+                <span
+                  data-role="feed-card-label"
+                >
+                  Email
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  14m
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
+                data-seen="true"
+              >
+                Drafted three subject lines for the password-reset email and kept the clearest.
+              </p>
+            </article>
+          </div>
+          <div
+            data-role="backlog-slot"
           >
-            <div
-              data-role="feed-card-head"
-            >
-              <span
-                data-role="feed-card-label"
-              >
-                Search
-              </span>
-              <span
-                data-role="feed-card-age"
-              >
-                1h
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
+            <article
+              data-kind="update"
+              data-role="feed-card"
               data-seen="true"
             >
-              Reindexed the product catalog; queries are back under 40ms.
-            </p>
-          </article>
+              <div
+                data-role="feed-card-head"
+              >
+                <span
+                  data-role="feed-card-label"
+                >
+                  Search
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  1h
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
+                data-seen="true"
+              >
+                Reindexed the product catalog; queries are back under 40ms.
+              </p>
+            </article>
+          </div>
+          <button
+            data-role="feed-load-more"
+            type="button"
+          >
+            Show earlier updates
+          </button>
         </div>
-        <button
-          data-role="feed-load-more"
-          type="button"
-        >
-          Show earlier updates
-        </button>
       </div>
     </section>
     <div
@@ -484,128 +492,132 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
       data-role="feed"
       role="region"
     >
-      <header
-        data-role="feed-header"
+      <div
+        data-role="feed-scroll"
       >
-        <div
-          data-role="kiln-mark"
+        <header
+          data-role="feed-header"
         >
-          <img
-            alt=""
-            aria-hidden="true"
-            data-role="kiln-glyph"
-            src="/kiln-mark.svg"
-          />
-          <span
-            data-role="kiln-wordmark"
-          >
-            Kiln
-          </span>
-        </div>
-        <div
-          data-role="header-status"
-        >
-          <button
-            aria-controls="header-status-panel"
-            aria-expanded="false"
-            aria-haspopup="true"
-            data-open="false"
-            data-role="feed-status"
-            type="button"
-          >
-            5 streams
-            <span
-              aria-hidden="true"
-              data-role="feed-status-caret"
-            />
-          </button>
           <div
-            aria-hidden="true"
-            data-open="false"
-            data-role="header-status-panel"
-            id="header-status-panel"
+            data-role="kiln-mark"
           >
-            <div
-              data-role="header-status-heading"
+            <img
+              alt=""
+              aria-hidden="true"
+              data-role="kiln-glyph"
+              src="/kiln-mark.svg"
+            />
+            <span
+              data-role="kiln-wordmark"
             >
-              Tickets
-            </div>
-            <div
-              data-role="header-status-empty"
+              Kiln
+            </span>
+          </div>
+          <div
+            data-role="header-status"
+          >
+            <button
+              aria-controls="header-status-panel"
+              aria-expanded="false"
+              aria-haspopup="true"
+              data-open="false"
+              data-role="feed-status"
+              type="button"
             >
-              No tickets
+              5 streams
+              <span
+                aria-hidden="true"
+                data-role="feed-status-caret"
+              />
+            </button>
+            <div
+              aria-hidden="true"
+              data-open="false"
+              data-role="header-status-panel"
+              id="header-status-panel"
+            >
+              <div
+                data-role="header-status-heading"
+              >
+                Tickets
+              </div>
+              <div
+                data-role="header-status-empty"
+              >
+                No tickets
+              </div>
             </div>
           </div>
-        </div>
-      </header>
-      <div
-        data-role="backlog"
-      >
+        </header>
         <div
-          data-role="backlog-slot"
+          data-role="backlog"
         >
-          <article
-            data-kind="preview"
-            data-role="feed-card"
+          <div
+            data-role="backlog-slot"
           >
-            <div
-              data-role="feed-card-head"
+            <article
+              data-kind="preview"
+              data-role="feed-card"
             >
-              <span
-                data-role="feed-card-tag"
+              <div
+                data-role="feed-card-head"
               >
-                Preview
-              </span>
-              <span
-                data-role="feed-card-label"
+                <span
+                  data-role="feed-card-tag"
+                >
+                  Preview
+                </span>
+                <span
+                  data-role="feed-card-label"
+                >
+                  Auth
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  now
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
               >
-                Auth
-              </span>
-              <span
-                data-role="feed-card-age"
-              >
-                now
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
-            >
-              Here's the login screen running against the live endpoint.
-            </p>
-            <img
-              alt="Auth"
-              data-role="feed-card-image"
-              src="https://cdn.example/login.png"
-            />
-          </article>
-        </div>
-        <div
-          data-role="backlog-slot"
-        >
-          <article
-            data-kind="update"
-            data-role="feed-card"
+                Here's the login screen running against the live endpoint.
+              </p>
+              <img
+                alt="Auth"
+                data-role="feed-card-image"
+                src="https://cdn.example/login.png"
+              />
+            </article>
+          </div>
+          <div
+            data-role="backlog-slot"
           >
-            <div
-              data-role="feed-card-head"
+            <article
+              data-kind="update"
+              data-role="feed-card"
             >
-              <span
-                data-role="feed-card-label"
+              <div
+                data-role="feed-card-head"
               >
-                Rate limiting
-              </span>
-              <span
-                data-role="feed-card-age"
+                <span
+                  data-role="feed-card-label"
+                >
+                  Rate limiting
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  2m
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
               >
-                2m
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
-            >
-              Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
-            </p>
-          </article>
+                Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
+              </p>
+            </article>
+          </div>
         </div>
       </div>
     </section>
@@ -709,106 +721,110 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
       data-role="feed"
       role="region"
     >
-      <header
-        data-role="feed-header"
-      >
-        <div
-          data-role="kiln-mark"
-        >
-          <img
-            alt=""
-            aria-hidden="true"
-            data-role="kiln-glyph"
-            src="/kiln-mark.svg"
-          />
-          <span
-            data-role="kiln-wordmark"
-          >
-            Kiln
-          </span>
-        </div>
-        <div
-          data-role="header-status"
-        >
-          <button
-            aria-controls="header-status-panel"
-            aria-expanded="false"
-            aria-haspopup="true"
-            data-open="false"
-            data-role="feed-status"
-            type="button"
-          >
-            3 streams
-            <span
-              aria-hidden="true"
-              data-role="feed-status-caret"
-            />
-          </button>
-          <div
-            aria-hidden="true"
-            data-open="false"
-            data-role="header-status-panel"
-            id="header-status-panel"
-          >
-            <div
-              data-role="header-status-heading"
-            >
-              Tickets
-            </div>
-            <div
-              data-role="header-status-empty"
-            >
-              No tickets
-            </div>
-          </div>
-        </div>
-      </header>
       <div
-        data-role="backlog"
+        data-role="feed-scroll"
       >
-        <div
-          data-role="backlog-slot"
+        <header
+          data-role="feed-header"
         >
-          <article
-            data-kind="proposal"
-            data-role="feed-card"
+          <div
+            data-role="kiln-mark"
           >
-            <div
-              data-role="feed-card-head"
+            <img
+              alt=""
+              aria-hidden="true"
+              data-role="kiln-glyph"
+              src="/kiln-mark.svg"
+            />
+            <span
+              data-role="kiln-wordmark"
             >
-              <span
-                data-role="feed-card-label"
-              >
-                Login Redesign
-              </span>
-              <span
-                data-role="feed-card-age"
-              >
-                1m
-              </span>
-            </div>
+              Kiln
+            </span>
+          </div>
+          <div
+            data-role="header-status"
+          >
             <button
-              aria-label="Open ticket: Login Redesign"
-              data-role="feed-card-open"
+              aria-controls="header-status-panel"
+              aria-expanded="false"
+              aria-haspopup="true"
+              data-open="false"
+              data-role="feed-status"
               type="button"
             >
+              3 streams
               <span
-                data-role="feed-card-body"
-              >
-                Rework the login screen to a single-column layout with inline validation.
-              </span>
+                aria-hidden="true"
+                data-role="feed-status-caret"
+              />
             </button>
             <div
-              data-role="feed-card-actions"
+              aria-hidden="true"
+              data-open="false"
+              data-role="header-status-panel"
+              id="header-status-panel"
             >
+              <div
+                data-role="header-status-heading"
+              >
+                Tickets
+              </div>
+              <div
+                data-role="header-status-empty"
+              >
+                No tickets
+              </div>
+            </div>
+          </div>
+        </header>
+        <div
+          data-role="backlog"
+        >
+          <div
+            data-role="backlog-slot"
+          >
+            <article
+              data-kind="proposal"
+              data-role="feed-card"
+            >
+              <div
+                data-role="feed-card-head"
+              >
+                <span
+                  data-role="feed-card-label"
+                >
+                  Login Redesign
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  1m
+                </span>
+              </div>
               <button
-                data-role="proposal-accept"
+                aria-label="Open ticket: Login Redesign"
+                data-role="feed-card-open"
                 type="button"
               >
-                Accept
+                <span
+                  data-role="feed-card-body"
+                >
+                  Rework the login screen to a single-column layout with inline validation.
+                </span>
               </button>
-            </div>
-          </article>
+              <div
+                data-role="feed-card-actions"
+              >
+                <button
+                  data-role="proposal-accept"
+                  type="button"
+                >
+                  Accept
+                </button>
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     </section>
@@ -912,146 +928,150 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
       data-role="feed"
       role="region"
     >
-      <header
-        data-role="feed-header"
+      <div
+        data-role="feed-scroll"
       >
-        <div
-          data-role="kiln-mark"
+        <header
+          data-role="feed-header"
         >
-          <img
-            alt=""
-            aria-hidden="true"
-            data-role="kiln-glyph"
-            src="/kiln-mark.svg"
-          />
-          <span
-            data-role="kiln-wordmark"
-          >
-            Kiln
-          </span>
-        </div>
-        <div
-          data-role="header-status"
-        >
-          <button
-            aria-controls="header-status-panel"
-            aria-expanded="false"
-            aria-haspopup="true"
-            data-open="false"
-            data-role="feed-status"
-            type="button"
-          >
-            5 streams
-            <span
-              aria-hidden="true"
-              data-role="feed-status-caret"
-            />
-          </button>
           <div
-            aria-hidden="true"
-            data-open="false"
-            data-role="header-status-panel"
-            id="header-status-panel"
+            data-role="kiln-mark"
           >
-            <div
-              data-role="header-status-heading"
+            <img
+              alt=""
+              aria-hidden="true"
+              data-role="kiln-glyph"
+              src="/kiln-mark.svg"
+            />
+            <span
+              data-role="kiln-wordmark"
             >
-              Tickets
-            </div>
-            <div
-              data-role="header-status-empty"
+              Kiln
+            </span>
+          </div>
+          <div
+            data-role="header-status"
+          >
+            <button
+              aria-controls="header-status-panel"
+              aria-expanded="false"
+              aria-haspopup="true"
+              data-open="false"
+              data-role="feed-status"
+              type="button"
             >
-              No tickets
+              5 streams
+              <span
+                aria-hidden="true"
+                data-role="feed-status-caret"
+              />
+            </button>
+            <div
+              aria-hidden="true"
+              data-open="false"
+              data-role="header-status-panel"
+              id="header-status-panel"
+            >
+              <div
+                data-role="header-status-heading"
+              >
+                Tickets
+              </div>
+              <div
+                data-role="header-status-empty"
+              >
+                No tickets
+              </div>
             </div>
           </div>
-        </div>
-      </header>
-      <div
-        data-role="backlog"
-      >
+        </header>
         <div
-          data-role="backlog-slot"
+          data-role="backlog"
         >
-          <article
-            data-kind="update"
-            data-role="feed-card"
+          <div
+            data-role="backlog-slot"
           >
-            <div
-              data-role="feed-card-head"
+            <article
+              data-kind="update"
+              data-role="feed-card"
             >
-              <span
-                data-role="feed-card-label"
+              <div
+                data-role="feed-card-head"
               >
-                Rate limiting
-              </span>
-              <span
-                data-role="feed-card-age"
+                <span
+                  data-role="feed-card-label"
+                >
+                  Rate limiting
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  2m
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
               >
-                2m
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
-            >
-              Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
-            </p>
-          </article>
-        </div>
-        <div
-          data-role="backlog-slot"
-        >
-          <article
-            data-kind="update"
-            data-role="feed-card"
+                Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
+              </p>
+            </article>
+          </div>
+          <div
+            data-role="backlog-slot"
           >
-            <div
-              data-role="feed-card-head"
+            <article
+              data-kind="update"
+              data-role="feed-card"
             >
-              <span
-                data-role="feed-card-label"
+              <div
+                data-role="feed-card-head"
               >
-                Email
-              </span>
-              <span
-                data-role="feed-card-age"
+                <span
+                  data-role="feed-card-label"
+                >
+                  Email
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  14m
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
               >
-                14m
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
-            >
-              Drafted three subject lines for the password-reset email and kept the clearest.
-            </p>
-          </article>
-        </div>
-        <div
-          data-role="backlog-slot"
-        >
-          <article
-            data-kind="update"
-            data-role="feed-card"
+                Drafted three subject lines for the password-reset email and kept the clearest.
+              </p>
+            </article>
+          </div>
+          <div
+            data-role="backlog-slot"
           >
-            <div
-              data-role="feed-card-head"
+            <article
+              data-kind="update"
+              data-role="feed-card"
             >
-              <span
-                data-role="feed-card-label"
+              <div
+                data-role="feed-card-head"
               >
-                Search
-              </span>
-              <span
-                data-role="feed-card-age"
+                <span
+                  data-role="feed-card-label"
+                >
+                  Search
+                </span>
+                <span
+                  data-role="feed-card-age"
+                >
+                  1h
+                </span>
+              </div>
+              <p
+                data-role="feed-card-body"
               >
-                1h
-              </span>
-            </div>
-            <p
-              data-role="feed-card-body"
-            >
-              Reindexed the product catalog; queries are back under 40ms.
-            </p>
-          </article>
+                Reindexed the product catalog; queries are back under 40ms.
+              </p>
+            </article>
+          </div>
         </div>
       </div>
     </section>

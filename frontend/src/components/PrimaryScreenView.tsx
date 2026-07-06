@@ -10,8 +10,10 @@ import type {
   FeedCard,
   FeedSnapshot,
   FeedSummary,
+  NotificationModeValue,
 } from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
+import type { WebPushStatus } from '@/stores/use-web-push';
 import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
@@ -19,6 +21,7 @@ import { TicketDetail } from '@/components/TicketDetail';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
+import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { streamDetail } from '@/components/feed-format';
 import '@/components/PrimaryScreen.css';
 
@@ -64,6 +67,17 @@ export interface PrimaryScreenViewProps {
   loadingMoreHistory?: boolean;
   /** Fetch and append the next older page of update history (08 D2′). */
   onLoadMoreHistory?: (() => void) | undefined;
+  /** The current push-notification frequency, shown selected in the bell menu
+   * (02 §10). Defaults to `blocked` (the current behavior) when omitted. */
+  notificationMode?: NotificationModeValue;
+  /** Persist a new push-notification frequency. Optional so presentational tests
+   * can omit it (the bell menu's options then render disabled). */
+  onSelectNotificationMode?: ((mode: NotificationModeValue) => void) | undefined;
+  /** The browser + backend push capability, for the bell menu's permission
+   * button. Optional; omitted renders it as "checking". */
+  pushStatus?: WebPushStatus | undefined;
+  /** Request OS notification permission + register for push (02 §10). Optional. */
+  onEnablePush?: (() => void) | undefined;
   /** Injected "now" for deterministic relative-age rendering (defaults to real time). */
   now?: number;
 }
@@ -142,6 +156,10 @@ export function PrimaryScreenView({
   hasMoreHistory = false,
   loadingMoreHistory = false,
   onLoadMoreHistory,
+  notificationMode = 'blocked',
+  onSelectNotificationMode,
+  pushStatus,
+  onEnablePush,
   now = Date.now(),
 }: PrimaryScreenViewProps): JSX.Element {
   const summary = feed?.summary ?? EMPTY_SUMMARY;
@@ -170,12 +188,20 @@ export function PrimaryScreenView({
           <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
           <span data-role="kiln-wordmark">Kiln</span>
         </div>
-        <HeaderStatusMenu
-          summary={summary}
-          board={board}
-          onOpen={onOpenTickets}
-          refreshing={ticketsRefreshing}
-        />
+        <div data-role="header-actions">
+          <NotificationSettingsMenu
+            mode={notificationMode}
+            onSelectMode={onSelectNotificationMode}
+            pushStatus={pushStatus}
+            onEnablePush={onEnablePush}
+          />
+          <HeaderStatusMenu
+            summary={summary}
+            board={board}
+            onOpen={onOpenTickets}
+            refreshing={ticketsRefreshing}
+          />
+        </div>
       </header>
       <section
         role="region"

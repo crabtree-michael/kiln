@@ -422,9 +422,12 @@ func (n *webPushNotifier) Send(ctx context.Context, payload []byte) error {
 
 var _ runtime.Notifier = (*webPushNotifier)(nil)
 
-// pushRegistrarAdapter satisfies api.PushRegistrar over the push store's write
-// side: the client's POST /api/push/subscribe lands a browser subscription that
-// webPushNotifier later reads. wire.PushSubscription → push.Subscription.
+// pushRegistrarAdapter satisfies api.PushRegistrar over the push store: the
+// client's POST /api/push/subscribe lands a browser subscription that
+// webPushNotifier later reads (wire.PushSubscription → push.Subscription), and
+// GET/PUT /api/push/mode read/write the global notification frequency. It also
+// satisfies runtime.NotifyModeReader, so the same instance is the runtime's
+// mode source for the "all"-mode feed-update push (02 §10).
 type pushRegistrarAdapter struct{ store push.Store }
 
 func (a *pushRegistrarAdapter) Subscribe(ctx context.Context, sub api.PushSubscription) error {
@@ -438,7 +441,25 @@ func (a *pushRegistrarAdapter) Subscribe(ctx context.Context, sub api.PushSubscr
 	return nil
 }
 
-var _ api.PushRegistrar = (*pushRegistrarAdapter)(nil)
+func (a *pushRegistrarAdapter) Mode(ctx context.Context) (string, error) {
+	mode, err := a.store.Mode(ctx)
+	if err != nil {
+		return "", fmt.Errorf("kiln: read push mode: %w", err)
+	}
+	return mode, nil
+}
+
+func (a *pushRegistrarAdapter) SetMode(ctx context.Context, mode string) error {
+	if err := a.store.SetMode(ctx, mode); err != nil {
+		return fmt.Errorf("kiln: set push mode: %w", err)
+	}
+	return nil
+}
+
+var (
+	_ api.PushRegistrar        = (*pushRegistrarAdapter)(nil)
+	_ runtime.NotifyModeReader = (*pushRegistrarAdapter)(nil)
+)
 
 // newNotifier chooses the notify.send executor (02 §10): a real Web Push sender
 // when the operator has supplied a VAPID key pair (VAPID_PUBLIC_KEY +

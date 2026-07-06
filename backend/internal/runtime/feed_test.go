@@ -22,7 +22,7 @@ func newFeedService(
 	clock := testutil.NewFakeClock()
 	return runtime.NewService(
 		newFakeStore(clock), &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, board, feed, activity,
 	)
 }
@@ -312,7 +312,7 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
 	)
 
@@ -349,7 +349,7 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, &fakeBoardReader{}, feed, &fakeActivityPusher{},
 	)
 
@@ -369,13 +369,61 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	}
 }
 
+func TestService_Outbox_FeedUpdatedNotifiesInAllMode(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	notifier := &fakeNotifier{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: "all"}, &fakeSnapshotPusher{},
+		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
+		&fakeActivityPusher{},
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "feed.updated", []byte(`{}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
+	if got := notifier.count("Send"); got != 1 {
+		t.Fatalf("Send calls = %d, want exactly 1 for one feed.updated in all mode", got)
+	}
+}
+
+func TestService_Outbox_FeedUpdatedDoesNotNotifyInBlockedMode(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	notifier := &fakeNotifier{}
+	feed := &fakeFeedPusher{}
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: "blocked"}, &fakeSnapshotPusher{},
+		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
+		&fakeActivityPusher{},
+	)
+
+	_, outboxWorker := svc.Workers(clock)
+	store.seed(runtime.QueueOutbox, "feed.updated", []byte(`{}`), 0)
+
+	stop := runWorker(t, outboxWorker)
+	defer stop()
+
+	// The feed push confirms the entry was handled; the notifier must stay untouched.
+	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+	if got := notifier.count("Send"); got != 0 {
+		t.Errorf("Send calls = %d, want 0 — blocked mode notifies only on notify.send", got)
+	}
+}
+
 func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
 	)
 
@@ -417,7 +465,7 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 	)
 

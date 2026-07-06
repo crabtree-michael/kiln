@@ -241,6 +241,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/push/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The current push-notification frequency mode (02 §10).
+         * @description Returns the global notification mode that gates when the runtime emits a Web Push message. `blocked` (the default) notifies only when a ticket needs a human decision; `all` notifies on every feed update (a testing aid). Single user in v1, so the mode is a single global value.
+         */
+        get: operations["getPushMode"];
+        /**
+         * Set the push-notification frequency mode (02 §10).
+         * @description Persists the global notification mode. Takes effect on the next feed update; single user in v1, so it applies to every stored subscription.
+         */
+        put: operations["putPushMode"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream": {
         parameters: {
             query?: never;
@@ -568,6 +592,14 @@ export interface components {
             /** @description Base64url-encoded VAPID application server key. */
             key: string;
         };
+        /** @description The global push-notification frequency (02 §10). `blocked` — the default, preserving prior behavior — sends a push only when a ticket needs a human decision; `all` sends a push on every feed update, a testing aid for confirming push delivery. Extensible: more modes may be added later. */
+        NotificationMode: {
+            /**
+             * @description Which feed updates fire a push notification.
+             * @enum {string}
+             */
+            mode: "all" | "blocked";
+        };
         /** @description A browser PushSubscription as produced by `PushSubscription.toJSON()` — the endpoint URL plus the p256dh and auth keys used to encrypt Web Push payloads (RFC 8291). */
         PushSubscription: {
             /** @description The push service URL messages are POSTed to. */
@@ -861,6 +893,57 @@ export interface operations {
                 content?: never;
             };
             /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPushMode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current mode. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationMode"];
+                };
+            };
+        };
+    };
+    putPushMode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationMode"];
+            };
+        };
+        responses: {
+            /** @description The mode after the update. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationMode"];
+                };
+            };
+            /** @description Invalid request body (mode not one of the allowed values). */
             400: {
                 headers: {
                     [name: string]: unknown;

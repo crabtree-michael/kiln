@@ -27,6 +27,9 @@ export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
+export type NotificationMode = components['schemas']['NotificationMode'];
+/** The push-notification frequency values, mirroring the wire enum. */
+export type NotificationModeValue = NotificationMode['mode'];
 export type Me = components['schemas']['Me'];
 export type MeProject = components['schemas']['MeProject'];
 export type SettingsUpdateRequest = components['schemas']['SettingsUpdateRequest'];
@@ -539,6 +542,43 @@ export async function postPushSubscription(sub: PushSubscriptionPayload): Promis
   if (!response.ok) {
     throw new Error(`postPushSubscription: HTTP ${String(response.status)}`);
   }
+}
+
+function isNotificationMode(value: unknown): value is NotificationMode {
+  return isRecord(value) && (value.mode === 'all' || value.mode === 'blocked');
+}
+
+/** `GET /api/push/mode` — the current push-notification frequency (02 §10). */
+export async function fetchNotificationMode(): Promise<NotificationModeValue> {
+  const response = await fetch('/api/push/mode');
+  if (!response.ok) {
+    throw new Error(`fetchNotificationMode: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isNotificationMode(payload)) {
+    throw new Error('fetchNotificationMode: unexpected response shape');
+  }
+  return payload.mode;
+}
+
+/** `PUT /api/push/mode` — set the push-notification frequency (02 §10). Returns
+ * the stored mode the server echoes back. */
+export async function putNotificationMode(
+  mode: NotificationModeValue,
+): Promise<NotificationModeValue> {
+  const response = await fetch('/api/push/mode', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!response.ok) {
+    throw new Error(`putNotificationMode: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isNotificationMode(payload)) {
+    throw new Error('putNotificationMode: unexpected response shape');
+  }
+  return payload.mode;
 }
 
 /** `PUT /api/settings` — updates config/secrets; empty/omitted fields are

@@ -18,10 +18,12 @@ import (
 
 var errFakeRegistrarFailed = errors.New("fakePushRegistrar: synthetic failure")
 
-// fakePushRegistrar records the subscriptions it is asked to store.
+// fakePushRegistrar records the subscriptions it is asked to store and holds the
+// global notification mode (defaulting to "blocked", as a fresh store would).
 type fakePushRegistrar struct {
 	mu   sync.Mutex
 	subs []api.PushSubscription
+	mode string
 	err  error
 }
 
@@ -32,6 +34,28 @@ func (f *fakePushRegistrar) Subscribe(_ context.Context, sub api.PushSubscriptio
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.subs = append(f.subs, sub)
+	return nil
+}
+
+func (f *fakePushRegistrar) Mode(context.Context) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mode == "" {
+		return "blocked", nil
+	}
+	return f.mode, nil
+}
+
+func (f *fakePushRegistrar) SetMode(_ context.Context, mode string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mode = mode
 	return nil
 }
 
@@ -135,6 +159,64 @@ func TestHandlePushSubscribe(t *testing.T) {
 		closeBody(t, resp)
 		if resp.StatusCode != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500", resp.StatusCode)
+		}
+	})
+}
+
+func TestHandlePushMode(t *testing.T) {
+	t.Run("GET returns the current mode, defaulting to blocked", func(t *testing.T) {
+		ts := newPushServer(t, &fakePushRegistrar{}, "BPUB")
+		defer ts.Close()
+		resp := doGet(t, ts.URL+"/api/push/mode")
+		defer closeBody(t, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		var got wire.NotificationMode
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got.Mode != wire.NotificationModeModeBlocked {
+			t.Errorf("mode = %q, want blocked", got.Mode)
+		}
+	})
+
+	t.Run("PUT persists a valid mode and echoes it", func(t *testing.T) {
+		reg := &fakePushRegistrar{}
+		ts := newPushServer(t, reg, "BPUB")
+		defer ts.Close()
+		resp := doPut(t, ts.URL+"/api/push/mode", mustJSON(t, wire.NotificationMode{Mode: wire.NotificationModeModeAll}))
+		defer closeBody(t, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		var got wire.NotificationMode
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got.Mode != wire.NotificationModeModeAll {
+			t.Errorf("echoed mode = %q, want all", got.Mode)
+		}
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		if reg.mode != "all" {
+			t.Errorf("stored mode = %q, want all", reg.mode)
+		}
+	})
+
+	t.Run("PUT rejects an unknown mode with 400", func(t *testing.T) {
+		reg := &fakePushRegistrar{}
+		ts := newPushServer(t, reg, "BPUB")
+		defer ts.Close()
+		resp := doPut(t, ts.URL+"/api/push/mode", []byte(`{"mode":"loud"}`))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		if reg.mode != "" {
+			t.Errorf("stored mode = %q on bad request, want unset", reg.mode)
 		}
 	})
 }

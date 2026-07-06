@@ -17,6 +17,8 @@ import {
   postLogout,
   fetchPushKey,
   postPushSubscription,
+  fetchNotificationMode,
+  putNotificationMode,
   type Board,
   type FeedSnapshot,
   type SayEvent,
@@ -480,6 +482,51 @@ describe('transport', () => {
         vi.fn(() => Promise.resolve(new Response('store subscription', { status: 500 }))),
       );
       await expect(postPushSubscription(sub)).rejects.toThrow('HTTP 500');
+    });
+  });
+
+  describe('notification mode (GET/PUT /api/push/mode)', () => {
+    it('reads the current mode on 200', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ mode: 'all' }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const mode = await fetchNotificationMode();
+
+      expect(urlOf(fetchMock.mock.calls[0]?.[0])).toContain('/api/push/mode');
+      expect(mode).toBe('all');
+    });
+
+    it('throws on an unexpected read shape', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(JSON.stringify({ mode: 'loud' })))),
+      );
+      await expect(fetchNotificationMode()).rejects.toThrow('unexpected response shape');
+    });
+
+    it('PUTs the mode and returns the echoed value', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ mode: 'all' }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const stored = await putNotificationMode('all');
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/push/mode');
+      expect(init?.method).toBe('PUT');
+      expect(init?.body).toBe(JSON.stringify({ mode: 'all' }));
+      expect(stored).toBe('all');
+    });
+
+    it('throws on a non-ok write', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response('set mode', { status: 500 }))),
+      );
+      await expect(putNotificationMode('all')).rejects.toThrow('HTTP 500');
     });
   });
 });

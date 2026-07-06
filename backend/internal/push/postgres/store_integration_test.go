@@ -102,13 +102,44 @@ func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
 	}
 }
 
-// truncatePushTables resets exactly push's own table so every test starts
-// clean, without disturbing other modules sharing kiln_test.
+// truncatePushTables resets exactly push's own tables so every test starts
+// clean, without disturbing other modules sharing kiln_test. The single
+// push_settings row is reset to the 'blocked' default rather than truncated, so
+// a mode test never leaks into the next.
 func truncatePushTables(ctx context.Context, t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.ExecContext(ctx,
 		`TRUNCATE TABLE push_subscriptions RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate push tables: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE push_settings SET mode = 'blocked' WHERE id = 1`); err != nil {
+		t.Fatalf("reset push_settings: %v", err)
+	}
+}
+
+func TestModeDefaultsToBlockedAndRoundTrips(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	got, err := store.Mode(ctx)
+	if err != nil {
+		t.Fatalf("Mode (default): %v", err)
+	}
+	if got != push.ModeBlocked {
+		t.Errorf("default mode = %q, want %q", got, push.ModeBlocked)
+	}
+
+	if err := store.SetMode(ctx, push.ModeAll); err != nil {
+		t.Fatalf("SetMode all: %v", err)
+	}
+	got, err = store.Mode(ctx)
+	if err != nil {
+		t.Fatalf("Mode (after set): %v", err)
+	}
+	if got != push.ModeAll {
+		t.Errorf("mode after SetMode(all) = %q, want %q", got, push.ModeAll)
 	}
 }
 

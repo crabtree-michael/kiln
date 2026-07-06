@@ -40,6 +40,10 @@ func (f *fakeStore) DeleteByEndpoint(_ context.Context, endpoint string) error {
 	return nil
 }
 
+func (f *fakeStore) Mode(context.Context) (string, error) { return push.ModeBlocked, nil }
+
+func (f *fakeStore) SetMode(context.Context, string) error { return nil }
+
 // testKeys is a throwaway VAPID pair + a client subscription key pair, generated
 // once so the encrypted send path runs end-to-end against a local server. The
 // returns are (vapidPublic, vapidPrivate, clientP256dh, clientAuth).

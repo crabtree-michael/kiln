@@ -25,37 +25,151 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
         </span>
       </div>
       <div
-        data-role="header-status"
+        data-role="header-actions"
       >
-        <button
-          aria-controls="header-status-panel"
-          aria-expanded="false"
-          aria-haspopup="true"
-          data-open="false"
-          data-role="feed-status"
-          type="button"
-        >
-          5 tickets
-          <span
-            aria-hidden="true"
-            data-role="feed-status-caret"
-          />
-        </button>
         <div
-          aria-hidden="true"
-          data-open="false"
-          data-role="header-status-panel"
-          id="header-status-panel"
+          data-role="notify-settings"
         >
-          <div
-            data-role="header-status-heading"
+          <button
+            aria-controls="notify-settings-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Notification settings"
+            data-open="false"
+            data-role="notify-settings-trigger"
+            type="button"
           >
-            Tickets
+            <svg
+              aria-hidden="true"
+              data-role="notify-bell"
+              viewBox="0 0 20 20"
+            >
+              <path
+                d="M10 3a4 4 0 0 0-4 4c0 3-1.2 4.6-1.8 5.3-.3.4 0 1 .5 1h10.6c.5 0 .8-.6.5-1C15.2 11.6 14 10 14 7a4 4 0 0 0-4-4ZM8.5 16a1.5 1.5 0 0 0 3 0"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="notify-settings-panel"
+            id="notify-settings-panel"
+          >
+            <div
+              data-role="notify-settings-heading"
+            >
+              Notifications
+            </div>
+            <ul
+              data-role="notify-settings-list"
+            >
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="true"
+                  data-role="notify-settings-option"
+                  data-selected="true"
+                  data-value="blocked"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      Blocked
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <button
+              data-role="notify-settings-permission"
+              data-status="checking"
+              disabled=""
+              type="button"
+            >
+              Checking notifications…
+            </button>
           </div>
-          <div
-            data-role="header-status-empty"
+        </div>
+        <div
+          data-role="header-status"
+        >
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
           >
-            No tickets
+            5 tickets
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Tickets
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No tickets
+            </div>
           </div>
         </div>
       </div>
@@ -210,37 +324,151 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
         </span>
       </div>
       <div
-        data-role="header-status"
+        data-role="header-actions"
       >
-        <button
-          aria-controls="header-status-panel"
-          aria-expanded="false"
-          aria-haspopup="true"
-          data-open="false"
-          data-role="feed-status"
-          type="button"
-        >
-          1 blocker · 1 update
-          <span
-            aria-hidden="true"
-            data-role="feed-status-caret"
-          />
-        </button>
         <div
-          aria-hidden="true"
-          data-open="false"
-          data-role="header-status-panel"
-          id="header-status-panel"
+          data-role="notify-settings"
         >
-          <div
-            data-role="header-status-heading"
+          <button
+            aria-controls="notify-settings-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Notification settings"
+            data-open="false"
+            data-role="notify-settings-trigger"
+            type="button"
           >
-            Tickets
+            <svg
+              aria-hidden="true"
+              data-role="notify-bell"
+              viewBox="0 0 20 20"
+            >
+              <path
+                d="M10 3a4 4 0 0 0-4 4c0 3-1.2 4.6-1.8 5.3-.3.4 0 1 .5 1h10.6c.5 0 .8-.6.5-1C15.2 11.6 14 10 14 7a4 4 0 0 0-4-4ZM8.5 16a1.5 1.5 0 0 0 3 0"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="notify-settings-panel"
+            id="notify-settings-panel"
+          >
+            <div
+              data-role="notify-settings-heading"
+            >
+              Notifications
+            </div>
+            <ul
+              data-role="notify-settings-list"
+            >
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="true"
+                  data-role="notify-settings-option"
+                  data-selected="true"
+                  data-value="blocked"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      Blocked
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <button
+              data-role="notify-settings-permission"
+              data-status="checking"
+              disabled=""
+              type="button"
+            >
+              Checking notifications…
+            </button>
           </div>
-          <div
-            data-role="header-status-empty"
+        </div>
+        <div
+          data-role="header-status"
+        >
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
           >
-            No tickets
+            1 blocker · 1 update
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Tickets
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No tickets
+            </div>
           </div>
         </div>
       </div>
@@ -505,37 +733,151 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
         </span>
       </div>
       <div
-        data-role="header-status"
+        data-role="header-actions"
       >
-        <button
-          aria-controls="header-status-panel"
-          aria-expanded="false"
-          aria-haspopup="true"
-          data-open="false"
-          data-role="feed-status"
-          type="button"
-        >
-          5 tickets
-          <span
-            aria-hidden="true"
-            data-role="feed-status-caret"
-          />
-        </button>
         <div
-          aria-hidden="true"
-          data-open="false"
-          data-role="header-status-panel"
-          id="header-status-panel"
+          data-role="notify-settings"
         >
-          <div
-            data-role="header-status-heading"
+          <button
+            aria-controls="notify-settings-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Notification settings"
+            data-open="false"
+            data-role="notify-settings-trigger"
+            type="button"
           >
-            Tickets
+            <svg
+              aria-hidden="true"
+              data-role="notify-bell"
+              viewBox="0 0 20 20"
+            >
+              <path
+                d="M10 3a4 4 0 0 0-4 4c0 3-1.2 4.6-1.8 5.3-.3.4 0 1 .5 1h10.6c.5 0 .8-.6.5-1C15.2 11.6 14 10 14 7a4 4 0 0 0-4-4ZM8.5 16a1.5 1.5 0 0 0 3 0"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="notify-settings-panel"
+            id="notify-settings-panel"
+          >
+            <div
+              data-role="notify-settings-heading"
+            >
+              Notifications
+            </div>
+            <ul
+              data-role="notify-settings-list"
+            >
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="true"
+                  data-role="notify-settings-option"
+                  data-selected="true"
+                  data-value="blocked"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      Blocked
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <button
+              data-role="notify-settings-permission"
+              data-status="checking"
+              disabled=""
+              type="button"
+            >
+              Checking notifications…
+            </button>
           </div>
-          <div
-            data-role="header-status-empty"
+        </div>
+        <div
+          data-role="header-status"
+        >
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
           >
-            No tickets
+            5 tickets
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Tickets
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No tickets
+            </div>
           </div>
         </div>
       </div>
@@ -734,37 +1076,151 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
         </span>
       </div>
       <div
-        data-role="header-status"
+        data-role="header-actions"
       >
-        <button
-          aria-controls="header-status-panel"
-          aria-expanded="false"
-          aria-haspopup="true"
-          data-open="false"
-          data-role="feed-status"
-          type="button"
-        >
-          3 tickets
-          <span
-            aria-hidden="true"
-            data-role="feed-status-caret"
-          />
-        </button>
         <div
-          aria-hidden="true"
-          data-open="false"
-          data-role="header-status-panel"
-          id="header-status-panel"
+          data-role="notify-settings"
         >
-          <div
-            data-role="header-status-heading"
+          <button
+            aria-controls="notify-settings-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Notification settings"
+            data-open="false"
+            data-role="notify-settings-trigger"
+            type="button"
           >
-            Tickets
+            <svg
+              aria-hidden="true"
+              data-role="notify-bell"
+              viewBox="0 0 20 20"
+            >
+              <path
+                d="M10 3a4 4 0 0 0-4 4c0 3-1.2 4.6-1.8 5.3-.3.4 0 1 .5 1h10.6c.5 0 .8-.6.5-1C15.2 11.6 14 10 14 7a4 4 0 0 0-4-4ZM8.5 16a1.5 1.5 0 0 0 3 0"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="notify-settings-panel"
+            id="notify-settings-panel"
+          >
+            <div
+              data-role="notify-settings-heading"
+            >
+              Notifications
+            </div>
+            <ul
+              data-role="notify-settings-list"
+            >
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="true"
+                  data-role="notify-settings-option"
+                  data-selected="true"
+                  data-value="blocked"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      Blocked
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <button
+              data-role="notify-settings-permission"
+              data-status="checking"
+              disabled=""
+              type="button"
+            >
+              Checking notifications…
+            </button>
           </div>
-          <div
-            data-role="header-status-empty"
+        </div>
+        <div
+          data-role="header-status"
+        >
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
           >
-            No tickets
+            3 tickets
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Tickets
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No tickets
+            </div>
           </div>
         </div>
       </div>
@@ -941,37 +1397,151 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
         </span>
       </div>
       <div
-        data-role="header-status"
+        data-role="header-actions"
       >
-        <button
-          aria-controls="header-status-panel"
-          aria-expanded="false"
-          aria-haspopup="true"
-          data-open="false"
-          data-role="feed-status"
-          type="button"
-        >
-          5 tickets
-          <span
-            aria-hidden="true"
-            data-role="feed-status-caret"
-          />
-        </button>
         <div
-          aria-hidden="true"
-          data-open="false"
-          data-role="header-status-panel"
-          id="header-status-panel"
+          data-role="notify-settings"
         >
-          <div
-            data-role="header-status-heading"
+          <button
+            aria-controls="notify-settings-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Notification settings"
+            data-open="false"
+            data-role="notify-settings-trigger"
+            type="button"
           >
-            Tickets
+            <svg
+              aria-hidden="true"
+              data-role="notify-bell"
+              viewBox="0 0 20 20"
+            >
+              <path
+                d="M10 3a4 4 0 0 0-4 4c0 3-1.2 4.6-1.8 5.3-.3.4 0 1 .5 1h10.6c.5 0 .8-.6.5-1C15.2 11.6 14 10 14 7a4 4 0 0 0-4-4ZM8.5 16a1.5 1.5 0 0 0 3 0"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="notify-settings-panel"
+            id="notify-settings-panel"
+          >
+            <div
+              data-role="notify-settings-heading"
+            >
+              Notifications
+            </div>
+            <ul
+              data-role="notify-settings-list"
+            >
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="true"
+                  data-role="notify-settings-option"
+                  data-selected="true"
+                  data-value="blocked"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      Blocked
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <button
+              data-role="notify-settings-permission"
+              data-status="checking"
+              disabled=""
+              type="button"
+            >
+              Checking notifications…
+            </button>
           </div>
-          <div
-            data-role="header-status-empty"
+        </div>
+        <div
+          data-role="header-status"
+        >
+          <button
+            aria-controls="header-status-panel"
+            aria-expanded="false"
+            aria-haspopup="true"
+            data-open="false"
+            data-role="feed-status"
+            type="button"
           >
-            No tickets
+            5 tickets
+            <span
+              aria-hidden="true"
+              data-role="feed-status-caret"
+            />
+          </button>
+          <div
+            aria-hidden="true"
+            data-open="false"
+            data-role="header-status-panel"
+            id="header-status-panel"
+          >
+            <div
+              data-role="header-status-heading"
+            >
+              Tickets
+            </div>
+            <div
+              data-role="header-status-empty"
+            >
+              No tickets
+            </div>
           </div>
         </div>
       </div>

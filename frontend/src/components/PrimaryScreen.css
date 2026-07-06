@@ -124,10 +124,195 @@
   color: var(--accent);
 }
 
+/* The right-aligned cluster of header dropdowns: the bell notification-settings
+ * menu, then the stream status menu. justify-content: space-between on the
+ * header keeps the wordmark left and this cluster right. */
+[data-role='header-actions'] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* The header status is a dropdown trigger (08 §2). The collapsed button keeps
  * the prior one-line summary's size/colour; the caret is the only addition. */
 [data-role='header-status'] {
   position: relative;
+}
+
+/* Bell notification-settings menu (02 §10), left of the stream status. */
+[data-role='notify-settings'] {
+  position: relative;
+  display: flex;
+}
+
+[data-role='notify-settings-trigger'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 5px;
+  margin: -5px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='notify-settings-trigger']:hover,
+[data-role='notify-settings-trigger'][data-open='true'] {
+  color: var(--text-secondary);
+  background: var(--surface-inset);
+}
+
+[data-role='notify-bell'] {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+/* The panel mirrors the stream menu's mount-and-animate mechanics, but anchors
+ * to the bell (its own left edge) and is sized to its content rather than the
+ * full feed width. */
+[data-role='notify-settings-panel'] {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 264px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  transform-origin: top left;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  max-height: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-base) ease,
+    transform var(--duration-base) var(--ease-settle),
+    max-height var(--duration-base) ease;
+}
+
+[data-role='notify-settings-panel'][data-open='true'] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  max-height: 60vh;
+  pointer-events: auto;
+}
+
+[data-role='notify-settings-heading'] {
+  padding: 11px 14px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+[data-role='notify-settings-list'] {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px;
+}
+
+[data-role='notify-settings-option'] {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+}
+
+[data-role='notify-settings-option']:hover:not(:disabled) {
+  background: var(--surface-inset);
+}
+
+[data-role='notify-settings-option']:disabled {
+  cursor: default;
+}
+
+/* A hollow ring that fills to a solid accent dot when the option is selected. */
+[data-role='notify-option-check'] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--text-faint);
+  transition:
+    box-shadow var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='notify-settings-option'][data-selected='true'] [data-role='notify-option-check'] {
+  background: var(--accent);
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 3px var(--accent-soft);
+}
+
+[data-role='notify-option-text'] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+[data-role='notify-option-label'] {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-body);
+}
+
+[data-role='notify-option-detail'] {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* The permission / test button sits below the options, separated by a hairline. */
+[data-role='notify-settings-permission'] {
+  display: block;
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 9px 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  text-align: center;
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='notify-settings-permission']:hover:not(:disabled) {
+  color: var(--text-body);
+  background: var(--surface-card);
+}
+
+[data-role='notify-settings-permission']:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+[data-role='notify-settings-permission'][data-status='enabled'] {
+  color: var(--accent);
 }
 
 [data-role='feed-status'] {

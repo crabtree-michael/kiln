@@ -52,6 +52,20 @@ type Notifier interface {
 	Send(ctx context.Context, payload []byte) error
 }
 
+// NotifyModeReader reports the global notification frequency (02 §10) — "all"
+// (a push on every feed update) or "blocked" (the default: a push only for the
+// notify.send entries a block emits). Consulted per feed.updated so a mode
+// change takes effect immediately. Satisfied by a cmd/kiln adapter over the push
+// store; nil when push is unconfigured, in which case the feed-update push is
+// simply never sent.
+type NotifyModeReader interface {
+	Mode(ctx context.Context) (string, error)
+}
+
+// notifyModeAll is the frequency that fans a push out on every feed update
+// (mirroring push.ModeAll by value — this module never imports internal/push).
+const notifyModeAll = "all"
+
 // SnapshotPusher executes board.updated entries: fan out a fresh full board
 // snapshot to every connected client (04 §7; implemented by the api SSE hub).
 // Snapshots are absolute, so duplicates are harmless (04 D7).
@@ -106,6 +120,7 @@ type Service struct {
 	blocker        Blocker
 	agents         AgentRuntime
 	notifier       Notifier
+	notifyMode     NotifyModeReader
 	pusher         SnapshotPusher
 	sayer          SayPusher
 	notifications  NotificationStore
@@ -124,7 +139,8 @@ type Service struct {
 // the original 04/07 ports so the composition root updates a single call site.
 func NewService(
 	store Store, messages MessageStore, brain Brain, puller Puller, blocker Blocker,
-	agents AgentRuntime, notifier Notifier, pusher SnapshotPusher, sayer SayPusher,
+	agents AgentRuntime, notifier Notifier, notifyMode NotifyModeReader,
+	pusher SnapshotPusher, sayer SayPusher,
 	notifications NotificationStore, boardReader BoardReader, feedPusher FeedPusher,
 	activityPusher ActivityPusher,
 ) *Service {
@@ -136,6 +152,7 @@ func NewService(
 		blocker:        blocker,
 		agents:         agents,
 		notifier:       notifier,
+		notifyMode:     notifyMode,
 		pusher:         pusher,
 		sayer:          sayer,
 		notifications:  notifications,
@@ -527,6 +544,16 @@ func (s *Service) blockOnDeliveryFailure(ctx context.Context, e Entry, cause err
 	return nil
 }
 
+// notifyPayload is the notify.send payload the Notifier decodes (a
+// board.NotifyPayload — Title/Reason → Title/Body), mirrored by value so this
+// module keeps not importing internal/board. Built here only for the
+// "all"-mode feed-update notification; the block path's payload is minted by the
+// board.
+type notifyPayload struct {
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+}
+
 // toastPayload is the activity.toast outbox payload (08 §4, §7), mirroring the
 // board's ToastPayload by value — this module never imports internal/board.
 type toastPayload struct {
@@ -554,6 +581,40 @@ func (s *Service) handleFeedUpdated(ctx context.Context) {
 	}
 	if err := s.feedPusher.PushFeed(ctx, snap); err != nil {
 		slog.Error("runtime: feed.updated push", "err", err)
+	}
+	s.pushFeedUpdateNotification(ctx)
+}
+
+// pushFeedUpdateNotification fires a Web Push on every feed update when the user
+// has opted into the "all" notification frequency (02 §10) — a testing aid for
+// confirming push delivery. In the default "blocked" mode it is a no-op; the
+// only pushes then come from the notify.send entries a block emits. Self-heals
+// like the feed push itself: a mode-read or send failure logs-and-drops rather
+// than wedging the outbox (the notification is best-effort, 04 §3). A block in
+// "all" mode still emits its own notify.send, so it also gets its specific
+// blocked notification — the extra generic one is accepted as benign.
+func (s *Service) pushFeedUpdateNotification(ctx context.Context) {
+	if s.notifyMode == nil {
+		return
+	}
+	mode, err := s.notifyMode.Mode(ctx)
+	if err != nil {
+		slog.Error("runtime: feed.updated notify mode", "err", err)
+		return
+	}
+	if mode != notifyModeAll {
+		return
+	}
+	// The notifier decodes a board.NotifyPayload (Title/Reason → Title/Body);
+	// this marshals the same shape by value so this module keeps not importing
+	// internal/board.
+	payload, err := json.Marshal(notifyPayload{Title: "Kiln", Reason: "The board was updated."})
+	if err != nil {
+		slog.Error("runtime: feed.updated notify marshal", "err", err)
+		return
+	}
+	if err := s.notifier.Send(ctx, payload); err != nil {
+		slog.Error("runtime: feed.updated notify send", "err", err)
 	}
 }
 

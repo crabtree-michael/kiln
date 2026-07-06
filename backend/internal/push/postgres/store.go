@@ -6,6 +6,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/crabtree-michael/kiln/backend/internal/push"
@@ -72,6 +73,34 @@ func (s *Store) List(ctx context.Context) (_ []push.Subscription, err error) {
 func (s *Store) DeleteByEndpoint(ctx context.Context, endpoint string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint = $1`, endpoint); err != nil {
 		return fmt.Errorf("push/postgres: delete subscription: %w", err)
+	}
+	return nil
+}
+
+// Mode reads the global notification frequency (the single push_settings row).
+// A missing row is treated as the default (push.ModeBlocked) rather than an
+// error, so a fresh deployment behaves exactly as before the mode existed.
+func (s *Store) Mode(ctx context.Context) (string, error) {
+	var mode string
+	err := s.db.QueryRowContext(ctx, `SELECT mode FROM push_settings WHERE id = 1`).Scan(&mode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return push.ModeBlocked, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("push/postgres: read mode: %w", err)
+	}
+	return mode, nil
+}
+
+// SetMode upserts the global notification frequency onto the single-row
+// push_settings table (id = 1). Idempotent — writing the same mode twice is a
+// no-op change.
+func (s *Store) SetMode(ctx context.Context, mode string) error {
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO push_settings (id, mode)
+		VALUES (1, $1)
+		ON CONFLICT (id) DO UPDATE SET mode = EXCLUDED.mode`, mode); err != nil {
+		return fmt.Errorf("push/postgres: set mode: %w", err)
 	}
 	return nil
 }

@@ -170,12 +170,17 @@ type PushSubscription struct {
 	Auth     string
 }
 
-// PushRegistrar is the api's port onto the push subscription store's write side
-// (02 §10): POST /api/push/subscribe lands a browser subscription that the
-// runtime's notify.send executor later delivers to. Satisfied by a cmd/kiln
-// adapter over the push store.
+// PushRegistrar is the api's port onto the push store (02 §10): the subscription
+// write side — POST /api/push/subscribe lands a browser subscription that the
+// runtime's notify.send executor later delivers to — plus the global
+// notification-frequency mode read/written by GET/PUT /api/push/mode. Mode is a
+// plain string on this boundary (the api never imports internal/push); the
+// allowed values are validated against the wire enum before SetMode. Satisfied
+// by a cmd/kiln adapter over the push store.
 type PushRegistrar interface {
 	Subscribe(ctx context.Context, sub PushSubscription) error
+	Mode(ctx context.Context) (string, error)
+	SetMode(ctx context.Context, mode string) error
 }
 
 // Authenticator is the api's port onto the GitHub OAuth + cookie-session
@@ -337,6 +342,8 @@ func (s *Server) Handler() http.Handler {
 	if s.push != nil {
 		mux.HandleFunc("POST /api/push/subscribe", s.handlePushSubscribe)
 		mux.HandleFunc("GET /api/push/key", s.handlePushKey)
+		mux.HandleFunc("GET /api/push/mode", s.handlePushModeGet)
+		mux.HandleFunc("PUT /api/push/mode", s.handlePushModeSet)
 	}
 	if s.seeder != nil {
 		mux.HandleFunc("POST /api/dev/tickets", s.handleDevCreateTicket)
@@ -700,6 +707,45 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePushModeGet returns the current notification frequency (02 §10) — the
+// single global mode gating when the runtime emits a Web Push message.
+func (s *Server) handlePushModeGet(w http.ResponseWriter, r *http.Request) {
+	mode, err := s.push.Mode(r.Context())
+	if err != nil {
+		slog.Error("api: read push mode", "err", err)
+		http.Error(w, "read mode", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, wire.NotificationMode{Mode: wire.NotificationModeMode(mode)})
+}
+
+// handlePushModeSet persists the notification frequency (02 §10). The mode must
+// be one of the wire enum values (validated via NotificationModeMode.Valid), so
+// an unknown mode is a 400 rather than a silent write. Echoes the stored mode.
+func (s *Server) handlePushModeSet(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushBody)
+	var req wire.NotificationMode
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if !req.Mode.Valid() {
+		http.Error(w, "mode must be one of: all, blocked", http.StatusBadRequest)
+		return
+	}
+	if err := s.push.SetMode(r.Context(), string(req.Mode)); err != nil {
+		slog.Error("api: set push mode", "err", err)
+		http.Error(w, "set mode", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, wire.NotificationMode{Mode: req.Mode})
 }
 
 // findTicket locates a ticket by id across every group of a board snapshot.

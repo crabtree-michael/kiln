@@ -285,6 +285,43 @@ paths:
           description: Subscription stored.
         '400':
           description: Invalid request body.
+  /api/push/mode:
+    get:
+      operationId: getPushMode
+      summary: The current push-notification frequency mode (02 §10).
+      description: >
+        Returns the global notification mode that gates when the runtime emits a
+        Web Push message. `blocked` (the default) notifies only when a ticket
+        needs a human decision; `all` notifies on every feed update (a testing
+        aid). Single user in v1, so the mode is a single global value.
+      responses:
+        '200':
+          description: The current mode.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationMode'
+    put:
+      operationId: putPushMode
+      summary: Set the push-notification frequency mode (02 §10).
+      description: >
+        Persists the global notification mode. Takes effect on the next feed
+        update; single user in v1, so it applies to every stored subscription.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationMode'
+      responses:
+        '200':
+          description: The mode after the update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationMode'
+        '400':
+          description: Invalid request body (mode not one of the allowed values).
   /api/stream:
     get:
       operationId: getStream
@@ -848,6 +885,21 @@ components:
         key:
           type: string
           description: Base64url-encoded VAPID application server key.
+      additionalProperties: false
+
+    NotificationMode:
+      type: object
+      description: >
+        The global push-notification frequency (02 §10). `blocked` — the default,
+        preserving prior behavior — sends a push only when a ticket needs a human
+        decision; `all` sends a push on every feed update, a testing aid for
+        confirming push delivery. Extensible: more modes may be added later.
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [all, blocked]
+          description: Which feed updates fire a push notification.
       additionalProperties: false
 
     PushSubscription:

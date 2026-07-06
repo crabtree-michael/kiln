@@ -27,7 +27,7 @@ func newTestService(
 	pusher *fakeSnapshotPusher, sayer *fakeSayPusher,
 ) *runtime.Service {
 	return runtime.NewService(
-		store, messages, brain, puller, blocker, agents, notifier, pusher, sayer,
+		store, messages, brain, puller, blocker, agents, notifier, nil, pusher, sayer,
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 	)
 }

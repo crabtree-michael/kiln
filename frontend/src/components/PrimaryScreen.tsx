@@ -11,6 +11,8 @@ import { VoiceProvider } from '@/voice/voice-store';
 import { useBoardStore } from '@/stores/board-context';
 import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
+import { useNotificationMode } from '@/stores/use-notification-mode';
+import { useWebPush } from '@/stores/use-web-push';
 import { acceptTicket } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 
@@ -27,6 +29,8 @@ function PrimaryScreenBody(): JSX.Element {
   } = useFeedStore();
   const { board, refreshBoard, refreshing } = useBoardStore();
   const { thinking, toasts, dismiss } = useActivityStore();
+  const { mode: notificationMode, setMode: setNotificationMode } = useNotificationMode();
+  const { status: pushStatus, enable: enablePush } = useWebPush();
 
   const onAccept = useCallback(
     (ticketId: string): void => {
@@ -56,6 +60,12 @@ function PrimaryScreenBody(): JSX.Element {
       hasMoreHistory={hasMoreHistory}
       loadingMoreHistory={loadingMoreHistory}
       onLoadMoreHistory={loadMoreHistory}
+      notificationMode={notificationMode}
+      onSelectNotificationMode={setNotificationMode}
+      pushStatus={pushStatus}
+      onEnablePush={() => {
+        void enablePush();
+      }}
     />
   );
 }

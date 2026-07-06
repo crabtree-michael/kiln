@@ -27,15 +27,28 @@ type Subscription struct {
 	CreatedAt time.Time
 }
 
-// Store persists browser push subscriptions (02 §2: the module owns its port;
-// the postgres adapter lives in push/postgres). Save is an upsert on Endpoint so
-// a browser re-subscribing is idempotent; DeleteByEndpoint prunes an endpoint
-// the push service has reported gone (404/410) so a dead subscription is dropped
-// on its next send attempt.
+// Notification frequency modes (02 §10). ModeBlocked is the default and
+// preserves the pre-existing behavior — a push only when a ticket needs a human
+// decision. ModeAll fans a push out on every feed update, a testing aid. The set
+// is deliberately small and extensible (more modes may be added later).
+const (
+	ModeBlocked = "blocked"
+	ModeAll     = "all"
+)
+
+// Store persists browser push subscriptions and the global notification mode
+// (02 §2: the module owns its port; the postgres adapter lives in push/postgres).
+// Save is an upsert on Endpoint so a browser re-subscribing is idempotent;
+// DeleteByEndpoint prunes an endpoint the push service has reported gone
+// (404/410) so a dead subscription is dropped on its next send attempt. Mode is
+// a single global value in v1 (single user); it defaults to ModeBlocked when
+// never set.
 type Store interface {
 	Save(ctx context.Context, sub Subscription) error
 	List(ctx context.Context) ([]Subscription, error)
 	DeleteByEndpoint(ctx context.Context, endpoint string) error
+	Mode(ctx context.Context) (string, error)
+	SetMode(ctx context.Context, mode string) error
 }
 
 // Notification is the delivered content, mapped from a board.NotifyPayload at

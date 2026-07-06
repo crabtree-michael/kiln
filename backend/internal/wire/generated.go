@@ -136,27 +136,45 @@ func (e MessageRole) Valid() bool {
 	}
 }
 
+// Defines values for NotificationModeMode.
+const (
+	NotificationModeModeAll     NotificationModeMode = "all"
+	NotificationModeModeBlocked NotificationModeMode = "blocked"
+)
+
+// Valid indicates whether the value is a known member of the NotificationModeMode enum.
+func (e NotificationModeMode) Valid() bool {
+	switch e {
+	case NotificationModeModeAll:
+		return true
+	case NotificationModeModeBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TicketState.
 const (
-	Blocked TicketState = "blocked"
-	Done    TicketState = "done"
-	Ready   TicketState = "ready"
-	Shaping TicketState = "shaping"
-	Working TicketState = "working"
+	TicketStateBlocked TicketState = "blocked"
+	TicketStateDone    TicketState = "done"
+	TicketStateReady   TicketState = "ready"
+	TicketStateShaping TicketState = "shaping"
+	TicketStateWorking TicketState = "working"
 )
 
 // Valid indicates whether the value is a known member of the TicketState enum.
 func (e TicketState) Valid() bool {
 	switch e {
-	case Blocked:
+	case TicketStateBlocked:
 		return true
-	case Done:
+	case TicketStateDone:
 		return true
-	case Ready:
+	case TicketStateReady:
 		return true
-	case Shaping:
+	case TicketStateShaping:
 		return true
-	case Working:
+	case TicketStateWorking:
 		return true
 	default:
 		return false
@@ -394,6 +412,15 @@ type MessageRequest struct {
 	Text string `json:"text"`
 }
 
+// NotificationMode The global push-notification frequency (02 §10). `blocked` — the default, preserving prior behavior — sends a push only when a ticket needs a human decision; `all` sends a push on every feed update, a testing aid for confirming push delivery. Extensible: more modes may be added later.
+type NotificationMode struct {
+	// Mode Which feed updates fire a push notification.
+	Mode NotificationModeMode `json:"mode"`
+}
+
+// NotificationModeMode Which feed updates fire a push notification.
+type NotificationModeMode string
+
 // ProjectUpdateRequest defines model for ProjectUpdateRequest.
 type ProjectUpdateRequest struct {
 	AmikaSnapshot *string `json:"amika_snapshot,omitempty"`
@@ -521,6 +548,9 @@ type PostMessageJSONRequestBody = MessageRequest
 
 // PutProjectJSONRequestBody defines body for PutProject for application/json ContentType.
 type PutProjectJSONRequestBody = ProjectUpdateRequest
+
+// PutPushModeJSONRequestBody defines body for PutPushMode for application/json ContentType.
+type PutPushModeJSONRequestBody = NotificationMode
 
 // PostPushSubscribeJSONRequestBody defines body for PostPushSubscribe for application/json ContentType.
 type PostPushSubscribeJSONRequestBody = PushSubscription

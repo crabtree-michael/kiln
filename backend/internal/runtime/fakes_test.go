@@ -393,6 +393,15 @@ func (f *fakeNotifier) Send(ctx context.Context, payload []byte) error {
 
 var _ runtime.Notifier = (*fakeNotifier)(nil)
 
+type fakeNotifyMode struct {
+	mode string
+	err  error
+}
+
+func (f *fakeNotifyMode) Mode(context.Context) (string, error) { return f.mode, f.err }
+
+var _ runtime.NotifyModeReader = (*fakeNotifyMode)(nil)
+
 type fakeSnapshotPusher struct {
 	callRecorder
 

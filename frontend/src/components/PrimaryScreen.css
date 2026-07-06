@@ -387,6 +387,13 @@
   color: var(--text-body);
 }
 
+/* Update cards drop the kind tag; the muted (still bold) ticket name carries the
+   kind instead of a chip. Colour only — the base weight (700) and the seen
+   override (400 below) stay in charge, so a seen update card still recedes. */
+[data-role='feed-card'][data-kind='update'] [data-role='feed-card-label'] {
+  color: var(--text-muted);
+}
+
 /* Already-seen history (below the last-seen divider, 08 D2′): drop the ticket
    name to regular weight so read cards recede and the new cards above stay the
    focus. */
@@ -429,28 +436,15 @@
   overflow: visible;
 }
 
-/* "Tap to see more" / "Show less": the quiet expand affordance. Same text-link
-   treatment as the "read full ticket" hint, but faint instead of fire so it
-   stays out of the way until the body actually overflows. */
-[data-role='feed-card-more'] {
-  align-self: flex-start;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: none;
+/* When the body overflows (or is expanded) it becomes its own expand control —
+   no separate label. The clamp and the pointer cursor are the only cues; tap to
+   reveal in place, tap again to collapse. A body that fits carries no
+   `data-clickable` and stays inert plain copy. */
+[data-role='feed-card-body'][data-clickable='true'] {
   cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
 }
 
-[data-role='feed-card-more']:not([data-expanded='true'])::after {
-  content: ' ›';
-}
-
-[data-role='feed-card-more']:focus-visible {
+[data-role='feed-card-body'][data-clickable='true']:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 4px;
   border-radius: var(--radius-sm);
@@ -511,11 +505,12 @@
   box-shadow: var(--shadow-raised);
 }
 
-/* blocker — the loudest card, pinned on top (08 §2). The head carries the
-   emphasis (fire type tag + ticket name beside the pulse dot); the body stays
-   normal-weight update-style copy like every other kind. */
-[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-label'],
-[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-tag'] {
+/* blocker — the loudest card, pinned on top (08 §2). It drops the kind tag; the
+   fire ticket name (bold by default) beside the pulse dot carries the emphasis,
+   while the body stays normal-weight update-style copy like every other kind.
+   Colour only — weight stays with the base/seen rules so a seen card still
+   recedes to regular weight. */
+[data-role='feed-card'][data-kind='blocker'] [data-role='feed-card-label'] {
   color: var(--accent);
 }
 

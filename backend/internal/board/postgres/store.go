@@ -22,7 +22,7 @@ import (
 // ticketColumns is the canonical projection for a ticket row, shared by every
 // SELECT/RETURNING so scanTicket can read them positionally.
 const ticketColumns = `id, title, body, state, priority, worker_id, blocked_reason, ready_at, ` +
-	`approval_requested, created_at, updated_at, archived_at`
+	`approval_requested, created_at, updated_at, state_changed_at, archived_at`
 
 // activeTicketExists is the correlated subquery that derives a worker's busy
 // state (03 D2): a worker is busy iff an active ticket references it.
@@ -260,13 +260,18 @@ func (t *tx) InsertTicket(ctx context.Context, tk board.Ticket) (board.Ticket, e
 }
 
 // UpdateTicket persists a mutation of a previously locked ticket, refreshing
-// updated_at, and returns the persisted row (03 §4).
+// updated_at, and returns the persisted row (03 §4). state_changed_at advances
+// only when the state actually transitions (the CASE compares the locked row's
+// old state against the new one), so a same-state mutation — a Working→Working
+// nudge included — leaves the "time in status" clock untouched.
 func (t *tx) UpdateTicket(ctx context.Context, tk board.Ticket) (board.Ticket, error) {
 	row := t.sqltx.QueryRowContext(ctx,
 		`UPDATE tickets
 		 SET title = $2, body = $3, state = $4, priority = $5,
 		     worker_id = $6, blocked_reason = $7, ready_at = $8, approval_requested = $9,
-		     archived_at = $10, updated_at = now()
+		     archived_at = $10, updated_at = now(),
+		     state_changed_at = CASE WHEN tickets.state IS DISTINCT FROM $4
+		                             THEN now() ELSE tickets.state_changed_at END
 		 WHERE id = $1
 		 RETURNING `+ticketColumns,
 		string(tk.ID), tk.Title, tk.Body, string(tk.State), tk.Priority,
@@ -405,7 +410,7 @@ func scanTicket(r pgutil.RowScanner) (board.Ticket, error) {
 	)
 	if err := r.Scan(&id, &tk.Title, &tk.Body, &state, &tk.Priority,
 		&workerID, &blocked, &readyAt, &tk.ApprovalRequested, &tk.CreatedAt, &tk.UpdatedAt,
-		&archivedAt); err != nil {
+		&tk.StateChangedAt, &archivedAt); err != nil {
 		return board.Ticket{}, fmt.Errorf("board/postgres: scan ticket: %w", err)
 	}
 	tk.ID = board.TicketID(id)

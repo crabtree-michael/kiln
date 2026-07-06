@@ -74,9 +74,11 @@ export interface TicketStatus {
   status: TicketRowStatus;
   /** The blocker reason for a blocked ticket, when one is set. */
   reason: string | null;
-  /** ISO time of the ticket's last change (`updated_at`) — the row renders its
-   * compact relative age as subtext ("time in status" since the last move). */
-  updatedAt: string;
+  /** ISO time the ticket entered its current status (`state_changed_at`) — the
+   * row renders its compact relative age as the "time in status" subtext. Sourced
+   * from `state_changed_at`, not `updated_at`, so a nudge (a same-state mutation)
+   * does not reset the clock; it reflects the real total time in the column. */
+  statusSince: string;
 }
 
 /** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
@@ -137,7 +139,7 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       label: ticket.title,
       status: ticketRowStatus(ticket, byTicket),
       reason: ticket.blocked_reason ?? null,
-      updatedAt: ticket.updated_at,
+      statusSince: ticket.state_changed_at,
     }));
 }
 

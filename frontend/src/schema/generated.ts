@@ -385,8 +385,16 @@ export interface components {
             ready_at?: string | null;
             /** Format: date-time */
             created_at: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time of the ticket's last mutation of any kind (bumped by nudges too).
+             */
             updated_at: string;
+            /**
+             * Format: date-time
+             * @description When the ticket last entered its current `state` (03 §2.2). Advances only on a real state transition, never on a same-state mutation such as a Working->Working nudge — the true "time in status" clock the client renders as the ticket-row subtext.
+             */
+            state_changed_at: string;
         };
         /** @description One live worker's real underlying session status, joined to its most-recent ticket binding (amended 2026-07-05). This is the actual agent/session running state — distinct from a ticket's board-column placement — so the Streams view can show a stopped or errored session instead of a hardcoded "building". worker_id is the board slot uuid; ticket_id is "" for an idle-pool worker that never ran a send. */
         AgentStatus: {

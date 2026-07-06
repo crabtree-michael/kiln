@@ -19,6 +19,9 @@ export interface TicketFixtureInput {
   priority: number;
   createdAt: string;
   updatedAt: string;
+  /** When the ticket entered its current status; defaults to `updatedAt` when
+   * omitted (fine for the many fixtures that don't exercise time-in-status). */
+  statusChangedAt?: string;
   approvalRequested?: boolean;
   blockedReason?: string;
   readyAt?: string;
@@ -37,6 +40,7 @@ export function makeTicket(input: TicketFixtureInput): Ticket {
     approval_requested: input.approvalRequested ?? false,
     created_at: input.createdAt,
     updated_at: input.updatedAt,
+    state_changed_at: input.statusChangedAt ?? input.updatedAt,
   };
   const withBlocked =
     input.blockedReason !== undefined ? { ...base, blocked_reason: input.blockedReason } : base;

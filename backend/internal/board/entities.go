@@ -44,6 +44,11 @@ type Ticket struct {
 	ArchivedAt *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	// StateChangedAt is when the ticket last entered its current State (03
+	// §2.2). Unlike UpdatedAt it advances only on a real state transition, never
+	// on a same-state mutation such as a Working→Working nudge (SendToAgent), so
+	// it is the true "time in status" clock the client renders.
+	StateChangedAt time.Time
 }
 
 // Worker is a capacity slot, not a live resource handle (03 §2.3): the WIP

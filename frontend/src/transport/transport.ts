@@ -96,6 +96,7 @@ function isTicket(value: unknown): value is Ticket {
     typeof value.priority === 'number' &&
     typeof value.created_at === 'string' &&
     typeof value.updated_at === 'string' &&
+    typeof value.state_changed_at === 'string' &&
     isNullableString(value.blocked_reason) &&
     isNullableString(value.ready_at)
   );

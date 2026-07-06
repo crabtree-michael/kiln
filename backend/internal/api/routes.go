@@ -834,6 +834,7 @@ func ticketToWire(t board.Ticket) wire.Ticket {
 		ApprovalRequested: t.ApprovalRequested,
 		CreatedAt:         t.CreatedAt,
 		UpdatedAt:         t.UpdatedAt,
+		StateChangedAt:    t.StateChangedAt,
 	}
 }
 

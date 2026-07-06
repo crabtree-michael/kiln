@@ -430,7 +430,7 @@ components:
       description: >
         One ticket as rendered on the board (03 §2.2). Column/zone placement
         is derived from `state`, never carried as a separate field (03 D1).
-      required: [id, title, body, state, priority, approval_requested, created_at, updated_at]
+      required: [id, title, body, state, priority, approval_requested, created_at, updated_at, state_changed_at]
       properties:
         id:
           type: string
@@ -471,6 +471,15 @@ components:
         updated_at:
           type: string
           format: date-time
+          description: Time of the ticket's last mutation of any kind (bumped by nudges too).
+        state_changed_at:
+          type: string
+          format: date-time
+          description: >
+            When the ticket last entered its current `state` (03 §2.2). Advances
+            only on a real state transition, never on a same-state mutation such
+            as a Working->Working nudge — the true "time in status" clock the
+            client renders as the ticket-row subtext.
       additionalProperties: false
 
     AgentStatus:

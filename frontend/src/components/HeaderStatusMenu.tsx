@@ -96,7 +96,7 @@ export function HeaderStatusMenu({
               <li key={ticket.id} data-role="header-status-row" data-status={ticket.status}>
                 <span data-role="header-status-dot" aria-hidden="true" />
                 <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
-                <span data-role="header-status-age">{relativeAge(ticket.updatedAt)}</span>
+                <span data-role="header-status-age">{relativeAge(ticket.statusSince)}</span>
                 {ticket.reason !== null && (
                   <span data-role="header-status-reason">{ticket.reason}</span>
                 )}

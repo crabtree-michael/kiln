@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
@@ -295,6 +296,55 @@ func TestSendToAgent_FromWorking_NewTurn(t *testing.T) {
 	}
 	if got.State != board.StateWorking {
 		t.Errorf("state = %q, want working (03 §2.1 working -> working)", got.State)
+	}
+}
+
+// A Working→Working nudge is a same-state mutation: it bumps updated_at but must
+// leave state_changed_at (the "time in status" clock) untouched, so the client's
+// ticket-row age subtext keeps accumulating through nudges instead of resetting.
+func TestSendToAgent_FromWorking_PreservesStateChangedAt(t *testing.T) {
+	svc, store := newTestService()
+	worker := board.WorkerID("w1")
+	store.seedWorker(worker)
+	entered := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	store.seedTicket(board.Ticket{
+		ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker,
+		StateChangedAt: entered,
+	})
+
+	got, err := svc.SendToAgent(context.Background(), "t1", "keep going")
+	if err != nil {
+		t.Fatalf("SendToAgent (nudge): unexpected error: %v", err)
+	}
+	if !got.StateChangedAt.Equal(entered) {
+		t.Errorf("StateChangedAt = %v, want unchanged %v — a same-state nudge must not reset the clock",
+			got.StateChangedAt, entered)
+	}
+	if !got.UpdatedAt.After(entered) {
+		t.Errorf("UpdatedAt = %v, want advanced past %v — a nudge is still a mutation", got.UpdatedAt, entered)
+	}
+}
+
+// A Blocked→Working resume is a real transition: it must advance state_changed_at
+// so the timer restarts from when the ticket re-entered Working.
+func TestSendToAgent_FromBlocked_AdvancesStateChangedAt(t *testing.T) {
+	svc, store := newTestService()
+	worker := board.WorkerID("w1")
+	store.seedWorker(worker)
+	entered := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	store.seedTicket(board.Ticket{
+		ID: "t1", Title: "T", State: board.StateBlocked,
+		WorkerID: &worker, BlockedReason: new("needs a decision"),
+		StateChangedAt: entered,
+	})
+
+	got, err := svc.SendToAgent(context.Background(), "t1", "here's the answer")
+	if err != nil {
+		t.Fatalf("SendToAgent (resume): unexpected error: %v", err)
+	}
+	if !got.StateChangedAt.After(entered) {
+		t.Errorf("StateChangedAt = %v, want advanced past %v — a real transition restarts the clock",
+			got.StateChangedAt, entered)
 	}
 }
 

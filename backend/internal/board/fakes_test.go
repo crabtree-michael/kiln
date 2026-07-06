@@ -152,6 +152,9 @@ func (s *fakeStore) seedTicket(t board.Ticket) {
 	if t.UpdatedAt.IsZero() {
 		t.UpdatedAt = t.CreatedAt
 	}
+	if t.StateChangedAt.IsZero() {
+		t.StateChangedAt = t.UpdatedAt
+	}
 	s.tickets[t.ID] = t
 }
 
@@ -242,15 +245,25 @@ func (t *fakeTx) InsertTicket(_ context.Context, tk board.Ticket) (board.Ticket,
 	now := t.s.now()
 	tk.CreatedAt = now
 	tk.UpdatedAt = now
+	tk.StateChangedAt = now
 	t.s.tickets[tk.ID] = tk
 	return tk, nil
 }
 
 func (t *fakeTx) UpdateTicket(_ context.Context, tk board.Ticket) (board.Ticket, error) {
-	if _, ok := t.s.tickets[tk.ID]; !ok {
+	prev, ok := t.s.tickets[tk.ID]
+	if !ok {
 		return board.Ticket{}, board.ErrNotFound
 	}
 	tk.UpdatedAt = t.s.now()
+	// state_changed_at advances only on a real transition — mirrors the CASE in
+	// postgres.UpdateTicket so a same-state mutation (e.g. a Working→Working
+	// nudge) leaves the time-in-status clock untouched.
+	if tk.State != prev.State {
+		tk.StateChangedAt = t.s.now()
+	} else {
+		tk.StateChangedAt = prev.StateChangedAt
+	}
 	t.s.tickets[tk.ID] = tk
 	return tk, nil
 }

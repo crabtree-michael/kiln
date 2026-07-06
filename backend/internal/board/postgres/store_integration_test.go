@@ -300,6 +300,68 @@ func TestParallelRunPull_NoDoubleBind(t *testing.T) {
 	}
 }
 
+// ---- state_changed_at: the "time in status" clock (0007_state_changed_at) ----
+
+// TestStateChangedAt_OnlyAdvancesOnRealTransition proves the CASE in
+// UpdateTicket against real Postgres: state_changed_at moves only when `state`
+// actually changes. A Working→Working nudge (SendToAgent) bumps updated_at but
+// must leave state_changed_at fixed, so the client's time-in-status subtext
+// keeps accumulating through nudges instead of resetting; a Blocked→Working
+// resume is a real transition and must advance it.
+func TestStateChangedAt_OnlyAdvancesOnRealTransition(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	mustInsertWorker(ctx, t, db)
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	created, err := svc.CreateTicket(ctx, "time-in-status", "")
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if _, err := svc.MarkReady(ctx, created.ID); err != nil {
+		t.Fatalf("MarkReady: %v", err)
+	}
+	if err := svc.RunPull(ctx); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+	working, err := svc.GetTicket(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetTicket after pull: %v", err)
+	}
+	if working.State != board.StateWorking {
+		t.Fatalf("state after pull = %q, want working", working.State)
+	}
+	enteredWorking := working.StateChangedAt
+
+	// A nudge: same state, so state_changed_at must be byte-for-byte unchanged
+	// while updated_at moves forward.
+	nudged, err := svc.SendToAgent(ctx, created.ID, "keep going")
+	if err != nil {
+		t.Fatalf("SendToAgent (nudge): %v", err)
+	}
+	if !nudged.StateChangedAt.Equal(enteredWorking) {
+		t.Errorf("nudge moved StateChangedAt: got %v, want unchanged %v", nudged.StateChangedAt, enteredWorking)
+	}
+	if !nudged.UpdatedAt.After(enteredWorking) {
+		t.Errorf("nudge left UpdatedAt = %v, want advanced past %v", nudged.UpdatedAt, enteredWorking)
+	}
+
+	// A real transition: block then resume. state_changed_at must advance past
+	// when the ticket first entered Working.
+	if _, err := svc.MarkBlocked(ctx, created.ID, "needs a decision"); err != nil {
+		t.Fatalf("MarkBlocked: %v", err)
+	}
+	resumed, err := svc.SendToAgent(ctx, created.ID, "here's the answer")
+	if err != nil {
+		t.Fatalf("SendToAgent (resume): %v", err)
+	}
+	if !resumed.StateChangedAt.After(enteredWorking) {
+		t.Errorf("resume left StateChangedAt = %v, want advanced past %v (a real transition restarts the clock)",
+			resumed.StateChangedAt, enteredWorking)
+	}
+}
+
 // ---- archived_at: soft delete is invisible to reads but keeps the row ------
 
 func TestArchiveTicket_SoftDeletesFromReadsButKeepsRow(t *testing.T) {

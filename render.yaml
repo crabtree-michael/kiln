@@ -44,6 +44,12 @@ services:
         sync: false
       - key: ASSEMBLYAI_API_KEY
         sync: false
+      - key: VAPID_PUBLIC_KEY           # Web Push (VAPID) key pair + subject
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
       - key: GITHUB_AUTH_TOKEN
         sync: false
       - key: GITHUB_REPO_URL

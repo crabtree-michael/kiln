@@ -493,9 +493,14 @@ type Ticket struct {
 	ReadyAt *time.Time `json:"ready_at,omitempty"`
 
 	// State One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.
-	State     TicketState `json:"state"`
-	Title     string      `json:"title"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	State TicketState `json:"state"`
+
+	// StateChangedAt When the ticket last entered its current `state` (03 §2.2). Advances only on a real state transition, never on a same-state mutation such as a Working->Working nudge — the true "time in status" clock the client renders as the ticket-row subtext.
+	StateChangedAt time.Time `json:"state_changed_at"`
+	Title          string    `json:"title"`
+
+	// UpdatedAt Time of the ticket's last mutation of any kind (bumped by nudges too).
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TicketState One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.

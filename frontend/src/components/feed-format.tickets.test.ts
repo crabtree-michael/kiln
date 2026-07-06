@@ -114,7 +114,10 @@ describe('ticketStatuses', () => {
     expect(ticketStatuses(board).map((t) => t.id)).toEqual(['new', 'mid', 'old']);
   });
 
-  it('carries each ticket updated_at through for the time-in-status subtext', () => {
+  it('sources the time-in-status subtext from state_changed_at, not updated_at', () => {
+    // A nudged ticket: updated_at moved to the nudge time, but state_changed_at
+    // still points at when it entered Working. The subtext must follow the
+    // latter so the nudge does not reset the displayed timer.
     const board = makeBoard({
       working: [
         makeTicket({
@@ -124,11 +127,15 @@ describe('ticketStatuses', () => {
           body: '',
           state: 'working',
           priority: 0,
-          updatedAt: '2026-07-05T12:00:00Z',
+          updatedAt: '2026-07-06T09:00:00Z',
+          statusChangedAt: '2026-07-05T12:00:00Z',
         }),
       ],
     });
-    expect(ticketStatuses(board)[0]).toMatchObject({ id: 't1', updatedAt: '2026-07-05T12:00:00Z' });
+    expect(ticketStatuses(board)[0]).toMatchObject({
+      id: 't1',
+      statusSince: '2026-07-05T12:00:00Z',
+    });
   });
 
   it('shows the lifecycle state for a ready ticket with no live worker', () => {

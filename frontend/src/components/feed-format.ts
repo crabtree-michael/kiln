@@ -80,14 +80,15 @@ export interface TicketStatus {
 }
 
 /** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
- * (working then blocked) first, then done, then the backlog-type states (ready,
- * shaping) at the bottom. Within a rank rows sort by decreasing activity
- * (most-recently-updated first). */
+ * (working then blocked) first, then the ready backlog at the bottom. Done and
+ * shaping tickets are excluded from the dropdown entirely (see `ticketStatuses`),
+ * so their ranks are only placeholders. Within a rank rows sort by decreasing
+ * activity (most-recently-updated first). */
 const STATE_RANK: Record<Ticket['state'], number> = {
   working: 0,
   blocked: 1,
-  done: 2,
-  ready: 3,
+  ready: 2,
+  done: 3,
   shaping: 4,
 };
 
@@ -110,9 +111,11 @@ function ticketRowStatus(ticket: Ticket, byTicket: Map<string, StreamState>): Ti
   }
 }
 
-/** Break the whole board out per-ticket for the header dropdown, active first
- * then everything else in decreasing-activity order with backlog at the bottom
- * (08 §2, amended 2026-07-06). Returns [] before the first board snapshot. */
+/** Break out the header dropdown's per-ticket list: only the working, blocked,
+ * and ready tickets, active first then the ready backlog, each in
+ * decreasing-activity order (08 §2, amended 2026-07-06). Done and shaping
+ * tickets are excluded entirely, not just sorted last. Returns [] before the
+ * first board snapshot. */
 export function ticketStatuses(board: Board | null): TicketStatus[] {
   if (board === null) {
     return [];
@@ -120,7 +123,7 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
   const byTicket = new Map<string, StreamState>(
     board.agents.map((agent) => [agent.ticket_id, agent.status]),
   );
-  const all = [...board.working, ...board.blocked, ...board.done, ...board.ready, ...board.shaping];
+  const all = [...board.working, ...board.blocked, ...board.ready];
   return all
     .sort((a, b) => {
       const rank = STATE_RANK[a.state] - STATE_RANK[b.state];

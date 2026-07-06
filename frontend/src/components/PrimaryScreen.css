@@ -346,6 +346,61 @@
   flex-direction: column;
 }
 
+/* ------------------------------------------------ swipe-to-clear (08 §3) */
+
+/* Wraps one dismissible row (update/preview). Clips the content layer so a
+   half-swiped card never bleeds past the row, and hosts the "Clear" affordance
+   revealed underneath it. Not a flex/grid parent — the content layer owns the
+   card's own layout unchanged. */
+[data-role='swipe'] {
+  position: relative;
+  overflow: hidden;
+}
+
+/* The "Clear" label revealed behind the row as it slides left. Pinned to the
+   right edge and vertically centred, sitting under the opaque content layer
+   until the swipe uncovers it. Decoration only (aria-hidden). */
+[data-role='swipe-action'] {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline-end: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* The moving layer that carries the card. Opaque (page tone) so it fully
+   occludes the "Clear" affordance at rest, and springs back with a settle
+   easing; while dragging the transition is dropped so it tracks the finger 1:1,
+   and the fling-off uses a longer transform so onTransitionEnd fires the clear. */
+[data-role='swipe-content'] {
+  position: relative;
+  background: var(--surface-page);
+  touch-action: pan-y;
+  transition:
+    transform var(--duration-base) var(--ease-settle),
+    opacity var(--duration-base) ease;
+}
+
+[data-role='swipe-content'][data-dragging='true'] {
+  transition: none;
+}
+
+[data-role='swipe'][data-dismissing='true'] [data-role='swipe-content'] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='swipe-content'] {
+    transition: none;
+  }
+}
+
 /* ------------------------------------------------------------------- cards */
 
 [data-role='feed-card'] {

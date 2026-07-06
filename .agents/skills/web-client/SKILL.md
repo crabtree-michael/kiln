@@ -96,6 +96,31 @@ session-free in phase 1** — no cookie is required to use the board/chat, only 
 
 _(Accumulate more as you work.)_
 
+## Swipe-to-dismiss (feed cards, 08 §3)
+
+- `SwipeToDismiss.tsx` is the reusable swipe-left-to-clear wrapper (pure pointer
+  events + CSS transform, no gesture lib per D4). `PrimaryScreenView` wraps a row in
+  it **only** when `onDismissCard` is wired AND the card is notification-backed
+  (`updateId(card) !== null` — update/preview; blockers/proposals/pokes are board
+  state the brain owns and stay static). Gating on the optional prop keeps the DOM
+  (and the image snapshots) unchanged for presentational tests that don't pass it.
+- The clear is full-stack and persistent: `feed-store`'s `dismissCard` optimistically
+  hides the card (a `dismissedRef` set filtered in `mergeFeed`, mirroring the
+  optimistic-accept `acceptedRef`), POSTs `/api/feed/{id}/dismiss` (retracts the
+  notification server-side), and springs the card back if the request fails. The
+  suppression is pruned in `applySnapshot` once the server-confirmed snapshot drops
+  the id. A purely client-side hide would resurrect on the next snapshot/reload.
+- The fling-off completion is driven by a **timer** (`FLING_MS`, matched to
+  `--duration-base`), not `transitionend` — under `prefers-reduced-motion` the CSS
+  transition is suppressed and `transitionend` would never fire.
+
 ## Potential gotchas
+
+- **jsdom ships no `PointerEvent`** — `new PointerEvent(...)` throws, and
+  testing-library's `fireEvent.pointer*` silently drops `clientX/clientY`, so a
+  gesture reading coordinates sees `NaN`. Polyfill it in the test with a
+  `MouseEvent` subclass (jsdom carries mouse coords) via
+  `vi.stubGlobal('PointerEvent', Stub)` — see `SwipeToDismiss.test.tsx`. Also guard
+  `setPointerCapture` with a `typeof … === 'function'` check; jsdom elements lack it.
 
 _(Accumulate: non-obvious traps and edge cases.)_

@@ -99,11 +99,16 @@ type FeedReader interface {
 	FeedHistory(ctx context.Context, before int64, limit int) ([]runtime.FeedCard, bool, error)
 }
 
-// SeenAcker is the api's port onto the runtime's seen high-water mark (08 §3
-// POST /api/feed/seen): mark every update up to and including lastID as seen.
-// Satisfied directly by *runtime.Service's MarkSeen.
-type SeenAcker interface {
+// FeedMutator is the api's port onto the client-driven feed mutations (08 §3):
+// advancing the seen high-water mark (POST /api/feed/seen) and clearing a single
+// card by swipe (POST /api/feed/{id}/dismiss). Satisfied directly by
+// *runtime.Service's MarkSeen / DismissNotification.
+type FeedMutator interface {
+	// MarkSeen marks every update up to and including lastID as seen.
 	MarkSeen(ctx context.Context, lastID int64) error
+	// DismissNotification clears one update/preview card for good by its
+	// notification id (user swiped it away). Idempotent on an unknown/gone id.
+	DismissNotification(ctx context.Context, id int64) error
 }
 
 // TicketSeeder is the DEV-ONLY port behind POST /api/dev/tickets: seed a ticket
@@ -209,7 +214,7 @@ type Server struct {
 	poster   MessagePoster
 	messages MessagesReader
 	feed     FeedReader
-	seen     SeenAcker
+	seen     FeedMutator
 	hub      *Hub
 	voice    VoiceTokenMinter
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
@@ -228,7 +233,7 @@ type Server struct {
 // NewServer wires the routes over their ports and the hub.
 func NewServer(
 	boards BoardReader, poster MessagePoster, messages MessagesReader,
-	feed FeedReader, seen SeenAcker, hub *Hub, voice VoiceTokenMinter,
+	feed FeedReader, seen FeedMutator, hub *Hub, voice VoiceTokenMinter,
 ) *Server {
 	return &Server{
 		boards: boards, poster: poster, messages: messages,
@@ -291,6 +296,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/feed", s.handleFeed)
 	mux.HandleFunc("GET /api/feed/history", s.handleFeedHistory)
 	mux.HandleFunc("POST /api/feed/seen", s.handleFeedSeen)
+	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.handleFeedDismiss)
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/voice/token", s.handleVoiceToken)
 	if s.seeder != nil {
@@ -551,6 +557,24 @@ func (s *Server) handleFeedSeen(w http.ResponseWriter, r *http.Request) {
 	if err := s.seen.MarkSeen(r.Context(), req.LastNotificationId); err != nil {
 		slog.Error("api: mark seen", "err", err)
 		http.Error(w, "mark seen", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleFeedDismiss clears a single update/preview card by swipe (08 §3): the
+// user swiped the row left, so retract the notification behind {id} for good.
+// Idempotent — an unknown/already-gone id is a no-op under the store's guard.
+// Returns 202.
+func (s *Server) handleFeedDismiss(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		http.Error(w, "id must be a positive notification id", http.StatusBadRequest)
+		return
+	}
+	if err := s.seen.DismissNotification(r.Context(), id); err != nil {
+		slog.Error("api: dismiss card", "err", err)
+		http.Error(w, "dismiss card", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

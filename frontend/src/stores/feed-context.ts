@@ -38,6 +38,14 @@ export interface FeedStoreValue {
    * never lands, the proposal reappears so nothing is silently lost.
    */
   acceptProposal: (ticketId: string) => void;
+  /**
+   * Clear (dismiss) a single update/preview card by its notification id — the
+   * swipe-left gesture (08 §3). The card drops from the feed immediately
+   * (optimistic) and is retracted server-side so it does not return on the next
+   * snapshot or reload; if the request fails the card springs back so nothing is
+   * silently lost. No-op for board-derived cards, which have no notification id.
+   */
+  dismissCard: (notificationId: number) => void;
 }
 
 export const FeedStoreContext = createContext<FeedStoreValue | undefined>(undefined);

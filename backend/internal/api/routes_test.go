@@ -649,6 +649,42 @@ func TestHandleFeedSeen_CallsMarkSeen(t *testing.T) {
 	}
 }
 
+func TestHandleFeedDismiss_CallsDismiss(t *testing.T) {
+	seen := &fakeSeenAcker{}
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, seen, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/feed/77/dismiss", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if ids := seen.dismissed(); len(ids) != 1 || ids[0] != 77 {
+		t.Fatalf("DismissNotification called with %v, want a single call with 77", ids)
+	}
+}
+
+func TestHandleFeedDismiss_RejectsBadID(t *testing.T) {
+	boards := &fakeBoardReader{}
+	srv := api.NewServer(
+		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/feed/not-a-number/dismiss", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a non-numeric notification id", resp.StatusCode)
+	}
+}
+
 func TestHandleAccept_PostsSynthesizedMessageAndReturns202(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{
 		Shaping: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateShaping, ApprovalRequested: true}},

@@ -10,7 +10,7 @@
 // the divider jumping mid-session. Live updates ride the single app-wide stream
 // connection (`@/stores/stream-connection`), shared with the board/chat stores.
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
-import { fetchFeed, fetchFeedHistory, postFeedSeen } from '@/transport/transport';
+import { dismissFeedCard, fetchFeed, fetchFeedHistory, postFeedSeen } from '@/transport/transport';
 import type { ConnectionState, FeedCard, FeedSnapshot } from '@/transport/transport';
 import { FeedStoreContext, type FeedStoreValue } from '@/stores/feed-context';
 import { subscribeStream } from '@/stores/stream-connection';
@@ -69,11 +69,14 @@ function newestUpdateId(updates: Map<number, FeedCard>): number {
  * accumulated (retained) update cards. Order (08 §3): blockers, then proposals,
  * then updates newest-first by `notification_id`. Proposals whose ticket is in
  * `acceptedTicketIds` are optimistically dropped — the user tapped Accept and the
- * card is hidden ahead of the server confirming the move (this change). */
+ * card is hidden ahead of the server confirming the move. Update/preview cards
+ * whose notification id is in `dismissedIds` are likewise dropped — the user
+ * swiped them away and the retract may not have round-tripped yet (this change). */
 function mergeFeed(
   server: FeedSnapshot,
   updates: Map<number, FeedCard>,
   acceptedTicketIds: Set<string>,
+  dismissedIds: Set<number>,
 ): FeedSnapshot {
   const blockers = server.cards.filter((card) => card.kind === 'blocker');
   const proposals = server.cards.filter(
@@ -81,9 +84,9 @@ function mergeFeed(
       card.kind === 'proposal' &&
       !(card.ticket_id != null && acceptedTicketIds.has(card.ticket_id)),
   );
-  const sortedUpdates = [...updates.values()].sort(
-    (a, b) => (b.notification_id ?? 0) - (a.notification_id ?? 0),
-  );
+  const sortedUpdates = [...updates.values()]
+    .filter((card) => !(card.notification_id != null && dismissedIds.has(card.notification_id)))
+    .sort((a, b) => (b.notification_id ?? 0) - (a.notification_id ?? 0));
   return { ...server, cards: [...blockers, ...proposals, ...sortedUpdates] };
 }
 
@@ -104,6 +107,11 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   // Optimistically-accepted proposal tickets: ticket_id -> expiry timestamp (ms).
   // Purely in-memory, so it also clears on app reopen (this change).
   const acceptedRef = useRef<Map<string, number>>(new Map());
+  // Notification ids the user has swiped away (08 §3 swipe-to-dismiss). Suppresses
+  // the card in every merge until the server-side retract lands and the snapshot
+  // stops listing it (pruned in applySnapshot). Purely in-memory — a failed
+  // dismiss removes the id here so the card springs back.
+  const dismissedRef = useRef<Set<number>>(new Set());
   // Live timers that force the proposal back into view when its TTL lapses.
   const reappearTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
@@ -206,8 +214,17 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         }
       }
 
+      // Prune dismissals the server has now confirmed gone: once reconciliation
+      // above drops a swiped-away id from the retained set, its suppression here
+      // is spent (a fresh notification would reuse neither the id nor the intent).
+      for (const id of [...dismissedRef.current]) {
+        if (!updatesRef.current.has(id)) {
+          dismissedRef.current.delete(id);
+        }
+      }
+
       ackVisibleSeen();
-      setFeed(mergeFeed(snapshot, updatesRef.current, liveAccepted()));
+      setFeed(mergeFeed(snapshot, updatesRef.current, liveAccepted(), dismissedRef.current));
     },
     [ackVisibleSeen, liveAccepted],
   );
@@ -233,7 +250,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
           pagedBelowWindowRef.current = true;
           setHasMoreHistory(page.has_more);
           if (serverFeedRef.current !== null) {
-            setFeed(mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted()));
+            setFeed(
+              mergeFeed(
+                serverFeedRef.current,
+                updatesRef.current,
+                liveAccepted(),
+                dismissedRef.current,
+              ),
+            );
           }
         } catch {
           // Leave the existing feed in place; the button stays available to retry.
@@ -255,13 +279,62 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       const timer = setTimeout(() => {
         reappearTimersRef.current.delete(timer);
         if (serverFeedRef.current !== null) {
-          setFeed(mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted()));
+          setFeed(
+            mergeFeed(
+              serverFeedRef.current,
+              updatesRef.current,
+              liveAccepted(),
+              dismissedRef.current,
+            ),
+          );
         }
       }, OPTIMISTIC_ACCEPT_TTL_MS);
       reappearTimersRef.current.add(timer);
       if (serverFeedRef.current !== null) {
-        setFeed(mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted()));
+        setFeed(
+          mergeFeed(
+            serverFeedRef.current,
+            updatesRef.current,
+            liveAccepted(),
+            dismissedRef.current,
+          ),
+        );
       }
+    },
+    [liveAccepted],
+  );
+
+  // Clear (dismiss) a single update/preview card by its notification id — the
+  // swipe-left gesture (08 §3). Suppress it locally at once so the swipe feels
+  // instant, then retract it server-side; the resulting feed.updated snapshot
+  // drops it for good (and prunes the suppression). A failed request removes the
+  // local suppression so the card springs back — nothing is silently lost.
+  const dismissCard = useCallback(
+    (notificationId: number): void => {
+      dismissedRef.current.add(notificationId);
+      if (serverFeedRef.current !== null) {
+        setFeed(
+          mergeFeed(
+            serverFeedRef.current,
+            updatesRef.current,
+            liveAccepted(),
+            dismissedRef.current,
+          ),
+        );
+      }
+      void dismissFeedCard(notificationId).catch(() => {
+        dismissedRef.current.delete(notificationId);
+        if (serverFeedRef.current !== null) {
+          setFeed(
+            mergeFeed(
+              serverFeedRef.current,
+              updatesRef.current,
+              liveAccepted(),
+              dismissedRef.current,
+            ),
+          );
+        }
+      });
     },
     [liveAccepted],
   );
@@ -372,6 +445,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       acceptProposal,
+      dismissCard,
     }),
     [
       feed,
@@ -381,6 +455,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       acceptProposal,
+      dismissCard,
     ],
   );
 

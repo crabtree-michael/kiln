@@ -18,6 +18,7 @@ vi.mock('@/transport/transport', () => ({
   fetchFeed: vi.fn(),
   fetchFeedHistory: vi.fn(),
   postFeedSeen: vi.fn(),
+  dismissFeedCard: vi.fn(),
   acceptTicket: vi.fn(),
   fetchBoard: vi.fn(),
   fetchMessages: vi.fn(),
@@ -43,7 +44,7 @@ function update(id: number, body: string): ReturnType<typeof makeFeedCard> {
   });
 }
 
-function Probe({ acceptId }: { acceptId?: string }): JSX.Element {
+function Probe({ acceptId, dismissId }: { acceptId?: string; dismissId?: number }): JSX.Element {
   const {
     feed,
     connectionState,
@@ -52,6 +53,7 @@ function Probe({ acceptId }: { acceptId?: string }): JSX.Element {
     loadingMoreHistory,
     loadMoreHistory,
     acceptProposal,
+    dismissCard,
   } = useFeedStore();
   return (
     <div
@@ -77,6 +79,17 @@ function Probe({ acceptId }: { acceptId?: string }): JSX.Element {
       >
         accept
       </button>
+      <button
+        data-testid="dismiss"
+        type="button"
+        onClick={() => {
+          if (dismissId !== undefined) {
+            dismissCard(dismissId);
+          }
+        }}
+      >
+        dismiss
+      </button>
     </div>
   );
 }
@@ -101,6 +114,7 @@ describe('FeedProvider', () => {
     capturedHandlers = undefined;
     closeStream.mockClear();
     vi.mocked(transport.postFeedSeen).mockResolvedValue(undefined);
+    vi.mocked(transport.dismissFeedCard).mockResolvedValue(undefined);
     vi.mocked(transport.openStream).mockImplementation((handlers): StreamConnection => {
       capturedHandlers = handlers;
       return { close: closeStream };
@@ -111,6 +125,7 @@ describe('FeedProvider', () => {
     vi.mocked(transport.fetchFeed).mockReset();
     vi.mocked(transport.fetchFeedHistory).mockReset();
     vi.mocked(transport.postFeedSeen).mockReset();
+    vi.mocked(transport.dismissFeedCard).mockReset();
     vi.mocked(transport.openStream).mockReset();
   });
 
@@ -592,6 +607,90 @@ describe('FeedProvider', () => {
     capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [proposal('p1')] }));
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
+    });
+  });
+
+  it('optimistically clears a swiped update card and retracts it server-side (08 §3)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(9, 'keep'), update(8, 'clear me')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe dismissId={8} />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
+    });
+
+    // Swiping the card away hides it at once — without waiting on the backend —
+    // and fires the retract for its notification id; the sibling card is untouched.
+    act(() => {
+      screen.getByTestId('dismiss').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+    });
+    expect(transport.dismissFeedCard).toHaveBeenCalledWith(8);
+  });
+
+  it('keeps a swiped card hidden across snapshots that still list it until the retract lands', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(8, 'clear me')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe dismissId={8} />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
+    });
+
+    act(() => {
+      screen.getByTestId('dismiss').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+    });
+
+    // A snapshot that still carries the card (retract not processed yet) must not
+    // resurrect it; only the confirmed retract (its absence) clears it for good.
+    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [update(8, 'clear me')] }));
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+    });
+
+    // The retract lands: the card leaves the snapshot and stays gone.
+    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [] }));
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+    });
+  });
+
+  it('springs a swiped card back when the dismiss request fails (nothing lost)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(8, 'clear me')] }),
+    );
+    vi.mocked(transport.dismissFeedCard).mockRejectedValue(new Error('offline'));
+
+    render(
+      <FeedProvider>
+        <Probe dismissId={8} />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
+    });
+
+    act(() => {
+      screen.getByTestId('dismiss').click();
+    });
+    // The card comes back once the failed retract resolves.
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
     });
   });
 });

@@ -23,6 +23,7 @@ function PrimaryScreenBody(): JSX.Element {
     loadingMoreHistory,
     loadMoreHistory,
     acceptProposal,
+    dismissCard,
   } = useFeedStore();
   const { board, refreshBoard, refreshing } = useBoardStore();
   const { thinking, toasts, dismiss } = useActivityStore();
@@ -48,6 +49,7 @@ function PrimaryScreenBody(): JSX.Element {
       toasts={toasts}
       onDismiss={dismiss}
       onAccept={onAccept}
+      onDismissCard={dismissCard}
       onOpenTickets={refreshBoard}
       ticketsRefreshing={refreshing}
       lastSeenId={lastSeenId}

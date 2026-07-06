@@ -358,6 +358,19 @@ func (s *Service) RetractNotification(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DismissNotification is the api-facing port for POST /api/feed/{id}/dismiss (08
+// §3): the user swiped a single update/preview card away, so clear it for good.
+// The effect is identical to the brain's retract — stamp the row retracted and
+// append feed.updated in one tx — but this is user-initiated, so it lives beside
+// MarkSeen (the other client-driven feed mutation) rather than the brain-facing
+// RetractNotification it delegates to.
+func (s *Service) DismissNotification(ctx context.Context, id int64) error {
+	if err := s.notifications.RetractNotification(ctx, id); err != nil {
+		return fmt.Errorf("runtime: dismiss notification: %w", err)
+	}
+	return nil
+}
+
 // EditNotification is the brain-facing port for edit_update (08 §3 amended, 06
 // tool set): amend a still-active card's kind/body/image in place and append
 // feed.updated in one tx. Delegates to the store; the brain tool handler needs

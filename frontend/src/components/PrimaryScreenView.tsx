@@ -14,6 +14,7 @@ import type {
 import type { ActivityToast } from '@/stores/activity-context';
 import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
+import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import { TicketDetail } from '@/components/TicketDetail';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
@@ -40,6 +41,11 @@ export interface PrimaryScreenViewProps {
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
   onAccept: (ticketId: string) => void;
+  /** Clear a single update/preview card by its notification id — the swipe-left
+   * gesture (08 §3). When provided, notification-backed cards become swipeable;
+   * omitted (presentational tests) leaves every card static, so the swipe wrapper
+   * and its DOM are absent unless wired. */
+  onDismissCard?: ((notificationId: number) => void) | undefined;
   /** Fired when the tickets dropdown opens — triggers an independent board
    * refresh so the ticket list isn't stale until the next agent push.
    * Optional so presentational tests can omit it. */
@@ -129,6 +135,7 @@ export function PrimaryScreenView({
   toasts,
   onDismiss,
   onAccept,
+  onDismissCard,
   onOpenTickets,
   ticketsRefreshing = false,
   lastSeenId = null,
@@ -197,13 +204,12 @@ export function PrimaryScreenView({
               </div>
             ) : (
               <>
-                {cards.map((card, index) => (
-                  <div key={card.id} data-role="backlog-slot">
-                    {index === divider && (
-                      <div data-role="feed-divider" data-variant="last-seen">
-                        Earlier
-                      </div>
-                    )}
+                {cards.map((card, index) => {
+                  // Only notification-backed cards can be cleared; blockers/
+                  // proposals/pokes are board state the brain owns, so they stay
+                  // static even when a dismiss handler is wired.
+                  const dismissId = updateId(card);
+                  const item = (
                     <FeedCardItem
                       card={card}
                       now={now}
@@ -211,8 +217,28 @@ export function PrimaryScreenView({
                       seen={isSeen(card, lastSeenId)}
                       onOpenDetail={setOpenTicketId}
                     />
-                  </div>
-                ))}
+                  );
+                  return (
+                    <div key={card.id} data-role="backlog-slot">
+                      {index === divider && (
+                        <div data-role="feed-divider" data-variant="last-seen">
+                          Earlier
+                        </div>
+                      )}
+                      {onDismissCard !== undefined && dismissId !== null ? (
+                        <SwipeToDismiss
+                          onDismiss={() => {
+                            onDismissCard(dismissId);
+                          }}
+                        >
+                          {item}
+                        </SwipeToDismiss>
+                      ) : (
+                        item
+                      )}
+                    </div>
+                  );
+                })}
                 {hasMoreHistory && onLoadMoreHistory !== undefined && (
                   <button
                     type="button"

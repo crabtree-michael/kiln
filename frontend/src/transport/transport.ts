@@ -386,6 +386,17 @@ export async function postFeedSeen(lastNotificationId: number): Promise<void> {
   });
 }
 
+/** `POST /api/feed/{id}/dismiss` — clear (dismiss) one update/preview card for
+ * good by its notification id (swipe-to-dismiss, 08 §3). Idempotent server-side;
+ * fire-and-forget like `postFeedSeen`, the resulting `feed` snapshot drops the
+ * card. */
+export async function dismissFeedCard(notificationId: number): Promise<void> {
+  const response = await fetch(`/api/feed/${String(notificationId)}/dismiss`, { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`dismissFeedCard: HTTP ${String(response.status)}`);
+  }
+}
+
 /** `POST /api/dev/reset` — wipe the board, chat, and live agent sandboxes for a
  * fresh agent session. Drives the /debug "Reset session" button; not part of the
  * wire schema. Throws on a non-2xx so the caller can skip the reload. */

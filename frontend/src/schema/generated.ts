@@ -141,6 +141,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/feed/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear (dismiss) a single update/preview card — swipe-to-dismiss (08 §3).
+         * @description Clears one notification-backed feed card for good: retracts the notification behind it (the same stamp the brain's retract makes, but user-initiated by swiping the row left) so it drops from the feed and does not return on the next snapshot or reload. Only update/preview cards are dismissible — blockers and proposals are board-derived state the brain owns, not notifications, and have no id to dismiss. Emits feed.updated so the card leaves every open client. Idempotent: dismissing an already-gone or unknown id is a no-op and still returns 202.
+         */
+        post: operations["dismissFeedCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/accept": {
         parameters: {
             query?: never;
@@ -658,6 +678,27 @@ export interface operations {
         };
         responses: {
             /** @description Accepted — the seen high-water mark was stamped. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dismissFeedCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card's notification id (FeedCard.notification_id). */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted — the card was dismissed. */
             202: {
                 headers: {
                     [name: string]: unknown;

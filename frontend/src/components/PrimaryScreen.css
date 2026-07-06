@@ -108,7 +108,7 @@
      inset plus the 22px design breathing room the feed used to carry. On a
      device with no top inset (desktop, non-notched phones) this collapses to
      the original 22px, so nothing changes there. */
-  padding: calc(env(safe-area-inset-top, 0px) + 22px) 26px 24px;
+  padding: calc(env(safe-area-inset-top, 0px) + 22px) 26px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;

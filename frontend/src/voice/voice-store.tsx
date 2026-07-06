@@ -2,7 +2,7 @@
 // owns the reducer via `useReducer` and all the I/O the machine deliberately
 // avoids — the mic/socket lifecycle (`startVoiceStream`), token fetch + proactive
 // refresh, the one-silent-reconnect-then-Retry policy, `visibilitychange`
-// background/foreground, and the commit effect that POSTs a finalized utterance
+// stop-on-background, and the commit effect that POSTs a finalized utterance
 // to `/api/message` (the unchanged 07 §4 seam) and then clears the machine's
 // one-tick `commit`. Everything decision-shaped lives in `commit-machine`; this
 // file only wires side effects to it. Mirrors the store → context split of the
@@ -18,7 +18,7 @@ import {
   type ReactNode,
 } from 'react';
 import { fetchVoiceToken, postMessage } from '@/transport/transport';
-import { initialVoiceState, voiceReducer, type MicState } from '@/voice/commit-machine';
+import { initialVoiceState, voiceReducer } from '@/voice/commit-machine';
 import { startVoiceStream, type VoiceStream } from '@/voice/assemblyai-client';
 import { VoiceStoreContext, type VoiceStoreValue } from '@/voice/voice-context';
 import { useActivityStore } from '@/stores/activity-context';
@@ -57,18 +57,12 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   }, [dismissToast]);
 
   // Render-stable I/O handles (never props for re-render): the live stream, the
-  // proactive-refresh timer, whether this failure episode has already used its
-  // one silent reconnect (09 §5), and a mirror of `micState` for the
-  // visibility handler to read without re-subscribing.
+  // proactive-refresh timer, and whether this failure episode has already used
+  // its one silent reconnect (09 §5).
   const streamRef = useRef<VoiceStream | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
   const reconnectedRef = useRef<boolean>(false);
-  const micStateRef = useRef<MicState>(state.micState);
   const startStreamRef = useRef<() => void>(() => undefined);
-
-  useEffect(() => {
-    micStateRef.current = state.micState;
-  }, [state.micState]);
 
   const stopStream = useCallback((): void => {
     if (streamRef.current !== null) {
@@ -159,15 +153,14 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     startStreamRef.current = startStream;
   }, [startStream]);
 
-  // Auto-start on mount (09 §3 D3: mic on by default). Tears everything down on
-  // unmount.
+  // The mic never starts on its own — no start on mount. It opens only when the
+  // user taps the mic control (`resume`). This effect exists solely to tear the
+  // stream down on unmount, so a mic the user did start never outlives the view.
   useEffect(() => {
-    reconnectedRef.current = false;
-    startStream();
     return () => {
       stopStream();
     };
-  }, [startStream, stopStream]);
+  }, [stopStream]);
 
   // Grace-window effect (09 §4): an end-of-turn final arms `pending` rather than
   // committing outright. Hold it COMMIT_DELAY_MS, then dispatch `commitDelayElapsed`
@@ -196,6 +189,11 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     if (pending === undefined) {
       return;
     }
+    // Sending stops the mic (the machine already dropped to Paused): tear the
+    // socket down so the mic never keeps listening past a sent message and the
+    // just-sent words can't return in a trailing final. Idempotent, so it's safe
+    // whether we got here from an auto-commit or the send button.
+    stopStream();
     // Dismiss any toast on the activity row as part of handling this submission
     // (a no-op when the row shows a say or is already clear).
     dismissToastRef.current();
@@ -218,28 +216,23 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [state.commit]);
+  }, [state.commit, stopStream]);
 
-  // Foreground-only listening (09 §3): stop on hide, resume the default state on
-  // show — unless the user explicitly paused (sticky across background).
+  // Leaving the app stops the mic (09 §3): close the socket on hide and drop a
+  // live listen to Paused. Returning does NOT reopen it — the mic only ever
+  // starts on an explicit tap, so there's nothing to do on show.
   useEffect(() => {
     function handleVisibility(): void {
       if (document.visibilityState === 'hidden') {
         stopStream();
         dispatch({ type: 'background' });
-        return;
-      }
-      dispatch({ type: 'foreground' });
-      if (micStateRef.current === 'listening') {
-        reconnectedRef.current = false;
-        startStream();
       }
     }
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [startStream, stopStream]);
+  }, [stopStream]);
 
   const pause = useCallback((): void => {
     stopStream();
@@ -253,39 +246,36 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   }, [startStream]);
 
   const cancel = useCallback((): void => {
-    // The X only discards the un-committed transcript; the mic keeps listening.
+    // The X only discards the un-committed transcript; it doesn't touch the mic
+    // (if listening it keeps listening, if paused it stays paused — nothing here
+    // starts the mic).
     dispatch({ type: 'cancel' });
   }, []);
 
   const sendNow = useCallback((): void => {
     // The send button commits whatever transcript is on screen right now, without
-    // waiting for an end-of-turn final (09 §4); the commit effect POSTs it. When
-    // we're still listening, restart the stream so the words we just sent don't
-    // come back in a trailing final and double-post — a fresh socket begins a
-    // clean turn. When paused (the "stuck" case) there's no socket to restart.
+    // waiting for an end-of-turn final (09 §4). The machine drops to Paused and
+    // the commit effect POSTs it and tears the socket down — so the mic stops
+    // rather than keeping listening, and the just-sent words can't come back in a
+    // trailing final and double-post.
     dispatch({ type: 'sendNow' });
-    if (micStateRef.current === 'listening') {
-      reconnectedRef.current = false;
-      stopStream();
-      startStream();
-    }
-  }, [stopStream, startStream]);
+  }, []);
 
   const openKeyboard = useCallback((): void => {
-    // Switch from the default voice input to typed input. Stop the mic (pause is
-    // sticky, so foregrounding won't silently resume it while the field is up) and
-    // clear any un-committed transcript, so a spoken and a typed message never
-    // overlap in one submission.
+    // Switch to typed input. Stop the mic and clear any un-committed transcript,
+    // so a spoken and a typed message never overlap in one submission. Nothing
+    // reopens the mic on its own while the field is up.
     setKeyboardMode(true);
     pause();
     dispatch({ type: 'cancel' });
   }, [pause]);
 
   const closeKeyboard = useCallback((): void => {
-    // Back to the default voice input: drop keyboard mode and resume listening.
+    // Back to voice input: just drop keyboard mode. The mic stays off ("Tap to
+    // talk") — closing the keyboard is not a tap on the mic, so it must not start
+    // listening. `openKeyboard` already paused and cleared the transcript.
     setKeyboardMode(false);
-    resume();
-  }, [resume]);
+  }, []);
 
   const submitText = useCallback(async (text: string): Promise<boolean> => {
     // Typed input rides the exact same seam as a transcribed utterance — a plain

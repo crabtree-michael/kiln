@@ -114,6 +114,23 @@ describe('ticketStatuses', () => {
     expect(ticketStatuses(board).map((t) => t.id)).toEqual(['new', 'mid', 'old']);
   });
 
+  it('carries each ticket updated_at through for the time-in-status subtext', () => {
+    const board = makeBoard({
+      working: [
+        makeTicket({
+          ...baseFields,
+          id: 't1',
+          title: 'Auth',
+          body: '',
+          state: 'working',
+          priority: 0,
+          updatedAt: '2026-07-05T12:00:00Z',
+        }),
+      ],
+    });
+    expect(ticketStatuses(board)[0]).toMatchObject({ id: 't1', updatedAt: '2026-07-05T12:00:00Z' });
+  });
+
   it('shows the lifecycle state for a ready ticket with no live worker', () => {
     const board = makeBoard({
       ready: [

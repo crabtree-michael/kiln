@@ -109,6 +109,19 @@ describe('HeaderStatusMenu', () => {
     expect(rows[2]).toHaveAttribute('data-status', 'idle');
   });
 
+  it('renders a compact time-in-status age subtext on every ticket row', () => {
+    render(<HeaderStatusMenu summary={summary} board={board} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    const rows = screen.getAllByRole('listitem');
+    for (const row of rows) {
+      const age = row.querySelector('[data-role="header-status-age"]');
+      expect(age).not.toBeNull();
+      // Compact relative age — "now", "10m", "2h", "1d" — never empty.
+      expect(age?.textContent).toMatch(/^(now|\d+[mhd])$/);
+    }
+  });
+
   it('toggles closed on a second click', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
     const button = screen.getByRole('button');

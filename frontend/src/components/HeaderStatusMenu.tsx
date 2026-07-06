@@ -6,7 +6,7 @@
 // open/close is local UI state. The panel stays mounted so it animates both ways.
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { Board, FeedSummary } from '@/transport/transport';
-import { feedStatus, ticketStatuses } from '@/components/feed-format';
+import { feedStatus, relativeAge, ticketStatuses } from '@/components/feed-format';
 
 export interface HeaderStatusMenuProps {
   summary: FeedSummary;
@@ -96,6 +96,7 @@ export function HeaderStatusMenu({
               <li key={ticket.id} data-role="header-status-row" data-status={ticket.status}>
                 <span data-role="header-status-dot" aria-hidden="true" />
                 <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
+                <span data-role="header-status-age">{relativeAge(ticket.updatedAt)}</span>
                 {ticket.reason !== null && (
                   <span data-role="header-status-reason">{ticket.reason}</span>
                 )}

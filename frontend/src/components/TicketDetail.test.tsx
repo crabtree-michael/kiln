@@ -17,15 +17,43 @@ const working = makeTicket({
 });
 
 describe('TicketDetail', () => {
-  it('renders the full ticket record the card elides', () => {
+  it('shows only the title and description by default — no internal metadata (main app view)', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} />);
 
     const dialog = screen.getByRole('dialog', { name: 'Ticket: Build the widget' });
     expect(dialog).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Build the widget' })).toBeInTheDocument();
     expect(screen.getByText('The complete body text the card only previews.')).toBeInTheDocument();
+    // Internal bookkeeping (priority, id, state, timestamps) is hidden here.
+    expect(screen.queryByText('t-42')).toBeNull();
+    expect(screen.queryByText('Priority')).toBeNull();
+    expect(screen.queryByText('ID')).toBeNull();
+  });
+
+  it('shows the full internal record when showInternalMeta is set (/debug inspection, D5)', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} showInternalMeta />);
+
     expect(screen.getByText('t-42')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('working')).toBeInTheDocument();
+  });
+
+  it('renders the description as Markdown', () => {
+    const markdown = makeTicket({
+      id: 't-md',
+      title: 'Markdown ticket',
+      body: 'Some **bold** text\n\n- first\n- second\n\nInline `code` here.',
+      state: 'working',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+
+    const { container } = render(<TicketDetail ticket={markdown} onClose={vi.fn()} />);
+
+    expect(container.querySelector('strong')?.textContent).toBe('bold');
+    expect(container.querySelectorAll('li')).toHaveLength(2);
+    expect(container.querySelector('code')?.textContent).toBe('code');
   });
 
   it('shows the full blocked reason for a blocked ticket', () => {

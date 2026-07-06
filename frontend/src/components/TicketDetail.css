@@ -96,7 +96,85 @@
   padding-top: 0.7rem;
   border-top: 1px solid var(--border-default);
   font-size: 0.9rem;
-  white-space: pre-wrap;
+}
+
+/* The body is Markdown rendered to real block elements (react-markdown + GFM),
+ * not a bare text node — dress the common tags with the app's own tokens. First
+ * and last child margins are collapsed so the block hugs its border/padding. */
+[data-role='ticket-detail-body'] > :first-child {
+  margin-top: 0;
+}
+
+[data-role='ticket-detail-body'] > :last-child {
+  margin-bottom: 0;
+}
+
+[data-role='ticket-detail-body'] p,
+[data-role='ticket-detail-body'] ul,
+[data-role='ticket-detail-body'] ol,
+[data-role='ticket-detail-body'] pre,
+[data-role='ticket-detail-body'] blockquote {
+  margin: 0.5em 0;
+}
+
+[data-role='ticket-detail-body'] h1,
+[data-role='ticket-detail-body'] h2,
+[data-role='ticket-detail-body'] h3,
+[data-role='ticket-detail-body'] h4 {
+  margin: 0.8em 0 0.4em;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+[data-role='ticket-detail-body'] ul,
+[data-role='ticket-detail-body'] ol {
+  padding-left: 1.3em;
+}
+
+[data-role='ticket-detail-body'] li {
+  margin: 0.2em 0;
+}
+
+[data-role='ticket-detail-body'] a {
+  color: var(--accent);
+}
+
+[data-role='ticket-detail-body'] code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface-inset);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+
+[data-role='ticket-detail-body'] pre {
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.6em 0.7em;
+  overflow-x: auto;
+}
+
+[data-role='ticket-detail-body'] pre code {
+  background: none;
+  padding: 0;
+}
+
+[data-role='ticket-detail-body'] blockquote {
+  padding-left: 0.8em;
+  border-left: 3px solid var(--border-default);
+  color: var(--text-muted);
+}
+
+[data-role='ticket-detail-body'] table {
+  border-collapse: collapse;
+}
+
+[data-role='ticket-detail-body'] th,
+[data-role='ticket-detail-body'] td {
+  border: 1px solid var(--border-default);
+  padding: 0.3em 0.5em;
+  text-align: left;
 }
 
 /* Accept action — only present when the overlay is a proposal reached via the

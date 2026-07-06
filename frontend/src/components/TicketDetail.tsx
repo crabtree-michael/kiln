@@ -6,6 +6,8 @@
 // backdrop click, the close button, or Escape — never a trap the user cannot
 // get out of (07 §7–§8).
 import { useEffect, type JSX } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Ticket } from '@/components/TicketCard';
 import '@/components/TicketDetail.css';
 
@@ -16,6 +18,10 @@ export interface TicketDetailProps {
    * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
    * the overlay stays strictly read-only (the debug board's inspection use, D5). */
   onAccept?: (ticketId: string) => void;
+  /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
+   * default: the main app view shows only the title and description. The /debug
+   * board opts in to inspect a ticket's full record (D5). */
+  showInternalMeta?: boolean;
 }
 
 /** A labelled row in the metadata list, omitted entirely when the value is null. */
@@ -31,7 +37,12 @@ function MetaRow({ label, value }: { label: string; value: string | null }): JSX
   );
 }
 
-export function TicketDetail({ ticket, onClose, onAccept }: TicketDetailProps): JSX.Element {
+export function TicketDetail({
+  ticket,
+  onClose,
+  onAccept,
+  showInternalMeta = false,
+}: TicketDetailProps): JSX.Element {
   // Escape closes the overlay from anywhere (07 §8 — never trap the user).
   useEffect(() => {
     function handleKey(event: KeyboardEvent): void {
@@ -70,20 +81,24 @@ export function TicketDetail({ ticket, onClose, onAccept }: TicketDetailProps): 
           </button>
         </header>
 
-        <dl data-role="ticket-detail-meta">
-          <MetaRow label="State" value={ticket.state} />
-          <MetaRow label="Priority" value={String(ticket.priority)} />
-          <MetaRow label="ID" value={ticket.id} />
-          <MetaRow label="Created" value={ticket.created_at} />
-          <MetaRow label="Updated" value={ticket.updated_at} />
-          <MetaRow label="Ready" value={ticket.ready_at ?? null} />
-        </dl>
+        {showInternalMeta && (
+          <dl data-role="ticket-detail-meta">
+            <MetaRow label="State" value={ticket.state} />
+            <MetaRow label="Priority" value={String(ticket.priority)} />
+            <MetaRow label="ID" value={ticket.id} />
+            <MetaRow label="Created" value={ticket.created_at} />
+            <MetaRow label="Updated" value={ticket.updated_at} />
+            <MetaRow label="Ready" value={ticket.ready_at ?? null} />
+          </dl>
+        )}
 
         {ticket.state === 'blocked' && ticket.blocked_reason != null && (
           <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
         )}
 
-        <div data-role="ticket-detail-body">{ticket.body}</div>
+        <div data-role="ticket-detail-body">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{ticket.body}</ReactMarkdown>
+        </div>
 
         {onAccept !== undefined && (
           <div data-role="ticket-detail-actions">

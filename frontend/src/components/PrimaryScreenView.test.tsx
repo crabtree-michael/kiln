@@ -422,10 +422,11 @@ describe('PrimaryScreenView', () => {
     // The full ticket detail overlay opens, showing the full ticket body — the
     // whole record the feed digest elides, same surface every state gets.
     const dialog = screen.getByRole('dialog', { name: 'Ticket: Login Redesign' });
-    expect(within(dialog).getByText(ticket.body)).toHaveAttribute(
-      'data-role',
-      'ticket-detail-body',
-    );
+    // The body is rendered as Markdown, so the text sits in a child element (e.g.
+    // a <p>) inside the ticket-detail-body container rather than on it directly.
+    expect(
+      within(dialog).getByText(ticket.body).closest('[data-role="ticket-detail-body"]'),
+    ).not.toBeNull();
 
     // Accepting from the overlay flows the ticket id up and drains the overlay.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept' }));

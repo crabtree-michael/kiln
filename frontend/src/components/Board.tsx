@@ -54,6 +54,7 @@ export function Board(): JSX.Element {
       {selectedTicket != null && (
         <TicketDetail
           ticket={selectedTicket}
+          showInternalMeta
           onClose={() => {
             setSelectedId(null);
           }}

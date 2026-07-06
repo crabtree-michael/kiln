@@ -13,8 +13,13 @@ import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
 import { acceptTicket } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
+import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
 
 function PrimaryScreenBody(): JSX.Element {
+  // Keep the screen column matched to the visible viewport while the keyboard is
+  // open, so the dock stays docked above it rather than sliding off-screen.
+  useKeyboardViewport();
+
   const {
     feed,
     connectionState,

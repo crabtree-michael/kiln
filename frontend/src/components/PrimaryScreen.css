@@ -16,8 +16,14 @@
      which are anchored to the dock but float above the feed. */
   position: relative;
   /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
-     (its overflow-y:auto) with the dock pinned, rather than growing the page. */
-  height: 100dvh;
+     (its overflow-y:auto) with the dock pinned, rather than growing the page.
+     `--app-viewport-height` is published by `use-keyboard-viewport` only while
+     the on-screen keyboard is open: it holds the visual-viewport height so the
+     column shrinks to the visible area and the dock rides above the keyboard
+     instead of being pushed off-screen behind it (iOS Safari / Chrome Android
+     don't shrink the `dvh` layout viewport for the keyboard). Unset otherwise,
+     so the normal case keeps the tuned `100dvh` behaviour. */
+  height: var(--app-viewport-height, 100dvh);
   margin: 0 auto;
   max-width: 520px;
   /* Flat paper (design system: "paper sits flat") — the same --surface-page the

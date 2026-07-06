@@ -35,7 +35,7 @@ const (
 // the given fakeAuth double.
 func newAuthTestServer(auth *fakeAuth) *httptest.Server {
 	srv := newBareServer()
-	srv.EnableIdentity(auth)
+	srv.EnableIdentity(auth, &fakeAccount{})
 	return httptest.NewServer(srv.Handler())
 }
 

@@ -319,3 +319,93 @@ func (f *fakeAuth) lastLogoutToken() string {
 	}
 	return f.logoutCalls[len(f.logoutCalls)-1]
 }
+
+// fakeAccount is api.AccountService (11 §4 GET /api/me, PUT /api/settings,
+// PUT /api/project, POST /api/settings/verify): a scripted double recording
+// every write's arguments so the route tests can assert what reached the
+// port, alongside canned Me/Verify results.
+type fakeAccount struct {
+	mu sync.Mutex
+
+	me    identity.Me
+	meErr error
+
+	settingsUpd  identity.SettingsUpdate
+	settingsErr  error
+	settingsCall int
+
+	projectUpd    identity.ProjectUpdate
+	projectResult identity.Project
+	projectErr    error
+	projectCall   int
+
+	verifyChecks []identity.CheckResult
+	verifyErr    error
+}
+
+func (f *fakeAccount) Me(context.Context, string) (identity.Me, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.me, f.meErr
+}
+
+func (f *fakeAccount) UpdateSettings(_ context.Context, _ string, upd identity.SettingsUpdate) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.settingsUpd = upd
+	f.settingsCall++
+	return f.settingsErr
+}
+
+func (f *fakeAccount) UpsertProject(_ context.Context, _ string, upd identity.ProjectUpdate) (identity.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.projectUpd = upd
+	f.projectCall++
+	return f.projectResult, f.projectErr
+}
+
+func (f *fakeAccount) Verify(context.Context, string) ([]identity.CheckResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.verifyChecks, f.verifyErr
+}
+
+func (f *fakeAccount) lastSettingsUpdate() identity.SettingsUpdate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.settingsUpd
+}
+
+func (f *fakeAccount) lastProjectUpdate() identity.ProjectUpdate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.projectUpd
+}
+
+// fakeDevSession is api.DevSessionMinter (11 §7 POST /api/dev/session): mint a
+// session for a dev-supplied GitHub login without the real OAuth dance.
+type fakeDevSession struct {
+	mu sync.Mutex
+
+	signInLogins []string
+	signInUser   identity.User
+	signInErr    error
+
+	sessionToken     string
+	sessionExpires   time.Time
+	createSessionErr error
+}
+
+func (f *fakeDevSession) DevSignIn(_ context.Context, login string) (identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signInLogins = append(f.signInLogins, login)
+	return f.signInUser, f.signInErr
+}
+
+func (f *fakeDevSession) CreateSession(context.Context, string) (string, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sessionToken, f.sessionExpires, f.createSessionErr
+}

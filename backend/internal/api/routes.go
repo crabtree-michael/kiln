@@ -164,6 +164,29 @@ type Authenticator interface {
 	Logout(ctx context.Context, token string) error
 }
 
+// AccountService is the api's port onto the signed-in account surface (11
+// §4): the config-status view, partial credential/project writes, and the
+// live connection checks behind GET /api/me, PUT /api/settings, PUT
+// /api/project, and POST /api/settings/verify. Satisfied directly by
+// *identity.Service, mirroring Authenticator.
+type AccountService interface {
+	Me(ctx context.Context, userID string) (identity.Me, error)
+	UpdateSettings(ctx context.Context, userID string, upd identity.SettingsUpdate) error
+	UpsertProject(ctx context.Context, userID string, upd identity.ProjectUpdate) (identity.Project, error)
+	Verify(ctx context.Context, userID string) ([]identity.CheckResult, error)
+}
+
+// DevSessionMinter is the DEV-ONLY port behind POST /api/dev/session: sign in
+// (or create) a user straight from a GitHub login and mint a session for it,
+// bypassing the real OAuth dance (11 §7) — so an e2e can establish an
+// authenticated session deterministically. Satisfied by *identity.Service.
+// Mounted only when EnableDevSession was called; NOT part of the wire
+// contract (/schema) — never the real client.
+type DevSessionMinter interface {
+	DevSignIn(ctx context.Context, login string) (identity.User, error)
+	CreateSession(ctx context.Context, userID string) (string, time.Time, error)
+}
+
 // Server owns the 04 §7 / 07 §4 endpoint set:
 //
 //	GET  /api/stream   — SSE: full board snapshot on connect, then one board
@@ -190,6 +213,9 @@ type Server struct {
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
 	auth     Authenticator      // non-nil ⇒ the /auth/github/* + /auth/logout routes are mounted (11 §2)
+	account  AccountService     // the signed-in account surface (11 §4); set together with auth
+
+	devSession DevSessionMinter // dev-only; non-nil (AND auth enabled) ⇒ POST /api/dev/session is mounted (11 §7)
 
 	version    string                      // release string surfaced by GET /healthz
 	healthPing func(context.Context) error // non-nil ⇒ GET /healthz is mounted
@@ -221,14 +247,21 @@ func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes 
 func (s *Server) EnableReset(r Resetter) { s.resetter = r }
 
 // EnableIdentity turns on the GitHub OAuth + cookie-session routes (11 §2):
-// GET /auth/github/login, GET /auth/github/callback, POST /auth/logout
-// (call before Handler). Mounted outside /api, ahead of the SPA catch-all.
-//
-// Controller decision: the brief's signature also takes an AccountService
-// second parameter, but that port is defined by a later task; this task
-// declares EnableIdentity with only the Authenticator it can satisfy today,
-// and the later task extends the signature once AccountService exists.
-func (s *Server) EnableIdentity(auth Authenticator) { s.auth = auth }
+// GET /auth/github/login, GET /auth/github/callback, POST /auth/logout —
+// plus the signed-in account surface (11 §4): GET /api/me, PUT /api/settings,
+// PUT /api/project, POST /api/settings/verify (call before Handler). The
+// auth routes mount outside /api, ahead of the SPA catch-all; the account
+// routes are session-protected /api/* endpoints.
+func (s *Server) EnableIdentity(auth Authenticator, account AccountService) {
+	s.auth = auth
+	s.account = account
+}
+
+// EnableDevSession turns on the dev-only POST /api/dev/session route (call
+// before Handler, alongside EnableIdentity): mint a session for a
+// dev-supplied GitHub login without the real OAuth dance (11 §7). Local/e2e
+// only — gated at the composition root by KILN_DEV_ENDPOINTS.
+func (s *Server) EnableDevSession(m DevSessionMinter) { s.devSession = m }
 
 // EnableHealthz turns on GET /healthz (call before Handler): a liveness+DB probe
 // returning 200 {status:ok, version} when ping succeeds, 503 {status:degraded}
@@ -270,6 +303,15 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
 		mux.HandleFunc("GET /auth/github/callback", s.handleAuthCallback)
 		mux.HandleFunc("POST /auth/logout", s.handleLogout)
+		mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))
+		mux.HandleFunc("PUT /api/settings", s.withSession(s.handlePutSettings))
+		mux.HandleFunc("PUT /api/project", s.withSession(s.handlePutProject))
+		mux.HandleFunc("POST /api/settings/verify", s.withSession(s.handleVerify))
+		// dev-only (KILN_DEV_ENDPOINTS=1 AND identity enabled): mint a session
+		// straight from a GitHub login, bypassing the OAuth dance (11 §7).
+		if s.devSession != nil {
+			mux.HandleFunc("POST /api/dev/session", s.handleDevSession)
+		}
 	}
 	if s.healthPing != nil {
 		mux.HandleFunc("GET /healthz", s.handleHealthz)

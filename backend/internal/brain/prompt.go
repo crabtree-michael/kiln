@@ -62,7 +62,7 @@ narration only — never for a standing decision request; if work is stalled on 
 decision, block the ticket instead (see Blockers).
 Use edit_update to fix or refresh an update you already posted (list_updates shows
 their ids), and retract_update if something happens that makes an update unnecessary.
-Prefer this over say. Do not send updates for 
+Prefer this over say. 
 
 **Toast**
 Toasts are automatically dismissed. Toasts may not be seen by the user. Use the say

@@ -304,5 +304,34 @@ describe('Dock', () => {
       expect(closeKeyboard).toHaveBeenCalledTimes(1);
       expect(resume).toHaveBeenCalledTimes(1);
     });
+
+    it('shows the dismiss button while the field is focused (keyboard up)', () => {
+      mockVoiceValue = stubVoice({ keyboardMode: true });
+      render(<Dock />);
+      // The field auto-focuses on entering keyboard mode, so the soft keyboard is
+      // up and the dismiss control is offered.
+      expect(screen.getByRole('button', { name: 'Dismiss keyboard' })).toBeInTheDocument();
+    });
+
+    it('dismisses the keyboard by blurring the field, staying in keyboard mode', () => {
+      const closeKeyboard = vi.fn();
+      mockVoiceValue = stubVoice({ keyboardMode: true, closeKeyboard });
+      render(<Dock />);
+      const field = screen.getByRole('textbox', { name: 'Message' });
+      expect(field).toHaveFocus();
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss keyboard' }));
+      // The field blurs (keyboard closes) but we do not leave keyboard mode.
+      expect(field).not.toHaveFocus();
+      expect(closeKeyboard).not.toHaveBeenCalled();
+      // With the keyboard down the dismiss button is gone; the field remains.
+      expect(screen.queryByRole('button', { name: 'Dismiss keyboard' })).toBeNull();
+      expect(field).toBeInTheDocument();
+    });
+
+    it('does not offer the dismiss button outside keyboard mode', () => {
+      mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'hello' });
+      render(<Dock />);
+      expect(screen.queryByRole('button', { name: 'Dismiss keyboard' })).toBeNull();
+    });
   });
 });

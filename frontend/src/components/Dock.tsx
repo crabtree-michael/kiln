@@ -44,6 +44,12 @@ export function Dock(): JSX.Element {
   // on submit (via `submitText`). Kept out of the voice machine so keystrokes
   // don't churn the transcript reducer.
   const [draft, setDraft] = useState('');
+  // Whether the soft keyboard is up, tracked via the field's focus. Drives the
+  // dismiss button, which only makes sense while the keyboard is actually
+  // showing — the field can stay mounted in keyboard mode with focus dropped
+  // (the user tapped the dismiss button), so this is finer-grained than
+  // `keyboardMode`.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   // One mic tap: pause while listening, otherwise resume/retry (09 §3, §5). This
   // only stops/starts the mic — it does NOT send (use the send button for that).
@@ -101,6 +107,14 @@ export function Dock(): JSX.Element {
     setDraft('');
     closeKeyboard();
     resume();
+  };
+
+  // Drop the field's focus to close the soft keyboard, staying in keyboard mode
+  // with the draft intact. The pointer-down handler on the button keeps the
+  // field focused through the tap (so the button doesn't vanish before its
+  // click lands); this blur is the one deliberate dismissal.
+  const dismissKeyboard = (): void => {
+    inputRef.current?.blur();
   };
 
   // Focus the field the moment keyboard mode opens so the user can type straight
@@ -219,6 +233,12 @@ export function Dock(): JSX.Element {
                 setDraft(event.target.value);
               }}
               onKeyDown={onInputKeyDown}
+              onFocus={() => {
+                setKeyboardVisible(true);
+              }}
+              onBlur={() => {
+                setKeyboardVisible(false);
+              }}
               placeholder="Type a message…"
               aria-label="Message"
             />
@@ -261,6 +281,39 @@ export function Dock(): JSX.Element {
                 <path d="M12 18v3" />
               </svg>
             </button>
+            {keyboardVisible && (
+              // Same keyboard glyph as the open button, but with a down chevron —
+              // tapping it drops focus to hide the soft keyboard. Preventing the
+              // default on pointer-down keeps the field focused through the tap so
+              // the button doesn't unmount out from under its own click.
+              <button
+                type="button"
+                data-role="dock-dismiss"
+                aria-label="Dismiss keyboard"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                }}
+                onClick={dismissKeyboard}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="22"
+                  height="22"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="2.5" y="4.5" width="19" height="11" rx="2.5" />
+                  <path d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01" />
+                  <path d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01" />
+                  <path d="M8.5 13.6h7" />
+                  <path d="M8.8 18l3.2 3 3.2-3" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               data-role="dock-send"

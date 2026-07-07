@@ -1473,12 +1473,28 @@
   border-color: var(--border-strong);
 }
 
-/* Keyboard mode: no mic in the centre — just the exit (X) on the left and the
-   send on the right, each hugging the row's outer edges so the pair reads as a
-   balanced two-button bar. Overrides the voice-mode column assignments. */
-[data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-cancel'] {
+/* Keyboard mode: no mic glyph in the centre — just the voice toggle (mic) on the
+   left and the send on the right, each hugging the row's outer edges so the pair
+   reads as a balanced two-button bar. The mic button turns voice input back on;
+   same neutral 40px circle as the cancel (X) box so it reads as a peer control. */
+[data-role='dock-voice'] {
   grid-column: 1;
   justify-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+[data-role='dock-voice']:hover {
+  color: var(--text-body);
+  border-color: var(--border-strong);
 }
 
 [data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-send'] {

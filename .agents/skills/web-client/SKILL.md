@@ -14,9 +14,12 @@ POST /api/message, TTS on top of `say`). **Holds no authoritative state.**
 
 **Open decisions — resolved in `docs/specs/07-v1-text-client.md` (status: proposed).**
 - [x] Framework/build → 07 §5: Vite + React + TS strict (escape-hatch bans per 02 §4b);
-      types generated from /schema via openapi-typescript; **no state/component/CSS
-      libraries** (D4) — two contexts (board store: wholesale snapshot replacement; chat
-      store: fetched page + say events + optimistic sends reconciled by message_id).
+      types generated from /schema via openapi-typescript; **dependencies gated on explicit
+      user approval, default zero** (D4 — not a flat ban: block on the user before adding
+      any new module/library, then it's allowed; `vaul` is the first approved one, for the
+      proposal sheet's native slide + overscroll) — two contexts (board store: wholesale
+      snapshot replacement; chat store: fetched page + say events + optimistic sends
+      reconciled by message_id).
 - [x] Transport → SSE + POST (04 D6): one thin module wraps EventSource + fetch — the
       only code that knows URLs.
 - [x] Endpoints (07 §4, amending 04 A1): GET /api/stream (`board` + `say` events),
@@ -122,5 +125,22 @@ _(Accumulate more as you work.)_
   `MouseEvent` subclass (jsdom carries mouse coords) via
   `vi.stubGlobal('PointerEvent', Stub)` — see `SwipeToDismiss.test.tsx`. Also guard
   `setPointerCapture` with a `typeof … === 'function'` check; jsdom elements lack it.
+
+- **The `vaul` proposal sheet (`TicketDetail.tsx`, first approved dep under the amended
+  D4).** Three traps, all from it being a Radix Dialog under the hood:
+  - **`data-state` is Radix's** — it writes `data-state=open|closed` on the panel/overlay
+    to drive the slide animation. The ticket's own lifecycle state therefore rides on
+    `data-ticket-state` (the blocked-border CSS keys off that), never `data-state`.
+  - **Content portals to `document.body`**, so it leaves the `[data-role='primary-screen']`
+    subtree — the primary-vs-debug skin can't key off DOM ancestry anymore; it rides on an
+    explicit `data-surface` attribute on the panel. In tests, query the sheet via `screen`/
+    `document`, not the render `container` (which no longer holds it).
+  - **Accessible name = the `<Drawer.Title>`** (Radix wires `aria-labelledby` to it, which
+    per accname *beats* any `aria-label` you also pass — so don't bother with one). The
+    dialog's name is the visible ticket title, e.g. `getByRole('dialog', { name: '<title>' })`.
+  - Dismissal (Escape, scrim, drag past threshold) is Vaul's, surfaced as
+    `onOpenChange(false)` → our `onClose`; don't hand-roll Escape/backdrop handlers. Vaul
+    renders and closes fine in jsdom (Escape works), but its drag physics don't — don't
+    assert on them.
 
 _(Accumulate: non-obvious traps and edge cases.)_

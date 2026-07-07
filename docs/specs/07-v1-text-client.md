@@ -92,8 +92,10 @@ Filling `02` §11's "framework and build" within the `02` §3–§4 guardrail ph
 - **Types generated from `/schema`** via `openapi-typescript` (the Go side already
   generates `internal/wire` from the same schema) — the client never hand-writes a wire
   type.
-- **No state library, no component library, no CSS framework** (§10, D4): state is two
-  React contexts —
+- **Dependencies are gated on explicit user approval, not banned** (§10, D4): the default
+  is zero — no state library, no component kit, no CSS framework — but a new module/library
+  may be added once the user signs off on it (as `vaul` was, for the proposal sheet's native
+  slide + overscroll). State stays two React contexts —
   - **board store**: holds the latest `Snapshot`; every `board` SSE event replaces it
     wholesale (`04` D7 — no merging, no diffing);
   - **chat store**: transcript page from `GET /api/messages` + `say` events appended +
@@ -167,7 +169,7 @@ Mobile-first, one screen, two stacked regions (`01` §4's thin disposable client
 | D1 | Descope voice + notifications, not a parallel "debug UI". | A throwaway admin page beside the real client. | User decision. The text client *is* the product client minus wrappers — everything built here (stores, transport, board rendering, chat) survives `09`–`11` unchanged. |
 | D2 | Defer PWA-vs-native packaging to `09`/`10`. | Decide now. | The fork is driven by mobile mic + push constraints — exactly the two deferred surfaces. Deciding without them would be guessing. |
 | D3 | Transcript persisted server-side, in the runtime module, and read by the brain. | Ephemeral client-session transcript (server stores nothing). | User decision. Made load-bearing: it doubles as the brain's conversation memory (`06` §3) and closes `03`'s shaping-transcript question — history across refreshes comes free. |
-| D4 | No state/component/CSS libraries; two contexts + generated types. | Redux/Zustand; a component kit; Tailwind. | Snapshot-replacement state is too simple to justify a library (`04` D7 did the hard part); every dependency is surface a weak model can misuse (`02` §4). Revisit at `11` if the client grows. |
+| D4 | Every new module/library is blocked on explicit user approval before it's added; once approved, it's in. Default remains zero deps — two contexts + generated types. | A flat ban on state/component/CSS libraries (the original rule); or the opposite, free rein to add dependencies. | Snapshot-replacement state is too simple to justify a library (`04` D7 did the hard part), and every dependency is surface a weak model can misuse (`02` §4) — so the bar stays high and the default stays bare. But a blanket ban is too rigid: some needs (e.g. native sheet slide + overscroll physics — `vaul`) are genuinely better met by a standard, well-worn component than by hand-rolled code a weak model would get wrong. Gating on a human decision keeps the guardrail (nothing slips in unnoticed) while allowing the right dependency when it clearly earns its place. First approval under this rule: `vaul` for the proposal sheet. |
 | D5 | Board is read-only; no drag-and-drop mutations. | Drag cards between columns as a second mutation path. | `01` §3: position changes have mechanical meaning and flow through orchestrator decisions; a second, brain-bypassing path would fork authority. The chat is the input. |
 
 **Open questions (owned elsewhere or later):** transcript retention/pruning (`02` §15);

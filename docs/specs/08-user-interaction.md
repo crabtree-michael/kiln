@@ -166,7 +166,8 @@ raw state (and the text path for exercising the message seam without a mic).
 - **New stores** beside `07` §5's two: a **feed store** (latest `feed` snapshot +
 §3's session-held seen updates) and an **activity store** (thinking flag, pill
 content + queue). Same rules as ever: snapshots replace wholesale; stores are
-context + reducer, no state library (`07` D4).
+context + reducer, no state library (`07` D4's zero-dependency default — no
+state library is warranted here, and none was approved).
 - **Transport:** the existing thin module gains the `feed`/`activity` SSE events and
 the `/api/feed`, `/api/feed/seen`, `/api/tickets/{id}/accept` calls — generated
 types from `/schema`, as always (`02` §3).

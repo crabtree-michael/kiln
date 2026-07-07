@@ -425,9 +425,10 @@ var _ runtime.Notifier = (*webPushNotifier)(nil)
 // pushRegistrarAdapter satisfies api.PushRegistrar over the push store: the
 // client's POST /api/push/subscribe lands a browser subscription that
 // webPushNotifier later reads (wire.PushSubscription → push.Subscription), and
-// GET/PUT /api/push/mode read/write the global notification frequency. It also
-// satisfies runtime.NotifyModeReader, so the same instance is the runtime's
-// mode source for the "all"-mode feed-update push (02 §10).
+// GET/PUT /api/push/mode read/write the global notification frequency. The mode
+// no longer gates the runtime's pushes — only genuine ticket state transitions
+// notify, regardless of mode (design 2026-07-07) — but the endpoint is retained
+// so the existing Settings toggle keeps working.
 type pushRegistrarAdapter struct{ store push.Store }
 
 func (a *pushRegistrarAdapter) Subscribe(ctx context.Context, sub api.PushSubscription) error {
@@ -456,10 +457,7 @@ func (a *pushRegistrarAdapter) SetMode(ctx context.Context, mode string) error {
 	return nil
 }
 
-var (
-	_ api.PushRegistrar        = (*pushRegistrarAdapter)(nil)
-	_ runtime.NotifyModeReader = (*pushRegistrarAdapter)(nil)
-)
+var _ api.PushRegistrar = (*pushRegistrarAdapter)(nil)
 
 // newNotifier chooses the notify.send executor (02 §10): a real Web Push sender
 // when the operator has supplied a VAPID key pair (VAPID_PUBLIC_KEY +

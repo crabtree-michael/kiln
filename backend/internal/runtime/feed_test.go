@@ -23,7 +23,7 @@ func newFeedService(
 	clock := testutil.NewFakeClock()
 	return runtime.NewService(
 		newFakeStore(clock), &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, board, feed, activity,
 	)
 }
@@ -313,7 +313,7 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
 	)
 
@@ -342,10 +342,6 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 
 // ---- feed.updated / activity.toast outbox routing (08 §7) -----------------
 
-// modeAll is the "all" notification frequency (02 §10) — push on every feed
-// update, not just blocks.
-const modeAll = "all"
-
 func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
@@ -354,7 +350,7 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, &fakeBoardReader{}, feed, &fakeActivityPusher{},
 	)
 
@@ -374,14 +370,19 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	}
 }
 
-func TestService_Outbox_FeedUpdatedNotifiesInAllMode(t *testing.T) {
+// A signal-only feed.updated (empty payload) carries no state transition — it is
+// the runtime's own re-render trigger for progress narration, edits, and
+// mark-seen. It must never push: only a real status change may reach the user
+// (design 2026-07-07). There is no generic "board was updated" fallback anymore.
+func TestService_Outbox_FeedUpdatedGenericPayloadDoesNotNotify(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	notifier := &fakeNotifier{}
+	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
-		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
+		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
+		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
 		&fakeActivityPusher{},
 	)
 
@@ -391,9 +392,44 @@ func TestService_Outbox_FeedUpdatedNotifiesInAllMode(t *testing.T) {
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
-	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
-	if got := notifier.count("Send"); got != 1 {
-		t.Fatalf("Send calls = %d, want exactly 1 for one feed.updated in all mode", got)
+	// The feed push confirms the entry was handled; the notifier must stay
+	// untouched — narration is silent even in all mode.
+	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+	if got := notifier.count("Send"); got != 0 {
+		t.Errorf("Send calls = %d, want 0 — a payload with no state transition must not push", got)
+	}
+}
+
+// "nudged" (blocked→working) is a real state change, but it is driven by sending
+// the agent an instruction — which never notifies the user (design 2026-07-07).
+// "reshaped" (editing a proposal's fields) is not a state change at all. Neither
+// pushes.
+func TestService_Outbox_FeedUpdatedNonTransitionVerbsDoNotNotify(t *testing.T) {
+	for _, verb := range []string{"nudged", "reshaped"} {
+		t.Run(verb, func(t *testing.T) {
+			clock := testutil.NewFakeClock()
+			store := newFakeStore(clock)
+			notifier := &fakeNotifier{}
+			feed := &fakeFeedPusher{}
+			svc := runtime.NewService(
+				store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
+				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
+				&fakeActivityPusher{},
+			)
+
+			_, outboxWorker := svc.Workers(clock)
+			store.seed(runtime.QueueOutbox, "feed.updated",
+				[]byte(`{"title":"Login Redesign","verb":"`+verb+`"}`), 0)
+
+			stop := runWorker(t, outboxWorker)
+			defer stop()
+
+			testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+			if got := notifier.count("Send"); got != 0 {
+				t.Errorf("Send calls = %d, want 0 — %q is not a notifying state transition", got, verb)
+			}
+		})
 	}
 }
 
@@ -405,7 +441,7 @@ func TestService_Outbox_FeedUpdatedNotifiesWithChangeDescription(t *testing.T) {
 	notifier := &fakeNotifier{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
+		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
 		&fakeActivityPusher{},
 	)
@@ -447,7 +483,7 @@ func TestService_Outbox_FeedUpdatedBlockedVerbSkipsGenericPush(t *testing.T) {
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
+		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
 		&fakeActivityPusher{},
 	)
@@ -467,28 +503,31 @@ func TestService_Outbox_FeedUpdatedBlockedVerbSkipsGenericPush(t *testing.T) {
 	}
 }
 
-func TestService_Outbox_FeedUpdatedDoesNotNotifyInBlockedMode(t *testing.T) {
+// A genuine state transition pushes unconditionally — there is no
+// notification-frequency gate anymore, so "done" and every other real transition
+// reach the user by default (design 2026-07-07). "queued" (shaping→ready) stands
+// in for the transition set.
+func TestService_Outbox_FeedUpdatedTransitionNotifiesByDefault(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	notifier := &fakeNotifier{}
-	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: "blocked"}, &fakeSnapshotPusher{},
-		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
+		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
+		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
 		&fakeActivityPusher{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
-	store.seed(runtime.QueueOutbox, "feed.updated", []byte(`{}`), 0)
+	store.seed(runtime.QueueOutbox, "feed.updated",
+		[]byte(`{"title":"Login Redesign","verb":"queued"}`), 0)
 
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
-	// The feed push confirms the entry was handled; the notifier must stay untouched.
-	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
-	if got := notifier.count("Send"); got != 0 {
-		t.Errorf("Send calls = %d, want 0 — blocked mode notifies only on notify.send", got)
+	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
+	if got := notifier.count("Send"); got != 1 {
+		t.Fatalf("Send calls = %d, want exactly 1 — a state transition must push by default", got)
 	}
 }
 
@@ -498,7 +537,7 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
 	)
 
@@ -540,7 +579,7 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 	)
 

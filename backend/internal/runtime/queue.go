@@ -27,7 +27,12 @@ const (
 // Kind is an EventType on the events queue and a board outbox Topic on the
 // outbox queue. Payload is the emitter's snapshot, opaque to the runtime.
 type Entry struct {
-	ID        int64 // monotonic; the outbox id doubles as the idempotency key (03 §7)
+	ID int64 // monotonic; the outbox id doubles as the idempotency key (03 §7)
+	// ProjectID is the tenant the entry belongs to (11 §3): the dispatcher's
+	// serialization key (one in-flight entry per project) and what the
+	// executors scope their port calls with. Empty for a legacy row whose
+	// project_id is still NULL pre-adoption.
+	ProjectID string
 	Kind      string
 	Payload   json.RawMessage
 	Attempts  int
@@ -37,6 +42,7 @@ type Entry struct {
 // Event is an events-queue entry typed for the brain port (04 §6).
 type Event struct {
 	ID        int64
+	ProjectID string // tenant scope (11 §3); the brain pass acts on this project only
 	Type      EventType
 	Payload   json.RawMessage // shape owned by the emitter's spec (02 §8 / §9)
 	CreatedAt time.Time

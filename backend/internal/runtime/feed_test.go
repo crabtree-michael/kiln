@@ -22,9 +22,10 @@ func newFeedService(
 ) *runtime.Service {
 	clock := testutil.NewFakeClock()
 	return runtime.NewService(
-		newFakeStore(clock), &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		newFakeStore(clock), &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, board, feed, activity,
+		&fakeOwner{},
 	)
 }
 
@@ -52,7 +53,7 @@ func TestService_Feed_OrdersBlockersProposalsThenUpdatesNewestFirst(t *testing.T
 	})
 
 	svc := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{})
-	snap, err := svc.Feed(ctx)
+	snap, err := svc.Feed(ctx, defaultTestProject)
 	if err != nil {
 		t.Fatalf("Feed: %v", err)
 	}
@@ -110,15 +111,15 @@ func TestService_Feed_RetainsSeenUpdatesFiltersOnlyRetracted(t *testing.T) {
 	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "still unseen"})
 
 	// Mark the first as seen via the high-water path, and retract the second.
-	if err := notes.MarkSeen(ctx, seen.ID); err != nil {
+	if err := notes.MarkSeen(ctx, defaultTestProject, seen.ID); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
-	if err := notes.RetractNotification(ctx, retracted.ID); err != nil {
+	if err := notes.RetractNotification(ctx, defaultTestProject, retracted.ID); err != nil {
 		t.Fatalf("RetractNotification: %v", err)
 	}
 
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	snap, err := svc.Feed(ctx)
+	snap, err := svc.Feed(ctx, defaultTestProject)
 	if err != nil {
 		t.Fatalf("Feed: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestService_Feed_PagesNewestAndFlagsMoreHistory(t *testing.T) {
 	}
 
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	snap, err := svc.Feed(ctx)
+	snap, err := svc.Feed(ctx, defaultTestProject)
 	if err != nil {
 		t.Fatalf("Feed: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestService_FeedHistory_KeysetPagesOlderUpdates(t *testing.T) {
 	svc := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{})
 
 	// Page of 2 older than the 4th id (ids[3]) -> ids[2], ids[1] newest-first, more remains.
-	cards, hasMore, err := svc.FeedHistory(ctx, ids[3], 2)
+	cards, hasMore, err := svc.FeedHistory(ctx, defaultTestProject, ids[3], 2)
 	if err != nil {
 		t.Fatalf("FeedHistory: %v", err)
 	}
@@ -214,7 +215,7 @@ func TestService_Feed_TicketTaggedUpdateGetsTicketTitleLabel(t *testing.T) {
 	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "shipped the limiter", TicketID: &tid})
 	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "standalone note"})
 
-	snap, err := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{}).Feed(ctx)
+	snap, err := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{}).Feed(ctx, defaultTestProject)
 	if err != nil {
 		t.Fatalf("Feed: %v", err)
 	}
@@ -234,7 +235,7 @@ func TestService_Feed_TicketTaggedUpdateGetsTicketTitleLabel(t *testing.T) {
 func TestService_Feed_EmptyHasNilLastWord(t *testing.T) {
 	snap, err := newFeedService(
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
-	).Feed(context.Background())
+	).Feed(context.Background(), defaultTestProject)
 	if err != nil {
 		t.Fatalf("Feed: %v", err)
 	}
@@ -251,7 +252,7 @@ func TestService_Feed_EmptyHasNilLastWord(t *testing.T) {
 func TestService_PostNotification_DelegatesToStore(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	if err := svc.PostNotification(context.Background(), "update", "hello", nil, nil); err != nil {
+	if err := svc.PostNotification(context.Background(), defaultTestProject, "update", "hello", nil, nil); err != nil {
 		t.Fatalf("PostNotification: %v", err)
 	}
 	if len(notes.posts) != 1 || notes.posts[0].Body != "hello" || notes.posts[0].Kind != runtime.KindUpdate {
@@ -263,7 +264,8 @@ func TestService_EditNotification_DelegatesToStore(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
 	img := "https://example.com/p.png"
-	if err := svc.EditNotification(context.Background(), 7, "preview", "fixed wording", &img); err != nil {
+	err := svc.EditNotification(context.Background(), defaultTestProject, 7, "preview", "fixed wording", &img)
+	if err != nil {
 		t.Fatalf("EditNotification: %v", err)
 	}
 	if len(notes.edits) != 1 {
@@ -280,12 +282,12 @@ func TestService_ListNotifications_ReturnsActiveNewestFirst(t *testing.T) {
 	seen := notes.seed(runtime.Notification{Body: "first card"})
 	notes.seed(runtime.Notification{Body: "second card"})
 	// Mark the first as seen so it drops out of the active set.
-	if err := notes.MarkSeen(context.Background(), seen.ID); err != nil {
+	if err := notes.MarkSeen(context.Background(), defaultTestProject, seen.ID); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
 
-	got, err := svc.ListNotifications(context.Background())
+	got, err := svc.ListNotifications(context.Background(), defaultTestProject)
 	if err != nil {
 		t.Fatalf("ListNotifications: %v", err)
 	}
@@ -297,7 +299,7 @@ func TestService_ListNotifications_ReturnsActiveNewestFirst(t *testing.T) {
 func TestService_MarkSeen_DelegatesHighWaterToStore(t *testing.T) {
 	notes := &fakeNotificationStore{}
 	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	if err := svc.MarkSeen(context.Background(), 42); err != nil {
+	if err := svc.MarkSeen(context.Background(), defaultTestProject, 42); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
 	if len(notes.markSeenN) != 1 || notes.markSeenN[0] != 42 {
@@ -312,9 +314,10 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 	store := newFakeStore(clock)
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
+		&fakeOwner{},
 	)
 
 	eventsWorker, _ := svc.Workers(clock)
@@ -330,13 +333,17 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 	if len(evs) != 2 {
 		t.Fatalf("thinking events = %d, want exactly 2 (on then off) for one brain pass", len(evs))
 	}
-	for i, ev := range evs {
-		if ev.Kind != "thinking" || ev.On == nil {
-			t.Fatalf("event[%d] = %+v, want a thinking event with On set", i, ev)
+	for i, p := range evs {
+		if p.ev.Kind != "thinking" || p.ev.On == nil {
+			t.Fatalf("event[%d] = %+v, want a thinking event with On set", i, p.ev)
+		}
+		if p.projectID != defaultTestProject {
+			t.Errorf("event[%d] pushed to project %q, want %q (per-project activity fan-out, 11 §3)",
+				i, p.projectID, defaultTestProject)
 		}
 	}
-	if *evs[0].On != true || *evs[1].On != false {
-		t.Errorf("thinking sequence = [%v, %v], want [true, false]", *evs[0].On, *evs[1].On)
+	if *evs[0].ev.On != true || *evs[1].ev.On != false {
+		t.Errorf("thinking sequence = [%v, %v], want [true, false]", *evs[0].ev.On, *evs[1].ev.On)
 	}
 }
 
@@ -353,9 +360,10 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "note"})
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, &fakeBoardReader{}, feed, &fakeActivityPusher{},
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -369,8 +377,12 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	if len(pushes) < 1 {
 		t.Fatalf("PushFeed calls = %d, want >= 1", len(pushes))
 	}
-	if len(pushes[0].Cards) != 1 || pushes[0].Cards[0].Body != "note" {
-		t.Errorf("pushed feed = %+v, want the assembled note card", pushes[0])
+	if len(pushes[0].snap.Cards) != 1 || pushes[0].snap.Cards[0].Body != "note" {
+		t.Errorf("pushed feed = %+v, want the assembled note card", pushes[0].snap)
+	}
+	if pushes[0].projectID != defaultTestProject {
+		t.Errorf("PushFeed projectID = %q, want the outbox entry's %q (11 §3)",
+			pushes[0].projectID, defaultTestProject)
 	}
 }
 
@@ -379,10 +391,11 @@ func TestService_Outbox_FeedUpdatedNotifiesInAllMode(t *testing.T) {
 	store := newFakeStore(clock)
 	notifier := &fakeNotifier{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
 		&fakeActivityPusher{},
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -404,10 +417,11 @@ func TestService_Outbox_FeedUpdatedNotifiesWithChangeDescription(t *testing.T) {
 	store := newFakeStore(clock)
 	notifier := &fakeNotifier{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
 		&fakeActivityPusher{},
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -426,9 +440,9 @@ func TestService_Outbox_FeedUpdatedNotifiesWithChangeDescription(t *testing.T) {
 		Title  string `json:"title"`
 		Reason string `json:"reason"`
 	}
-	payload, ok := calls[0].Args[0].([]byte)
+	payload, ok := calls[0].Args[1].([]byte)
 	if !ok {
-		t.Fatalf("Send payload arg type = %T, want []byte", calls[0].Args[0])
+		t.Fatalf("Send payload arg type = %T, want []byte", calls[0].Args[1])
 	}
 	if err := json.Unmarshal(payload, &got); err != nil {
 		t.Fatalf("decode push payload: %v", err)
@@ -446,10 +460,11 @@ func TestService_Outbox_FeedUpdatedBlockedVerbSkipsGenericPush(t *testing.T) {
 	notifier := &fakeNotifier{}
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: modeAll}, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
 		&fakeActivityPusher{},
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -473,10 +488,11 @@ func TestService_Outbox_FeedUpdatedDoesNotNotifyInBlockedMode(t *testing.T) {
 	notifier := &fakeNotifier{}
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, notifier, &fakeNotifyMode{mode: "blocked"}, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
 		&fakeActivityPusher{},
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -497,9 +513,10 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	store := newFakeStore(clock)
 	activity := &fakeActivityPusher{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, activity,
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -510,8 +527,8 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	defer stop()
 
 	testutil.Eventually(t, func() bool {
-		for _, ev := range activity.events() {
-			if ev.Kind == "toast" {
+		for _, p := range activity.events() {
+			if p.ev.Kind == "toast" {
 				return true
 			}
 		}
@@ -519,9 +536,9 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	})
 
 	var toast *runtime.ActivityEvent
-	for _, ev := range activity.events() {
-		if ev.Kind == "toast" {
-			e := ev
+	for _, p := range activity.events() {
+		if p.ev.Kind == "toast" {
+			e := p.ev
 			toast = &e
 			break
 		}
@@ -539,9 +556,10 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	store := newFakeStore(clock)
 	notes := &fakeNotificationStore{}
 	svc := runtime.NewService(
-		store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
+		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+		&fakeOwner{},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -566,5 +584,9 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	}
 	if posts[0].Key == 0 {
 		t.Error("completion must be keyed on the outbox id for idempotency, got key 0")
+	}
+	if posts[0].ProjectID != defaultTestProject {
+		t.Errorf("completion card posted for project %q, want the outbox entry's %q (11 §3)",
+			posts[0].ProjectID, defaultTestProject)
 	}
 }

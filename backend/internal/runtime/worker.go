@@ -31,14 +31,25 @@ type DeadLetter func(ctx context.Context, e Entry, lastErr error) error
 // costs at most one interval and a restart still finds pending work.
 const pollInterval = time.Second
 
-// Worker drains one queue serially, in id order (04 §3–§4). The events
-// worker *is* the single-writer-per-project constraint realized in-process:
-// at most one brain pass exists at any moment. The outbox worker is
+// maxInFlightProjects bounds cross-project concurrency (11 §3): at most this
+// many projects have an entry in flight on one queue at any moment. Within a
+// project, entries stay strictly serial in id order — the single-writer-per-
+// project constraint of 04 §4, now per tenant.
+const maxInFlightProjects = 4
+
+// Worker drains one queue with a per-project dispatcher (04 §3–§4, 11 §3):
+// per project, entries run strictly serially in id order — the events worker
+// *is* the single-writer-per-project constraint realized in-process (at most
+// one brain pass per project at any moment) — while up to maxInFlightProjects
+// different projects proceed concurrently. Serialization is realized by the
+// claim itself: ClaimNextDue is handed the busy project set and never returns
+// an entry belonging to a project already in flight. The outbox worker is
 // independent; interleaving is safe by 03's locking and strict preconditions.
 //
-// Loop: claim (attempts++) → execute outside any transaction → mark done, or
-// mark retry with backoff, or mark dead + dead-letter. A crash between claim
-// and mark leaves the entry pending; it re-runs after restart (04 §5).
+// Per entry: claim (attempts++) → execute outside any transaction → mark
+// done, or mark retry with backoff, or mark dead + dead-letter. A crash
+// between claim and mark leaves the entry pending; it re-runs after restart
+// (04 §5).
 type Worker struct {
 	store      Store
 	queue      QueueName
@@ -60,17 +71,37 @@ func NewWorker(store Store, queue QueueName, handle Handler, deadLetter DeadLett
 	}
 }
 
-// Run drains until ctx is done, blocking on the nudge channel with a
-// 1-second poll fallback (04 §5). It returns nil on cancellation — a clean
-// shutdown, not an error.
+// Run is the per-project dispatcher loop (11 §3): fill up to
+// maxInFlightProjects slots by claiming due entries whose projects are not
+// already busy — each claimed entry runs process in its own goroutine — then
+// block until a slot frees (done), a nudge arrives, or the poll fallback
+// fires (04 §5). On cancellation it stops claiming, waits for every in-flight
+// pass to finish marking its entry (execute-then-mark must not be torn), and
+// returns nil — a clean shutdown, not an error.
 func (w *Worker) Run(ctx context.Context) error {
+	// busy is the in-flight project set: the serialization invariant is that a
+	// project appears here iff exactly one of its entries is between claim and
+	// mark. done carries the finished pass's project back to free the slot;
+	// unbuffered, so a finishing goroutine parks until the loop takes it —
+	// which the ctx.Done drain below relies on to count stragglers exactly.
+	busy := make(map[string]struct{})
+	done := make(chan string)
 	for {
-		w.drainDue(ctx)
+		w.fillSlots(ctx, busy, done)
 		select {
-		case <-ctx.Done():
-			return nil
+		case pid := <-done:
+			delete(busy, pid)
 		case <-w.nudge:
 		case <-w.clock.After(pollInterval):
+		case <-ctx.Done():
+			// Drain: let every in-flight pass finish executing and marking. A
+			// pass that fails mid-mark because its ctx is canceled leaves its
+			// row pending with the claim's pushed-out due time — exactly the
+			// crash-between-claim-and-mark shape restart already heals (04 §5).
+			for len(busy) > 0 {
+				delete(busy, <-done)
+			}
+			return nil
 		}
 	}
 }
@@ -84,24 +115,38 @@ func (w *Worker) Nudge() {
 	}
 }
 
-// drainDue processes every currently-due entry, in id order, one at a time,
-// until the queue reports nothing due (04 §4). Serial by construction: the
-// next claim only happens after the current entry has been marked.
-func (w *Worker) drainDue(ctx context.Context) {
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		entry, ok, err := w.store.ClaimNextDue(ctx, w.queue)
+// fillSlots claims due entries for not-busy projects until the in-flight
+// bound is hit or the queue reports nothing claimable, dispatching each
+// claimed entry's process pass onto its own goroutine. The claim's busy
+// exclusion is what keeps a project's entries strictly serial: a project in
+// busy can never be claimed again until its pass sends on done.
+func (w *Worker) fillSlots(ctx context.Context, busy map[string]struct{}, done chan<- string) {
+	for len(busy) < maxInFlightProjects {
+		e, ok, err := w.store.ClaimNextDue(ctx, w.queue, busyProjects(busy))
 		if err != nil {
-			slog.Error("runtime: claim next due", "queue", w.queue, "err", err)
+			if ctx.Err() == nil {
+				slog.Error("runtime: claim next due", "queue", w.queue, "err", err)
+			}
 			return
 		}
 		if !ok {
 			return
 		}
-		w.process(ctx, entry)
+		busy[e.ProjectID] = struct{}{}
+		go func(e Entry) {
+			w.process(ctx, e)
+			done <- e.ProjectID
+		}(e)
 	}
+}
+
+// busyProjects flattens the in-flight set for ClaimNextDue's busy argument.
+func busyProjects(busy map[string]struct{}) []string {
+	out := make([]string, 0, len(busy))
+	for p := range busy {
+		out = append(out, p)
+	}
+	return out
 }
 
 // process runs one entry's handler, then marks the outcome (04 §3 steps 2–3):

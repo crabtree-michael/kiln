@@ -59,12 +59,15 @@ type NotificationStore interface {
 
 // NotificationWriter is the mutation half of NotificationStore (08 §3, §7):
 // every method here appends a feed.updated outbox row in the SAME transaction as
-// its write, keeping the runtime's second-outbox-writer guarantee.
+// its write, keeping the runtime's second-outbox-writer guarantee. Every method
+// is tenant-scoped (11 §3): inserts stamp project_id (including the appended
+// feed.updated row, so the re-render fans out to the right project) and
+// mutations predicate on it, so one project can never touch another's rows.
 type NotificationWriter interface {
 	// PostNotification inserts one brain-authored notification and appends a
 	// feed.updated outbox row in one transaction (08 §7). kind is "update" or
 	// "preview"; ticketID/imageURL are optional.
-	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) (Notification, error)
+	PostNotification(ctx context.Context, projectID, kind, body string, ticketID, imageURL *string) (Notification, error)
 
 	// PostCompletionCard inserts a mechanical "done" feed card (kind "done")
 	// for a completed ticket and appends a feed.updated outbox row — the
@@ -73,62 +76,67 @@ type NotificationWriter interface {
 	// the outbox entry id, used as an idempotency key (ON CONFLICT DO NOTHING) so
 	// an at-least-once redelivery posts no duplicate card; posted is false (and no
 	// feed.updated is enqueued) when the row already existed.
-	PostCompletionCard(ctx context.Context, key int64, ticketID, body string) (posted bool, err error)
+	PostCompletionCard(ctx context.Context, projectID string, key int64, ticketID, body string) (posted bool, err error)
 
-	// RetractNotification stamps retracted_at=now() on the row and appends a
-	// feed.updated outbox row in one transaction (08 §3 — the brain withdrew a
-	// note that stopped mattering).
-	RetractNotification(ctx context.Context, id int64) error
+	// RetractNotification stamps retracted_at=now() on the project's row and
+	// appends a feed.updated outbox row in one transaction (08 §3 — the brain
+	// withdrew a note that stopped mattering).
+	RetractNotification(ctx context.Context, projectID string, id int64) error
 
 	// RetractAllNotifications stamps retracted_at=now() on EVERY still-active
-	// (un-retracted) notification and appends a single feed.updated outbox row in
-	// one transaction — the user's "clear all" (08 §3, header trash affordance).
-	// Idempotent: with nothing active it retracts no rows but still fans out one
-	// harmless re-render.
-	RetractAllNotifications(ctx context.Context) error
+	// (un-retracted) notification of the project and appends a single
+	// feed.updated outbox row in one transaction — the user's "clear all" (08 §3,
+	// header trash affordance). Idempotent: with nothing active it retracts no
+	// rows but still fans out one harmless re-render.
+	RetractAllNotifications(ctx context.Context, projectID string) error
 
 	// EditNotification amends a still-active (non-retracted) notification's kind,
 	// body and image in place and appends a feed.updated outbox row in one
 	// transaction — the brain's edit_update (06 §4 amended): fix a card's wording
 	// or swap its preview without retract-and-repost. kind is recomputed by the
 	// caller from the image's presence ("preview" with an image, else "update").
-	EditNotification(ctx context.Context, id int64, kind, body string, imageURL *string) error
+	EditNotification(ctx context.Context, projectID string, id int64, kind, body string, imageURL *string) error
 
-	// MarkSeen stamps seen_at=now() on every still-unseen notification with
-	// id <= lastID (the high-water mark the client reports), and appends a
-	// feed.updated outbox row in one transaction (08 §3).
-	MarkSeen(ctx context.Context, lastID int64) error
+	// MarkSeen stamps seen_at=now() on every still-unseen notification of the
+	// project with id <= lastID (the high-water mark the client reports), and
+	// appends a feed.updated outbox row in one transaction (08 §3).
+	MarkSeen(ctx context.Context, projectID string, lastID int64) error
 }
 
 // NotificationReader is the query half of NotificationStore (08 §3, D2′): the
 // read paths the feed assembly and the brain's active-card view draw on. No
-// method here mutates state or touches the outbox.
+// method here mutates state or touches the outbox. Every read is scoped to one
+// project (11 §3) — the WHERE project_id predicate, not the caller, is what
+// keeps one tenant's feed out of another's.
 type NotificationReader interface {
-	// UnseenNotifications returns notifications that are neither seen nor
-	// retracted (seen_at IS NULL AND retracted_at IS NULL), newest-first — the
-	// brain's active-card view (list_updates: the ids it may edit or retract,
-	// 06 §4). NOT the feed's update section anymore — retained history keeps
-	// seen rows visible, so the feed reads RecentNotifications instead (08 D2′).
-	UnseenNotifications(ctx context.Context) ([]Notification, error)
+	// UnseenNotifications returns the project's notifications that are neither
+	// seen nor retracted (seen_at IS NULL AND retracted_at IS NULL), newest-first
+	// — the brain's active-card view (list_updates: the ids it may edit or
+	// retract, 06 §4). NOT the feed's update section anymore — retained history
+	// keeps seen rows visible, so the feed reads RecentNotifications instead
+	// (08 D2′).
+	UnseenNotifications(ctx context.Context, projectID string) ([]Notification, error)
 
-	// RecentNotifications returns the newest `limit` unretracted notifications
-	// (seen AND unseen), newest-first — the first page of the feed's retained
-	// update/preview history (08 D2′). The bool is true when at least one older
-	// unretracted row exists beyond the page (drives FeedSnapshot.HasMoreHistory).
-	RecentNotifications(ctx context.Context, limit int) ([]Notification, bool, error)
+	// RecentNotifications returns the project's newest `limit` unretracted
+	// notifications (seen AND unseen), newest-first — the first page of the
+	// feed's retained update/preview history (08 D2′). The bool is true when at
+	// least one older unretracted row exists beyond the page (drives
+	// FeedSnapshot.HasMoreHistory).
+	RecentNotifications(ctx context.Context, projectID string, limit int) ([]Notification, bool, error)
 
-	// HistoryBefore returns up to `limit` unretracted notifications with
-	// id < before, newest-first — one older page for keyset pagination
-	// (GET /api/feed/history, 08 D2′). The bool is true when another older page
-	// remains beyond this one.
-	HistoryBefore(ctx context.Context, before int64, limit int) ([]Notification, bool, error)
+	// HistoryBefore returns up to `limit` of the project's unretracted
+	// notifications with id < before, newest-first — one older page for keyset
+	// pagination (GET /api/feed/history, 08 D2′). The bool is true when another
+	// older page remains beyond this one.
+	HistoryBefore(ctx context.Context, projectID string, before int64, limit int) ([]Notification, bool, error)
 
-	// LastSeenID returns the greatest id among seen, unretracted notifications —
-	// the persistent last-seen divider boundary (08 D2′). Nil when nothing has
-	// been seen yet.
-	LastSeenID(ctx context.Context) (*int64, error)
+	// LastSeenID returns the greatest id among the project's seen, unretracted
+	// notifications — the persistent last-seen divider boundary (08 D2′). Nil
+	// when nothing has been seen yet.
+	LastSeenID(ctx context.Context, projectID string) (*int64, error)
 
-	// UnseenCount returns the number of unseen, unretracted notifications — the
-	// header's "N updates" count, still meaning "new since last seen" (08 §2).
-	UnseenCount(ctx context.Context) (int, error)
+	// UnseenCount returns the number of the project's unseen, unretracted
+	// notifications — the header's "N updates" count, still meaning "new since
+	// last seen" (08 §2).
+	UnseenCount(ctx context.Context, projectID string) (int, error)
 }

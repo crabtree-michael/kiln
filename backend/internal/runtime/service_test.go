@@ -18,17 +18,20 @@ import (
 var errStoreFailed = errors.New("fakeMessageStore: synthetic failure")
 
 // newTestService builds a Service over the 04/07 ports, defaulting the 08 §7
-// ports (notifications, board reader, feed/activity pushers) to empty fakes so
-// the existing call sites stay unchanged. Tests that exercise the feed or
-// activity paths call runtime.NewService directly with their own fakes.
+// ports (notifications, board reader, feed/activity pushers) and the 11 §3
+// owner port to empty fakes so the existing call sites stay unchanged. The
+// brain is wrapped in an always-succeeding resolver (every project gets it).
+// Tests that exercise the feed/activity paths or resolution failures call
+// runtime.NewService directly with their own fakes.
 func newTestService(
 	store *fakeStore, messages *fakeMessageStore, brain *fakeBrain, puller *fakePuller,
 	blocker *fakeBlocker, agents *fakeAgentRuntime, notifier *fakeNotifier,
 	pusher *fakeSnapshotPusher, sayer *fakeSayPusher,
 ) *runtime.Service {
 	return runtime.NewService(
-		store, messages, brain, puller, blocker, agents, notifier, nil, pusher, sayer,
+		store, messages, resolverFor(brain), puller, blocker, agents, notifier, nil, pusher, sayer,
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+		&fakeOwner{},
 	)
 }
 
@@ -41,7 +44,7 @@ func TestService_EnqueueEvent_InsertsIntoStore(t *testing.T) {
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
 
 	payload := []byte(`{"text":"hello"}`)
-	id, err := svc.EnqueueEvent(context.Background(), runtime.EventHumanMessage, payload)
+	id, err := svc.EnqueueEvent(context.Background(), defaultTestProject, runtime.EventHumanMessage, payload)
 	if err != nil {
 		t.Fatalf("EnqueueEvent: unexpected error: %v", err)
 	}
@@ -49,12 +52,16 @@ func TestService_EnqueueEvent_InsertsIntoStore(t *testing.T) {
 		t.Fatal("EnqueueEvent returned id 0; want the inserted row's id")
 	}
 
-	entry, ok, err := store.ClaimNextDue(context.Background(), runtime.QueueEvents)
+	entry, ok, err := store.ClaimNextDue(context.Background(), runtime.QueueEvents, nil)
 	if err != nil || !ok {
 		t.Fatalf("expected EnqueueEvent to have inserted a claimable events row; ClaimNextDue ok=%v err=%v", ok, err)
 	}
 	if entry.ID != id {
 		t.Errorf("inserted row id = %d, EnqueueEvent returned %d", entry.ID, id)
+	}
+	if entry.ProjectID != defaultTestProject {
+		t.Errorf("inserted row project = %q, want %q (EnqueueEvent must stamp the tenant, 11 §3)",
+			entry.ProjectID, defaultTestProject)
 	}
 	if entry.Kind != string(runtime.EventHumanMessage) {
 		t.Errorf("inserted row kind = %q, want %q", entry.Kind, runtime.EventHumanMessage)
@@ -72,7 +79,7 @@ func TestService_PostMessage_DelegatesToMessageStoreAndReturnsBothIDs(t *testing
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
 
-	msgID, evID, err := svc.PostMessage(context.Background(), "build the widget")
+	msgID, evID, err := svc.PostMessage(context.Background(), defaultTestProject, "build the widget")
 	if err != nil {
 		t.Fatalf("PostMessage: unexpected error: %v", err)
 	}
@@ -91,14 +98,14 @@ func TestService_PostMessage_DelegatesToMessageStoreAndReturnsBothIDs(t *testing
 func TestService_PostMessage_PropagatesStoreErrorWithoutPartialIDs(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{
-		appendUserFn: func(context.Context, string) (int64, int64, error) {
+		appendUserFn: func(context.Context, string, string) (int64, int64, error) {
 			return 0, 0, errStoreFailed
 		},
 	}
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
 
-	msgID, evID, err := svc.PostMessage(context.Background(), "hello")
+	msgID, evID, err := svc.PostMessage(context.Background(), defaultTestProject, "hello")
 	if !errors.Is(err, errStoreFailed) {
 		t.Fatalf("PostMessage error = %v, want errStoreFailed", err)
 	}
@@ -116,7 +123,7 @@ func TestService_Say_AppendsThenPushes(t *testing.T) {
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer)
 
-	if err := svc.Say(context.Background(), "hi there"); err != nil {
+	if err := svc.Say(context.Background(), defaultTestProject, "hi there"); err != nil {
 		t.Fatalf("Say: unexpected error: %v", err)
 	}
 	if messages.appendKilnCalls != 1 {
@@ -126,8 +133,12 @@ func TestService_Say_AppendsThenPushes(t *testing.T) {
 	if len(pushed) != 1 {
 		t.Fatalf("PushSay called %d times, want exactly 1", len(pushed))
 	}
-	if pushed[0].Text != "hi there" || pushed[0].Role != runtime.RoleKiln {
-		t.Errorf("pushed message = %+v, want Text=%q Role=kiln", pushed[0], "hi there")
+	if pushed[0].m.Text != "hi there" || pushed[0].m.Role != runtime.RoleKiln {
+		t.Errorf("pushed message = %+v, want Text=%q Role=kiln", pushed[0].m, "hi there")
+	}
+	if pushed[0].projectID != defaultTestProject {
+		t.Errorf("PushSay projectID = %q, want %q (the say fan-out is per-project, 11 §3)",
+			pushed[0].projectID, defaultTestProject)
 	}
 }
 
@@ -138,7 +149,7 @@ func TestService_Say_AppendsThenPushes(t *testing.T) {
 func TestService_Say_DoesNotPushWhenAppendFails(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{
-		appendKilnFn: func(context.Context, string) (runtime.Message, error) {
+		appendKilnFn: func(context.Context, string, string) (runtime.Message, error) {
 			return runtime.Message{}, errStoreFailed
 		},
 	}
@@ -146,7 +157,7 @@ func TestService_Say_DoesNotPushWhenAppendFails(t *testing.T) {
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer)
 
-	if err := svc.Say(context.Background(), "hi"); !errors.Is(err, errStoreFailed) {
+	if err := svc.Say(context.Background(), defaultTestProject, "hi"); !errors.Is(err, errStoreFailed) {
 		t.Fatalf("Say error = %v, want errStoreFailed", err)
 	}
 	if got := len(sayer.pushedMessages()); got != 0 {
@@ -160,16 +171,16 @@ func TestService_Recent_DelegatesToMessageStore(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	messages := &fakeMessageStore{}
 	ctx := context.Background()
-	if _, _, err := messages.AppendUserMessageAndEnqueueEvent(ctx, "one"); err != nil {
+	if _, _, err := messages.AppendUserMessageAndEnqueueEvent(ctx, defaultTestProject, "one"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := messages.AppendKilnMessage(ctx, "two"); err != nil {
+	if _, err := messages.AppendKilnMessage(ctx, defaultTestProject, "two"); err != nil {
 		t.Fatal(err)
 	}
 	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
 
-	got, err := svc.Recent(ctx, 20)
+	got, err := svc.Recent(ctx, defaultTestProject, 20)
 	if err != nil {
 		t.Fatalf("Recent: unexpected error: %v", err)
 	}
@@ -226,6 +237,113 @@ func TestService_Workers_EventsWorkerDrivesBrainOncePerEvent(t *testing.T) {
 	}
 }
 
+// ---- per-event brain resolution (11 §3) ------------------------------------
+
+// TestService_EventsWorker_ResolvesBrainPerProjectAndThreadsProjectID pins the
+// BrainResolver seam: every event resolves the brain for ITS project, and the
+// Event handed to the brain carries that ProjectID.
+func TestService_EventsWorker_ResolvesBrainPerProjectAndThreadsProjectID(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	brain := &fakeBrain{}
+	resolver := resolverFor(brain)
+	svc := runtime.NewService(
+		store, &fakeMessageStore{}, resolver, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+		&fakeOwner{},
+	)
+
+	eventsWorker, _ := svc.Workers(clock)
+	store.seedProject(runtime.QueueEvents, "proj-A", string(runtime.EventHumanMessage), []byte(`{"text":"a"}`), 0)
+	store.seedProject(runtime.QueueEvents, "proj-B", string(runtime.EventHumanMessage), []byte(`{"text":"b"}`), 0)
+
+	stop := runWorker(t, eventsWorker)
+	defer stop()
+
+	testutil.Eventually(t, func() bool { return brain.count("HandleEvent") == 2 })
+
+	resolvedFor := map[string]bool{}
+	for _, c := range resolver.callsFor("For") {
+		pid, ok := c.Args[0].(string)
+		if !ok {
+			t.Fatalf("For arg = %T, want string", c.Args[0])
+		}
+		resolvedFor[pid] = true
+	}
+	if !resolvedFor["proj-A"] || !resolvedFor["proj-B"] {
+		t.Errorf("BrainResolver.For called for %v, want both proj-A and proj-B (per-event resolution, 11 §3)", resolvedFor)
+	}
+
+	gotProjects := map[string]bool{}
+	for _, c := range brain.callsFor("HandleEvent") {
+		ev, ok := c.Args[0].(runtime.Event)
+		if !ok {
+			t.Fatalf("HandleEvent arg = %T, want runtime.Event", c.Args[0])
+		}
+		gotProjects[ev.ProjectID] = true
+	}
+	if !gotProjects["proj-A"] || !gotProjects["proj-B"] {
+		t.Errorf("brain saw Event.ProjectID set %v, want both proj-A and proj-B", gotProjects)
+	}
+}
+
+// TestService_EventsWorker_BrainResolutionFailureSaysAndMarksDone pins the
+// no-retry-storm contract (11 §3): a project whose brain won't resolve gets a
+// feed-visible system-error Say on that project, the event is marked done
+// after ONE attempt, and the brain is never invoked.
+func TestService_EventsWorker_BrainResolutionFailureSaysAndMarksDone(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	brain := &fakeBrain{}
+	resolver := &fakeBrainResolver{
+		forFn: func(context.Context, string) (runtime.Brain, error) {
+			return nil, errStoreFailed
+		},
+	}
+	messages := &fakeMessageStore{}
+	sayer := &fakeSayPusher{}
+	svc := runtime.NewService(
+		store, messages, resolver, &fakePuller{}, &fakeBlocker{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, sayer,
+		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
+		&fakeOwner{},
+	)
+
+	eventsWorker, _ := svc.Workers(clock)
+	id := store.seedProject(runtime.QueueEvents, "proj-broken", string(runtime.EventHumanMessage), []byte(`{}`), 0)
+
+	stop := runWorker(t, eventsWorker)
+	defer stop()
+
+	stopPump := make(chan struct{})
+	go clock.Pump(stopPump, pumpStep)
+	defer close(stopPump)
+
+	testutil.Eventually(t, func() bool { return store.status(runtime.QueueEvents, id) == statusDone })
+	time.Sleep(20 * time.Millisecond)
+
+	if got := store.attempts(id); got != 1 {
+		t.Errorf("attempts = %d, want 1 — resolution failure must not retry (no retry storm, 11 §3)", got)
+	}
+	if got := store.retryCallCount(); got != 0 {
+		t.Errorf("MarkRetry called %d times, want 0", got)
+	}
+	if got := brain.count("HandleEvent"); got != 0 {
+		t.Errorf("Brain.HandleEvent called %d times, want 0 (nothing resolved)", got)
+	}
+	pushed := sayer.pushedMessages()
+	if len(pushed) != 1 {
+		t.Fatalf("PushSay called %d times, want exactly 1 system-error Say", len(pushed))
+	}
+	if pushed[0].projectID != "proj-broken" {
+		t.Errorf("system-error Say pushed to project %q, want proj-broken (that project only)", pushed[0].projectID)
+	}
+	if pushed[0].m.Text == "" || pushed[0].m.Role != runtime.RoleKiln {
+		t.Errorf("system-error Say = %+v, want a non-empty kiln-authored message", pushed[0].m)
+	}
+}
+
 // ---- Workers(clock): outbox topic -> executor routing (04 §2) -------------
 
 const (
@@ -268,14 +386,31 @@ func TestService_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 	})
 
 	sendCalls := agents.callsFor("Send")
-	if key, ok := sendCalls[0].Args[0].(int64); !ok || key != sendID {
+	if pid, ok := sendCalls[0].Args[0].(string); !ok || pid != defaultTestProject {
+		t.Errorf("agent.send routed with projectID = %v, want the claimed entry's %q (11 §3)",
+			sendCalls[0].Args[0], defaultTestProject)
+	}
+	if key, ok := sendCalls[0].Args[1].(int64); !ok || key != sendID {
 		t.Errorf("agent.send routed with idempotencyKey = %v, want the outbox id %d (04 §3: id doubles as idempotency key)",
-			sendCalls[0].Args[0], sendID)
+			sendCalls[0].Args[1], sendID)
 	}
 
 	releaseCalls := agents.callsFor("Release")
-	if key, ok := releaseCalls[0].Args[0].(int64); !ok || key != releaseID {
-		t.Errorf("agent.release routed with idempotencyKey = %v, want the outbox id %d", releaseCalls[0].Args[0], releaseID)
+	if key, ok := releaseCalls[0].Args[1].(int64); !ok || key != releaseID {
+		t.Errorf("agent.release routed with idempotencyKey = %v, want the outbox id %d", releaseCalls[0].Args[1], releaseID)
+	}
+
+	// Every executor gets the claimed entry's project (11 §3).
+	if pid, ok := puller.callsFor("RunPull")[0].Args[0].(string); !ok || pid != defaultTestProject {
+		t.Errorf("pull.evaluate routed with projectID = %v, want %q",
+			puller.callsFor("RunPull")[0].Args[0], defaultTestProject)
+	}
+	if pid, ok := notifier.callsFor("Send")[0].Args[0].(string); !ok || pid != defaultTestProject {
+		t.Errorf("notify.send routed with projectID = %v, want %q", notifier.callsFor("Send")[0].Args[0], defaultTestProject)
+	}
+	if pid, ok := pusher.callsFor("PushBoard")[0].Args[0].(string); !ok || pid != defaultTestProject {
+		t.Errorf("board.updated routed with projectID = %v, want %q",
+			pusher.callsFor("PushBoard")[0].Args[0], defaultTestProject)
 	}
 }
 
@@ -287,7 +422,7 @@ func TestService_Workers_ExhaustedAgentSendMarksTicketBlocked(t *testing.T) {
 	store := newFakeStore(clock)
 	blocker := &fakeBlocker{}
 	agents := &fakeAgentRuntime{
-		sendFn: func(context.Context, int64, []byte) error { return errHandlerFailed },
+		sendFn: func(context.Context, string, int64, []byte) error { return errHandlerFailed },
 	}
 	svc := newTestService(store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, blocker,
 		agents, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
@@ -314,13 +449,20 @@ func TestService_Workers_ExhaustedAgentSendMarksTicketBlocked(t *testing.T) {
 	}
 
 	call := blocker.callsFor("MarkBlocked")[0]
-	ticketID, ok := call.Args[0].(string)
+	projectID, ok := call.Args[0].(string)
 	if !ok {
 		t.Fatalf("MarkBlocked arg 0 = %T, want string", call.Args[0])
 	}
-	reason, ok := call.Args[1].(string)
+	ticketID, ok := call.Args[1].(string)
 	if !ok {
 		t.Fatalf("MarkBlocked arg 1 = %T, want string", call.Args[1])
+	}
+	reason, ok := call.Args[2].(string)
+	if !ok {
+		t.Fatalf("MarkBlocked arg 2 = %T, want string", call.Args[2])
+	}
+	if projectID != defaultTestProject {
+		t.Errorf("MarkBlocked projectID = %q, want the claimed entry's %q (11 §3)", projectID, defaultTestProject)
 	}
 	if ticketID != "tk-blocked" {
 		t.Errorf("MarkBlocked ticketID = %q, want %q (extracted from the agent.send payload)", ticketID, "tk-blocked")
@@ -345,7 +487,7 @@ func TestService_Workers_ExhaustedNonAgentSendTopics_DoNotMarkBlocked(t *testing
 	store := newFakeStore(clock)
 	blocker := &fakeBlocker{}
 	notifier := &fakeNotifier{
-		sendFn: func(context.Context, []byte) error { return errHandlerFailed },
+		sendFn: func(context.Context, string, []byte) error { return errHandlerFailed },
 	}
 	svc := newTestService(store, &fakeMessageStore{}, &fakeBrain{}, &fakePuller{}, blocker,
 		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{}, &fakeSayPusher{})

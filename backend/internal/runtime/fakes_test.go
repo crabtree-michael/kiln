@@ -22,6 +22,10 @@ import (
 // (04 §3), shared across the runtime unit tests.
 const statusDone = "done"
 
+// defaultTestProject is the tenant every single-project test seeds under
+// (11 §3) — unit fakes don't require uuid syntax, only equality.
+const defaultTestProject = "proj-default"
+
 // pumpStep is the simulated time each pump heartbeat advances — the worker's
 // 1s poll fallback (04 §5), so one real millisecond crosses one simulated
 // poll cycle.
@@ -60,9 +64,10 @@ func runWorker(t *testing.T, w *runtime.Worker) func() {
 // ---- fakeStore ------------------------------------------------------------
 
 // queueRow is one in-memory row of either queue, mirroring the shared
-// delivery-state columns (04 §2).
+// delivery-state columns (04 §2) plus the tenant column (11 §3).
 type queueRow struct {
 	id            int64
+	projectID     string
 	kind          string
 	payload       []byte
 	createdAt     time.Time
@@ -70,6 +75,13 @@ type queueRow struct {
 	attempts      int
 	nextAttemptAt time.Time
 	lastError     string
+}
+
+// claimCall records one ClaimNextDue invocation — the busy set the dispatcher
+// passed is what the per-project serialization tests assert on (11 §3).
+type claimCall struct {
+	queue runtime.QueueName
+	busy  []string
 }
 
 type retryCall struct {
@@ -103,6 +115,7 @@ type fakeStore struct {
 	}
 	retryCalls []retryCall
 	deadCalls  []deadCall
+	claimCalls []claimCall
 }
 
 func newFakeStore(clock runtime.Clock) *fakeStore {
@@ -116,20 +129,25 @@ func newFakeStore(clock runtime.Clock) *fakeStore {
 	}
 }
 
-func (s *fakeStore) InsertEvent(_ context.Context, t runtime.EventType, payload []byte) (int64, error) {
+func (s *fakeStore) InsertEvent(
+	_ context.Context, projectID string, t runtime.EventType, payload []byte,
+) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.insertLocked(runtime.QueueEvents, string(t), payload, 0, "pending"), nil
+	return s.insertLocked(runtime.QueueEvents, projectID, string(t), payload, 0, "pending"), nil
 }
 
-func (s *fakeStore) ClaimNextDue(_ context.Context, q runtime.QueueName) (runtime.Entry, bool, error) {
+func (s *fakeStore) ClaimNextDue(
+	_ context.Context, q runtime.QueueName, busy []string,
+) (runtime.Entry, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.claimCalls = append(s.claimCalls, claimCall{queue: q, busy: append([]string(nil), busy...)})
 	now := s.clock.Now()
 
 	var ids []int64
 	for id, row := range s.rows[q] {
-		if row.status == "pending" && !row.nextAttemptAt.After(now) {
+		if row.status == "pending" && !row.nextAttemptAt.After(now) && !slices.Contains(busy, row.projectID) {
 			ids = append(ids, id)
 		}
 	}
@@ -140,7 +158,7 @@ func (s *fakeStore) ClaimNextDue(_ context.Context, q runtime.QueueName) (runtim
 	row := s.rows[q][ids[0]]
 	row.attempts++
 	return runtime.Entry{
-		ID: row.id, Kind: row.kind, Payload: append([]byte(nil), row.payload...),
+		ID: row.id, ProjectID: row.projectID, Kind: row.kind, Payload: append([]byte(nil), row.payload...),
 		Attempts: row.attempts, CreatedAt: row.createdAt,
 	}, true, nil
 }
@@ -183,22 +201,43 @@ func (s *fakeStore) MarkDead(_ context.Context, q runtime.QueueName, id int64, l
 // seed inserts a pending row directly into q, bypassing InsertEvent — the
 // outbox is never written through this port (the board appends it
 // transactionally, 04 §2), and pre-attempted rows model a crash between claim
-// and mark (04 §5) without needing a real crash.
+// and mark (04 §5) without needing a real crash. The row belongs to
+// defaultTestProject; seedProject stages multi-tenant scenarios.
 func (s *fakeStore) seed(q runtime.QueueName, kind string, payload []byte, attempts int) int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.insertLocked(q, kind, payload, attempts, "pending")
+	return s.seedProject(q, defaultTestProject, kind, payload, attempts)
 }
 
-func (s *fakeStore) insertLocked(q runtime.QueueName, kind string, payload []byte, attempts int, status string) int64 {
+// seedProject is seed with an explicit tenant (11 §3), for the dispatcher's
+// per-project serialization tests.
+func (s *fakeStore) seedProject(q runtime.QueueName, projectID, kind string, payload []byte, attempts int) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.insertLocked(q, projectID, kind, payload, attempts, "pending")
+}
+
+func (s *fakeStore) insertLocked(
+	q runtime.QueueName, projectID, kind string, payload []byte, attempts int, status string,
+) int64 {
 	s.nextID[q]++
 	id := s.nextID[q]
 	s.rows[q][id] = &queueRow{
-		id: id, kind: kind, payload: append([]byte(nil), payload...),
+		id: id, projectID: projectID, kind: kind, payload: append([]byte(nil), payload...),
 		createdAt: s.clock.Now(), status: status, attempts: attempts,
 		nextAttemptAt: s.clock.Now(),
 	}
 	return id
+}
+
+func (s *fakeStore) claimBusyLists(q runtime.QueueName) [][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out [][]string
+	for _, c := range s.claimCalls {
+		if c.queue == q {
+			out = append(out, c.busy)
+		}
+	}
+	return out
 }
 
 func (s *fakeStore) status(q runtime.QueueName, id int64) string {
@@ -207,10 +246,12 @@ func (s *fakeStore) status(q runtime.QueueName, id int64) string {
 	return s.rows[q][id].status
 }
 
-func (s *fakeStore) attempts(q runtime.QueueName, id int64) int {
+// attempts reads an events-queue row's claim count (the only queue the
+// attempt-count assertions inspect).
+func (s *fakeStore) attempts(id int64) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.rows[q][id].attempts
+	return s.rows[runtime.QueueEvents][id].attempts
 }
 
 func (s *fakeStore) retryCallCount() int {
@@ -320,16 +361,57 @@ func (f *fakeBrain) HandleEvent(ctx context.Context, ev runtime.Event) error {
 
 var _ runtime.Brain = (*fakeBrain)(nil)
 
+// fakeBrainResolver is the per-project brain resolution port (11 §3). By
+// default every project resolves to the one wrapped fakeBrain; forFn overrides
+// for resolution-failure scenarios.
+type fakeBrainResolver struct {
+	callRecorder
+
+	brain runtime.Brain
+	forFn func(ctx context.Context, projectID string) (runtime.Brain, error)
+}
+
+func (f *fakeBrainResolver) For(ctx context.Context, projectID string) (runtime.Brain, error) {
+	f.record("For", projectID)
+	if f.forFn != nil {
+		return f.forFn(ctx, projectID)
+	}
+	return f.brain, nil
+}
+
+// resolverFor wraps a fakeBrain as an always-succeeding resolver — the
+// single-tenant default most tests want.
+func resolverFor(b *fakeBrain) *fakeBrainResolver { return &fakeBrainResolver{brain: b} }
+
+var _ runtime.BrainResolver = (*fakeBrainResolver)(nil)
+
+// fakeOwner resolves every project to one test user unless ownerFn overrides.
+type fakeOwner struct {
+	callRecorder
+
+	ownerFn func(ctx context.Context, projectID string) (string, error)
+}
+
+func (f *fakeOwner) Owner(ctx context.Context, projectID string) (string, error) {
+	f.record("Owner", projectID)
+	if f.ownerFn != nil {
+		return f.ownerFn(ctx, projectID)
+	}
+	return "user-owner", nil
+}
+
+var _ runtime.Owner = (*fakeOwner)(nil)
+
 type fakePuller struct {
 	callRecorder
 
-	runPullFn func(ctx context.Context) error
+	runPullFn func(ctx context.Context, projectID string) error
 }
 
-func (f *fakePuller) RunPull(ctx context.Context) error {
-	f.record("RunPull")
+func (f *fakePuller) RunPull(ctx context.Context, projectID string) error {
+	f.record("RunPull", projectID)
 	if f.runPullFn != nil {
-		return f.runPullFn(ctx)
+		return f.runPullFn(ctx, projectID)
 	}
 	return nil
 }
@@ -339,13 +421,13 @@ var _ runtime.Puller = (*fakePuller)(nil)
 type fakeBlocker struct {
 	callRecorder
 
-	markBlockedFn func(ctx context.Context, ticketID, reason string) error
+	markBlockedFn func(ctx context.Context, projectID, ticketID, reason string) error
 }
 
-func (f *fakeBlocker) MarkBlocked(ctx context.Context, ticketID, reason string) error {
-	f.record("MarkBlocked", ticketID, reason)
+func (f *fakeBlocker) MarkBlocked(ctx context.Context, projectID, ticketID, reason string) error {
+	f.record("MarkBlocked", projectID, ticketID, reason)
 	if f.markBlockedFn != nil {
-		return f.markBlockedFn(ctx, ticketID, reason)
+		return f.markBlockedFn(ctx, projectID, ticketID, reason)
 	}
 	return nil
 }
@@ -355,22 +437,22 @@ var _ runtime.Blocker = (*fakeBlocker)(nil)
 type fakeAgentRuntime struct {
 	callRecorder
 
-	sendFn    func(ctx context.Context, idempotencyKey int64, payload []byte) error
-	releaseFn func(ctx context.Context, idempotencyKey int64, payload []byte) error
+	sendFn    func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	releaseFn func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
 }
 
-func (f *fakeAgentRuntime) Send(ctx context.Context, idempotencyKey int64, payload []byte) error {
-	f.record("Send", idempotencyKey, append([]byte(nil), payload...))
+func (f *fakeAgentRuntime) Send(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+	f.record("Send", projectID, idempotencyKey, append([]byte(nil), payload...))
 	if f.sendFn != nil {
-		return f.sendFn(ctx, idempotencyKey, payload)
+		return f.sendFn(ctx, projectID, idempotencyKey, payload)
 	}
 	return nil
 }
 
-func (f *fakeAgentRuntime) Release(ctx context.Context, idempotencyKey int64, payload []byte) error {
-	f.record("Release", idempotencyKey, append([]byte(nil), payload...))
+func (f *fakeAgentRuntime) Release(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+	f.record("Release", projectID, idempotencyKey, append([]byte(nil), payload...))
 	if f.releaseFn != nil {
-		return f.releaseFn(ctx, idempotencyKey, payload)
+		return f.releaseFn(ctx, projectID, idempotencyKey, payload)
 	}
 	return nil
 }
@@ -380,13 +462,13 @@ var _ runtime.AgentRuntime = (*fakeAgentRuntime)(nil)
 type fakeNotifier struct {
 	callRecorder
 
-	sendFn func(ctx context.Context, payload []byte) error
+	sendFn func(ctx context.Context, projectID string, payload []byte) error
 }
 
-func (f *fakeNotifier) Send(ctx context.Context, payload []byte) error {
-	f.record("Send", append([]byte(nil), payload...))
+func (f *fakeNotifier) Send(ctx context.Context, projectID string, payload []byte) error {
+	f.record("Send", projectID, append([]byte(nil), payload...))
 	if f.sendFn != nil {
-		return f.sendFn(ctx, payload)
+		return f.sendFn(ctx, projectID, payload)
 	}
 	return nil
 }
@@ -398,20 +480,20 @@ type fakeNotifyMode struct {
 	err  error
 }
 
-func (f *fakeNotifyMode) Mode(context.Context) (string, error) { return f.mode, f.err }
+func (f *fakeNotifyMode) Mode(context.Context, string) (string, error) { return f.mode, f.err }
 
 var _ runtime.NotifyModeReader = (*fakeNotifyMode)(nil)
 
 type fakeSnapshotPusher struct {
 	callRecorder
 
-	pushBoardFn func(ctx context.Context) error
+	pushBoardFn func(ctx context.Context, projectID string) error
 }
 
-func (f *fakeSnapshotPusher) PushBoard(ctx context.Context) error {
-	f.record("PushBoard")
+func (f *fakeSnapshotPusher) PushBoard(ctx context.Context, projectID string) error {
+	f.record("PushBoard", projectID)
 	if f.pushBoardFn != nil {
-		return f.pushBoardFn(ctx)
+		return f.pushBoardFn(ctx, projectID)
 	}
 	return nil
 }
@@ -426,20 +508,24 @@ type fakeMessageStore struct {
 	nextID   int64
 	nextEvID int64
 
-	appendUserFn func(ctx context.Context, text string) (int64, int64, error)
-	appendKilnFn func(ctx context.Context, text string) (runtime.Message, error)
+	appendUserFn func(ctx context.Context, projectID, text string) (int64, int64, error)
+	appendKilnFn func(ctx context.Context, projectID, text string) (runtime.Message, error)
 
-	appendUserCalls int
-	appendKilnCalls int
-	recentCalls     []int
+	appendUserCalls    int
+	appendKilnCalls    int
+	appendKilnProjects []string
+	recentCalls        []int
+	recentProjects     []string
 }
 
-func (f *fakeMessageStore) AppendUserMessageAndEnqueueEvent(ctx context.Context, text string) (int64, int64, error) {
+func (f *fakeMessageStore) AppendUserMessageAndEnqueueEvent(
+	ctx context.Context, projectID, text string,
+) (int64, int64, error) {
 	f.mu.Lock()
 	f.appendUserCalls++
 	f.mu.Unlock()
 	if f.appendUserFn != nil {
-		return f.appendUserFn(ctx, text)
+		return f.appendUserFn(ctx, projectID, text)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -451,12 +537,13 @@ func (f *fakeMessageStore) AppendUserMessageAndEnqueueEvent(ctx context.Context,
 	return f.nextID, f.nextEvID, nil
 }
 
-func (f *fakeMessageStore) AppendKilnMessage(ctx context.Context, text string) (runtime.Message, error) {
+func (f *fakeMessageStore) AppendKilnMessage(ctx context.Context, projectID, text string) (runtime.Message, error) {
 	f.mu.Lock()
 	f.appendKilnCalls++
+	f.appendKilnProjects = append(f.appendKilnProjects, projectID)
 	f.mu.Unlock()
 	if f.appendKilnFn != nil {
-		return f.appendKilnFn(ctx, text)
+		return f.appendKilnFn(ctx, projectID, text)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -466,10 +553,11 @@ func (f *fakeMessageStore) AppendKilnMessage(ctx context.Context, text string) (
 	return m, nil
 }
 
-func (f *fakeMessageStore) Recent(_ context.Context, n int) ([]runtime.Message, error) {
+func (f *fakeMessageStore) Recent(_ context.Context, projectID string, n int) ([]runtime.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recentCalls = append(f.recentCalls, n)
+	f.recentProjects = append(f.recentProjects, projectID)
 	if n >= len(f.messages) {
 		out := make([]runtime.Message, len(f.messages))
 		copy(out, f.messages)
@@ -482,26 +570,31 @@ func (f *fakeMessageStore) Recent(_ context.Context, n int) ([]runtime.Message, 
 
 var _ runtime.MessageStore = (*fakeMessageStore)(nil)
 
-type fakeSayPusher struct {
-	mu        sync.Mutex
-	pushed    []runtime.Message
-	pushSayFn func(ctx context.Context, m runtime.Message) error
+type sayPush struct {
+	projectID string
+	m         runtime.Message
 }
 
-func (f *fakeSayPusher) PushSay(ctx context.Context, m runtime.Message) error {
+type fakeSayPusher struct {
+	mu        sync.Mutex
+	pushed    []sayPush
+	pushSayFn func(ctx context.Context, projectID string, m runtime.Message) error
+}
+
+func (f *fakeSayPusher) PushSay(ctx context.Context, projectID string, m runtime.Message) error {
 	f.mu.Lock()
-	f.pushed = append(f.pushed, m)
+	f.pushed = append(f.pushed, sayPush{projectID: projectID, m: m})
 	f.mu.Unlock()
 	if f.pushSayFn != nil {
-		return f.pushSayFn(ctx, m)
+		return f.pushSayFn(ctx, projectID, m)
 	}
 	return nil
 }
 
-func (f *fakeSayPusher) pushedMessages() []runtime.Message {
+func (f *fakeSayPusher) pushedMessages() []sayPush {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]runtime.Message, len(f.pushed))
+	out := make([]sayPush, len(f.pushed))
 	copy(out, f.pushed)
 	return out
 }
@@ -522,8 +615,11 @@ type fakeNotificationStore struct {
 	next  int64
 	posts []runtime.Notification
 
-	postFn         func(ctx context.Context, kind, body string, ticketID, imageURL *string) (runtime.Notification, error)
-	retractFn      func(ctx context.Context, id int64) error
+	postFn func(
+		ctx context.Context, projectID, kind, body string, ticketID, imageURL *string,
+	) (runtime.Notification, error)
+	retractFn      func(ctx context.Context, projectID string, id int64) error
+	postProjects   []string
 	markSeenN      []int64
 	edits          []notificationEdit
 	completionKeys map[int64]bool   // idempotency keys already posted
@@ -532,9 +628,10 @@ type fakeNotificationStore struct {
 
 // completionPost records one accepted PostCompletionCard call.
 type completionPost struct {
-	Key      int64
-	TicketID string
-	Body     string
+	ProjectID string
+	Key       int64
+	TicketID  string
+	Body      string
 }
 
 // notificationEdit records one EditNotification call for delegation assertions.
@@ -546,10 +643,10 @@ type notificationEdit struct {
 }
 
 func (f *fakeNotificationStore) PostNotification(
-	ctx context.Context, kind, body string, ticketID, imageURL *string,
+	ctx context.Context, projectID, kind, body string, ticketID, imageURL *string,
 ) (runtime.Notification, error) {
 	if f.postFn != nil {
-		return f.postFn(ctx, kind, body, ticketID, imageURL)
+		return f.postFn(ctx, projectID, kind, body, ticketID, imageURL)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -560,11 +657,12 @@ func (f *fakeNotificationStore) PostNotification(
 	}
 	f.rows = append(f.rows, n)
 	f.posts = append(f.posts, n)
+	f.postProjects = append(f.postProjects, projectID)
 	return n, nil
 }
 
 func (f *fakeNotificationStore) PostCompletionCard(
-	_ context.Context, key int64, ticketID, body string,
+	_ context.Context, projectID string, key int64, ticketID, body string,
 ) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -580,13 +678,15 @@ func (f *fakeNotificationStore) PostCompletionCard(
 		ID: f.next, Kind: runtime.KindUpdate, Body: body, TicketID: &ticketID, CreatedAt: time.Now(),
 	}
 	f.rows = append(f.rows, n)
-	f.completions = append(f.completions, completionPost{Key: key, TicketID: ticketID, Body: body})
+	f.completions = append(f.completions, completionPost{
+		ProjectID: projectID, Key: key, TicketID: ticketID, Body: body,
+	})
 	return true, nil
 }
 
-func (f *fakeNotificationStore) RetractNotification(ctx context.Context, id int64) error {
+func (f *fakeNotificationStore) RetractNotification(ctx context.Context, projectID string, id int64) error {
 	if f.retractFn != nil {
-		return f.retractFn(ctx, id)
+		return f.retractFn(ctx, projectID, id)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -599,7 +699,7 @@ func (f *fakeNotificationStore) RetractNotification(ctx context.Context, id int6
 	return nil
 }
 
-func (f *fakeNotificationStore) RetractAllNotifications(_ context.Context) error {
+func (f *fakeNotificationStore) RetractAllNotifications(_ context.Context, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := time.Now()
@@ -612,7 +712,7 @@ func (f *fakeNotificationStore) RetractAllNotifications(_ context.Context) error
 }
 
 func (f *fakeNotificationStore) EditNotification(
-	_ context.Context, id int64, kind, body string, imageURL *string,
+	_ context.Context, _ string, id int64, kind, body string, imageURL *string,
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -627,7 +727,7 @@ func (f *fakeNotificationStore) EditNotification(
 	return nil
 }
 
-func (f *fakeNotificationStore) MarkSeen(_ context.Context, lastID int64) error {
+func (f *fakeNotificationStore) MarkSeen(_ context.Context, _ string, lastID int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.markSeenN = append(f.markSeenN, lastID)
@@ -640,7 +740,7 @@ func (f *fakeNotificationStore) MarkSeen(_ context.Context, lastID int64) error 
 	return nil
 }
 
-func (f *fakeNotificationStore) UnseenNotifications(_ context.Context) ([]runtime.Notification, error) {
+func (f *fakeNotificationStore) UnseenNotifications(_ context.Context, _ string) ([]runtime.Notification, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []runtime.Notification
@@ -653,7 +753,7 @@ func (f *fakeNotificationStore) UnseenNotifications(_ context.Context) ([]runtim
 }
 
 func (f *fakeNotificationStore) RecentNotifications(
-	_ context.Context, limit int,
+	_ context.Context, _ string, limit int,
 ) ([]runtime.Notification, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -670,7 +770,7 @@ func (f *fakeNotificationStore) RecentNotifications(
 }
 
 func (f *fakeNotificationStore) HistoryBefore(
-	_ context.Context, before int64, limit int,
+	_ context.Context, _ string, before int64, limit int,
 ) ([]runtime.Notification, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -686,7 +786,7 @@ func (f *fakeNotificationStore) HistoryBefore(
 	return out, false, nil
 }
 
-func (f *fakeNotificationStore) LastSeenID(_ context.Context) (*int64, error) {
+func (f *fakeNotificationStore) LastSeenID(_ context.Context, _ string) (*int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var maxID *int64
@@ -699,7 +799,7 @@ func (f *fakeNotificationStore) LastSeenID(_ context.Context) (*int64, error) {
 	return maxID, nil
 }
 
-func (f *fakeNotificationStore) UnseenCount(_ context.Context) (int, error) {
+func (f *fakeNotificationStore) UnseenCount(_ context.Context, _ string) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	n := 0
@@ -734,58 +834,75 @@ func (f *fakeNotificationStore) completionPosts() []completionPost {
 var _ runtime.NotificationStore = (*fakeNotificationStore)(nil)
 
 // fakeBoardReader is an in-memory runtime.BoardReader returning a staged
-// BoardView.
+// BoardView, recording the projects it was asked for.
 type fakeBoardReader struct {
-	view    runtime.BoardView
-	viewErr error
+	mu       sync.Mutex
+	view     runtime.BoardView
+	viewErr  error
+	projects []string
 }
 
-func (f *fakeBoardReader) BoardView(context.Context) (runtime.BoardView, error) {
+func (f *fakeBoardReader) BoardView(_ context.Context, projectID string) (runtime.BoardView, error) {
+	f.mu.Lock()
+	f.projects = append(f.projects, projectID)
+	f.mu.Unlock()
 	return f.view, f.viewErr
 }
 
 var _ runtime.BoardReader = (*fakeBoardReader)(nil)
 
+// feedPush records one PushFeed call: the target project and its snapshot.
+type feedPush struct {
+	projectID string
+	snap      runtime.FeedSnapshot
+}
+
 // fakeFeedPusher records every pushed FeedSnapshot (08 §3).
 type fakeFeedPusher struct {
 	mu     sync.Mutex
-	pushed []runtime.FeedSnapshot
+	pushed []feedPush
 }
 
-func (f *fakeFeedPusher) PushFeed(_ context.Context, snap runtime.FeedSnapshot) error {
+func (f *fakeFeedPusher) PushFeed(_ context.Context, projectID string, snap runtime.FeedSnapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.pushed = append(f.pushed, snap)
+	f.pushed = append(f.pushed, feedPush{projectID: projectID, snap: snap})
 	return nil
 }
 
-func (f *fakeFeedPusher) pushes() []runtime.FeedSnapshot {
+func (f *fakeFeedPusher) pushes() []feedPush {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]runtime.FeedSnapshot, len(f.pushed))
+	out := make([]feedPush, len(f.pushed))
 	copy(out, f.pushed)
 	return out
 }
 
 var _ runtime.FeedPusher = (*fakeFeedPusher)(nil)
 
+// activityPush records one PushActivity call: the target project and event.
+type activityPush struct {
+	projectID string
+	ev        runtime.ActivityEvent
+}
+
 // fakeActivityPusher records every pushed ActivityEvent (08 §4).
 type fakeActivityPusher struct {
 	mu     sync.Mutex
-	pushed []runtime.ActivityEvent
+	pushed []activityPush
 }
 
-func (f *fakeActivityPusher) PushActivity(_ context.Context, ev runtime.ActivityEvent) error {
+func (f *fakeActivityPusher) PushActivity(_ context.Context, projectID string, ev runtime.ActivityEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.pushed = append(f.pushed, ev)
+	f.pushed = append(f.pushed, activityPush{projectID: projectID, ev: ev})
 	return nil
 }
 
-func (f *fakeActivityPusher) events() []runtime.ActivityEvent {
+func (f *fakeActivityPusher) events() []activityPush {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]runtime.ActivityEvent, len(f.pushed))
+	out := make([]activityPush, len(f.pushed))
 	copy(out, f.pushed)
 	return out
 }

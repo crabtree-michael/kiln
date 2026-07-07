@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { mintSession } from '../session';
 
 // E2E: an agent's response feeds back through the event queue into the brain
 // (docs/specs 04 §2, 05 §2.2, 06). This is the RETURN leg of the loop — a separate
@@ -41,6 +42,9 @@ async function getBoard(request: APIRequestContext): Promise<Board> {
 
 test('an agent response feeds back through the queue into the brain', async ({ request }) => {
   test.setTimeout(200_000); // real agent turn + real brain turn, polled
+
+  // All /api/* calls need a session cookie; mint one in this request context.
+  await mintSession(request, { base: apiBase });
 
   // Precondition: a free worker, or the pull can't bind — surface that as a clear
   // stack signal rather than a mystery timeout below. Don't loosen; reset the stack.

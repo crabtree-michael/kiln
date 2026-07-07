@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { amikaConfig, listKilnSandboxes, sessionCount, type AmikaConfig } from '../amika';
+import { mintSession } from '../session';
 
 // E2E: moving a ticket to Ready kicks off a REAL Amika run (docs/specs/01 §2 → 05).
 //
@@ -55,6 +56,9 @@ async function sessionCountsBySandbox(cfg: AmikaConfig): Promise<Map<string, num
 
 test('moving a ticket to Ready kicks off a real Amika run', async ({ request }) => {
   test.setTimeout(180_000); // two sequential real-service poll windows (board, then Amika)
+
+  // All /api/* calls need a session cookie; mint one in this request context.
+  await mintSession(request, { base: apiBase });
 
   // This test verifies the REAL Amika send path (the default provider), so it needs
   // Amika creds — a missing key is a misconfigured run, not a pass.

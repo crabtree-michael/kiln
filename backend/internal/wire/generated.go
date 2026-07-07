@@ -263,6 +263,12 @@ type AgentStatus struct {
 // AgentStatusStatus building = alive with a turn in flight; idle = alive, no turn; stopped = session auto-stopped/not running; errored = terminal session failure; starting = session provisioning, not reachable yet.
 type AgentStatusStatus string
 
+// BetaSignupRequest POST /api/beta-signup body — the visitor's email for the beta list.
+type BetaSignupRequest struct {
+	// Email The visitor's email. Kept a plain string on the wire (no format:email, which would pull an openapi_types dependency into the generated Go); the server validates it parses as a real address (net/mail).
+	Email string `json:"email"`
+}
+
 // Board GetBoard's full snapshot (03 §4), grouped in render order — the `board` SSE event payload and GET /api/board's response body are the identical shape (04 D7): absolute, never a delta, so a reconnect's resync is just "render the next board event" (07 §7–§8). `ready` is in exact pull order, top-to-bottom, so the user sees what gets pulled next (03 §5, 07 §7).
 type Board struct {
 	// Agents Live workers with their real session status, joined server-side for the Streams view (amended 2026-07-05). Absolute like the rest of the snapshot; empty before the first worker is live. Keyed to tickets by ticket_id.
@@ -553,6 +559,9 @@ type GetMessagesParams struct {
 	// Limit Maximum number of most-recent rows to return.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// PostBetaSignupJSONRequestBody defines body for PostBetaSignup for application/json ContentType.
+type PostBetaSignupJSONRequestBody = BetaSignupRequest
 
 // PostFeedSeenJSONRequestBody defines body for PostFeedSeen for application/json ContentType.
 type PostFeedSeenJSONRequestBody = FeedSeenRequest

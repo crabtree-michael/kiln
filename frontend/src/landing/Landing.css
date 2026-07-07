@@ -181,6 +181,67 @@
   gap: 12px;
 }
 
+/* The "See how it works" ghost button sits below the signup form in the hero
+   (the form owns the primary action), not beside it. */
+.kiln-hero__secondary {
+  align-self: flex-start;
+}
+
+/* ── beta signup form ──────────────────────────────────────────────
+   Reused by the hero and the closing CTA. The row lays the email field beside
+   the submit button and wraps to a stack on narrow screens; the input matches
+   the pill buttons in height and radius so the pairing reads as one control. */
+.kiln-beta-form {
+  width: 100%;
+  max-width: 30rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kiln-beta-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.kiln-beta-form__input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--text-body);
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 14px 20px;
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+
+.kiln-beta-form__input::placeholder {
+  color: var(--text-muted);
+}
+
+.kiln-beta-form__input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-faint);
+}
+
+.kiln-beta-form__input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kiln-beta-form__error {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--danger);
+}
+
 .kiln-hero__chips {
   margin: 28px 0 0;
   padding: 0;
@@ -407,6 +468,11 @@
   max-width: 42ch;
   font: var(--type-editorial);
   color: var(--text-secondary);
+}
+
+/* Centre the signup form within the centred CTA panel. */
+.kiln-cta__inner .kiln-beta-form {
+  margin: 0 auto;
 }
 
 /* ── footer ────────────────────────────────────────────────────── */

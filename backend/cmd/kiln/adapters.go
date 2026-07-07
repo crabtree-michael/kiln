@@ -34,6 +34,7 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/api"
+	"github.com/crabtree-michael/kiln/backend/internal/beta"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 	"github.com/crabtree-michael/kiln/backend/internal/push"
@@ -471,6 +472,20 @@ func (a *pushRegistrarAdapter) SetMode(ctx context.Context, mode string) error {
 }
 
 var _ api.PushRegistrar = (*pushRegistrarAdapter)(nil)
+
+// betaRegistrarAdapter satisfies api.BetaRegistrar over the beta store: the
+// landing page's POST /api/beta-signup lands one email on the beta_signups
+// table. Idempotent on the address (the store swallows a duplicate).
+type betaRegistrarAdapter struct{ store beta.Store }
+
+func (a *betaRegistrarAdapter) Register(ctx context.Context, email string) error {
+	if err := a.store.Save(ctx, email); err != nil {
+		return fmt.Errorf("kiln: save beta signup: %w", err)
+	}
+	return nil
+}
+
+var _ api.BetaRegistrar = (*betaRegistrarAdapter)(nil)
 
 // newNotifier chooses the notify.send executor (02 §10): a real Web Push sender
 // when the operator has supplied a VAPID key pair (VAPID_PUBLIC_KEY +

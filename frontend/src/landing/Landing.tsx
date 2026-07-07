@@ -12,6 +12,7 @@
 // (theme.ts), so it ships a single dark shot framed as a screen.
 import type { JSX } from 'react';
 import { Link } from 'react-router-dom';
+import { BetaSignupForm } from '@/landing/BetaSignupForm';
 import '@/landing/Landing.css';
 
 /** The Kiln bell mark (public/kiln-mark.svg), inlined so it can take the accent
@@ -165,9 +166,9 @@ export function Landing(): JSX.Element {
             <a href="#features">Features</a>
             <a href="#voice">Voice</a>
           </nav>
-          <Link to="/" className="kiln-btn kiln-btn--primary kiln-nav__cta">
-            Open the app
-          </Link>
+          <a href="#beta" className="kiln-btn kiln-btn--primary kiln-nav__cta">
+            Join the beta
+          </a>
         </div>
       </header>
 
@@ -185,10 +186,8 @@ export function Landing(): JSX.Element {
               voice, only when a real decision is needed.
             </p>
             <div className="kiln-hero__actions">
-              <Link to="/" className="kiln-btn kiln-btn--primary kiln-btn--lg">
-                Open the app
-              </Link>
-              <a href="#how" className="kiln-btn kiln-btn--ghost kiln-btn--lg">
+              <BetaSignupForm cta="Join the beta" />
+              <a href="#how" className="kiln-btn kiln-btn--ghost kiln-btn--lg kiln-hero__secondary">
                 See how it works
               </a>
             </div>
@@ -252,9 +251,9 @@ export function Landing(): JSX.Element {
                 before it acts, so a mis-hear never quietly wrecks your work.
               </p>
               <div className="kiln-voice__actions">
-                <Link to="/" className="kiln-btn kiln-btn--primary kiln-btn--lg">
-                  Start talking
-                </Link>
+                <a href="#beta" className="kiln-btn kiln-btn--primary kiln-btn--lg">
+                  Join the beta
+                </a>
               </div>
             </div>
             <div className="kiln-voice__art">
@@ -263,14 +262,15 @@ export function Landing(): JSX.Element {
           </div>
         </section>
 
-        <section className="kiln-cta">
+        <section id="beta" className="kiln-cta">
           <div className="kiln-cta__inner">
             <KilnGlyph size={44} />
-            <h2>Put your agents to work.</h2>
-            <p>Open Kiln, say what you need, and let the orchestrator run the room.</p>
-            <Link to="/" className="kiln-btn kiln-btn--primary kiln-btn--lg">
-              Open the app
-            </Link>
+            <h2>Be first through the door.</h2>
+            <p>
+              Kiln is in private beta. Leave your email and we&rsquo;ll let you know the moment your
+              spot is ready.
+            </p>
+            <BetaSignupForm cta="Notify me" />
           </div>
         </section>
       </main>
@@ -282,7 +282,7 @@ export function Landing(): JSX.Element {
             <span>Kiln</span>
           </div>
           <nav className="kiln-footer__links" aria-label="Footer">
-            <Link to="/">App</Link>
+            <a href="#beta">Join the beta</a>
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
           </nav>

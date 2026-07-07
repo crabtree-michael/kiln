@@ -28,6 +28,7 @@ export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
+export type BetaSignupRequest = components['schemas']['BetaSignupRequest'];
 export type NotificationMode = components['schemas']['NotificationMode'];
 /** The push-notification frequency values, mirroring the wire enum. */
 export type NotificationModeValue = NotificationMode['mode'];
@@ -573,6 +574,22 @@ export async function postPushSubscription(sub: PushSubscriptionPayload): Promis
   });
   if (!response.ok) {
     throw new Error(`postPushSubscription: HTTP ${String(response.status)}`);
+  }
+}
+
+/** `POST /api/beta-signup` — record a landing-page beta-interest email. The
+ * server is idempotent on the address, so a repeat submit still resolves; the
+ * caller redirects to the confirmation page on success. Throws on a non-2xx so
+ * the form can surface an error and keep the visitor on the page. */
+export async function postBetaSignup(email: string): Promise<void> {
+  const body: BetaSignupRequest = { email };
+  const response = await fetch('/api/beta-signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`postBetaSignup: HTTP ${String(response.status)}`);
   }
 }
 

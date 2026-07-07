@@ -221,6 +221,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/beta-signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Collect a beta-interest email from the landing page.
+         * @description The marketing landing page's "Join the beta" form posts one email here. Idempotent on the address (a repeat submit is a no-op, still 202) so the client can always redirect to the confirmation page on success. Stored in the beta module's beta_signups table; there is no read side in v1.
+         */
+        post: operations["postBetaSignup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/voice/token": {
         parameters: {
             query?: never;
@@ -488,6 +508,11 @@ export interface components {
             text: string;
             /** Format: date-time */
             at: string;
+        };
+        /** @description POST /api/beta-signup body — the visitor's email for the beta list. */
+        BetaSignupRequest: {
+            /** @description The visitor's email. Kept a plain string on the wire (no format:email, which would pull an openapi_types dependency into the generated Go); the server validates it parses as a real address (net/mail). */
+            email: string;
         };
         /** @description POST /api/voice/token's 200 body (09 §2, §6): a short-lived AssemblyAI Universal-Streaming token and its absolute expiry. The client opens the STT WebSocket with `token` and refreshes proactively before `expires_at`. */
         VoiceToken: {
@@ -906,6 +931,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MessagePostResponse"];
                 };
+            };
+        };
+    };
+    postBetaSignup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BetaSignupRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted — the email is recorded (or was already present). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body (missing or malformed email). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

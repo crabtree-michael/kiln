@@ -85,6 +85,32 @@ func TestRunPull_BindsReadyTicketToFreeWorker(t *testing.T) {
 	}
 }
 
+// The user is pushed on start as well as blocked/done (02 §10): a dispatch fires
+// exactly one notify.send carrying the ticket title.
+func TestRunPull_EmitsNotifySend(t *testing.T) {
+	store := newFakeStore()
+	svc := board.NewService(store)
+	store.seedWorkers(1)
+	rt := store.now()
+	store.seedTicket(board.Ticket{ID: "t1", Title: "Start pushing", State: board.StateReady, ReadyAt: &rt})
+
+	if err := svc.RunPull(context.Background()); err != nil {
+		t.Fatalf("RunPull: unexpected error: %v", err)
+	}
+	ems := store.outboxSnapshot()
+	notifies := emissionsWithTopic(ems, board.TopicNotifySend)
+	if len(notifies) != 1 {
+		t.Fatalf("RunPull must emit exactly one notify.send per pulled ticket, got: %+v", ems)
+	}
+	payload, ok := notifies[0].Payload.(board.NotifyPayload)
+	if !ok {
+		t.Fatalf("notify.send payload type = %T, want board.NotifyPayload", notifies[0].Payload)
+	}
+	if payload.TicketID != "t1" || payload.Title != "Start pushing" {
+		t.Errorf("notify.send payload = %+v", payload)
+	}
+}
+
 func TestRunPull_OrderPriorityDescThenReadyAtAscThenIDAsc(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)

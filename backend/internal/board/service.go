@@ -289,6 +289,15 @@ func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error)
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.completion: %w", err)
 		}
+		// Completion is one of the three transitions the user is pushed for
+		// (start/blocked/done — 02 §10), independent of the persistent feed card.
+		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicNotifySend, Payload: NotifyPayload{
+			TicketID: updated.ID,
+			Title:    updated.Title,
+			Reason:   notifyReasonDone,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
+		}
 		return updated, nil
 	})
 }
@@ -498,22 +507,8 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 		if err != nil {
 			return fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentSend, Payload: SendPayload{
-			TicketID: updated.ID,
-			WorkerID: wid,
-			Message:  workOrder(updated),
-		}}); err != nil {
-			return fmt.Errorf("board: append agent.send: %w", err)
-		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
-			return fmt.Errorf("board: append board.updated: %w", err)
-		}
-		// Dispatch is user-visible progress: a "started" toast (08 §5).
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
-			Verb:        "started",
-			TicketTitle: updated.Title,
-		}}); err != nil {
-			return fmt.Errorf("board: append activity.toast: %w", err)
+		if err := emitPullEffects(ctx, tx, updated, wid); err != nil {
+			return err
 		}
 		bound = true
 		boundTicket = string(updated.ID)
@@ -525,6 +520,39 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 	}
 	logPull(ctx, bound, boundTicket, boundWorker)
 	return bound, nil
+}
+
+// emitPullEffects appends the outbox rows for one binding (03 §7.1): the
+// agent.send work order, the universal board.updated, the in-app "started"
+// toast, and the start push (notify.send — start is one of the three
+// transitions the user is pushed for, 02 §10; the toast only surfaces in-app).
+// Split out of pullOnce so the pull's control flow stays within the complexity
+// budget.
+func emitPullEffects(ctx context.Context, tx Tx, t Ticket, wid WorkerID) error {
+	if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentSend, Payload: SendPayload{
+		TicketID: t.ID,
+		WorkerID: wid,
+		Message:  workOrder(t),
+	}}); err != nil {
+		return fmt.Errorf("board: append agent.send: %w", err)
+	}
+	if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+		return fmt.Errorf("board: append board.updated: %w", err)
+	}
+	if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+		Verb:        "started",
+		TicketTitle: t.Title,
+	}}); err != nil {
+		return fmt.Errorf("board: append activity.toast: %w", err)
+	}
+	if err := tx.AppendOutbox(ctx, Emission{Topic: TopicNotifySend, Payload: NotifyPayload{
+		TicketID: t.ID,
+		Title:    t.Title,
+		Reason:   notifyReasonStarted,
+	}}); err != nil {
+		return fmt.Errorf("board: append notify.send: %w", err)
+	}
+	return nil
 }
 
 // logPull emits the pull's ready→working board.transition when a binding

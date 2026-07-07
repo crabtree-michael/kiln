@@ -20,15 +20,15 @@ import (
 func TestGetBoard_GroupsPurelyByState(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	worker := store.seedWorkers(1)[0]
+	worker := store.seedWorkers(projA, 1)[0]
 
-	store.seedTicket(board.Ticket{ID: "shaping-1", Title: "T", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "shaping-1", Title: "T", State: board.StateShaping})
 	rt := store.now()
-	store.seedTicket(board.Ticket{ID: "ready-1", Title: "T", State: board.StateReady, ReadyAt: &rt})
-	store.seedTicket(board.Ticket{ID: "working-1", Title: "T", State: board.StateWorking, WorkerID: &worker})
-	store.seedTicket(board.Ticket{ID: "done-1", Title: "T", State: board.StateDone})
+	store.seedTicket(projA, board.Ticket{ID: "ready-1", Title: "T", State: board.StateReady, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "working-1", Title: "T", State: board.StateWorking, WorkerID: &worker})
+	store.seedTicket(projA, board.Ticket{ID: "done-1", Title: "T", State: board.StateDone})
 
-	snap, err := svc.GetBoard(context.Background())
+	snap, err := svc.GetBoard(context.Background(), projA)
 	if err != nil {
 		t.Fatalf("GetBoard: unexpected error: %v", err)
 	}
@@ -48,13 +48,13 @@ func TestGetBoard_BlockedStackedSeparatelyFromWorking(t *testing.T) {
 	// field says blocked (there is no separate zone field to consult).
 	store := newFakeStore()
 	svc := board.NewService(store)
-	worker := store.seedWorkers(1)[0]
-	store.seedTicket(board.Ticket{
+	worker := store.seedWorkers(projA, 1)[0]
+	store.seedTicket(projA, board.Ticket{
 		ID: "blocked-1", Title: "T", State: board.StateBlocked,
 		WorkerID: &worker, BlockedReason: new("reason"),
 	})
 
-	snap, err := svc.GetBoard(context.Background())
+	snap, err := svc.GetBoard(context.Background(), projA)
 	if err != nil {
 		t.Fatalf("GetBoard: unexpected error: %v", err)
 	}
@@ -67,10 +67,10 @@ func TestGetBoard_BlockedStackedSeparatelyFromWorking(t *testing.T) {
 func TestGetBoard_WorkerCounts(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	workers := store.seedWorkers(2)
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &workers[0]})
+	workers := store.seedWorkers(projA, 2)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &workers[0]})
 
-	snap, err := svc.GetBoard(context.Background())
+	snap, err := svc.GetBoard(context.Background(), projA)
 	if err != nil {
 		t.Fatalf("GetBoard: unexpected error: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestGetBoard_WorkerCounts(t *testing.T) {
 
 func TestGetBoard_PropagatesStoreError(t *testing.T) {
 	svc := board.NewService(&errorStore{err: errBoom})
-	_, err := svc.GetBoard(context.Background())
+	_, err := svc.GetBoard(context.Background(), projA)
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("GetBoard must surface the store's error, got: %v", err)
 	}
@@ -116,10 +116,10 @@ var errBoom = errors.New("boom: store unavailable")
 type errorStore struct{ err error }
 
 func (s *errorStore) Tx(ctx context.Context, fn func(board.Tx) error) error { return s.err }
-func (s *errorStore) Snapshot(ctx context.Context) (board.Snapshot, error) {
+func (s *errorStore) Snapshot(ctx context.Context, projectID string) (board.Snapshot, error) {
 	return board.Snapshot{}, s.err
 }
 
-func (s *errorStore) GetTicket(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+func (s *errorStore) GetTicket(ctx context.Context, projectID string, id board.TicketID) (board.Ticket, error) {
 	return board.Ticket{}, s.err
 }

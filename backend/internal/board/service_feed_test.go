@@ -48,9 +48,9 @@ func soleFeedUpdated(t *testing.T, ems []board.Emission) board.FeedUpdatedPayloa
 
 func TestRequestApproval_FromShaping_SetsFlagAndEmitsFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "Pick a DB", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Pick a DB", State: board.StateShaping})
 
-	got, err := svc.RequestApproval(context.Background(), "t1")
+	got, err := svc.RequestApproval(context.Background(), projA, "t1")
 	if err != nil {
 		t.Fatalf("RequestApproval: unexpected error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestRequestApproval_RejectsNonShapingStates(t *testing.T) {
 			svc, store := newTestService()
 			seedActiveOrDoneTicket(store, state)
 
-			_, err := svc.RequestApproval(context.Background(), "t1")
+			_, err := svc.RequestApproval(context.Background(), projA, "t1")
 			requireInvalidTransition(t, err, state, "RequestApproval")
 
 			if len(store.outboxSnapshot()) != 0 {
@@ -98,7 +98,7 @@ func TestRequestApproval_RejectsNonShapingStates(t *testing.T) {
 
 func TestRequestApproval_NotFound(t *testing.T) {
 	svc, _ := newTestService()
-	_, err := svc.RequestApproval(context.Background(), "missing")
+	_, err := svc.RequestApproval(context.Background(), projA, "missing")
 	if err == nil {
 		t.Fatal("RequestApproval on unknown id must fail")
 	}
@@ -108,9 +108,9 @@ func TestRequestApproval_NotFound(t *testing.T) {
 
 func TestMarkReady_ClearsApprovalRequested(t *testing.T) {
 	svc, store := newTestService()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateShaping, ApprovalRequested: true})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateShaping, ApprovalRequested: true})
 
-	got, err := svc.MarkReady(context.Background(), "t1")
+	got, err := svc.MarkReady(context.Background(), projA, "t1")
 	if err != nil {
 		t.Fatalf("MarkReady: unexpected error: %v", err)
 	}
@@ -125,9 +125,9 @@ func TestMarkReady_ClearsApprovalRequested(t *testing.T) {
 
 func TestMarkReady_EmitsQueuedToastAndFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "Ship the thing", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Ship the thing", State: board.StateShaping})
 
-	if _, err := svc.MarkReady(context.Background(), "t1"); err != nil {
+	if _, err := svc.MarkReady(context.Background(), projA, "t1"); err != nil {
 		t.Fatalf("MarkReady: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -151,10 +151,10 @@ func TestMarkReady_EmitsQueuedToastAndFeedUpdated(t *testing.T) {
 
 func TestPull_Dispatch_EmitsStartedToast(t *testing.T) {
 	svc, store := newTestService()
-	store.seedWorker("w1")
-	store.seedTicket(board.Ticket{ID: "t1", Title: "Do work", State: board.StateReady, ReadyAt: new(store.now())})
+	store.seedWorker(projA, "w1")
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Do work", State: board.StateReady, ReadyAt: new(store.now())})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 	verbs := toastVerbs(t, store.outboxSnapshot())
@@ -166,13 +166,13 @@ func TestPull_Dispatch_EmitsStartedToast(t *testing.T) {
 func TestSendToAgent_ResumeFromBlocked_EmitsNudgedToastAndFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
-	store.seedWorker(worker)
-	store.seedTicket(board.Ticket{
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{
 		ID: "t1", Title: "T", State: board.StateBlocked,
 		WorkerID: &worker, BlockedReason: new("needs a decision"),
 	})
 
-	if _, err := svc.SendToAgent(context.Background(), "t1", "here's the answer"); err != nil {
+	if _, err := svc.SendToAgent(context.Background(), projA, "t1", "here's the answer"); err != nil {
 		t.Fatalf("SendToAgent: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -188,10 +188,10 @@ func TestSendToAgent_ResumeFromBlocked_EmitsNudgedToastAndFeedUpdated(t *testing
 func TestSendToAgent_NewTurnFromWorking_NoToastNoFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
-	store.seedWorker(worker)
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.SendToAgent(context.Background(), "t1", "keep going"); err != nil {
+	if _, err := svc.SendToAgent(context.Background(), projA, "t1", "keep going"); err != nil {
 		t.Fatalf("SendToAgent: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -206,10 +206,10 @@ func TestSendToAgent_NewTurnFromWorking_NoToastNoFeedUpdated(t *testing.T) {
 func TestAcceptToDone_EmitsFinishedToastAndFeedUpdated(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
-	store.seedWorker(worker)
-	store.seedTicket(board.Ticket{ID: "t1", Title: "Land it", State: board.StateWorking, WorkerID: &worker})
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Land it", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), "t1"); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -225,10 +225,10 @@ func TestAcceptToDone_EmitsFinishedToastAndFeedUpdated(t *testing.T) {
 func TestMarkBlocked_EmitsFeedUpdatedNoToast(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
-	store.seedWorker(worker)
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.MarkBlocked(context.Background(), "t1", "needs a decision"); err != nil {
+	if _, err := svc.MarkBlocked(context.Background(), projA, "t1", "needs a decision"); err != nil {
 		t.Fatalf("MarkBlocked: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -245,7 +245,7 @@ func TestMarkBlocked_EmitsFeedUpdatedNoToast(t *testing.T) {
 func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
 	t.Run("create is a proposal", func(t *testing.T) {
 		svc, store := newTestService()
-		if _, err := svc.CreateTicket(context.Background(), "Login Redesign", ""); err != nil {
+		if _, err := svc.CreateTicket(context.Background(), projA, "Login Redesign", ""); err != nil {
 			t.Fatalf("CreateTicket: %v", err)
 		}
 		p := soleFeedUpdated(t, store.outboxSnapshot())
@@ -256,8 +256,8 @@ func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
 
 	t.Run("mark ready is queued", func(t *testing.T) {
 		svc, store := newTestService()
-		store.seedTicket(board.Ticket{ID: "t1", Title: "Queue me", State: board.StateShaping})
-		if _, err := svc.MarkReady(context.Background(), "t1"); err != nil {
+		store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Queue me", State: board.StateShaping})
+		if _, err := svc.MarkReady(context.Background(), projA, "t1"); err != nil {
 			t.Fatalf("MarkReady: %v", err)
 		}
 		p := soleFeedUpdated(t, store.outboxSnapshot())
@@ -269,9 +269,9 @@ func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
 	t.Run("mark blocked is blocked", func(t *testing.T) {
 		svc, store := newTestService()
 		worker := board.WorkerID("w1")
-		store.seedWorker(worker)
-		store.seedTicket(board.Ticket{ID: "t1", Title: "Fix auth", State: board.StateWorking, WorkerID: &worker})
-		if _, err := svc.MarkBlocked(context.Background(), "t1", "which provider?"); err != nil {
+		store.seedWorker(projA, worker)
+		store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Fix auth", State: board.StateWorking, WorkerID: &worker})
+		if _, err := svc.MarkBlocked(context.Background(), projA, "t1", "which provider?"); err != nil {
 			t.Fatalf("MarkBlocked: %v", err)
 		}
 		p := soleFeedUpdated(t, store.outboxSnapshot())
@@ -283,9 +283,9 @@ func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
 	t.Run("accept to done is finished", func(t *testing.T) {
 		svc, store := newTestService()
 		worker := board.WorkerID("w1")
-		store.seedWorker(worker)
-		store.seedTicket(board.Ticket{ID: "t1", Title: "Deploy done", State: board.StateWorking, WorkerID: &worker})
-		if _, err := svc.AcceptToDone(context.Background(), "t1"); err != nil {
+		store.seedWorker(projA, worker)
+		store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Deploy done", State: board.StateWorking, WorkerID: &worker})
+		if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
 			t.Fatalf("AcceptToDone: %v", err)
 		}
 		p := soleFeedUpdated(t, store.outboxSnapshot())
@@ -300,7 +300,7 @@ func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
 func TestSeedTicket_DefaultShaping(t *testing.T) {
 	svc, store := newTestService()
 
-	got, err := svc.SeedTicket(context.Background(), board.SeedSpec{Title: "Seed me"})
+	got, err := svc.SeedTicket(context.Background(), projA, board.SeedSpec{Title: "Seed me"})
 	if err != nil {
 		t.Fatalf("SeedTicket: unexpected error: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestSeedTicket_DefaultShaping(t *testing.T) {
 func TestSeedTicket_ShapingWithApprovalRequested(t *testing.T) {
 	svc, store := newTestService()
 
-	got, err := svc.SeedTicket(context.Background(), board.SeedSpec{
+	got, err := svc.SeedTicket(context.Background(), projA, board.SeedSpec{
 		Title: "Proposal", State: board.StateShaping, ApprovalRequested: true,
 	})
 	if err != nil {
@@ -338,9 +338,9 @@ func TestSeedTicket_ShapingWithApprovalRequested(t *testing.T) {
 
 func TestSeedTicket_BlockedBindsWorkerAndReason(t *testing.T) {
 	svc, store := newTestService()
-	store.seedWorker("w1")
+	store.seedWorker(projA, "w1")
 
-	got, err := svc.SeedTicket(context.Background(), board.SeedSpec{
+	got, err := svc.SeedTicket(context.Background(), projA, board.SeedSpec{
 		Title: "Blocked one", State: board.StateBlocked, BlockedReason: "which auth?",
 	})
 	if err != nil {
@@ -363,7 +363,7 @@ func TestSeedTicket_BlockedBindsWorkerAndReason(t *testing.T) {
 
 func TestSeedTicket_BlockedNoFreeWorker(t *testing.T) {
 	svc, _ := newTestService()
-	_, err := svc.SeedTicket(context.Background(), board.SeedSpec{Title: "Blocked", State: board.StateBlocked})
+	_, err := svc.SeedTicket(context.Background(), projA, board.SeedSpec{Title: "Blocked", State: board.StateBlocked})
 	if err == nil {
 		t.Fatal("a blocked seed with no free worker must fail")
 	}
@@ -371,7 +371,7 @@ func TestSeedTicket_BlockedNoFreeWorker(t *testing.T) {
 
 func TestSeedTicket_EmptyTitleRejected(t *testing.T) {
 	svc, _ := newTestService()
-	_, err := svc.SeedTicket(context.Background(), board.SeedSpec{Title: ""})
+	_, err := svc.SeedTicket(context.Background(), projA, board.SeedSpec{Title: ""})
 	if err == nil {
 		t.Fatal("SeedTicket with empty title must fail")
 	}

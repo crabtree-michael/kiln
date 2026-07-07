@@ -12,10 +12,10 @@ import (
 // 06 §4 amended).
 func TestGetTicket_ReturnsLiveTicket(t *testing.T) {
 	store := newFakeStore()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "hello", Body: "the body text", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "hello", Body: "the body text", State: board.StateShaping})
 	svc := board.NewService(store)
 
-	got, err := svc.GetTicket(context.Background(), "t1")
+	got, err := svc.GetTicket(context.Background(), projA, "t1")
 	if err != nil {
 		t.Fatalf("GetTicket: unexpected error: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestGetTicket_ReturnsLiveTicket(t *testing.T) {
 // An unknown id is ErrNotFound.
 func TestGetTicket_UnknownIsNotFound(t *testing.T) {
 	svc := board.NewService(newFakeStore())
-	if _, err := svc.GetTicket(context.Background(), "nope"); !errors.Is(err, board.ErrNotFound) {
+	if _, err := svc.GetTicket(context.Background(), projA, "nope"); !errors.Is(err, board.ErrNotFound) {
 		t.Fatalf("GetTicket(unknown) error = %v, want ErrNotFound", err)
 	}
 }
@@ -36,10 +36,10 @@ func TestGetTicket_UnknownIsNotFound(t *testing.T) {
 // the snapshot, and stamps ArchivedAt.
 func TestArchiveTicket_ShapingVanishesFromReads(t *testing.T) {
 	store := newFakeStore()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "mistake", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "mistake", State: board.StateShaping})
 	svc := board.NewService(store)
 
-	got, err := svc.ArchiveTicket(context.Background(), "t1")
+	got, err := svc.ArchiveTicket(context.Background(), projA, "t1")
 	if err != nil {
 		t.Fatalf("ArchiveTicket: unexpected error: %v", err)
 	}
@@ -47,10 +47,10 @@ func TestArchiveTicket_ShapingVanishesFromReads(t *testing.T) {
 		t.Fatalf("ArchiveTicket returned ticket with nil ArchivedAt: %+v", got)
 	}
 
-	if _, getErr := svc.GetTicket(context.Background(), "t1"); !errors.Is(getErr, board.ErrNotFound) {
+	if _, getErr := svc.GetTicket(context.Background(), projA, "t1"); !errors.Is(getErr, board.ErrNotFound) {
 		t.Fatalf("after archive, GetTicket error = %v, want ErrNotFound", getErr)
 	}
-	snap, err := svc.GetBoard(context.Background())
+	snap, err := svc.GetBoard(context.Background(), projA)
 	if err != nil {
 		t.Fatalf("GetBoard: %v", err)
 	}
@@ -63,10 +63,10 @@ func TestArchiveTicket_ShapingVanishesFromReads(t *testing.T) {
 // disappear).
 func TestArchiveTicket_EmitsBoardAndFeedUpdated(t *testing.T) {
 	store := newFakeStore()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "mistake", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "mistake", State: board.StateShaping})
 	svc := board.NewService(store)
 
-	if _, err := svc.ArchiveTicket(context.Background(), "t1"); err != nil {
+	if _, err := svc.ArchiveTicket(context.Background(), projA, "t1"); err != nil {
 		t.Fatalf("ArchiveTicket: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -82,9 +82,9 @@ func TestArchiveTicket_EmitsBoardAndFeedUpdated(t *testing.T) {
 func TestArchiveTicket_AllowedFromReadyAndDone(t *testing.T) {
 	for _, st := range []board.State{board.StateReady, board.StateDone} {
 		store := newFakeStore()
-		store.seedTicket(board.Ticket{ID: "t1", Title: "x", State: st})
+		store.seedTicket(projA, board.Ticket{ID: "t1", Title: "x", State: st})
 		svc := board.NewService(store)
-		if _, err := svc.ArchiveTicket(context.Background(), "t1"); err != nil {
+		if _, err := svc.ArchiveTicket(context.Background(), projA, "t1"); err != nil {
 			t.Errorf("ArchiveTicket from %q: unexpected error: %v", st, err)
 		}
 	}
@@ -96,17 +96,17 @@ func TestArchiveTicket_AllowedFromReadyAndDone(t *testing.T) {
 func TestArchiveTicket_ActiveIsRefused(t *testing.T) {
 	for _, st := range []board.State{board.StateWorking, board.StateBlocked} {
 		store := newFakeStore()
-		store.seedWorker("w1")
+		store.seedWorker(projA, "w1")
 		wid := board.WorkerID("w1")
 		reason := "why"
 		tk := board.Ticket{ID: "t1", Title: "x", State: st, WorkerID: &wid}
 		if st == board.StateBlocked {
 			tk.BlockedReason = &reason
 		}
-		store.seedTicket(tk)
+		store.seedTicket(projA, tk)
 		svc := board.NewService(store)
 
-		_, err := svc.ArchiveTicket(context.Background(), "t1")
+		_, err := svc.ArchiveTicket(context.Background(), projA, "t1")
 		requireInvalidTransition(t, err, st, "ArchiveTicket")
 	}
 }
@@ -115,17 +115,17 @@ func TestArchiveTicket_ActiveIsRefused(t *testing.T) {
 // tickets are invisible to targeted operations).
 func TestArchiveTicket_UnknownOrArchivedIsNotFound(t *testing.T) {
 	svc := board.NewService(newFakeStore())
-	if _, err := svc.ArchiveTicket(context.Background(), "nope"); !errors.Is(err, board.ErrNotFound) {
+	if _, err := svc.ArchiveTicket(context.Background(), projA, "nope"); !errors.Is(err, board.ErrNotFound) {
 		t.Fatalf("ArchiveTicket(unknown) error = %v, want ErrNotFound", err)
 	}
 
 	store := newFakeStore()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "x", State: board.StateShaping})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "x", State: board.StateShaping})
 	svc = board.NewService(store)
-	if _, err := svc.ArchiveTicket(context.Background(), "t1"); err != nil {
+	if _, err := svc.ArchiveTicket(context.Background(), projA, "t1"); err != nil {
 		t.Fatalf("first ArchiveTicket: %v", err)
 	}
-	if _, err := svc.ArchiveTicket(context.Background(), "t1"); !errors.Is(err, board.ErrNotFound) {
+	if _, err := svc.ArchiveTicket(context.Background(), projA, "t1"); !errors.Is(err, board.ErrNotFound) {
 		t.Fatalf("re-archive error = %v, want ErrNotFound", err)
 	}
 }

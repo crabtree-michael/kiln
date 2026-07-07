@@ -65,11 +65,17 @@ self.addEventListener('notificationclick', function (event) {
   const target = data && typeof data.url === 'string' ? data.url : '/';
   event.waitUntil(
     (async function () {
-      // Focus an already-open Kiln tab if there is one; otherwise open a new one.
+      // Focus an already-open Kiln tab if there is one, and hand it the deep link
+      // over postMessage so it opens the ticket in place — reloading/navigating a
+      // live tab would drop its session (the attached voice channel, 02 §10). A
+      // fresh window instead carries the target in its URL and reads it on load.
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of all) {
         if ('focus' in client) {
           await client.focus();
+          if ('postMessage' in client) {
+            client.postMessage({ type: 'kiln:navigate', url: target });
+          }
           return;
         }
       }

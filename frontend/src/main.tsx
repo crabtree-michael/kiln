@@ -21,6 +21,8 @@ import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { Dashboard } from '@/dashboard/Dashboard';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
+import { SessionGate } from '@/components/SessionGate';
+import { SessionProvider } from '@/stores/session';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
 import { installAssetRecovery } from '@/asset-recovery';
 
@@ -72,16 +74,38 @@ if (root === null) {
 }
 
 // `/` is the primary (08) screen; `/debug` keeps the original board+chat client
-// (07) whole and unchanged as a developer view.
+// (07) whole and unchanged as a developer view. Both sit behind the session
+// gate (11 phase 2): every `/api/*` call now requires a session cookie, so
+// the gate resolves `GET /api/me` before either screen mounts its data
+// providers (which immediately open SSE + fetch board/feed). `/dashboard`
+// keeps its own existing gate.
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
       <BrowserRouter>
         <ThemeColorSync />
         <SentryRoutes>
-          <Route path="/" element={<PrimaryScreen />} />
+          <Route
+            path="/"
+            element={
+              <SessionProvider>
+                <SessionGate>
+                  <PrimaryScreen />
+                </SessionGate>
+              </SessionProvider>
+            }
+          />
           <Route path="/dashboard/*" element={<Dashboard />} />
-          <Route path="/debug" element={<App />} />
+          <Route
+            path="/debug"
+            element={
+              <SessionProvider>
+                <SessionGate>
+                  <App />
+                </SessionGate>
+              </SessionProvider>
+            }
+          />
         </SentryRoutes>
       </BrowserRouter>
     </Sentry.ErrorBoundary>

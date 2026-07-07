@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,20 +37,54 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-// UpsertUser finds-or-creates by GitHubID, assigning ids "user-1", "user-2", etc.
+// findUserByLogin scans a keyed-by-id user map for a lower-cased login.
+func findUserByLogin(users map[int64]identity.User, login string) (identity.User, bool) {
+	for _, u := range users {
+		if u.GitHubLogin == strings.ToLower(login) {
+			return u, true
+		}
+	}
+	return identity.User{}, false
+}
+
+// UpsertUser mirrors the postgres adopt-by-id-else-by-login-else-insert
+// reconcile so service tests exercise the real semantics.
 func (s *fakeStore) UpsertUser(_ context.Context, u identity.User) (identity.User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	u.GitHubLogin = strings.ToLower(u.GitHubLogin)
 
-	existing, ok := s.users[u.GitHubID]
-	if ok {
+	if existing, ok := s.users[u.GitHubID]; ok { // adopt by github_id
 		u.ID = existing.ID
 		u.CreatedAt = existing.CreatedAt
-	} else {
-		s.seq++
-		u.ID = fmt.Sprintf("user-%d", s.seq)
-		u.CreatedAt = time.Now()
+		s.users[u.GitHubID] = u
+		return u, nil
 	}
+	if existing, ok := findUserByLogin(s.users, u.GitHubLogin); ok { // adopt by login, re-key to the new id
+		delete(s.users, existing.GitHubID)
+		u.ID = existing.ID
+		u.CreatedAt = existing.CreatedAt
+		s.users[u.GitHubID] = u
+		return u, nil
+	}
+	s.seq++
+	u.ID = fmt.Sprintf("user-%d", s.seq)
+	u.CreatedAt = time.Now()
+	s.users[u.GitHubID] = u
+	return u, nil
+}
+
+// EnsureUserByLogin find-or-creates by login without clobbering an existing row.
+func (s *fakeStore) EnsureUserByLogin(_ context.Context, u identity.User) (identity.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u.GitHubLogin = strings.ToLower(u.GitHubLogin)
+	if existing, ok := findUserByLogin(s.users, u.GitHubLogin); ok {
+		return existing, nil
+	}
+	s.seq++
+	u.ID = fmt.Sprintf("user-%d", s.seq)
+	u.CreatedAt = time.Now()
 	s.users[u.GitHubID] = u
 	return u, nil
 }

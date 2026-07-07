@@ -110,11 +110,15 @@ func (s *Service) DevSignIn(ctx context.Context, login string) (User, error) {
 func (s *Service) EnsureUser(ctx context.Context, login string) (User, error) {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(strings.ToLower(login)))
-	return s.upsertFromGitHub(ctx, githubapi.GitHubUser{
-		ID:    int64(h.Sum64() & maxPositiveInt63), // deterministic dev id, not crypto
-		Login: login,
-		Name:  login,
+	u, err := s.store.EnsureUserByLogin(ctx, User{
+		GitHubID:    int64(h.Sum64() & maxPositiveInt63), // deterministic dev id, not crypto
+		GitHubLogin: strings.ToLower(login),
+		DisplayName: login,
 	})
+	if err != nil {
+		return User{}, fmt.Errorf("identity: ensure user: %w", err)
+	}
+	return u, nil
 }
 
 func (s *Service) CreateSession(ctx context.Context, userID string) (string, time.Time, error) {

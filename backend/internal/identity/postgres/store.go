@@ -88,6 +88,25 @@ func (s *Store) UpsertUser(ctx context.Context, u identity.User) (identity.User,
 	return out, nil
 }
 
+// EnsureUserByLogin find-or-creates by github_login without touching an existing
+// row. The ON CONFLICT DO UPDATE is a deliberate no-op (sets github_login to its
+// current value) purely so RETURNING yields the existing row — the synthetic
+// bootstrap/dev github_id (and any real id UpsertUser previously stamped) and
+// the stored profile are all left intact (11 §7).
+func (s *Store) EnsureUserByLogin(ctx context.Context, u identity.User) (identity.User, error) {
+	row := s.db.QueryRowContext(ctx, `
+		INSERT INTO users (github_id, github_login, display_name, avatar_url)
+		VALUES ($1, lower($2), $3, $4)
+		ON CONFLICT (github_login) DO UPDATE SET github_login = users.github_login
+		RETURNING `+userColumns,
+		u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL)
+	out, err := scanUser(row)
+	if err != nil {
+		return identity.User{}, fmt.Errorf("identity/postgres: ensure user: %w", err)
+	}
+	return out, nil
+}
+
 // GetUser returns ErrNotFound for an unknown id.
 func (s *Store) GetUser(ctx context.Context, id string) (identity.User, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1`, id)

@@ -12,9 +12,14 @@ import (
 //
 //nolint:interfacebloat // see comment above
 type Store interface {
-	// UpsertUser finds-or-creates by GitHubID, refreshing login/name/avatar
-	// on every login (GitHub users can rename).
+	// UpsertUser reconciles a real OAuth identity: adopt by github_id (repeat
+	// login / rename), else adopt an existing row by github_login (claiming a
+	// synthetic-id bootstrap/dev row with the authoritative id), else insert.
 	UpsertUser(ctx context.Context, u User) (User, error)
+	// EnsureUserByLogin find-or-creates by github_login WITHOUT overwriting an
+	// existing row's github_id or profile — the bootstrap/dev path (11 §7),
+	// whose synthetic id must never clobber a real id UpsertUser already wrote.
+	EnsureUserByLogin(ctx context.Context, u User) (User, error)
 	// GetUser returns ErrNotFound for an unknown id.
 	GetUser(ctx context.Context, id string) (User, error)
 

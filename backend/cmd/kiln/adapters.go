@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
@@ -401,8 +402,9 @@ var _ runtime.Notifier = (*logNotifier)(nil)
 // messages (02 §10). It decodes the notify.send payload — a board.NotifyPayload
 // snapshot (03 §7.1) — into the user-facing Notification (Title/Reason →
 // Title/Body) and hands it to the push.Sender, which fans out to every stored
-// browser subscription. URL is the deep link the service worker opens on tap;
-// "/" lands on the (already-updated) board (02 §10).
+// browser subscription. URL is the deep link the service worker opens on tap: it
+// targets the ticket the notification is about (02 §10), so a tapped proposal
+// notification lands on the board with that proposal's detail open.
 type webPushNotifier struct{ sender *push.Sender }
 
 func (n *webPushNotifier) Send(ctx context.Context, payload []byte) error {
@@ -413,11 +415,22 @@ func (n *webPushNotifier) Send(ctx context.Context, payload []byte) error {
 	if err := n.sender.Send(ctx, push.Notification{
 		Title: p.Title,
 		Body:  p.Reason,
-		URL:   "/",
+		URL:   notifyURL(p.TicketID),
 	}); err != nil {
 		return fmt.Errorf("kiln: web push send: %w", err)
 	}
 	return nil
+}
+
+// notifyURL is the tap-to-open deep link for a notify.send (02 §10): "/?ticket=<id>",
+// which the frontend reads on load (or via the service worker's postMessage) to
+// open that ticket's detail overlay. A payload with no ticket — defensive; a
+// notify.send always names one — falls back to the plain board root.
+func notifyURL(id board.TicketID) string {
+	if id == "" {
+		return "/"
+	}
+	return "/?" + url.Values{"ticket": {string(id)}}.Encode()
 }
 
 var _ runtime.Notifier = (*webPushNotifier)(nil)

@@ -47,15 +47,30 @@ self.addEventListener('activate', function (event) {
   );
 });
 
+// True when a Kiln tab is open AND in the foreground (focused or merely
+// visible). Web Push's userVisibleOnly contract requires a notification for
+// every push only while the page is hidden — when a client is visible the
+// browser imposes no penalty for staying silent, so this is the supported way
+// to skip notifications the user would already see in the live app.
+async function appIsInForeground() {
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  return all.some((client) => client.focused || client.visibilityState === 'visible');
+}
+
 self.addEventListener('push', function (event) {
   const message = parsePush(event.data);
   event.waitUntil(
-    self.registration.showNotification(message.title, {
-      body: message.body,
-      icon: '/kiln-mark.svg',
-      badge: '/kiln-mark.svg',
-      data: { url: message.url },
-    }),
+    (async function () {
+      // Don't interrupt the user with a push for something they're already
+      // looking at — the open board (and its Blocked zone, 07 §6) is the surface.
+      if (await appIsInForeground()) return;
+      await self.registration.showNotification(message.title, {
+        body: message.body,
+        icon: '/kiln-mark.svg',
+        badge: '/kiln-mark.svg',
+        data: { url: message.url },
+      });
+    })(),
   );
 });
 

@@ -176,7 +176,7 @@ func TestHandlePushMode(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if got.Mode != wire.NotificationModeModeBlocked {
+		if got.Mode != wire.Blocked {
 			t.Errorf("mode = %q, want blocked", got.Mode)
 		}
 	})
@@ -185,7 +185,7 @@ func TestHandlePushMode(t *testing.T) {
 		reg := &fakePushRegistrar{}
 		ts := newPushServer(t, reg, "BPUB")
 		defer ts.Close()
-		resp := doPut(t, ts.URL+"/api/push/mode", mustJSON(t, wire.NotificationMode{Mode: wire.NotificationModeModeAll}))
+		resp := doPut(t, ts.URL+"/api/push/mode", mustJSON(t, wire.NotificationMode{Mode: wire.All}))
 		defer closeBody(t, resp)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -194,7 +194,7 @@ func TestHandlePushMode(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if got.Mode != wire.NotificationModeModeAll {
+		if got.Mode != wire.All {
 			t.Errorf("echoed mode = %q, want all", got.Mode)
 		}
 		reg.mu.Lock()

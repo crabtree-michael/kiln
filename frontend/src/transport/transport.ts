@@ -23,6 +23,7 @@ export type FeedSummary = components['schemas']['FeedSummary'];
 export type FeedSnapshot = components['schemas']['FeedSnapshot'];
 export type FeedHistoryPage = components['schemas']['FeedHistoryPage'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
+export type ActivityStatus = components['schemas']['ActivityStatus'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
@@ -231,6 +232,10 @@ function isActivityEvent(value: unknown): value is ActivityEvent {
   );
 }
 
+function isActivityStatus(value: unknown): value is ActivityStatus {
+  return isRecord(value) && typeof value.thinking === 'boolean';
+}
+
 function isMessageEvent(event: Event): event is MessageEvent<string> {
   return event instanceof MessageEvent && typeof event.data === 'string';
 }
@@ -347,6 +352,21 @@ export async function postMessage(text: string): Promise<MessagePostResponse> {
   const payload: unknown = await response.json();
   if (!isMessagePostResponse(payload)) {
     throw new Error('postMessage: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `GET /api/activity` — the current `thinking` state (08 §4). Pulled on
+ * foreground/resume and stream reconnect to resync the spinner, since the
+ * `activity` SSE event is ephemeral and never replayed. */
+export async function fetchActivityStatus(): Promise<ActivityStatus> {
+  const response = await fetch('/api/activity');
+  if (!response.ok) {
+    throw new Error(`fetchActivityStatus: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isActivityStatus(payload)) {
+    throw new Error('fetchActivityStatus: unexpected response shape');
   }
   return payload;
 }

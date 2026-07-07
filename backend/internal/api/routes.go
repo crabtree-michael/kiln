@@ -335,6 +335,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/stream", s.handleStream)
 	mux.HandleFunc("GET /api/board", s.handleBoard)
+	mux.HandleFunc("GET /api/activity", s.handleActivityStatus)
 	mux.HandleFunc("POST /api/message", s.handleMessage)
 	mux.HandleFunc("GET /api/messages", s.handleMessages)
 	mux.HandleFunc("GET /api/feed", s.handleFeed)
@@ -502,6 +503,16 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, bw)
+}
+
+// handleActivityStatus returns the current thinking state (08 §4): the same
+// flag the `activity` kind=thinking SSE event toggles, but as a pull. The
+// client hits it on foreground/resume and stream reconnect to resync the
+// spinner — the activity event is ephemeral and never replayed, so a missed
+// closing `on:false` (backgrounded mid-pass) would otherwise leave the spinner
+// stuck. Read off the hub, the single fan-out point every bracket passes through.
+func (s *Server) handleActivityStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, wire.ActivityStatus{Thinking: s.hub.Thinking()})
 }
 
 // handleMessage decodes {text}, validates its bounds (schema MessageRequest),

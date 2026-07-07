@@ -1,14 +1,18 @@
 package runtime_test
 
-// Worker unit tests (04 §3-§5, §9): the serial drain loop, execute-then-mark,
-// the exact backoff schedule and dead-letter boundary, wakeup, and crash
-// replay — all against fakeStore/fakeClock so nothing here needs a real
-// Postgres or a real sleep.
+// Worker unit tests (04 §3-§5, §9; 11 §3): the per-project dispatcher —
+// per-project serialization, cross-project concurrency, the in-flight bound —
+// plus execute-then-mark, the exact backoff schedule and dead-letter boundary,
+// wakeup, and crash replay — all against fakeStore/fakeClock so nothing here
+// needs a real Postgres or a real sleep.
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,7 +59,7 @@ func TestWorker_ProcessesEntriesSeriallyInIDOrder(t *testing.T) {
 	// While entry 1 is gated in the handler, entry 2 must not have been
 	// claimed yet (attempts still 0) — proves single-writer, not fan-out.
 	time.Sleep(50 * time.Millisecond)
-	if got := store.attempts(runtime.QueueEvents, ids[1]); got != 0 {
+	if got := store.attempts(ids[1]); got != 0 {
 		t.Fatalf("entry 2 was claimed (attempts=%d) while entry 1's handler was still in flight; "+
 			"the events worker must process one entry at a time (04 §4)", got)
 	}
@@ -169,7 +173,7 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 	if len(deadCalls) != 1 {
 		t.Fatalf("got %d MarkDead calls, want exactly 1", len(deadCalls))
 	}
-	if got := store.attempts(runtime.QueueEvents, id); got != 8 {
+	if got := store.attempts(id); got != 8 {
 		t.Errorf("final attempts = %d, want 8 (MaxAttempts, 04 §3)", got)
 	}
 	if len(deadLetterCalls) != 1 {
@@ -193,9 +197,9 @@ func TestWorker_DoesNotClaimBeforeDue(t *testing.T) {
 	store.rows[runtime.QueueOutbox][id].nextAttemptAt = clock.Now().Add(10 * time.Second)
 	store.mu.Unlock()
 
-	var calls int
+	var calls atomic.Int64
 	handle := func(_ context.Context, _ runtime.Entry) error {
-		calls++
+		calls.Add(1)
 		return nil
 	}
 	w := runtime.NewWorker(store, runtime.QueueOutbox, handle, noopDeadLetter, clock)
@@ -203,14 +207,212 @@ func TestWorker_DoesNotClaimBeforeDue(t *testing.T) {
 	defer stop()
 
 	time.Sleep(50 * time.Millisecond)
-	if calls != 0 {
-		t.Fatalf("handler called %d times before the entry was due", calls)
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("handler called %d times before the entry was due", got)
 	}
 
 	stopPump := make(chan struct{})
 	go clock.Pump(stopPump, pumpStep)
 	defer close(stopPump)
-	testutil.Eventually(t, func() bool { return calls == 1 })
+	testutil.Eventually(t, func() bool { return calls.Load() == 1 })
+}
+
+// ---- the per-project dispatcher (11 §3): per-project serialization with
+// cross-project concurrency ---------------------------------------------------
+
+// TestWorker_Dispatch_SerializesPerProjectAndOverlapsAcrossProjects is the
+// tenancy flip's core concurrency contract: with events A1, A2 (project A) and
+// B1 (project B) all due, B1 overlaps a still-running A1, while A2 never
+// starts before A1 has finished — and the busy set handed to ClaimNextDue
+// names the in-flight project while A1 runs.
+func TestWorker_Dispatch_SerializesPerProjectAndOverlapsAcrossProjects(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+
+	a1 := store.seedProject(runtime.QueueEvents, "proj-A", string(runtime.EventHumanMessage), []byte(`{}`), 0)
+	a2 := store.seedProject(runtime.QueueEvents, "proj-A", string(runtime.EventHumanMessage), []byte(`{}`), 0)
+	b1 := store.seedProject(runtime.QueueEvents, "proj-B", string(runtime.EventHumanMessage), []byte(`{}`), 0)
+
+	gateA1 := make(chan struct{}) // holds A1's handler open until the test releases it
+	var mu sync.Mutex
+	var timeline []string // "start:<id>" / "end:<id>" in observed order
+
+	mark := func(kind string, id int64) {
+		mu.Lock()
+		defer mu.Unlock()
+		timeline = append(timeline, fmt.Sprintf("%s:%d", kind, id))
+	}
+	started := func(id int64) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(timeline, fmt.Sprintf("start:%d", id))
+	}
+
+	handle := func(_ context.Context, e runtime.Entry) error {
+		mark("start", e.ID)
+		if e.ID == a1 {
+			<-gateA1
+		}
+		mark("end", e.ID)
+		return nil
+	}
+
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, noopDeadLetter, clock)
+	stop := runWorker(t, w)
+	defer stop()
+
+	// B1 must overlap A1: it starts while A1's handler is still blocked.
+	testutil.Eventually(t, func() bool { return started(a1) && started(b1) })
+
+	// A2 must NOT have started (nor even been claimed) while A1 is in flight —
+	// per-project serialization, realized by the busy exclusion.
+	time.Sleep(50 * time.Millisecond)
+	if started(a2) {
+		t.Fatal("A2 started while A1's handler was still in flight; project A must serialize (11 §3)")
+	}
+	if got := store.attempts(a2); got != 0 {
+		t.Fatalf("A2 was claimed (attempts=%d) while A1 was in flight; ClaimNextDue must exclude busy projects", got)
+	}
+
+	// While A1 is in flight, the dispatcher's claims must name project A busy.
+	sawABusy := false
+	for _, busy := range store.claimBusyLists(runtime.QueueEvents) {
+		if slices.Contains(busy, "proj-A") {
+			sawABusy = true
+			break
+		}
+	}
+	if !sawABusy {
+		t.Error("no ClaimNextDue call carried proj-A in its busy list while A1 was in flight")
+	}
+
+	close(gateA1)
+	testutil.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(timeline) == 6 // start+end for each of the three entries
+	})
+
+	mu.Lock()
+	tl := append([]string(nil), timeline...)
+	mu.Unlock()
+	endA1 := slices.Index(tl, fmt.Sprintf("end:%d", a1))
+	startA2 := slices.Index(tl, fmt.Sprintf("start:%d", a2))
+	if endA1 == -1 || startA2 == -1 || startA2 < endA1 {
+		t.Fatalf("timeline = %v: A2 must start only after A1 finished (per-project id order, 04 §4 + 11 §3)", tl)
+	}
+
+	for _, id := range []int64{a1, a2, b1} {
+		testutil.Eventually(t, func() bool { return store.status(runtime.QueueEvents, id) == statusDone })
+	}
+}
+
+// TestWorker_Dispatch_BoundsInFlightProjects pins maxInFlightProjects = 4:
+// with five distinct projects due, at most four handlers run concurrently;
+// the fifth starts only after a slot frees.
+func TestWorker_Dispatch_BoundsInFlightProjects(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+
+	const projects = 5
+	for i := range projects {
+		store.seedProject(runtime.QueueEvents, fmt.Sprintf("proj-%d", i),
+			string(runtime.EventHumanMessage), []byte(`{}`), 0)
+	}
+
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	inFlight, maxInFlight, startedCount := 0, 0, 0
+
+	handle := func(_ context.Context, _ runtime.Entry) error {
+		mu.Lock()
+		inFlight++
+		startedCount++
+		if inFlight > maxInFlight {
+			maxInFlight = inFlight
+		}
+		mu.Unlock()
+		<-gate
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		return nil
+	}
+
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, noopDeadLetter, clock)
+	stop := runWorker(t, w)
+	defer stop()
+
+	testutil.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return startedCount == 4
+	})
+	time.Sleep(50 * time.Millisecond) // give a fifth (over-bound) dispatch a chance to appear
+	mu.Lock()
+	if startedCount != 4 || maxInFlight != 4 {
+		mu.Unlock()
+		t.Fatalf("started=%d maxInFlight=%d with all handlers blocked, want exactly 4 (maxInFlightProjects)",
+			startedCount, maxInFlight)
+	}
+	mu.Unlock()
+
+	close(gate)
+	testutil.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return startedCount == projects && inFlight == 0
+	})
+	mu.Lock()
+	if maxInFlight > 4 {
+		t.Errorf("maxInFlight = %d, want <= 4 at every instant", maxInFlight)
+	}
+	mu.Unlock()
+}
+
+// TestWorker_Dispatch_CtxCancelDrainsInFlight pins the shutdown contract: Run
+// returns only after every in-flight handler has finished and marked its
+// entry — cancellation must not abandon a claimed entry mid-pass.
+func TestWorker_Dispatch_CtxCancelDrainsInFlight(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	id := store.seedProject(runtime.QueueEvents, "proj-A", string(runtime.EventHumanMessage), []byte(`{}`), 0)
+
+	gate := make(chan struct{})
+	entered := make(chan struct{})
+	var enterOnce sync.Once
+	handle := func(_ context.Context, _ runtime.Entry) error {
+		enterOnce.Do(func() { close(entered) })
+		<-gate
+		return nil
+	}
+
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, noopDeadLetter, clock)
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- w.Run(ctx) }()
+
+	<-entered // the handler is in flight
+	cancel()
+
+	select {
+	case <-runDone:
+		t.Fatal("Run returned while an in-flight handler was still running; ctx.Done must drain in-flight passes")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(gate)
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("Run returned %v after drain, want nil (clean shutdown)", err)
+		}
+	case <-time.After(testutil.EventuallyTimeout):
+		t.Fatal("Run did not return after the in-flight handler finished")
+	}
+	if got := store.status(runtime.QueueEvents, id); got != statusDone {
+		t.Errorf("entry status after drained shutdown = %q, want done (the in-flight pass finished marking)", got)
+	}
 }
 
 // ---- wakeup: Nudge beats the poll fallback (04 §5) ------------------------

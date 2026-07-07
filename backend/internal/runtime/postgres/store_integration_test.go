@@ -33,6 +33,13 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
 )
 
+// projA/projB are the two tenants the isolation tests write under (11 §3) —
+// real uuid literals because the columns are uuid-typed.
+const (
+	projA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	projB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+)
+
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -55,8 +62,29 @@ func testDB(t *testing.T) *sql.DB {
 	}
 
 	ensureMigrationsApplied(ctx, t, db)
+	ensureTenantColumns(ctx, t, db)
 	truncateRuntimeTables(ctx, t, db)
 	return db
+}
+
+// ensureTenantColumns backfills the project_id columns (11 §3) on a shared
+// kiln_test whose tables pre-date the tenancy migrations: the runtime's own
+// 0007 only runs when the tables are freshly created here, and outbox is
+// board-owned (its project_id ships in board's 0008), so a stale shared DB
+// needs the columns added idempotently for these tests to exercise the
+// tenant-scoped SQL.
+func ensureTenantColumns(ctx context.Context, t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		`ALTER TABLE events        ADD COLUMN IF NOT EXISTS project_id uuid`,
+		`ALTER TABLE messages      ADD COLUMN IF NOT EXISTS project_id uuid`,
+		`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS project_id uuid`,
+		`ALTER TABLE IF EXISTS outbox ADD COLUMN IF NOT EXISTS project_id uuid`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("ensure tenant column (%s): %v", stmt, err)
+		}
+	}
 }
 
 // ensureMigrationsApplied applies ./migrations, in filename order, only if
@@ -164,7 +192,7 @@ func TestIntegration_PostNotification_InsertsRowAndEmitsFeedUpdated(t *testing.T
 
 	tid := "tk-1"
 	img := "https://img/x.png"
-	n, err := store.PostNotification(ctx, "preview", "a preview", &tid, &img)
+	n, err := store.PostNotification(ctx, projA, "preview", "a preview", &tid, &img)
 	if err != nil {
 		t.Fatalf("PostNotification: %v", err)
 	}
@@ -199,7 +227,7 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 	const key = int64(4242)
 	tid := "tk-done"
 
-	posted, err := store.PostCompletionCard(ctx, key, tid, "")
+	posted, err := store.PostCompletionCard(ctx, projA, key, tid, "")
 	if err != nil {
 		t.Fatalf("PostCompletionCard (first): %v", err)
 	}
@@ -207,7 +235,7 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 		t.Fatal("first PostCompletionCard reported posted=false, want true")
 	}
 
-	posted, err = store.PostCompletionCard(ctx, key, tid, "")
+	posted, err = store.PostCompletionCard(ctx, projA, key, tid, "")
 	if err != nil {
 		t.Fatalf("PostCompletionCard (redelivery): %v", err)
 	}
@@ -242,13 +270,13 @@ func TestIntegration_EditNotification_AmendsActiveRowAndEmitsFeedUpdated(t *test
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	posted, err := store.PostNotification(ctx, "update", "original", nil, nil)
+	posted, err := store.PostNotification(ctx, projA, "update", "original", nil, nil)
 	if err != nil {
 		t.Fatalf("PostNotification: %v", err)
 	}
 
 	img := "https://img/edited.png"
-	if err := store.EditNotification(ctx, posted.ID, "preview", "amended", &img); err != nil {
+	if err := store.EditNotification(ctx, projA, posted.ID, "preview", "amended", &img); err != nil {
 		t.Fatalf("EditNotification: %v", err)
 	}
 
@@ -264,10 +292,10 @@ func TestIntegration_EditNotification_AmendsActiveRowAndEmitsFeedUpdated(t *test
 	}
 
 	// A retracted card is not resurfaced by an edit (no-op under the WHERE guard).
-	if err := store.RetractNotification(ctx, posted.ID); err != nil {
+	if err := store.RetractNotification(ctx, projA, posted.ID); err != nil {
 		t.Fatalf("RetractNotification: %v", err)
 	}
-	if err := store.EditNotification(ctx, posted.ID, "update", "should not apply", nil); err != nil {
+	if err := store.EditNotification(ctx, projA, posted.ID, "update", "should not apply", nil); err != nil {
 		t.Fatalf("EditNotification on retracted: %v", err)
 	}
 	var stillBody string
@@ -290,10 +318,10 @@ func TestIntegration_RetractAllNotifications_ClearsActiveAndEmitsFeedUpdated(t *
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	n1, _ := store.PostNotification(ctx, "update", "one", nil, nil)
-	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
-	already, _ := store.PostNotification(ctx, "update", "gone", nil, nil)
-	if err := store.RetractNotification(ctx, already.ID); err != nil {
+	n1, _ := store.PostNotification(ctx, projA, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, projA, "update", "two", nil, nil)
+	already, _ := store.PostNotification(ctx, projA, "update", "gone", nil, nil)
+	if err := store.RetractNotification(ctx, projA, already.ID); err != nil {
 		t.Fatalf("RetractNotification: %v", err)
 	}
 	var wasRetractedAt time.Time
@@ -303,7 +331,7 @@ func TestIntegration_RetractAllNotifications_ClearsActiveAndEmitsFeedUpdated(t *
 		t.Fatalf("query pre-retracted row: %v", err)
 	}
 
-	if err := store.RetractAllNotifications(ctx); err != nil {
+	if err := store.RetractAllNotifications(ctx, projA); err != nil {
 		t.Fatalf("RetractAllNotifications: %v", err)
 	}
 
@@ -330,7 +358,7 @@ func TestIntegration_RetractAllNotifications_ClearsActiveAndEmitsFeedUpdated(t *
 	}
 
 	// The feed is drained: no unretracted rows remain.
-	got, _, err := store.RecentNotifications(ctx, 30)
+	got, _, err := store.RecentNotifications(ctx, projA, 30)
 	if err != nil {
 		t.Fatalf("RecentNotifications: %v", err)
 	}
@@ -349,25 +377,25 @@ func TestIntegration_UnseenNotifications_NewestFirstFiltersSeenAndRetracted(t *t
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	older, err := store.PostNotification(ctx, "update", "older", nil, nil)
+	older, err := store.PostNotification(ctx, projA, "update", "older", nil, nil)
 	if err != nil {
 		t.Fatalf("post older: %v", err)
 	}
-	mid, err := store.PostNotification(ctx, "update", "middle", nil, nil)
+	mid, err := store.PostNotification(ctx, projA, "update", "middle", nil, nil)
 	if err != nil {
 		t.Fatalf("post middle: %v", err)
 	}
-	newest, err := store.PostNotification(ctx, "update", "newest", nil, nil)
+	newest, err := store.PostNotification(ctx, projA, "update", "newest", nil, nil)
 	if err != nil {
 		t.Fatalf("post newest: %v", err)
 	}
 
 	// Retract the middle one; it must drop out of the unseen set.
-	if err := store.RetractNotification(ctx, mid.ID); err != nil {
+	if err := store.RetractNotification(ctx, projA, mid.ID); err != nil {
 		t.Fatalf("RetractNotification: %v", err)
 	}
 
-	got, err := store.UnseenNotifications(ctx)
+	got, err := store.UnseenNotifications(ctx, projA)
 	if err != nil {
 		t.Fatalf("UnseenNotifications: %v", err)
 	}
@@ -384,25 +412,25 @@ func TestIntegration_MarkSeen_StampsUpToHighWaterAndEmitsFeedUpdated(t *testing.
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	n1, err := store.PostNotification(ctx, "update", "one", nil, nil)
+	n1, err := store.PostNotification(ctx, projA, "update", "one", nil, nil)
 	if err != nil {
 		t.Fatalf("post one: %v", err)
 	}
-	n2, err := store.PostNotification(ctx, "update", "two", nil, nil)
+	n2, err := store.PostNotification(ctx, projA, "update", "two", nil, nil)
 	if err != nil {
 		t.Fatalf("post two: %v", err)
 	}
-	n3, err := store.PostNotification(ctx, "update", "three", nil, nil)
+	n3, err := store.PostNotification(ctx, projA, "update", "three", nil, nil)
 	if err != nil {
 		t.Fatalf("post three: %v", err)
 	}
 
 	// Seen up to n2: n1 and n2 stamped, n3 still unseen.
-	if err := store.MarkSeen(ctx, n2.ID); err != nil {
+	if err := store.MarkSeen(ctx, projA, n2.ID); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
 
-	got, err := store.UnseenNotifications(ctx)
+	got, err := store.UnseenNotifications(ctx, projA)
 	if err != nil {
 		t.Fatalf("UnseenNotifications: %v", err)
 	}
@@ -440,21 +468,21 @@ func TestIntegration_RecentNotifications_RetainsSeenTrimsPageFlagsMore(t *testin
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	n1, _ := store.PostNotification(ctx, "update", "one", nil, nil)
-	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
-	n3, _ := store.PostNotification(ctx, "update", "three", nil, nil)
-	retr, _ := store.PostNotification(ctx, "update", "gone", nil, nil)
+	n1, _ := store.PostNotification(ctx, projA, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, projA, "update", "two", nil, nil)
+	n3, _ := store.PostNotification(ctx, projA, "update", "three", nil, nil)
+	retr, _ := store.PostNotification(ctx, projA, "update", "gone", nil, nil)
 
 	// Seen up to n2, and retract the fourth. Seen rows must stay; retracted must go.
-	if err := store.MarkSeen(ctx, n2.ID); err != nil {
+	if err := store.MarkSeen(ctx, projA, n2.ID); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
-	if err := store.RetractNotification(ctx, retr.ID); err != nil {
+	if err := store.RetractNotification(ctx, projA, retr.ID); err != nil {
 		t.Fatalf("RetractNotification: %v", err)
 	}
 
 	// Full page: all three unretracted, newest-first (seen retained).
-	got, more, err := store.RecentNotifications(ctx, 30)
+	got, more, err := store.RecentNotifications(ctx, projA, 30)
 	if err != nil {
 		t.Fatalf("RecentNotifications: %v", err)
 	}
@@ -466,7 +494,7 @@ func TestIntegration_RecentNotifications_RetainsSeenTrimsPageFlagsMore(t *testin
 	}
 
 	// Small page trims to the newest and flags more remaining.
-	page, more, err := store.RecentNotifications(ctx, 2)
+	page, more, err := store.RecentNotifications(ctx, projA, 2)
 	if err != nil {
 		t.Fatalf("RecentNotifications(2): %v", err)
 	}
@@ -481,11 +509,11 @@ func TestIntegration_HistoryBefore_KeysetPagesOlder(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	n1, _ := store.PostNotification(ctx, "update", "one", nil, nil)
-	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
-	n3, _ := store.PostNotification(ctx, "update", "three", nil, nil)
+	n1, _ := store.PostNotification(ctx, projA, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, projA, "update", "two", nil, nil)
+	n3, _ := store.PostNotification(ctx, projA, "update", "three", nil, nil)
 
-	got, more, err := store.HistoryBefore(ctx, n3.ID, 1)
+	got, more, err := store.HistoryBefore(ctx, projA, n3.ID, 1)
 	if err != nil {
 		t.Fatalf("HistoryBefore: %v", err)
 	}
@@ -493,7 +521,7 @@ func TestIntegration_HistoryBefore_KeysetPagesOlder(t *testing.T) {
 		t.Fatalf("history before n3 (limit 1) = %+v more=%v, want [n2] more=true", got, more)
 	}
 
-	got, more, err = store.HistoryBefore(ctx, n2.ID, 10)
+	got, more, err = store.HistoryBefore(ctx, projA, n2.ID, 10)
 	if err != nil {
 		t.Fatalf("HistoryBefore: %v", err)
 	}
@@ -509,22 +537,22 @@ func TestIntegration_LastSeenID_And_UnseenCount(t *testing.T) {
 	ctx := context.Background()
 
 	// Nothing seen yet.
-	if id, err := store.LastSeenID(ctx); err != nil || id != nil {
+	if id, err := store.LastSeenID(ctx, projA); err != nil || id != nil {
 		t.Fatalf("LastSeenID on empty = (%v, %v), want (nil, nil)", id, err)
 	}
 
-	store.PostNotification(ctx, "update", "one", nil, nil)
-	n2, _ := store.PostNotification(ctx, "update", "two", nil, nil)
-	store.PostNotification(ctx, "update", "three", nil, nil)
+	store.PostNotification(ctx, projA, "update", "one", nil, nil)
+	n2, _ := store.PostNotification(ctx, projA, "update", "two", nil, nil)
+	store.PostNotification(ctx, projA, "update", "three", nil, nil)
 
-	if err := store.MarkSeen(ctx, n2.ID); err != nil {
+	if err := store.MarkSeen(ctx, projA, n2.ID); err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
-	id, err := store.LastSeenID(ctx)
+	id, err := store.LastSeenID(ctx, projA)
 	if err != nil || id == nil || *id != n2.ID {
 		t.Fatalf("LastSeenID = (%v, %v), want %d", id, err, n2.ID)
 	}
-	count, err := store.UnseenCount(ctx)
+	count, err := store.UnseenCount(ctx, projA)
 	if err != nil || count != 1 {
 		t.Fatalf("UnseenCount = (%d, %v), want 1 (only the newest is unseen)", count, err)
 	}
@@ -539,7 +567,7 @@ func TestIntegration_ClaimNextDue_OrdersByIDAndIncrementsAttempts(t *testing.T) 
 
 	ids := make([]int64, 0, 3)
 	for i := range 3 {
-		id, err := store.InsertEvent(ctx, runtime.EventHumanMessage, fmt.Appendf(nil, `{"text":"m%d"}`, i))
+		id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, fmt.Appendf(nil, `{"text":"m%d"}`, i))
 		if err != nil {
 			t.Fatalf("InsertEvent %d: %v", i, err)
 		}
@@ -547,7 +575,7 @@ func TestIntegration_ClaimNextDue_OrdersByIDAndIncrementsAttempts(t *testing.T) 
 	}
 
 	for i, wantID := range ids {
-		entry, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents)
+		entry, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents, nil)
 		if err != nil {
 			t.Fatalf("ClaimNextDue #%d: %v", i, err)
 		}
@@ -563,7 +591,7 @@ func TestIntegration_ClaimNextDue_OrdersByIDAndIncrementsAttempts(t *testing.T) 
 	}
 
 	// A 4th claim on an exhausted queue must report nothing due.
-	_, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents)
+	_, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents, nil)
 	if err != nil {
 		t.Fatalf("ClaimNextDue on exhausted queue: %v", err)
 	}
@@ -577,11 +605,11 @@ func TestIntegration_MarkDone_SetsStatusDoneAndProcessedAt(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	id, err := store.InsertEvent(ctx, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
+	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
-	if _, _, err := store.ClaimNextDue(ctx, runtime.QueueEvents); err != nil {
+	if _, _, err := store.ClaimNextDue(ctx, runtime.QueueEvents, nil); err != nil {
 		t.Fatalf("ClaimNextDue: %v", err)
 	}
 	if err := store.MarkDone(ctx, runtime.QueueEvents, id); err != nil {
@@ -607,11 +635,11 @@ func TestIntegration_MarkRetry_SetsBackoffAndKeepsRowPending(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	id, err := store.InsertEvent(ctx, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
+	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
-	if _, _, err = store.ClaimNextDue(ctx, runtime.QueueEvents); err != nil {
+	if _, _, err = store.ClaimNextDue(ctx, runtime.QueueEvents, nil); err != nil {
 		t.Fatalf("ClaimNextDue: %v", err)
 	}
 	future := time.Now().Add(time.Hour)
@@ -637,7 +665,7 @@ func TestIntegration_MarkRetry_SetsBackoffAndKeepsRowPending(t *testing.T) {
 	}
 
 	// Not due yet: a fresh claim must skip this row.
-	_, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents)
+	_, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents, nil)
 	if err != nil {
 		t.Fatalf("ClaimNextDue: %v", err)
 	}
@@ -651,11 +679,11 @@ func TestIntegration_MarkDead_SetsStatusDead(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	id, err := store.InsertEvent(ctx, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
+	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
-	if _, _, err = store.ClaimNextDue(ctx, runtime.QueueEvents); err != nil {
+	if _, _, err = store.ClaimNextDue(ctx, runtime.QueueEvents, nil); err != nil {
 		t.Fatalf("ClaimNextDue: %v", err)
 	}
 	if err = store.MarkDead(ctx, runtime.QueueEvents, id, "gave up"); err != nil {
@@ -674,7 +702,7 @@ func TestIntegration_MarkDead_SetsStatusDead(t *testing.T) {
 		t.Errorf("last_error = %q, want %q", lastError, "gave up")
 	}
 
-	_, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents)
+	_, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents, nil)
 	if err != nil {
 		t.Fatalf("ClaimNextDue: %v", err)
 	}
@@ -690,7 +718,7 @@ func TestIntegration_AppendUserMessageAndEnqueueEvent_InsertsBothRows(t *testing
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	msgID, evID, err := store.AppendUserMessageAndEnqueueEvent(ctx, "build the widget")
+	msgID, evID, err := store.AppendUserMessageAndEnqueueEvent(ctx, projA, "build the widget")
 	if err != nil {
 		t.Fatalf("AppendUserMessageAndEnqueueEvent: %v", err)
 	}
@@ -736,7 +764,7 @@ func TestIntegration_AppendUserMessageAndEnqueueEvent_AtomicOnFailure(t *testing
 	// not just an unconditional stub error (a stub that never touches the
 	// database would trivially "pass" the no-row-persisted assertion below
 	// without proving anything about transactions).
-	if _, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, "sanity-check-normal-path"); err != nil {
+	if _, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, projA, "sanity-check-normal-path"); err != nil {
 		t.Fatalf("sanity call before inducing failure: unexpected error: %v", err)
 	}
 
@@ -751,7 +779,7 @@ func TestIntegration_AppendUserMessageAndEnqueueEvent_AtomicOnFailure(t *testing
 	})
 
 	const text = "this must not survive a failed enqueue"
-	_, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, text)
+	_, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, projA, text)
 	if err == nil {
 		t.Fatal("AppendUserMessageAndEnqueueEvent succeeded with the events table missing; want an error")
 	}
@@ -778,21 +806,21 @@ func TestIntegration_AppendKilnMessageAndRecent_OldestFirst(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	if _, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, "first"); err != nil {
+	if _, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, projA, "first"); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	kiln, err := store.AppendKilnMessage(ctx, "second")
+	kiln, err := store.AppendKilnMessage(ctx, projA, "second")
 	if err != nil {
 		t.Fatalf("AppendKilnMessage: %v", err)
 	}
 	if kiln.Role != runtime.RoleKiln || kiln.Text != "second" {
 		t.Errorf("AppendKilnMessage returned %+v, want Role=kiln Text=second", kiln)
 	}
-	if _, _, err = store.AppendUserMessageAndEnqueueEvent(ctx, "third"); err != nil {
+	if _, _, err = store.AppendUserMessageAndEnqueueEvent(ctx, projA, "third"); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
-	got, err := store.Recent(ctx, 2)
+	got, err := store.Recent(ctx, projA, 2)
 	if err != nil {
 		t.Fatalf("Recent: %v", err)
 	}
@@ -803,11 +831,178 @@ func TestIntegration_AppendKilnMessageAndRecent_OldestFirst(t *testing.T) {
 		t.Errorf("Recent(2) = [%q, %q], want oldest-first [second, third]", got[0].Text, got[1].Text)
 	}
 
-	all, err := store.Recent(ctx, 50)
+	all, err := store.Recent(ctx, projA, 50)
 	if err != nil {
 		t.Fatalf("Recent(50): %v", err)
 	}
 	if len(all) != 3 || all[0].Text != "first" {
 		t.Errorf("Recent(50) = %v, want 3 rows oldest-first starting with 'first'", all)
+	}
+}
+
+// ---- tenancy (11 §3): claim round-trip, busy exclusion, per-project reads --
+
+// The claim must round-trip the tenant: an event inserted under a project
+// comes back with that ProjectID, the busy set excludes that project's rows
+// (per-project serialization's ground truth), and an empty busy set claims
+// anything due.
+func TestIntegration_ClaimNextDue_RoundTripsProjectIDAndHonorsBusyExclusion(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	a1, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"a1"}`))
+	if err != nil {
+		t.Fatalf("InsertEvent a1: %v", err)
+	}
+	if _, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"a2"}`)); err != nil {
+		t.Fatalf("InsertEvent a2: %v", err)
+	}
+	b1, err := store.InsertEvent(ctx, projB, runtime.EventHumanMessage, []byte(`{"text":"b1"}`))
+	if err != nil {
+		t.Fatalf("InsertEvent b1: %v", err)
+	}
+
+	// With project A busy, the claim must skip a1/a2 (lower ids) and take b1.
+	entry, ok, err := store.ClaimNextDue(ctx, runtime.QueueEvents, []string{projA})
+	if err != nil || !ok {
+		t.Fatalf("ClaimNextDue(busy=[A]) = ok=%v err=%v, want b1 claimable", ok, err)
+	}
+	if entry.ID != b1 || entry.ProjectID != projB {
+		t.Errorf("ClaimNextDue(busy=[A]) = id=%d project=%q, want id=%d project=%q (busy exclusion, 11 §3)",
+			entry.ID, entry.ProjectID, b1, projB)
+	}
+
+	// With both projects busy, nothing is claimable.
+	_, ok, err = store.ClaimNextDue(ctx, runtime.QueueEvents, []string{projA, projB})
+	if err != nil {
+		t.Fatalf("ClaimNextDue(busy=[A,B]): %v", err)
+	}
+	if ok {
+		t.Error("ClaimNextDue(busy=[A,B]) claimed an entry, want nothing due")
+	}
+
+	// Empty busy claims anything due — id order, so a1 first, with its project.
+	entry, ok, err = store.ClaimNextDue(ctx, runtime.QueueEvents, nil)
+	if err != nil || !ok {
+		t.Fatalf("ClaimNextDue(busy=[]) = ok=%v err=%v, want a1 claimable", ok, err)
+	}
+	if entry.ID != a1 || entry.ProjectID != projA {
+		t.Errorf("ClaimNextDue(busy=[]) = id=%d project=%q, want id=%d project=%q (empty busy claims anything)",
+			entry.ID, entry.ProjectID, a1, projA)
+	}
+}
+
+// The transcript is walled per project: Recent(A) never returns B's rows, and
+// the transactional append stamps project_id on BOTH the message and the
+// enqueued event.
+func TestIntegration_Transcript_ScopedPerProject(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	if _, _, err := store.AppendUserMessageAndEnqueueEvent(ctx, projA, "a says hi"); err != nil {
+		t.Fatalf("append A: %v", err)
+	}
+	if _, err := store.AppendKilnMessage(ctx, projA, "kiln to a"); err != nil {
+		t.Fatalf("append kiln A: %v", err)
+	}
+	msgB, evB, err := store.AppendUserMessageAndEnqueueEvent(ctx, projB, "b says hi")
+	if err != nil {
+		t.Fatalf("append B: %v", err)
+	}
+
+	gotA, err := store.Recent(ctx, projA, 50)
+	if err != nil {
+		t.Fatalf("Recent(A): %v", err)
+	}
+	if len(gotA) != 2 || gotA[0].Text != "a says hi" || gotA[1].Text != "kiln to a" {
+		t.Errorf("Recent(A) = %+v, want exactly A's two rows, oldest first", gotA)
+	}
+	gotB, err := store.Recent(ctx, projB, 50)
+	if err != nil {
+		t.Fatalf("Recent(B): %v", err)
+	}
+	if len(gotB) != 1 || gotB[0].Text != "b says hi" {
+		t.Errorf("Recent(B) = %+v, want only B's row (tenant wall, 11 §3)", gotB)
+	}
+
+	var msgProj, evProj string
+	if err := db.QueryRowContext(ctx,
+		`SELECT project_id FROM messages WHERE id = $1`, msgB).Scan(&msgProj); err != nil {
+		t.Fatalf("query message project: %v", err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT project_id FROM events WHERE id = $1`, evB).Scan(&evProj); err != nil {
+		t.Fatalf("query event project: %v", err)
+	}
+	if msgProj != projB || evProj != projB {
+		t.Errorf("append stamped (message=%q, event=%q), want both %q", msgProj, evProj, projB)
+	}
+}
+
+// Notifications are walled per project: reads scope to the asked project,
+// cross-project mutations are no-ops, and the feed.updated fan-out row
+// carries the mutating project's id.
+func TestIntegration_Notifications_ScopedPerProject(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	nA, err := store.PostNotification(ctx, projA, "update", "a note", nil, nil)
+	if err != nil {
+		t.Fatalf("post A: %v", err)
+	}
+	nB, err := store.PostNotification(ctx, projB, "update", "b note", nil, nil)
+	if err != nil {
+		t.Fatalf("post B: %v", err)
+	}
+
+	// Reads scope to the asked project.
+	recentA, _, err := store.RecentNotifications(ctx, projA, 30)
+	if err != nil {
+		t.Fatalf("RecentNotifications(A): %v", err)
+	}
+	if len(recentA) != 1 || recentA[0].ID != nA.ID {
+		t.Errorf("RecentNotifications(A) = %+v, want only A's note (tenant wall, 11 §3)", recentA)
+	}
+	if count, err := store.UnseenCount(ctx, projB); err != nil || count != 1 {
+		t.Errorf("UnseenCount(B) = (%d, %v), want 1 (B's own note only)", count, err)
+	}
+
+	// Cross-project retract is a silent no-op: A cannot clear B's card.
+	if err := store.RetractNotification(ctx, projA, nB.ID); err != nil {
+		t.Fatalf("cross-project retract: %v", err)
+	}
+	var retracted sql.NullTime
+	if err := db.QueryRowContext(ctx,
+		`SELECT retracted_at FROM notifications WHERE id = $1`, nB.ID).Scan(&retracted); err != nil {
+		t.Fatalf("query B's row: %v", err)
+	}
+	if retracted.Valid {
+		t.Error("project A retracted project B's notification; the project_id predicate must forbid it (11 §3)")
+	}
+
+	// MarkSeen is scoped too: stamping A's high-water leaves B unseen.
+	if err := store.MarkSeen(ctx, projA, nB.ID); err != nil {
+		t.Fatalf("MarkSeen(A): %v", err)
+	}
+	if id, err := store.LastSeenID(ctx, projB); err != nil || id != nil {
+		t.Errorf("LastSeenID(B) = (%v, %v) after MarkSeen(A), want (nil, nil)", id, err)
+	}
+	if id, err := store.LastSeenID(ctx, projA); err != nil || id == nil || *id != nA.ID {
+		t.Errorf("LastSeenID(A) = (%v, %v), want A's own %d", id, err, nA.ID)
+	}
+
+	// The fan-out rows carry the mutating project's id.
+	var aRows int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM outbox WHERE topic = 'feed.updated' AND project_id = $1`, projA).
+		Scan(&aRows); err != nil {
+		t.Fatalf("count A's feed.updated rows: %v", err)
+	}
+	// A's post + A's (no-op) retract + A's mark-seen = 3.
+	if aRows != 3 {
+		t.Errorf("feed.updated rows for project A = %d, want 3 (post, retract, mark-seen)", aRows)
 	}
 }

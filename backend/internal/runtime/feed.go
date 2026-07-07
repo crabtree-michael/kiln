@@ -40,10 +40,11 @@ type BoardView struct {
 }
 
 // BoardReader is the runtime's read-only port onto board state for feed
-// assembly (08 §3). Implemented by a composition-root adapter over
-// *board.Service (this module holds no board import).
+// assembly (08 §3), scoped to one project's board (11 §3). Implemented by a
+// composition-root adapter over *board.Service (this module holds no board
+// import).
 type BoardReader interface {
-	BoardView(ctx context.Context) (BoardView, error)
+	BoardView(ctx context.Context, projectID string) (BoardView, error)
 }
 
 // FeedCard is one backlog item on the primary screen (08 §3): a blocker,
@@ -107,15 +108,16 @@ type ActivityEvent struct {
 }
 
 // FeedPusher is the runtime's port onto the api SSE hub's feed fan-out (08
-// §3): push a fresh absolute FeedSnapshot to every connected client. Mirrors
-// SayPusher; implemented by the api package's Hub.
+// §3): push a fresh absolute FeedSnapshot to the project's connected clients
+// (11 §3). Mirrors SayPusher; implemented by the api package's Hub.
 type FeedPusher interface {
-	PushFeed(ctx context.Context, snap FeedSnapshot) error
+	PushFeed(ctx context.Context, projectID string, snap FeedSnapshot) error
 }
 
 // ActivityPusher is the runtime's port onto the api SSE hub's activity
-// fan-out (08 §4): push one ephemeral ActivityEvent to every connected
-// client. Mirrors SayPusher; implemented by the api package's Hub.
+// fan-out (08 §4): push one ephemeral ActivityEvent to the project's
+// connected clients (11 §3). Mirrors SayPusher; implemented by the api
+// package's Hub.
 type ActivityPusher interface {
-	PushActivity(ctx context.Context, ev ActivityEvent) error
+	PushActivity(ctx context.Context, projectID string, ev ActivityEvent) error
 }

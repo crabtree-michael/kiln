@@ -1146,26 +1146,20 @@
 }
 
 /* The "Kiln is thinking" tell reads as a live ember rather than a mechanical
-   spinner: a warm coal that glows and flickers, matching the mic-listening ring
-   and the building-dot pulse (the app's on-brand motion language). Two loops of
-   different, coprime-ish durations run at once — a slow glow breathe and a
-   faster brightness flicker — so their beat never lines up cleanly and the
-   flame never repeats the same way twice. */
-[data-role='thinking-ember'] {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  /* Hot core (fire-300) melting out to a deeper fire edge — a coal, not a flat dot. */
-  background: radial-gradient(circle at 50% 38%, var(--fire-300), var(--accent) 72%);
-  animation:
-    kiln-ember-glow 2.2s ease-in-out infinite,
-    kiln-ember-flicker 1.5s ease-in-out infinite;
-}
-
+   spinner: the text sits in a calm muted grey and a warm red glow breathes and
+   flickers around it, matching the mic-listening ring and the building-dot pulse
+   (the app's on-brand motion language). Two loops of different, coprime-ish
+   durations run at once — a slow glow breathe and a faster brightness flicker —
+   so their beat never lines up cleanly and the flame never repeats the same way
+   twice. */
 [data-role='thinking-text'] {
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--accent);
+  /* Muted grey text; the life comes from the red glow pulsing around it. */
+  color: var(--text-muted);
+  animation:
+    kiln-thinking-glow 2.2s ease-in-out infinite,
+    kiln-thinking-flicker 1.5s ease-in-out infinite;
 }
 
 [data-role='toast-pill'] {
@@ -1675,23 +1669,25 @@
 /* Ember glow: heat radiating off the coal. A tight fire ring inside a wider
    ember (amber) halo that breathes wider at the peak — the same two-layer
    box-shadow idea as the mic-listening ring, warmed toward ember. */
-@keyframes kiln-ember-glow {
+/* Thinking glow: a red halo (accent/fire red) breathes around the text via
+   text-shadow, so the words themselves pulse rather than a separate orb. */
+@keyframes kiln-thinking-glow {
   0%,
   100% {
-    box-shadow:
-      0 0 4px 0 var(--accent-soft),
-      0 0 9px 1px var(--warn-soft);
+    text-shadow:
+      0 0 4px var(--accent-soft),
+      0 0 9px var(--accent);
   }
   50% {
-    box-shadow:
-      0 0 7px 1px var(--accent-soft),
-      0 0 15px 3px var(--warn-soft);
+    text-shadow:
+      0 0 7px var(--accent-soft),
+      0 0 15px var(--accent);
   }
 }
 
-/* Ember flicker: brightness and opacity jitter at irregular stops so the coal
-   guts pulse like a real flame instead of a smooth sine. */
-@keyframes kiln-ember-flicker {
+/* Thinking flicker: brightness and opacity jitter at irregular stops so the glow
+   pulses like a real flame instead of a smooth sine. */
+@keyframes kiln-thinking-flicker {
   0% {
     filter: brightness(1);
     opacity: 0.92;
@@ -1731,15 +1727,14 @@
     animation: none;
   }
 
-  /* Reduced motion: still no rotation, and no flicker — but keep a static warm
-     ember glow so the "thinking" state stays legible, mirroring how the
+  /* Reduced motion: no breathe and no flicker — but keep a static warm red glow
+     around the text so the "thinking" state stays legible, mirroring how the
      listening ring and building dot degrade. */
-  [data-role='thinking-ember'] {
+  [data-role='thinking-text'] {
     animation: none;
-    opacity: 1;
-    box-shadow:
-      0 0 4px 0 var(--accent-soft),
-      0 0 9px 1px var(--warn-soft);
+    text-shadow:
+      0 0 4px var(--accent-soft),
+      0 0 9px var(--accent);
   }
 
   /* Reduced motion: drop the breathing pulse for motion-sensitive users, but keep

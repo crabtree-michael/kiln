@@ -79,10 +79,6 @@ exports[`ActivityRow > matches the DOM-structure snapshot: thinking indicator (6
       data-role="thinking-indicator"
     >
       <span
-        aria-hidden="true"
-        data-role="thinking-ember"
-      />
-      <span
         data-role="thinking-text"
       >
         Kiln is thinking…

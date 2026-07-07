@@ -129,13 +129,13 @@
 }
 
 [data-role='kiln-glyph'] {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
 }
 
 [data-role='kiln-wordmark'] {
   font-weight: 700;
-  font-size: 28px;
+  font-size: 25px;
   letter-spacing: -0.01em;
   color: var(--accent);
 }
@@ -184,10 +184,11 @@
 }
 
 [data-role='notify-bell'] {
-  /* Sized to sit in proportion with the 12.5px stream-status label beside it
-   * (icon ~1.2x the text) so the header-actions cluster reads at one scale. */
-  width: 15px;
-  height: 15px;
+  /* Sized to sit in proportion with the 18px stream-status label beside it
+   * (icon ~1.2x the text) so the header-actions cluster reads at one scale —
+   * scaled up toward the brand lockup so the two sides of the bar cohere. */
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -220,10 +221,10 @@
 }
 
 [data-role='clear-all-trash'] {
-  /* Matches the bell (15px) so the two cluster affordances share one scale and
+  /* Matches the bell (22px) so the two cluster affordances share one scale and
    * stay in proportion with the neighbouring status label. */
-  width: 15px;
-  height: 15px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -379,7 +380,7 @@
   align-items: center;
   gap: 6px;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 18px;
   color: var(--text-muted);
   background: none;
   border: none;

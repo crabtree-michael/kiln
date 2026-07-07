@@ -182,6 +182,64 @@ func TestUpsertUserFindsOrCreates(t *testing.T) {
 	}
 }
 
+// TestUpsertUserAdoptsBootstrapRowOnRealLogin reproduces the prod-rollout /
+// bootstrap-from-env case (11 §7): the operator's user is first created with a
+// SYNTHETIC github_id (EnsureUser's fnv stand-in), then the same human signs in
+// via real GitHub OAuth carrying a DIFFERENT, authoritative github_id under the
+// same login. UpsertUser must adopt the existing row (same primary key, so the
+// operator keeps their project/config) and stamp the real id — never collide on
+// the github_login unique constraint.
+func TestUpsertUserAdoptsBootstrapRowOnRealLogin(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	// Bootstrap/dev create with a synthetic id.
+	seeded := mustNewUser(ctx, t, store, identity.User{
+		GitHubID:    999999999, // fnv-style stand-in
+		GitHubLogin: "crabtree-michael",
+		DisplayName: "crabtree-michael",
+	})
+
+	// Real OAuth arrives: same login, real numeric id, richer profile.
+	adopted, err := store.UpsertUser(ctx, identity.User{
+		GitHubID:    101582150,
+		GitHubLogin: "crabtree-michael",
+		DisplayName: "Michael Crabtree",
+		AvatarURL:   "https://example.com/real.png",
+	})
+	if err != nil {
+		t.Fatalf("real-login UpsertUser after bootstrap must not collide: %v", err)
+	}
+	if adopted.ID != seeded.ID {
+		t.Fatalf("real login created a NEW row (id=%s) instead of adopting the bootstrap row (id=%s)", adopted.ID, seeded.ID)
+	}
+	if adopted.GitHubID != 101582150 {
+		t.Fatalf("adopted row github_id = %d, want the real id 101582150 stamped on", adopted.GitHubID)
+	}
+	if adopted.DisplayName != "Michael Crabtree" || adopted.AvatarURL != "https://example.com/real.png" {
+		t.Fatalf("adopted row did not refresh profile: %+v", adopted)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE github_login = 'crabtree-michael'`).Scan(&count); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("users row count for login=crabtree-michael = %d, want 1 (adopt, never duplicate)", count)
+	}
+
+	// A subsequent real login (now id matches) still resolves to the same row.
+	again := mustNewUser(ctx, t, store, identity.User{
+		GitHubID:    101582150,
+		GitHubLogin: "crabtree-michael",
+		DisplayName: "Michael Crabtree",
+	})
+	if again.ID != seeded.ID {
+		t.Fatalf("repeat real login created id=%s, want stable %s", again.ID, seeded.ID)
+	}
+}
+
 // ---- Session lifecycle: insert, resolve joined, touch extends, delete -----
 
 func TestSessionLifecycle(t *testing.T) {

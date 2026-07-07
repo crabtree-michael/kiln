@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
+	"github.com/crabtree-michael/kiln/backend/internal/pgutil"
 )
 
 // userColumns is the canonical projection for a user row, shared by every
@@ -32,21 +33,57 @@ var _ identity.Store = (*Store)(nil)
 // startup (mirrors board/postgres.New).
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-// UpsertUser finds-or-creates by GitHubID, refreshing login/name/avatar on
-// every login (GitHub users can rename).
+// UpsertUser reconciles a GitHub identity into a single users row. Two callers
+// reach it with different notions of github_id: real OAuth logins carry the
+// authoritative GitHub numeric id, while the bootstrap-from-env and dev
+// find-or-create (EnsureUser) carry a synthetic fnv id standing in for the
+// login (11 §7). The stable bridge across both is github_login, so a plain
+// ON CONFLICT (github_id) upsert is wrong: a bootstrapped operator's later real
+// sign-in arrives with a *different* id under the *same* login and collides on
+// the github_login unique constraint. The reconcile is therefore three-step,
+// in one transaction:
+//  1. adopt by github_id — a repeat login, and login renames (login refreshed);
+//  2. else adopt by github_login — a synthetic-id row (bootstrap/dev) being
+//     claimed by its real OAuth id, stamping the authoritative id onto the row
+//     so the owner keeps their existing project/config;
+//  3. else insert — first sighting of this identity.
 func (s *Store) UpsertUser(ctx context.Context, u identity.User) (identity.User, error) {
-	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO users (github_id, github_login, display_name, avatar_url)
-		VALUES ($1, lower($2), $3, $4)
-		ON CONFLICT (github_id) DO UPDATE
-		  SET github_login = EXCLUDED.github_login,
-		      display_name = EXCLUDED.display_name,
-		      avatar_url   = EXCLUDED.avatar_url
-		RETURNING `+userColumns,
-		u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL)
-	out, err := scanUser(row)
-	if err != nil {
-		return identity.User{}, fmt.Errorf("identity/postgres: upsert user: %w", err)
+	var out identity.User
+	txErr := pgutil.InTx(ctx, s.db, nil, func(tx *sql.Tx) error {
+		var err error
+		out, err = scanUser(tx.QueryRowContext(ctx, `
+			UPDATE users
+			   SET github_login = lower($2), display_name = $3, avatar_url = $4
+			 WHERE github_id = $1
+			RETURNING `+userColumns,
+			u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL))
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		out, err = scanUser(tx.QueryRowContext(ctx, `
+			UPDATE users
+			   SET github_id = $1, display_name = $3, avatar_url = $4
+			 WHERE github_login = lower($2)
+			RETURNING `+userColumns,
+			u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL))
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		out, err = scanUser(tx.QueryRowContext(ctx, `
+			INSERT INTO users (github_id, github_login, display_name, avatar_url)
+			VALUES ($1, lower($2), $3, $4)
+			RETURNING `+userColumns,
+			u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL))
+		return err
+	})
+	if txErr != nil {
+		return identity.User{}, fmt.Errorf("identity/postgres: upsert user: %w", txErr)
 	}
 	return out, nil
 }

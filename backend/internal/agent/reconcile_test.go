@@ -10,6 +10,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -100,7 +101,7 @@ func TestRun_ReconcileCreatesOnlyMissingWorkers(t *testing.T) {
 	provider := newReconcileProvider() // no live workers at all
 	slots := &fakeSlots{ids: []string{reconcileWorkerA, reconcileWorkerB}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
+	svc := newService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()
@@ -116,7 +117,7 @@ func TestRun_ReconcileAdoptsExistingWorkersWithoutRecreating(t *testing.T) {
 	provider := newReconcileProvider(agent.ProviderWorker{Name: existingName, Ref: "already-provisioned"})
 	slots := &fakeSlots{ids: []string{reconcileWorkerA, reconcileWorkerB}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
+	svc := newService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()
@@ -148,8 +149,10 @@ func TestRun_ReconcileScopesSweepToConfiguredPrefix(t *testing.T) {
 	)
 	slots := &fakeSlots{ids: []string{reconcileWorkerA}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil,
-		agent.WithWorkerPrefix(prefix))
+	// The project's resolver hands back the environment-scoped prefix (11 §3);
+	// the reconciler must scope its sweep to it.
+	resolver := &fakeResolver{def: &resolved{provider: provider, prefix: prefix}}
+	svc := agent.NewService(newFakeStore(), resolver, oneProject(), &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()
@@ -172,16 +175,103 @@ func TestListAgents_TrimsConfiguredPrefix(t *testing.T) {
 	provider := newReconcileProvider(
 		agent.ProviderWorker{Name: prefix + reconcileWorkerA, Ref: "ra", Status: agent.RunReady},
 	)
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, nil, testutil.NewFakeClock(), nil,
-		agent.WithWorkerPrefix(prefix))
+	resolver := &fakeResolver{def: &resolved{provider: provider, prefix: prefix}}
+	svc := agent.NewService(newFakeStore(), resolver, oneProject(), &fakeEvents{}, nil, testutil.NewFakeClock(), nil)
 
-	infos, err := svc.ListAgents(context.Background())
+	infos, err := svc.ListAgents(context.Background(), testProject)
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
 	if len(infos) != 1 || infos[0].WorkerID != reconcileWorkerA {
 		t.Errorf("ListAgents must derive worker ids by trimming the configured prefix, got %+v", infos)
 	}
+}
+
+// errNoCredential stands in for a resolver miss — a project whose provider
+// cannot be resolved (e.g. a missing credential).
+var errNoCredential = errors.New("no provider credential for project")
+
+// Multi-tenancy (11 §3): the reconciler sweeps each project against its OWN
+// provider and prefix. Two projects, two providers, two prefixes — each gets
+// its own slot provisioned and its own orphan swept, and neither provider is
+// ever touched on the other project's behalf.
+func TestRun_ReconcileScopesEachProjectToItsOwnProviderAndPrefix(t *testing.T) {
+	const (
+		projectA, prefixA = "aaaa-project", "kiln-a-worker-"
+		projectB, prefixB = "bbbb-project", "kiln-b-worker-"
+	)
+	orphanA := prefixA + "orphan-a"
+	orphanB := prefixB + "orphan-b"
+	providerA := newReconcileProvider(agent.ProviderWorker{Name: orphanA, Ref: "oa"})
+	providerB := newReconcileProvider(agent.ProviderWorker{Name: orphanB, Ref: "ob"})
+
+	resolver := &fakeResolver{byProject: map[string]resolved{
+		projectA: {provider: providerA, prefix: prefixA},
+		projectB: {provider: providerB, prefix: prefixB},
+	}}
+	projects := &fakeProjects{ids: []string{projectA, projectB}}
+	slots := &fakeSlots{byProject: map[string][]string{
+		projectA: {reconcileWorkerA},
+		projectB: {reconcileWorkerB},
+	}}
+	clock := testutil.NewFakeClock()
+	svc := agent.NewService(newFakeStore(), resolver, projects, &fakeEvents{}, slots, clock, nil)
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	// Each project provisions its own slot under its own prefix and sweeps its
+	// own orphan.
+	testutil.Eventually(t, func() bool { return providerA.wasCreated(prefixA + reconcileWorkerA) })
+	testutil.Eventually(t, func() bool { return providerB.wasCreated(prefixB + reconcileWorkerB) })
+	testutil.Eventually(t, func() bool { return providerA.wasDestroyed(orphanA) })
+	testutil.Eventually(t, func() bool { return providerB.wasDestroyed(orphanB) })
+
+	// Give a few more sweeps a chance to run, then confirm strict isolation:
+	// neither provider ever provisioned the OTHER project's slot, and neither
+	// destroyed the other's live worker.
+	time.Sleep(150 * time.Millisecond)
+	if providerA.wasCreated(prefixB + reconcileWorkerB) {
+		t.Errorf("project A's reconcile must never provision on project B's behalf")
+	}
+	if providerB.wasCreated(prefixA + reconcileWorkerA) {
+		t.Errorf("project B's reconcile must never provision on project A's behalf")
+	}
+	if providerA.wasDestroyed(prefixA + reconcileWorkerA) {
+		t.Errorf("A's own live slot worker must not be swept as an orphan")
+	}
+	if providerB.wasDestroyed(prefixB + reconcileWorkerB) {
+		t.Errorf("B's own live slot worker must not be swept as an orphan")
+	}
+}
+
+// Failure isolation (spec §6): a project whose provider cannot be resolved is
+// logged and skipped; every other project keeps reconciling.
+func TestRun_ReconcileFailingResolverForOneProjectDoesNotStopOthers(t *testing.T) {
+	const (
+		brokenProject  = "broken-project"
+		healthyProject = "healthy-project"
+		healthyPrefix  = "kiln-ok-worker-"
+	)
+	providerB := newReconcileProvider()
+	resolver := &fakeResolver{
+		failFor:   map[string]error{brokenProject: errNoCredential},
+		byProject: map[string]resolved{healthyProject: {provider: providerB, prefix: healthyPrefix}},
+	}
+	projects := &fakeProjects{ids: []string{brokenProject, healthyProject}}
+	slots := &fakeSlots{byProject: map[string][]string{
+		brokenProject:  {reconcileWorkerA},
+		healthyProject: {reconcileWorkerB},
+	}}
+	clock := testutil.NewFakeClock()
+	svc := agent.NewService(newFakeStore(), resolver, projects, &fakeEvents{}, slots, clock, nil)
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	// The healthy project still provisions its slot despite the broken project's
+	// resolver failing on every sweep.
+	testutil.Eventually(t, func() bool { return providerB.wasCreated(healthyPrefix + reconcileWorkerB) })
 }
 
 func TestRun_ReconcileDestroysOrphanedWorkers(t *testing.T) {
@@ -193,7 +283,7 @@ func TestRun_ReconcileDestroysOrphanedWorkers(t *testing.T) {
 	)
 	slots := &fakeSlots{ids: []string{reconcileWorkerA}}
 	clock := testutil.NewFakeClock()
-	svc := agent.NewService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
+	svc := newService(newFakeStore(), provider, &fakeEvents{}, slots, clock, nil)
 
 	stop := runService(t, svc, clock)
 	defer stop()

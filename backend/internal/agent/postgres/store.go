@@ -17,7 +17,7 @@ import (
 )
 
 // columns is the full agent_turns projection every read scans.
-const columns = `idempotency_key, kind, ticket_id, worker_id, message, phase,
+const columns = `idempotency_key, kind, project_id, ticket_id, worker_id, message, phase,
 	provider_worker, provider_turn, attempts, last_error, created_at, updated_at`
 
 // Store implements agent.Store over Postgres.
@@ -39,13 +39,14 @@ func (s *Store) Record(ctx context.Context, t agent.Turn) (bool, error) {
 		return false, err
 	}
 	const q = `INSERT INTO agent_turns
-		(idempotency_key, kind, ticket_id, worker_id, message, phase,
+		(idempotency_key, kind, project_id, ticket_id, worker_id, message, phase,
 		 provider_worker, provider_turn, attempts, last_error)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (idempotency_key) DO NOTHING`
 	res, err := s.db.ExecContext(ctx, q,
-		t.IdempotencyKey, string(t.Kind), pgutil.NullString(t.TicketID), t.WorkerID, t.Message,
-		phaseValue(t.Phase), pgutil.NullString(t.ProviderWorker), providerTurn, t.Attempts, pgutil.NullString(t.LastError))
+		t.IdempotencyKey, string(t.Kind), pgutil.NullString(t.ProjectID), pgutil.NullString(t.TicketID),
+		t.WorkerID, t.Message, phaseValue(t.Phase), pgutil.NullString(t.ProviderWorker),
+		providerTurn, t.Attempts, pgutil.NullString(t.LastError))
 	if err != nil {
 		return false, fmt.Errorf("agent/postgres: record: %w", err)
 	}
@@ -120,19 +121,21 @@ func scanTurn(sc pgutil.RowScanner) (agent.Turn, error) {
 	var (
 		t              agent.Turn
 		kind, phase    string
+		project        sql.NullString
 		ticket         sql.NullString
 		providerWorker sql.NullString
 		lastError      sql.NullString
 		providerTurn   []byte
 	)
 	if err := sc.Scan(
-		&t.IdempotencyKey, &kind, &ticket, &t.WorkerID, &t.Message, &phase,
+		&t.IdempotencyKey, &kind, &project, &ticket, &t.WorkerID, &t.Message, &phase,
 		&providerWorker, &providerTurn, &t.Attempts, &lastError, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return agent.Turn{}, fmt.Errorf("agent/postgres: scan turn: %w", err)
 	}
 	t.Kind = agent.Kind(kind)
 	t.Phase = agent.Phase(phase)
+	t.ProjectID = project.String
 	t.TicketID = ticket.String
 	t.ProviderWorker = providerWorker.String
 	t.LastError = lastError.String

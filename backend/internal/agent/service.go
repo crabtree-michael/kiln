@@ -45,12 +45,21 @@ type EventEnqueuer interface {
 	EnqueueEvent(ctx context.Context, eventType string, payload []byte) (int64, error)
 }
 
-// Slots is this module's read-only port onto the board's capacity slots
-// (03 §2.3): the reconciler matches provider workers against these ids
-// (05 §4). Capacity questions stay the board's alone — this module never
-// counts (05 §3).
+// Projects is this module's read-only port onto the set of live projects the
+// reconciler must sweep (11 §3). Each tick asks for the current ids and
+// reconciles each against its own provider; a project that appears or vanishes
+// between ticks is picked up or dropped on the next sweep. Satisfied at the
+// composition root.
+type Projects interface {
+	ProjectIDs(ctx context.Context) ([]string, error)
+}
+
+// Slots is this module's read-only port onto one project's board capacity slots
+// (03 §2.3): the reconciler matches that project's provider workers against
+// these ids (05 §4). Capacity questions stay the board's alone — this module
+// never counts (05 §3). Scoped by projectID under multi-tenancy (11 §3).
 type Slots interface {
-	WorkerIDs(ctx context.Context) ([]string, error)
+	WorkerIDs(ctx context.Context, projectID string) ([]string, error)
 }
 
 // Clock abstracts time for the reconciler/poller so unit tests drive the
@@ -77,60 +86,45 @@ type BoardRefresher interface {
 // the port shape is runtime.AgentRuntime, matched structurally — this module
 // never imports the runtime), and owns the §5 turn state machine, the §4
 // pool reconciler, and the §5 poller, all written once against the Provider
-// port. Constructed at the composition root (05 §9); AGENT_MODE selects the
-// real or mock Provider there.
+// port. Under multi-tenancy (11 §3) it resolves a project's Provider and
+// worker-name prefix per project via the ProviderResolver — the reconciler
+// iterates every project, the poller resolves per turn — so one project's turns
+// and sweeps never touch another's provider or workers. Constructed at the
+// composition root (05 §9); AGENT_MODE selects the real or mock Provider there.
 type Service struct {
 	store     Store
-	provider  Provider
+	providers ProviderResolver
+	projects  Projects
 	events    EventEnqueuer
 	slots     Slots
 	clock     Clock
 	refresher BoardRefresher // may be nil (05 §9): no board push nudge on liveness change
-	prefix    string         // worker-name scope this instance owns (WithWorkerPrefix; default WorkerNamePrefix)
 
 	mu      sync.Mutex
-	workers map[string]ProviderWorker // provider-worker cache keyed by name
+	workers map[string]ProviderWorker // cache keyed by name; names are prefix-scoped so unique per project
 
 	statusMu   sync.Mutex             // guards lastStatus only — never held across a ListAgents call
 	lastStatus map[string]AgentStatus // worker id → last-pushed status, for the liveness diff
 }
 
-// Option tweaks a Service at construction time.
-type Option func(*Service)
-
-// WithWorkerPrefix scopes every provider-side worker name this instance owns
-// (creates, adopts, sweeps, resets) to prefix instead of the default
-// WorkerNamePrefix — per-environment isolation on a shared provider account
-// (05 §4, amended 2026-07-05): an instance must never destroy another
-// environment's workers.
-func WithWorkerPrefix(prefix string) Option {
-	return func(s *Service) {
-		if prefix != "" {
-			s.prefix = prefix
-		}
-	}
-}
-
-// NewService assembles the agent runtime over its ports. refresher is optional
-// (nil disables the liveness push nudge — e.g. in tests that do not exercise it).
+// NewService assembles the agent runtime over its ports. providers resolves a
+// project's Provider + worker-name prefix; projects enumerates the projects to
+// reconcile (11 §3). refresher is optional (nil disables the liveness push
+// nudge — e.g. in tests that do not exercise it).
 func NewService(
-	store Store, provider Provider, events EventEnqueuer, slots Slots, clock Clock, refresher BoardRefresher,
-	opts ...Option,
+	store Store, providers ProviderResolver, projects Projects,
+	events EventEnqueuer, slots Slots, clock Clock, refresher BoardRefresher,
 ) *Service {
-	s := &Service{
+	return &Service{
 		store:     store,
-		provider:  provider,
+		providers: providers,
+		projects:  projects,
 		events:    events,
 		slots:     slots,
 		clock:     clock,
 		refresher: refresher,
-		prefix:    WorkerNamePrefix,
 		workers:   map[string]ProviderWorker{},
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
 }
 
 // Send delivers one message to a worker (05 §2.1): decode the agent.send
@@ -139,7 +133,8 @@ func NewService(
 // provisioning or the turn; the machine owns progression (05 D2). A repeated
 // key is a silent success (04 §3). The first Send after a worker is
 // (re)created starts a fresh conversation; later Sends continue it — derived
-// from this module's own state (05 §2.1, §3).
+// from this module's own state (05 §2.1, §3). The payload's project_id is
+// persisted so the poller can resolve this turn's provider (11 §3).
 func (s *Service) Send(ctx context.Context, idempotencyKey int64, payload []byte) error {
 	var p SendPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
@@ -149,6 +144,7 @@ func (s *Service) Send(ctx context.Context, idempotencyKey int64, payload []byte
 	turn := Turn{
 		IdempotencyKey: idempotencyKey,
 		Kind:           KindSend,
+		ProjectID:      p.ProjectID,
 		TicketID:       p.TicketID,
 		WorkerID:       p.WorkerID,
 		Message:        p.Message,
@@ -161,6 +157,7 @@ func (s *Service) Send(ctx context.Context, idempotencyKey int64, payload []byte
 	// on the same ticket (ticket 841fb6cc).
 	slog.InfoContext(ctx, "agent.delivery.recorded",
 		"idem_key", idempotencyKey,
+		"project_id", p.ProjectID,
 		"ticket_id", p.TicketID,
 		"worker_id", p.WorkerID,
 		"instruction_hash", obs.Hash(p.Message),
@@ -188,10 +185,12 @@ func (s *Service) Release(ctx context.Context, idempotencyKey int64, payload []b
 	turn := Turn{
 		IdempotencyKey: idempotencyKey,
 		Kind:           KindRelease,
+		ProjectID:      p.ProjectID,
 		WorkerID:       p.WorkerID,
 		Phase:          PhaseRecorded,
 	}
-	slog.InfoContext(ctx, "agent.release.recorded", "idem_key", idempotencyKey, "worker_id", p.WorkerID)
+	slog.InfoContext(ctx, "agent.release.recorded",
+		"idem_key", idempotencyKey, "project_id", p.ProjectID, "worker_id", p.WorkerID)
 	if _, err := s.store.Record(ctx, turn); err != nil {
 		return fmt.Errorf("agent: record release: %w", err)
 	}
@@ -213,18 +212,24 @@ func (s *Service) Run(ctx context.Context) error {
 	return nil
 }
 
-// ListAgents reports every live worker this module owns with its neutral
+// ListAgents reports every live worker one project owns with its neutral
 // busy/idle status and current ticket binding (05 §2) — backs the brain's
-// list_agents tool. Status and ticket come from the module's own agent_turns
-// (LatestForWorker); no provider handle is exposed.
-func (s *Service) ListAgents(ctx context.Context) ([]AgentInfo, error) {
-	live, err := s.provider.ListWorkers(ctx)
+// list_agents tool. The project's provider + worker-name prefix come from the
+// resolver (11 §3), so the result is scoped to that project. Status and ticket
+// come from the module's own agent_turns (LatestForWorker); no provider handle
+// is exposed.
+func (s *Service) ListAgents(ctx context.Context, projectID string) ([]AgentInfo, error) {
+	provider, prefix, err := s.providers.For(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: resolve provider for project %q: %w", projectID, err)
+	}
+	live, err := provider.ListWorkers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent: list agents: %w", err)
 	}
 	out := make([]AgentInfo, 0, len(live))
 	for _, w := range live {
-		workerID := strings.TrimPrefix(w.Name, s.prefix)
+		workerID := strings.TrimPrefix(w.Name, prefix)
 		info := AgentInfo{WorkerID: workerID, Status: statusFor(w.Status, false)}
 		if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found {
 			info.UpdatedAt = prev.UpdatedAt
@@ -265,16 +270,21 @@ func statusFor(run RunStatus, turnRunning bool) AgentStatus {
 }
 
 // GetAgentUpdates returns one worker's status plus its latest completed output
-// (05 §2) — backs the brain's get_agent_updates tool. An unknown/never-created
+// (05 §2) — backs the brain's get_agent_updates tool. The worker's provider +
+// prefix come from the project's resolver (11 §3). An unknown/never-created
 // worker is an empty idle update, not an error (best-effort read, 05 D2).
-func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUpdate, error) {
+func (s *Service) GetAgentUpdates(ctx context.Context, projectID, workerID string) (AgentUpdate, error) {
+	provider, prefix, err := s.providers.For(ctx, projectID)
+	if err != nil {
+		return AgentUpdate{}, fmt.Errorf("agent: resolve provider for project %q: %w", projectID, err)
+	}
 	u := AgentUpdate{WorkerID: workerID, Status: AgentIdle}
 	turnRunning := false
 	if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found && prev.Kind == KindSend {
 		turnRunning = isRunning(prev.Phase)
 		u.IsError = prev.Phase == PhaseFailed
 	}
-	w, err := s.resolveWorker(ctx, s.workerName(workerID))
+	w, err := s.resolveWorker(ctx, provider, workerName(prefix, workerID))
 	if err != nil {
 		return AgentUpdate{}, fmt.Errorf("agent: get agent updates: %w", err)
 	}
@@ -284,7 +294,7 @@ func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUp
 	if w == (ProviderWorker{}) {
 		return u, nil // worker not live yet — status only
 	}
-	out, err := s.provider.ReadLatestOutput(ctx, w)
+	out, err := provider.ReadLatestOutput(ctx, w)
 	if err != nil {
 		return AgentUpdate{}, fmt.Errorf("agent: read latest output: %w", err)
 	}
@@ -293,26 +303,41 @@ func (s *Service) GetAgentUpdates(ctx context.Context, workerID string) (AgentUp
 	return u, nil
 }
 
-// Reset tears down every live kiln-worker-* sandbox and clears the in-memory
-// worker cache — the developer "fresh session" reset (docs/superpowers/specs/
-// 2026-07-04-debug-reset-session-design.md). Best-effort: a destroy failure on
-// one worker is logged and does not abort the others, so a single stuck
-// sandbox never blocks the reset. Clearing the cache under the same mutex that
-// guards the reconcile loop and turn execution is what a bare DB truncate
-// misses — stale cached handles would otherwise survive the wipe. The caller
-// truncates the board first, so the reconcile loop has no wanted slots to
-// re-provision while this runs.
+// Reset tears down every live worker across all projects and clears the
+// in-memory worker cache — the developer "fresh session" reset (docs/
+// superpowers/specs/2026-07-04-debug-reset-session-design.md). It resolves each
+// project's provider + prefix (11 §3) and destroys only that project's
+// prefix-matched sandboxes, so it never touches another environment's workers.
+// Best-effort: a resolver miss or a destroy failure on one project/worker is
+// logged and does not abort the others, so a single stuck project never blocks
+// the reset. Clearing the cache under the same mutex that guards the reconcile
+// loop and turn execution is what a bare DB truncate misses — stale cached
+// handles would otherwise survive the wipe. The caller truncates the board
+// first, so the reconcile loop has no wanted slots to re-provision while this
+// runs.
 func (s *Service) Reset(ctx context.Context) error {
-	live, err := s.provider.ListWorkers(ctx)
+	pids, err := s.projects.ProjectIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("agent: reset list workers: %w", err)
+		return fmt.Errorf("agent: reset list projects: %w", err)
 	}
-	for _, w := range live {
-		if !strings.HasPrefix(w.Name, s.prefix) {
+	for _, pid := range pids {
+		provider, prefix, rerr := s.providers.For(ctx, pid)
+		if rerr != nil {
+			slog.ErrorContext(ctx, "agent: reset resolve provider; skipping project", "project", pid, "err", rerr)
 			continue
 		}
-		if err := s.provider.DestroyWorker(ctx, w); err != nil {
-			slog.ErrorContext(ctx, "agent: reset destroy worker", "worker", w.Name, "err", err)
+		live, lerr := provider.ListWorkers(ctx)
+		if lerr != nil {
+			slog.ErrorContext(ctx, "agent: reset list workers; skipping project", "project", pid, "err", lerr)
+			continue
+		}
+		for _, w := range live {
+			if !strings.HasPrefix(w.Name, prefix) {
+				continue
+			}
+			if derr := provider.DestroyWorker(ctx, w); derr != nil {
+				slog.ErrorContext(ctx, "agent: reset destroy worker", "worker", w.Name, "err", derr)
+			}
 		}
 	}
 	s.mu.Lock()
@@ -321,16 +346,27 @@ func (s *Service) Reset(ctx context.Context) error {
 	return nil
 }
 
-// refreshStatuses re-reads every worker's composed status and, when any has
-// changed since the last tick, nudges the board to re-push so Streams reflects
-// the new liveness (amended 2026-07-05). This is what surfaces a *silent*
-// auto-stop: nothing else emits an event when a sandbox stops. One ListAgents
-// (⇒ one ListWorkers) call per tick; the push only fires on a real change.
+// refreshStatuses re-reads every worker's composed status across all projects
+// and, when any has changed since the last tick, nudges the board to re-push so
+// Streams reflects the new liveness (amended 2026-07-05). This is what surfaces
+// a *silent* auto-stop: nothing else emits an event when a sandbox stops. One
+// ListWorkers call per project per tick; the push only fires on a real change.
+// A project whose provider cannot be resolved is logged and skipped — its
+// absence just doesn't contribute to the diff (spec §6 failure isolation).
 func (s *Service) refreshStatuses(ctx context.Context) {
-	infos, err := s.ListAgents(ctx)
+	pids, err := s.projects.ProjectIDs(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "agent: liveness refresh", "err", err)
+		slog.ErrorContext(ctx, "agent: liveness list projects", "err", err)
 		return
+	}
+	var infos []AgentInfo
+	for _, pid := range pids {
+		got, gerr := s.ListAgents(ctx, pid)
+		if gerr != nil {
+			slog.ErrorContext(ctx, "agent: liveness refresh; skipping project", "project", pid, "err", gerr)
+			continue
+		}
+		infos = append(infos, got...)
 	}
 	if !s.statusChanged(infos) || s.refresher == nil {
 		return
@@ -407,16 +443,25 @@ func (s *Service) pollOnce(ctx context.Context) {
 	}
 }
 
-// advance dispatches one machine step by operation kind (05 §5). It stamps the
-// context with this delivery's turn id so every step it drives (start, check,
-// completed) shares one correlation id across the async poller.
+// advance dispatches one machine step by operation kind (05 §5). It resolves
+// the turn's project provider (11 §3) — a project whose provider cannot be
+// resolved (e.g. a missing credential) is logged and left for the next poll,
+// isolating it from other turns (spec §6) — then stamps the context with this
+// delivery's turn id so every step it drives (start, check, completed) shares
+// one correlation id across the async poller.
 func (s *Service) advance(ctx context.Context, t Turn) {
 	ctx = obs.WithTurn(ctx, deliveryTurn(t.IdempotencyKey))
+	provider, prefix, err := s.providers.For(ctx, t.ProjectID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: resolve provider for turn; will retry next poll",
+			"project", t.ProjectID, "worker", t.WorkerID, "err", err)
+		return
+	}
 	switch t.Kind {
 	case KindSend:
-		s.advanceSend(ctx, t)
+		s.advanceSend(ctx, provider, prefix, t)
 	case KindRelease:
-		s.advanceRelease(ctx, t)
+		s.advanceRelease(ctx, provider, prefix, t)
 	default:
 		slog.WarnContext(ctx, "agent: unknown turn kind", "kind", t.Kind)
 	}
@@ -424,14 +469,14 @@ func (s *Service) advance(ctx context.Context, t Turn) {
 
 // advanceSend steps one send machine (05 §5):
 // recorded → worker_ready → turn_started → done, with failed owing the event.
-func (s *Service) advanceSend(ctx context.Context, t Turn) {
+func (s *Service) advanceSend(ctx context.Context, provider Provider, prefix string, t Turn) {
 	switch t.Phase {
 	case PhaseRecorded:
-		s.stepEnsureReady(ctx, t)
+		s.stepEnsureReady(ctx, provider, prefix, t)
 	case PhaseWorkerReady:
-		s.stepStartTurn(ctx, t)
+		s.stepStartTurn(ctx, provider, prefix, t)
 	case PhaseTurnStarted:
-		s.stepCheckTurn(ctx, t)
+		s.stepCheckTurn(ctx, provider, prefix, t)
 	case PhaseFailed:
 		s.stepEmitFailure(ctx, t)
 	case PhaseDone:
@@ -445,12 +490,12 @@ func (s *Service) advanceSend(ctx context.Context, t Turn) {
 // workspace and rests at done — no turn, no event (05 §4). A failed
 // recreate is left for the reconciler's next sweep to heal; the row still
 // settles so it never lingers non-terminal.
-func (s *Service) advanceRelease(ctx context.Context, t Turn) {
-	name := s.workerName(t.WorkerID)
-	if err := s.provider.DestroyWorker(ctx, s.lookupWorker(name)); err != nil {
+func (s *Service) advanceRelease(ctx context.Context, provider Provider, prefix string, t Turn) {
+	name := workerName(prefix, t.WorkerID)
+	if err := provider.DestroyWorker(ctx, s.lookupWorker(name)); err != nil {
 		slog.WarnContext(ctx, "agent: release destroy", "worker", name, "err", err)
 	}
-	if nw, err := s.provider.CreateWorker(ctx, name); err != nil {
+	if nw, err := provider.CreateWorker(ctx, name); err != nil {
 		slog.WarnContext(ctx, "agent: release recreate; reconciler will heal", "worker", name, "err", err)
 	} else {
 		s.putWorker(nw)
@@ -462,13 +507,13 @@ func (s *Service) advanceRelease(ctx context.Context, t Turn) {
 // stepEnsureReady moves recorded → worker_ready once the worker exists and is
 // ready (05 §5). Provider errors count against the retry budget; a not-yet
 // ready worker just waits for the next poll.
-func (s *Service) stepEnsureReady(ctx context.Context, t Turn) {
-	w, err := s.ensureWorker(ctx, t.WorkerID)
+func (s *Service) stepEnsureReady(ctx context.Context, provider Provider, prefix string, t Turn) {
+	w, err := s.ensureWorker(ctx, provider, prefix, t.WorkerID)
 	if err != nil {
 		s.recordFailure(ctx, t, err)
 		return
 	}
-	ready, err := s.provider.WorkerReady(ctx, w)
+	ready, err := provider.WorkerReady(ctx, w)
 	if err != nil {
 		s.recordFailure(ctx, t, err)
 		return
@@ -483,8 +528,8 @@ func (s *Service) stepEnsureReady(ctx context.Context, t Turn) {
 // stepStartTurn moves worker_ready → turn_started (05 §5). fresh ⇔ the first
 // send of a conversation (no recorded conversation handle). A lost
 // conversation falls back to fresh with the same message (05 §3).
-func (s *Service) stepStartTurn(ctx context.Context, t Turn) {
-	w, err := s.ensureWorker(ctx, t.WorkerID)
+func (s *Service) stepStartTurn(ctx context.Context, provider Provider, prefix string, t Turn) {
+	w, err := s.ensureWorker(ctx, provider, prefix, t.WorkerID)
 	if err != nil {
 		s.recordFailure(ctx, t, err)
 		return
@@ -494,7 +539,7 @@ func (s *Service) stepStartTurn(ctx context.Context, t Turn) {
 	if !fresh {
 		conversation = t.ProviderTurn.Conversation
 	}
-	ref, err := s.provider.StartTurn(ctx, w, conversation, t.Message, fresh)
+	ref, err := provider.StartTurn(ctx, w, conversation, t.Message, fresh)
 	if err != nil {
 		s.handleStartTurnErr(ctx, t, fresh, err)
 		return
@@ -526,8 +571,8 @@ func (s *Service) handleStartTurnErr(ctx context.Context, t Turn, fresh bool, ca
 
 // stepCheckTurn polls the in-flight turn; on a terminal outcome it enqueues
 // the agent.turn_completed event and rests the machine at done (05 §5).
-func (s *Service) stepCheckTurn(ctx context.Context, t Turn) {
-	w, err := s.ensureWorker(ctx, t.WorkerID)
+func (s *Service) stepCheckTurn(ctx context.Context, provider Provider, prefix string, t Turn) {
+	w, err := s.ensureWorker(ctx, provider, prefix, t.WorkerID)
 	if err != nil {
 		s.recordFailure(ctx, t, err)
 		return
@@ -536,7 +581,7 @@ func (s *Service) stepCheckTurn(ctx context.Context, t Turn) {
 		s.recordFailure(ctx, t, errMissingTurnRef)
 		return
 	}
-	st, err := s.provider.CheckTurn(ctx, w, *t.ProviderTurn)
+	st, err := provider.CheckTurn(ctx, w, *t.ProviderTurn)
 	if err != nil {
 		s.recordFailure(ctx, t, err)
 		return
@@ -602,33 +647,60 @@ func (s *Service) update(ctx context.Context, t Turn) {
 	}
 }
 
-// reconcile is the adopt-first pool sweep (05 §4): adopt every worker matching
-// a slot, create only the missing ones, destroy orphaned kiln-worker-* entries.
+// reconcile sweeps every project's pool (05 §4, 11 §3): for each project resolve
+// its provider + prefix and adopt-first reconcile that project's slots against
+// that provider alone. A project whose provider cannot be resolved (e.g. a
+// missing credential) is logged and skipped — the others keep reconciling
+// (spec §6 failure isolation).
 func (s *Service) reconcile(ctx context.Context) {
-	live, err := s.provider.ListWorkers(ctx)
+	pids, err := s.projects.ProjectIDs(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "agent: list workers", "err", err)
+		slog.ErrorContext(ctx, "agent: list projects", "err", err)
 		return
 	}
-	ids, err := s.slots.WorkerIDs(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "agent: read worker slots", "err", err)
-		return
+	for _, pid := range pids {
+		s.reconcileProject(ctx, pid)
 	}
-	wanted := s.wantedNames(ids)
-	s.adoptAndCreate(ctx, wanted, live)
-	s.destroyOrphans(ctx, wanted, live)
 }
 
-// adoptAndCreate adopts every wanted worker already live and creates the rest.
-func (s *Service) adoptAndCreate(ctx context.Context, wanted map[string]struct{}, live []ProviderWorker) {
+// reconcileProject is the adopt-first pool sweep for one project (05 §4): adopt
+// every worker matching a slot, create only the missing ones, destroy orphaned
+// prefix-matched entries. Scoped entirely to this project's own provider and
+// worker-name prefix, so it never touches another project's workers (11 §3).
+func (s *Service) reconcileProject(ctx context.Context, projectID string) {
+	provider, prefix, err := s.providers.For(ctx, projectID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: resolve provider for project; skipping reconcile",
+			"project", projectID, "err", err)
+		return
+	}
+	live, err := provider.ListWorkers(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: list workers", "project", projectID, "err", err)
+		return
+	}
+	ids, err := s.slots.WorkerIDs(ctx, projectID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: read worker slots", "project", projectID, "err", err)
+		return
+	}
+	wanted := wantedNames(prefix, ids)
+	s.adoptAndCreate(ctx, provider, wanted, live)
+	s.destroyOrphans(ctx, provider, prefix, wanted, live)
+}
+
+// adoptAndCreate adopts every wanted worker already live and creates the rest
+// on the given provider.
+func (s *Service) adoptAndCreate(
+	ctx context.Context, provider Provider, wanted map[string]struct{}, live []ProviderWorker,
+) {
 	byName := indexByName(live)
 	for name := range wanted {
 		if w, ok := byName[name]; ok {
 			s.putWorker(w)
 			continue
 		}
-		w, err := s.provider.CreateWorker(ctx, name)
+		w, err := provider.CreateWorker(ctx, name)
 		if err != nil {
 			slog.ErrorContext(ctx, "agent: create worker", "worker", name, "err", err)
 			continue
@@ -637,16 +709,21 @@ func (s *Service) adoptAndCreate(ctx context.Context, wanted map[string]struct{}
 	}
 }
 
-// destroyOrphans removes live kiln-worker-* entries that match no slot (05 §4).
-func (s *Service) destroyOrphans(ctx context.Context, wanted map[string]struct{}, live []ProviderWorker) {
+// destroyOrphans removes live prefix-matched entries that match no slot (05 §4).
+// The prefix is this project's own, so the sweep never touches another project's
+// (or another environment's) workers (11 §3).
+func (s *Service) destroyOrphans(
+	ctx context.Context, provider Provider, prefix string,
+	wanted map[string]struct{}, live []ProviderWorker,
+) {
 	for _, w := range live {
-		if !strings.HasPrefix(w.Name, s.prefix) {
+		if !strings.HasPrefix(w.Name, prefix) {
 			continue
 		}
 		if _, ok := wanted[w.Name]; ok {
 			continue
 		}
-		if err := s.provider.DestroyWorker(ctx, w); err != nil {
+		if err := provider.DestroyWorker(ctx, w); err != nil {
 			slog.ErrorContext(ctx, "agent: destroy orphan worker", "worker", w.Name, "err", err)
 			continue
 		}
@@ -654,14 +731,16 @@ func (s *Service) destroyOrphans(ctx context.Context, wanted map[string]struct{}
 	}
 }
 
-// ensureWorker returns the cached provider worker for a slot, creating it if
-// the cache has none yet.
-func (s *Service) ensureWorker(ctx context.Context, workerID string) (ProviderWorker, error) {
-	name := s.workerName(workerID)
+// ensureWorker returns the cached provider worker for a slot, creating it on the
+// given provider if the cache has none yet.
+func (s *Service) ensureWorker(
+	ctx context.Context, provider Provider, prefix, workerID string,
+) (ProviderWorker, error) {
+	name := workerName(prefix, workerID)
 	if w, ok := s.getWorker(name); ok {
 		return w, nil
 	}
-	w, err := s.provider.CreateWorker(ctx, name)
+	w, err := provider.CreateWorker(ctx, name)
 	if err != nil {
 		return ProviderWorker{}, fmt.Errorf("agent: create worker %q: %w", name, err)
 	}
@@ -698,13 +777,14 @@ func (s *Service) lookupWorker(name string) ProviderWorker {
 }
 
 // resolveWorker returns the cached provider worker for a name, falling back to a
-// list-and-match (never creating one — this is a read path). A zero
-// ProviderWorker means "not live", handled by the caller as an empty update.
-func (s *Service) resolveWorker(ctx context.Context, name string) (ProviderWorker, error) {
+// list-and-match on the given provider (never creating one — this is a read
+// path). A zero ProviderWorker means "not live", handled by the caller as an
+// empty update.
+func (s *Service) resolveWorker(ctx context.Context, provider Provider, name string) (ProviderWorker, error) {
 	if w, ok := s.getWorker(name); ok {
 		return w, nil
 	}
-	live, err := s.provider.ListWorkers(ctx)
+	live, err := provider.ListWorkers(ctx)
 	if err != nil {
 		return ProviderWorker{}, fmt.Errorf("agent: list workers: %w", err)
 	}
@@ -733,14 +813,15 @@ func failureOutput(t Turn) string {
 }
 
 // workerName derives the deterministic provider-side name for a board worker
-// slot under this instance's configured prefix (05 §4, D5).
-func (s *Service) workerName(workerID string) string { return s.prefix + workerID }
+// slot under a given prefix (05 §4, D5, 11 §3).
+func workerName(prefix, workerID string) string { return prefix + workerID }
 
-// wantedNames maps board slot ids to their deterministic provider-worker names.
-func (s *Service) wantedNames(ids []string) map[string]struct{} {
+// wantedNames maps board slot ids to their deterministic provider-worker names
+// under a given prefix.
+func wantedNames(prefix string, ids []string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
-		out[s.workerName(id)] = struct{}{}
+		out[workerName(prefix, id)] = struct{}{}
 	}
 	return out
 }

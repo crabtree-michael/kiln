@@ -255,6 +255,37 @@ func TestUpdate_PersistsPhaseAndProviderHandles(t *testing.T) {
 	}
 }
 
+func TestRecord_RoundTripsProjectID(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+	workerID := "77777777-7777-7777-7777-777777777777"
+	projectID := "88888888-8888-8888-8888-888888888888"
+
+	turn := baseTurn(40, workerID)
+	turn.ProjectID = projectID // the owning project (11 §3), carried by value as a plain uuid
+	if _, err := store.Record(ctx, turn); err != nil {
+		t.Fatalf("Record with project_id: %v", err)
+	}
+
+	rows, err := store.ListNonTerminal(ctx)
+	if err != nil {
+		t.Fatalf("ListNonTerminal: %v", err)
+	}
+	var got *agent.Turn
+	for i := range rows {
+		if rows[i].IdempotencyKey == 40 {
+			got = &rows[i]
+		}
+	}
+	if got == nil {
+		t.Fatal("recorded turn not found via ListNonTerminal")
+	}
+	if got.ProjectID != projectID {
+		t.Errorf("project_id not round-tripped: got %q, want %q", got.ProjectID, projectID)
+	}
+}
+
 func TestLatestForWorker_NoRowsReturnsFalse(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)

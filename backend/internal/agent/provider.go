@@ -6,11 +6,24 @@ import (
 )
 
 // WorkerNamePrefix is the DEFAULT worker-name scope; the reconciler destroys
-// prefix-matched workers that match no board slot (05 §4). Environments
-// sharing one provider account must each override it (KILN_WORKER_PREFIX →
-// WithWorkerPrefix + amika Config.WorkerPrefix, amended 2026-07-05) so no
-// instance ever sweeps another environment's live workers.
+// prefix-matched workers that match no board slot (05 §4). Under multi-tenancy
+// (11 §3) the live prefix is per-project — the ProviderResolver hands one back
+// alongside the project's Provider — so no project ever sweeps another's live
+// workers, even when several share one provider account.
 const WorkerNamePrefix = "kiln-worker-"
+
+// ProviderResolver maps a project to the coding-agent Provider that serves it
+// and the worker-name prefix that scopes that project's sandboxes (11 §3).
+// Under multi-tenancy the single construction-time provider + prefix become
+// per-project: the reconciler, poller, and inspectors all resolve through this,
+// so one project's turns and sweeps never touch another's provider or workers.
+// A project whose provider cannot be resolved (e.g. a missing credential)
+// returns an error the caller logs and isolates — other projects keep running
+// (spec §6 failure isolation). Satisfied at the composition root.
+type ProviderResolver interface {
+	// For returns the provider and sandbox-name prefix for one project.
+	For(ctx context.Context, projectID string) (Provider, string, error)
+}
 
 // ErrConversationLost is the sentinel an adapter returns from StartTurn when a
 // continuation (fresh=false) references a conversation the provider no longer
@@ -22,9 +35,9 @@ var ErrConversationLost = errors.New("agent: provider lost the conversation")
 
 // WorkerName derives the deterministic provider-side name for a board worker
 // slot under the DEFAULT prefix (05 §4). The name is the whole board↔provider
-// join — no shared registry, adoption is pure list-and-match (05 D5). A
-// Service configured with WithWorkerPrefix derives names from its own prefix
-// instead.
+// join — no shared registry, adoption is pure list-and-match (05 D5). A project
+// whose ProviderResolver hands back a different prefix derives names from that
+// prefix instead.
 func WorkerName(workerID string) string { return WorkerNamePrefix + workerID }
 
 // RunStatus is the provider-neutral liveness of one worker's underlying

@@ -21,6 +21,9 @@ import (
 // errUnknownTurn marks an Update() call against a key fakeStore never Recorded.
 var errUnknownTurn = errors.New("fakeStore: update of unknown turn")
 
+// errNoResolverEntry marks a fakeResolver.For with no default and no match.
+var errNoResolverEntry = errors.New("fakeResolver: no provider for project")
+
 // runService starts svc.Run in the background against a fake clock that's
 // continuously pumped, and returns a stop func that cancels the context and
 // waits for Run to return (failing the test if it doesn't, promptly).
@@ -214,13 +217,89 @@ func (e *fakeEvents) turnCompletedEvents(t *testing.T) []agent.TurnCompleted {
 
 // fakeSlots is a read-only agent.Slots backed by a fixed id list — the
 // board's capacity slots this module never counts, only matches (05 §3, §4).
+// ids is returned for every project (the single-tenant unit-test shape); set
+// byProject to give each project its own slot list (the multi-tenant tests).
 type fakeSlots struct {
+	mu        sync.Mutex
+	ids       []string
+	byProject map[string][]string
+}
+
+func (s *fakeSlots) WorkerIDs(_ context.Context, projectID string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byProject != nil {
+		return append([]string(nil), s.byProject[projectID]...), nil
+	}
+	return append([]string(nil), s.ids...), nil
+}
+
+// ---- fakeResolver / fakeProjects ----------------------------------------
+
+// testProject is the empty project id single-tenant unit tests carry on their
+// sends — the resolver hands every such turn the one default provider.
+const testProject = ""
+
+// resolved pairs a provider with the worker-name prefix that scopes its
+// project's sandboxes (11 §3).
+type resolved struct {
+	provider agent.Provider
+	prefix   string
+}
+
+// fakeResolver is an in-memory agent.ProviderResolver. def is returned for any
+// project without a byProject entry (the single-tenant shape); byProject gives
+// each project its own provider+prefix; failFor makes For() fail for a project
+// so tests can drive the §6 failure-isolation path.
+type fakeResolver struct {
+	mu        sync.Mutex
+	def       *resolved
+	byProject map[string]resolved
+	failFor   map[string]error
+}
+
+func (r *fakeResolver) For(_ context.Context, projectID string) (agent.Provider, string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err, ok := r.failFor[projectID]; ok {
+		return nil, "", err
+	}
+	if rp, ok := r.byProject[projectID]; ok {
+		return rp.provider, rp.prefix, nil
+	}
+	if r.def != nil {
+		return r.def.provider, r.def.prefix, nil
+	}
+	return nil, "", fmt.Errorf("%w: %q", errNoResolverEntry, projectID)
+}
+
+// fakeProjects is an in-memory agent.Projects backed by a fixed id list.
+type fakeProjects struct {
 	mu  sync.Mutex
 	ids []string
 }
 
-func (s *fakeSlots) WorkerIDs(ctx context.Context) ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.ids...), nil
+func (p *fakeProjects) ProjectIDs(context.Context) ([]string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.ids...), nil
+}
+
+// singleResolver wraps one provider as the default for every project under the
+// default worker prefix — the shape single-tenant unit tests want.
+func singleResolver(p agent.Provider) *fakeResolver {
+	return &fakeResolver{def: &resolved{provider: p, prefix: agent.WorkerNamePrefix}}
+}
+
+// oneProject enumerates just the default (empty) project.
+func oneProject() *fakeProjects { return &fakeProjects{ids: []string{testProject}} }
+
+// newService wires the module the single-tenant way most unit tests want: one
+// provider serves every project under the default prefix, and the fake slots'
+// worker ids belong to the single unnamed project the sends carry.
+func newService(
+	store agent.Store, provider agent.Provider, events agent.EventEnqueuer,
+	slots agent.Slots, clock agent.Clock, refresh agent.BoardRefresher,
+) *agent.Service {
+	return agent.NewService(store, singleResolver(provider), oneProject(), events, slots, clock, refresh)
 }

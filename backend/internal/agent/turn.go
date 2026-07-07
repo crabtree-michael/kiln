@@ -37,6 +37,7 @@ func (p Phase) Terminal() bool { return p == PhaseDone }
 type Turn struct {
 	IdempotencyKey int64 // the outbox id (04 §3); primary key and the dedupe
 	Kind           Kind
+	ProjectID      string // the owning project (11 §3); the poller resolves this turn's provider by it
 	TicketID       string // empty for release operations
 	WorkerID       string // the board worker-slot uuid (03 §2.3)
 	Message        string // what StartTurn sends; persisted so recovery can start a never-started turn (05 §7)
@@ -60,14 +61,16 @@ type Turn struct {
 // the module doesn't distinguish them; first-message-vs-continuation is
 // derived from its own state, never from the caller.
 type SendPayload struct {
-	TicketID string `json:"ticket_id"`
-	WorkerID string `json:"worker_id"`
-	Message  string `json:"message"`
+	ProjectID string `json:"project_id"` // the owning project (11 §3); resolves the provider for this turn
+	TicketID  string `json:"ticket_id"`
+	WorkerID  string `json:"worker_id"`
+	Message   string `json:"message"`
 }
 
 // ReleasePayload is the agent.release emission (03 §7.1, 05 §4).
 type ReleasePayload struct {
-	WorkerID string `json:"worker_id"`
+	ProjectID string `json:"project_id"` // the owning project (11 §3); resolves the provider for the recycle
+	WorkerID  string `json:"worker_id"`
 }
 
 // EventTurnCompleted is the one event type this module emits (05 §2.2); the

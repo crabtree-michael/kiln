@@ -42,7 +42,7 @@ func TestRun_LivenessChangeNudgesBoard(t *testing.T) {
 	provider := mock.New()
 	clock := testutil.NewFakeClock()
 	refresher := &fakeRefresher{}
-	svc := agent.NewService(store, provider, &fakeEvents{}, &fakeSlots{ids: []string{testWorkerID}}, clock, refresher)
+	svc := newService(store, provider, &fakeEvents{}, &fakeSlots{ids: []string{testWorkerID}}, clock, refresher)
 
 	stop := runService(t, svc, clock)
 	defer stop()

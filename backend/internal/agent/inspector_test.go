@@ -19,7 +19,7 @@ import (
 func newInspector(t *testing.T, store *fakeStore) (*agent.Service, *mock.Provider) {
 	t.Helper()
 	p := mock.New()
-	svc := agent.NewService(store, p, &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock(), nil)
+	svc := newService(store, p, &fakeEvents{}, &fakeSlots{}, testutil.NewFakeClock(), nil)
 	return svc, p
 }
 
@@ -40,7 +40,7 @@ func TestListAgents_ReportsBusyAndIdle(t *testing.T) {
 	mustCreate(t, p, agent.WorkerName(busy))
 	mustCreate(t, p, agent.WorkerName(idle))
 
-	got, err := svc.ListAgents(context.Background())
+	got, err := svc.ListAgents(context.Background(), testProject)
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestListAgents_LivenessDominatesStaleTurn(t *testing.T) {
 			mustCreate(t, p, name)
 			p.SetWorkerStatus(name, tc.run)
 
-			got, err := svc.ListAgents(context.Background())
+			got, err := svc.ListAgents(context.Background(), testProject)
 			if err != nil {
 				t.Fatalf("ListAgents: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestGetAgentUpdates_ReturnsLatestOutput(t *testing.T) {
 	mustCreate(t, p, name)
 	p.SeedLatestOutput(name, agent.TurnOutput{Output: "all done"})
 
-	u, err := svc.GetAgentUpdates(context.Background(), id)
+	u, err := svc.GetAgentUpdates(context.Background(), testProject, id)
 	if err != nil {
 		t.Fatalf("GetAgentUpdates: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestGetAgentUpdates_FailedTurnSetsIsError(t *testing.T) {
 	svc, p := newInspector(t, store)
 	mustCreate(t, p, agent.WorkerName(id))
 
-	u, err := svc.GetAgentUpdates(context.Background(), id)
+	u, err := svc.GetAgentUpdates(context.Background(), testProject, id)
 	if err != nil {
 		t.Fatalf("GetAgentUpdates: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestGetAgentUpdates_FailedTurnSetsIsError(t *testing.T) {
 
 func TestGetAgentUpdates_UnknownWorkerIsEmptyNotError(t *testing.T) {
 	svc, _ := newInspector(t, newFakeStore())
-	u, err := svc.GetAgentUpdates(context.Background(), "nope")
+	u, err := svc.GetAgentUpdates(context.Background(), testProject, "nope")
 	if err != nil {
 		t.Fatalf("GetAgentUpdates: %v", err)
 	}

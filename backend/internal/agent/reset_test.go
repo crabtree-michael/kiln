@@ -65,6 +65,22 @@ func (s *Service) cacheSize() int {
 	return len(s.workers)
 }
 
+// staticResolver resolves every project to one provider + prefix (11 §3) — the
+// single-tenant shape these white-box Reset tests want.
+type staticResolver struct {
+	provider Provider
+	prefix   string
+}
+
+func (r staticResolver) For(context.Context, string) (Provider, string, error) {
+	return r.provider, r.prefix, nil
+}
+
+// staticProjects enumerates just the default (empty) project.
+type staticProjects struct{}
+
+func (staticProjects) ProjectIDs(context.Context) ([]string, error) { return []string{""}, nil }
+
 func TestReset_DestroysKilnWorkersAndClearsCache(t *testing.T) {
 	kilnA, kilnB := WorkerName("aaaa"), WorkerName("bbbb")
 	provider := &resetProvider{live: []ProviderWorker{
@@ -72,7 +88,7 @@ func TestReset_DestroysKilnWorkersAndClearsCache(t *testing.T) {
 		{Name: kilnB, Ref: "rb"},
 		{Name: "unrelated-sandbox", Ref: "ru"}, // not kiln-worker-*: must be left alone
 	}}
-	svc := NewService(nil, provider, nil, nil, nil, nil)
+	svc := NewService(nil, staticResolver{provider, WorkerNamePrefix}, staticProjects{}, nil, nil, nil, nil)
 	svc.putWorker(ProviderWorker{Name: kilnA, Ref: "ra"})
 	svc.putWorker(ProviderWorker{Name: kilnB, Ref: "rb"})
 
@@ -99,7 +115,7 @@ func TestReset_ScopedToConfiguredPrefix(t *testing.T) {
 		{Name: own, Ref: "ro"},
 		{Name: foreign, Ref: "rf"},
 	}}
-	svc := NewService(nil, provider, nil, nil, nil, nil, WithWorkerPrefix(prefix))
+	svc := NewService(nil, staticResolver{provider, prefix}, staticProjects{}, nil, nil, nil, nil)
 
 	if err := svc.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset: %v", err)
@@ -118,7 +134,7 @@ func TestReset_ContinuesPastDestroyError(t *testing.T) {
 		live:   []ProviderWorker{{Name: kilnA}, {Name: kilnB}},
 		failOn: kilnA,
 	}
-	svc := NewService(nil, provider, nil, nil, nil, nil)
+	svc := NewService(nil, staticResolver{provider, WorkerNamePrefix}, staticProjects{}, nil, nil, nil, nil)
 
 	if err := svc.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset should be best-effort, got err: %v", err)

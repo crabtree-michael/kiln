@@ -75,7 +75,7 @@ func newHarness(workerIDs ...string) (*fakeStore, *fakeEvents, *fakeSlots, *test
 func TestRun_FreshSendCompletesAndEmitsTurnCompleted(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: mock.New()}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	sendMsg := sendPayload(t, testTicketID, testWorkerID, "implement the feature")
 	if err := svc.Send(context.Background(), 1, sendMsg); err != nil {
@@ -117,7 +117,7 @@ func TestRun_FreshSendCompletesAndEmitsTurnCompleted(t *testing.T) {
 func TestRun_TurnCompletedPayloadCarriesNoProviderHandles(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: mock.New()}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "ship it")); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -160,7 +160,7 @@ func keysOf(m map[string]json.RawMessage) []string {
 func TestRun_ProvisioningFailureStillEmitsErrorTurnCompletedAndReachesDone(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: &mock.Provider{FailProvisioning: true}}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "do the thing")); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -197,7 +197,7 @@ func TestRun_TerminalTurnErrorStillEmitsEventAndReachesDone(t *testing.T) {
 		msg: {Output: "migration failed: constraint violation", IsError: true, Delay: 5 * time.Millisecond},
 	}
 	provider := &recordingProvider{Provider: p}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, msg)); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -226,7 +226,7 @@ func TestRun_TerminalTurnErrorStillEmitsEventAndReachesDone(t *testing.T) {
 func TestRun_TransientStartTurnFailuresRetryThenSucceed(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: &mock.Provider{FailStartTurns: 3}}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "retry me")); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -251,7 +251,7 @@ func TestRun_TransientStartTurnFailuresRetryThenSucceed(t *testing.T) {
 func TestRun_StartTurnExhaustingRetryBudgetBecomesFailed(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: &mock.Provider{FailStartTurns: 1000}}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "never works")); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -282,7 +282,7 @@ func TestRun_StartTurnExhaustingRetryBudgetBecomesFailed(t *testing.T) {
 func TestRun_ContinuationSendReusesTheRecordedConversation(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: mock.New()}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	firstMsg := sendPayload(t, testTicketID, testWorkerID, "first message")
 	if err := svc.Send(context.Background(), 1, firstMsg); err != nil {
@@ -323,7 +323,7 @@ func TestRun_ContinuationSendReusesTheRecordedConversation(t *testing.T) {
 func TestRun_ReleaseThenSendStartsFreshConversationAgain(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: mock.New()}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "first message")); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -364,7 +364,7 @@ func TestRun_ConversationLossFallsBackToFreshConversationNeverFailingTheTicket(t
 	store, events, slots, clock := newHarness(testWorkerID)
 	p := mock.New()
 	provider := &recordingProvider{Provider: p}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	msg := "please fix the flaky test"
 	firstSend := sendPayload(t, testTicketID, testWorkerID, msg)
@@ -409,7 +409,7 @@ func TestRun_ConversationLossFallsBackToFreshConversationNeverFailingTheTicket(t
 func TestRun_RecoversNonTerminalRowsOnStartWithoutSend(t *testing.T) {
 	store, events, slots, clock := newHarness(testWorkerID)
 	provider := &recordingProvider{Provider: mock.New()}
-	svc := agent.NewService(store, provider, events, slots, clock, nil)
+	svc := newService(store, provider, events, slots, clock, nil)
 
 	// Simulate a crash: a row was recorded (e.g. by a Send before the
 	// crash) but never advanced. Recovery must be nothing but reading this

@@ -82,7 +82,7 @@ exports[`Dock snapshots > Denied 1`] = `
 </div>
 `;
 
-exports[`Dock snapshots > Keyboard mode: typed field replaces the transcript, mic gives way to X + send 1`] = `
+exports[`Dock snapshots > Keyboard mode: typed field replaces the transcript, mic + dismiss + send flank the row 1`] = `
 <div>
   <div
     data-dock-state="keyboard"
@@ -132,6 +132,43 @@ exports[`Dock snapshots > Keyboard mode: typed field replaces the transcript, mi
           />
           <path
             d="M12 18v3"
+          />
+        </svg>
+      </button>
+      <button
+        aria-label="Dismiss keyboard"
+        data-role="dock-dismiss"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="22"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          viewBox="0 0 24 24"
+          width="22"
+        >
+          <rect
+            height="11"
+            rx="2.5"
+            width="19"
+            x="2.5"
+            y="4.5"
+          />
+          <path
+            d="M6 8h.01M9.8 8h.01M13.6 8h.01M17.4 8h.01"
+          />
+          <path
+            d="M6 11.3h.01M9.8 11.3h.01M13.6 11.3h.01M17.4 11.3h.01"
+          />
+          <path
+            d="M8.5 13.6h7"
+          />
+          <path
+            d="M8.8 18l3.2 3 3.2-3"
           />
         </svg>
       </button>

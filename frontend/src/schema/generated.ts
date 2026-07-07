@@ -41,6 +41,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current thinking state for resume-time resync (08 §4).
+         * @description The authoritative current value of the `thinking` bracket — the same flag the `activity` kind=thinking SSE event toggles. Unlike that event, which is ephemeral and never replayed on reconnect, this is a pull: the client calls it on foreground/resume (and on stream reconnect) to resync the spinner to the real current state, closing the gap where a missed `on:false` (app backgrounded mid-pass) leaves the indicator stuck. Toasts are not resyncable (they auto-dismiss) and are not carried here.
+         */
+        get: operations["getActivityStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/message": {
         parameters: {
             query?: never;
@@ -560,6 +580,11 @@ export interface components {
             /** @description For kind=toast — the affected ticket's title. */
             ticket_title?: string | null;
         };
+        /** @description GET /api/activity response (08 §4) — the current value of the `thinking` bracket, pulled by the client on foreground/resume and stream reconnect to resync the spinner. Server-authoritative: the client never writes it (it is derived from whether a brain pass is in flight), so this is a read-only snapshot, not a settable state. */
+        ActivityStatus: {
+            /** @description True while a brain pass is in flight (the spinner is showing). */
+            thinking: boolean;
+        };
         /** @description The signed-in user's account view (11 §4). Secret values never appear. */
         Me: {
             user: components["schemas"]["MeUser"];
@@ -684,6 +709,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Board"];
+                };
+            };
+        };
+    };
+    getActivityStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current thinking state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityStatus"];
                 };
             };
         };

@@ -78,28 +78,28 @@ func (e AgentStatusStatus) Valid() bool {
 
 // Defines values for FeedCardKind.
 const (
-	Blocker  FeedCardKind = "blocker"
-	Done     FeedCardKind = "done"
-	Poke     FeedCardKind = "poke"
-	Preview  FeedCardKind = "preview"
-	Proposal FeedCardKind = "proposal"
-	Update   FeedCardKind = "update"
+	FeedCardKindBlocker  FeedCardKind = "blocker"
+	FeedCardKindDone     FeedCardKind = "done"
+	FeedCardKindPoke     FeedCardKind = "poke"
+	FeedCardKindPreview  FeedCardKind = "preview"
+	FeedCardKindProposal FeedCardKind = "proposal"
+	FeedCardKindUpdate   FeedCardKind = "update"
 )
 
 // Valid indicates whether the value is a known member of the FeedCardKind enum.
 func (e FeedCardKind) Valid() bool {
 	switch e {
-	case Blocker:
+	case FeedCardKindBlocker:
 		return true
-	case Done:
+	case FeedCardKindDone:
 		return true
-	case Poke:
+	case FeedCardKindPoke:
 		return true
-	case Preview:
+	case FeedCardKindPreview:
 		return true
-	case Proposal:
+	case FeedCardKindProposal:
 		return true
-	case Update:
+	case FeedCardKindUpdate:
 		return true
 	default:
 		return false
@@ -141,16 +141,16 @@ func (e MessageRole) Valid() bool {
 
 // Defines values for NotificationModeMode.
 const (
-	NotificationModeModeAll     NotificationModeMode = "all"
-	NotificationModeModeBlocked NotificationModeMode = "blocked"
+	All     NotificationModeMode = "all"
+	Blocked NotificationModeMode = "blocked"
 )
 
 // Valid indicates whether the value is a known member of the NotificationModeMode enum.
 func (e NotificationModeMode) Valid() bool {
 	switch e {
-	case NotificationModeModeAll:
+	case All:
 		return true
-	case NotificationModeModeBlocked:
+	case Blocked:
 		return true
 	default:
 		return false
@@ -246,6 +246,12 @@ type ActivityEventKind string
 // ActivityEventVerb For kind=toast — the transition: started (dispatched), nudged (new turn sent), finished (accepted to done), queued (marked ready).
 type ActivityEventVerb string
 
+// ActivityStatus GET /api/activity response (08 §4) — the current value of the `thinking` bracket, pulled by the client on foreground/resume and stream reconnect to resync the spinner. Server-authoritative: the client never writes it (it is derived from whether a brain pass is in flight), so this is a read-only snapshot, not a settable state.
+type ActivityStatus struct {
+	// Thinking True while a brain pass is in flight (the spinner is showing).
+	Thinking bool `json:"thinking"`
+}
+
 // AgentStatus One live worker's real underlying session status, joined to its most-recent ticket binding (amended 2026-07-05). This is the actual agent/session running state — distinct from a ticket's board-column placement — so the Streams view can show a stopped or errored session instead of a hardcoded "building". worker_id is the board slot uuid; ticket_id is "" for an idle-pool worker that never ran a send.
 type AgentStatus struct {
 	// Status building = alive with a turn in flight; idle = alive, no turn; stopped = session auto-stopped/not running; errored = terminal session failure; starting = session provisioning, not reachable yet.
@@ -287,7 +293,7 @@ type FeedCard struct {
 	// ImageUrl Set for preview cards — the embedded render (08 §3, 4c).
 	ImageUrl *string `json:"image_url,omitempty"`
 
-	// Kind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image; poke -> mechanical stall nudge (body empty; the ticket title carries a 👉).
+	// Kind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image; poke -> mechanical stall nudge (body empty; the ticket title carries a 👉); done -> mechanical completion card (body empty; the ticket title carries a ✅).
 	Kind FeedCardKind `json:"kind"`
 
 	// Label The short stream/ticket label shown above the card body (e.g. the ticket title). May be empty for an authored note with no linked ticket.

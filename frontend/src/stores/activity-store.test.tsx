@@ -271,4 +271,86 @@ describe('ActivityProvider', () => {
     });
     expect(pills()).toBe('');
   });
+
+  // Per-ticket debounce (08 §5, this change): a burst of transitions on one
+  // ticket collapses to a single, latest pill; distinct tickets stay separate.
+  const TOAST_DEBOUNCE_MS = 100;
+
+  it('collapses a burst of toasts for one ticket to the latest', () => {
+    mount();
+    // queue → ready → working all land inside the debounce window for ticket t1.
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'Login', ticketId: 't1' }),
+      );
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'nudged', ticketTitle: 'Login', ticketId: 't1' }),
+      );
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login', ticketId: 't1' }),
+      );
+    });
+    // Nothing surfaces until the window closes — the burst is still buffered.
+    expect(pills()).toBe('');
+
+    act(() => {
+      vi.advanceTimersByTime(TOAST_DEBOUNCE_MS);
+    });
+    // Only the last transition ('started') reaches the row.
+    expect(pills()).toBe('toast:started:Login');
+
+    // And it then dwells and auto-dismisses on the normal 20s clock.
+    act(() => {
+      vi.advanceTimersByTime(TOAST_MS);
+    });
+    expect(pills()).toBe('');
+  });
+
+  it('keeps toasts for different tickets separate through the window', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'A', ticketId: 't1' }),
+      );
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'B', ticketId: 't2' }),
+      );
+    });
+    expect(pills()).toBe('');
+
+    act(() => {
+      vi.advanceTimersByTime(TOAST_DEBOUNCE_MS);
+    });
+    // Two genuinely different tickets → two pills, in arrival order.
+    expect(pills()).toBe('toast:queued:A|toast:started:B');
+  });
+
+  it('shows a toast with no ticket id immediately (cannot be grouped)', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login' }),
+      );
+    });
+    // No ticket id → not debounced; it surfaces at once.
+    expect(pills()).toBe('toast:started:Login');
+  });
+
+  it('dismissToast drops a toast still buffered in the debounce window', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'A', ticketId: 't1' }),
+      );
+    });
+    // Buffered, not yet shown; the user sends input before it flushes.
+    act(() => {
+      capturedDismissToast?.();
+    });
+    // Advancing past the window must NOT resurrect the superseded toast.
+    act(() => {
+      vi.advanceTimersByTime(TOAST_DEBOUNCE_MS + TOAST_MS);
+    });
+    expect(pills()).toBe('');
+  });
 });

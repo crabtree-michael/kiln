@@ -826,6 +826,13 @@ components:
           type: string
           nullable: true
           description: For kind=toast — the affected ticket's title.
+        ticket_id:
+          type: string
+          nullable: true
+          description: >
+            For kind=toast — the affected ticket's id. Stable across a ticket's
+            rapid transitions, so the client debounces a burst of toasts for one
+            ticket by this key (title can collide or be reused).
       additionalProperties: false
 
     Me:

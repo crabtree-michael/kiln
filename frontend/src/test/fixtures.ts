@@ -136,6 +136,7 @@ export interface ActivityEventFixtureInput {
   on?: boolean;
   verb?: NonNullable<ActivityEvent['verb']>;
   ticketTitle?: string;
+  ticketId?: string;
 }
 
 /** Builds an `ActivityEvent` from the wire schema, adding optional fields only
@@ -146,7 +147,9 @@ export function makeActivityEvent(input: ActivityEventFixtureInput): ActivityEve
   const withVerb = input.verb !== undefined ? { ...withOn, verb: input.verb } : withOn;
   const withTitle =
     input.ticketTitle !== undefined ? { ...withVerb, ticket_title: input.ticketTitle } : withVerb;
-  return withTitle;
+  const withId =
+    input.ticketId !== undefined ? { ...withTitle, ticket_id: input.ticketId } : withTitle;
+  return withId;
 }
 
 /** A blocked reason long enough to exercise the "shown in full, never

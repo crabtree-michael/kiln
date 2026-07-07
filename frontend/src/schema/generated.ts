@@ -559,6 +559,8 @@ export interface components {
             verb?: "started" | "nudged" | "finished" | "queued" | null;
             /** @description For kind=toast — the affected ticket's title. */
             ticket_title?: string | null;
+            /** @description For kind=toast — the affected ticket's id. Stable across a ticket's rapid transitions, so the client debounces a burst of toasts for one ticket by this key (title can collide or be reused). */
+            ticket_id?: string | null;
         };
         /** @description The signed-in user's account view (11 §4). Secret values never appear. */
         Me: {

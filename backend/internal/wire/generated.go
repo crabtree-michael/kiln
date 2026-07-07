@@ -233,6 +233,9 @@ type ActivityEvent struct {
 	// On For kind=thinking — true when a pass starts, false when it ends.
 	On *bool `json:"on,omitempty"`
 
+	// TicketId For kind=toast — the affected ticket's id. Stable across a ticket's rapid transitions, so the client debounces a burst of toasts for one ticket by this key (title can collide or be reused).
+	TicketId *string `json:"ticket_id,omitempty"`
+
 	// TicketTitle For kind=toast — the affected ticket's title.
 	TicketTitle *string `json:"ticket_title,omitempty"`
 

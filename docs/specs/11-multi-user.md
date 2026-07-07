@@ -1,7 +1,7 @@
 # Kiln — Multi-User Transition (v1)
 
 **Date:** 2026-07-05
-**Status:** Proposed
+**Status:** Implemented (phase 1 merged 2026-07-06; phase 2 — the tenancy flip — implemented 2026-07-07)
 **Scope:** lifts the "single user" pin from `01`–`10`
 **Relationship to `01`–`10`:** Amends `01` §10 and `10` §1's "multi-user anything" non-goal.
 The module topology (`02` §2), wire-contract discipline (`02` §3), and hard gate (`02` §4)

@@ -15,10 +15,11 @@ import (
 // phone that reconnects without keeping messages around indefinitely.
 const ttlSeconds = 3 * 60 * 60
 
-// Sender delivers a Notification to every stored subscription, encrypting per
-// RFC 8291 and authenticating with the operator's VAPID key pair. It is the real
-// notify.send executor (02 §10) built at the composition root only when the
-// VAPID env vars are set; otherwise the runtime keeps the log-only notifier.
+// Sender delivers a Notification to every subscription stored for one user,
+// encrypting per RFC 8291 and authenticating with the operator's VAPID key pair.
+// It is the real notify.send executor (02 §10) built at the composition root
+// only when the VAPID env vars are set; otherwise the runtime keeps the
+// log-only notifier.
 type Sender struct {
 	store   Store
 	pub     string // VAPID public key (base64url)
@@ -38,18 +39,19 @@ func NewSender(store Store, pub, priv, subject string, client *http.Client, log 
 	return &Sender{store: store, pub: pub, priv: priv, subject: subject, client: client, log: log}
 }
 
-// Send fans a notification out to all stored subscriptions. Delivery is
+// Send fans a notification out to the given user's stored subscriptions only —
+// per-user routing (11 phase 2), never another tenant's browsers. Delivery is
 // best-effort per subscription: one failing endpoint never blocks the others,
 // and a 404/410 (the push service reporting the subscription gone) prunes it so
 // it is not retried next time. "A rare duplicate notification is accepted as
 // benign" (04 §3), so partial failure returns nil — a hard error here would
 // dead-letter the outbox entry for a problem that is per-device, not systemic.
-func (s *Sender) Send(ctx context.Context, n Notification) error {
+func (s *Sender) Send(ctx context.Context, userID string, n Notification) error {
 	payload, err := json.Marshal(n)
 	if err != nil {
 		return fmt.Errorf("push: marshal notification: %w", err)
 	}
-	subs, err := s.store.List(ctx)
+	subs, err := s.store.List(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("push: list subscriptions: %w", err)
 	}

@@ -7,8 +7,8 @@
 //	    go test -tags=integration ./internal/push/postgres/...
 //
 // kiln_test is shared with other modules, so setup only ever creates push's own
-// table if missing and only ever truncates push_subscriptions — never DROPs,
-// never touches tables it doesn't own.
+// tables if missing and only ever truncates push_subscriptions and
+// push_user_settings — never DROPs, never touches tables it doesn't own.
 package postgres_test
 
 import (
@@ -25,6 +25,11 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/push"
 	"github.com/crabtree-michael/kiln/backend/internal/push/postgres"
+)
+
+const (
+	userA = "11111111-1111-1111-1111-111111111111"
+	userB = "22222222-2222-2222-2222-222222222222"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -53,19 +58,29 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// ensureMigrationsApplied applies ./migrations, in filename order, only if
-// push's own table doesn't already exist — kiln_test is shared, and other
-// modules' tables must never be touched here.
-func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
+// tableExists reports whether a public-schema table is present.
+func tableExists(ctx context.Context, t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()
 	var exists bool
 	err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'push_subscriptions'
-	)`).Scan(&exists)
+		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1
+	)`, name).Scan(&exists)
 	if err != nil {
-		t.Fatalf("check for push_subscriptions table: %v", err)
+		t.Fatalf("check for %s table: %v", name, err)
 	}
-	if exists {
+	return exists
+}
+
+// ensureMigrationsApplied applies ./migrations, in filename order, only if
+// push's own tables don't already exist — kiln_test is shared, and other
+// modules' tables must never be touched here. A database that pre-dates the
+// tenancy migration (push_subscriptions present, push_user_settings absent)
+// gets only the missing tail applied.
+func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
+	t.Helper()
+	haveSubs := tableExists(ctx, t, db, "push_subscriptions")
+	haveUserSettings := tableExists(ctx, t, db, "push_user_settings")
+	if haveSubs && haveUserSettings {
 		return
 	}
 
@@ -81,9 +96,13 @@ func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sql" {
-			names = append(names, e.Name())
+		if e.IsDir() || filepath.Ext(e.Name()) != ".sql" {
+			continue
 		}
+		if haveSubs && e.Name() != "0003_user_tenancy.sql" {
+			continue // pre-tenancy schema already in place; apply only the tail.
+		}
+		names = append(names, e.Name())
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
@@ -103,18 +122,17 @@ func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
 }
 
 // truncatePushTables resets exactly push's own tables so every test starts
-// clean, without disturbing other modules sharing kiln_test. The single
-// push_settings row is reset to the 'blocked' default rather than truncated, so
-// a mode test never leaks into the next.
+// clean, without disturbing other modules sharing kiln_test. The legacy
+// push_settings singleton is left alone — it is unread after 11 phase 2.
 func truncatePushTables(ctx context.Context, t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.ExecContext(ctx,
 		`TRUNCATE TABLE push_subscriptions RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("truncate push tables: %v", err)
+		t.Fatalf("truncate push_subscriptions: %v", err)
 	}
 	if _, err := db.ExecContext(ctx,
-		`UPDATE push_settings SET mode = 'blocked' WHERE id = 1`); err != nil {
-		t.Fatalf("reset push_settings: %v", err)
+		`TRUNCATE TABLE push_user_settings`); err != nil {
+		t.Fatalf("truncate push_user_settings: %v", err)
 	}
 }
 
@@ -123,7 +141,8 @@ func TestModeDefaultsToBlockedAndRoundTrips(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	got, err := store.Mode(ctx)
+	// No push_user_settings row for the user yet: the default, not an error.
+	got, err := store.Mode(ctx, userA)
 	if err != nil {
 		t.Fatalf("Mode (default): %v", err)
 	}
@@ -131,15 +150,53 @@ func TestModeDefaultsToBlockedAndRoundTrips(t *testing.T) {
 		t.Errorf("default mode = %q, want %q", got, push.ModeBlocked)
 	}
 
-	if err := store.SetMode(ctx, push.ModeAll); err != nil {
+	if err := store.SetMode(ctx, userA, push.ModeAll); err != nil {
 		t.Fatalf("SetMode all: %v", err)
 	}
-	got, err = store.Mode(ctx)
+	got, err = store.Mode(ctx, userA)
 	if err != nil {
 		t.Fatalf("Mode (after set): %v", err)
 	}
 	if got != push.ModeAll {
 		t.Errorf("mode after SetMode(all) = %q, want %q", got, push.ModeAll)
+	}
+
+	// SetMode upserts: writing again for the same user updates the row.
+	if err := store.SetMode(ctx, userA, push.ModeBlocked); err != nil {
+		t.Fatalf("SetMode blocked: %v", err)
+	}
+	got, err = store.Mode(ctx, userA)
+	if err != nil {
+		t.Fatalf("Mode (after second set): %v", err)
+	}
+	if got != push.ModeBlocked {
+		t.Errorf("mode after SetMode(blocked) = %q, want %q", got, push.ModeBlocked)
+	}
+}
+
+func TestModeIsPerUser(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	if err := store.SetMode(ctx, userA, push.ModeAll); err != nil {
+		t.Fatalf("SetMode userA: %v", err)
+	}
+
+	// User B never set a mode: still the default, unaffected by user A.
+	got, err := store.Mode(ctx, userB)
+	if err != nil {
+		t.Fatalf("Mode userB: %v", err)
+	}
+	if got != push.ModeBlocked {
+		t.Errorf("userB mode = %q, want default %q", got, push.ModeBlocked)
+	}
+	got, err = store.Mode(ctx, userA)
+	if err != nil {
+		t.Fatalf("Mode userA: %v", err)
+	}
+	if got != push.ModeAll {
+		t.Errorf("userA mode = %q, want %q", got, push.ModeAll)
 	}
 }
 
@@ -152,14 +209,14 @@ func TestSaveThenList(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	if err := store.Save(ctx, sub("https://push.example/a")); err != nil {
+	if err := store.Save(ctx, userA, sub("https://push.example/a")); err != nil {
 		t.Fatalf("Save a: %v", err)
 	}
-	if err := store.Save(ctx, sub("https://push.example/b")); err != nil {
+	if err := store.Save(ctx, userA, sub("https://push.example/b")); err != nil {
 		t.Fatalf("Save b: %v", err)
 	}
 
-	got, err := store.List(ctx)
+	got, err := store.List(ctx, userA)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -171,20 +228,48 @@ func TestSaveThenList(t *testing.T) {
 	}
 }
 
+func TestListIsolatesUsers(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	if err := store.Save(ctx, userA, sub("https://push.example/a")); err != nil {
+		t.Fatalf("Save userA: %v", err)
+	}
+	if err := store.Save(ctx, userB, sub("https://push.example/b")); err != nil {
+		t.Fatalf("Save userB: %v", err)
+	}
+
+	got, err := store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List userA: %v", err)
+	}
+	if len(got) != 1 || got[0].Endpoint != "https://push.example/a" {
+		t.Fatalf("List(userA) = %+v, want only userA's subscription", got)
+	}
+	got, err = store.List(ctx, userB)
+	if err != nil {
+		t.Fatalf("List userB: %v", err)
+	}
+	if len(got) != 1 || got[0].Endpoint != "https://push.example/b" {
+		t.Fatalf("List(userB) = %+v, want only userB's subscription", got)
+	}
+}
+
 func TestSaveUpsertsOnEndpoint(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	if err := store.Save(ctx, push.Subscription{Endpoint: "https://push.example/x", P256dh: "old", Auth: "old"}); err != nil {
+	if err := store.Save(ctx, userA, push.Subscription{Endpoint: "https://push.example/x", P256dh: "old", Auth: "old"}); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 	// Re-subscribe from the same browser with rotated keys — must update, not duplicate.
-	if err := store.Save(ctx, push.Subscription{Endpoint: "https://push.example/x", P256dh: "new", Auth: "new"}); err != nil {
+	if err := store.Save(ctx, userA, push.Subscription{Endpoint: "https://push.example/x", P256dh: "new", Auth: "new"}); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
 
-	got, err := store.List(ctx)
+	got, err := store.List(ctx, userA)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -196,18 +281,48 @@ func TestSaveUpsertsOnEndpoint(t *testing.T) {
 	}
 }
 
+func TestSaveUpsertReassignsUser(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	// The same browser endpoint re-subscribing under a different signed-in user
+	// moves to that user (endpoint is globally unique; last write wins).
+	if err := store.Save(ctx, userA, sub("https://push.example/shared")); err != nil {
+		t.Fatalf("Save as userA: %v", err)
+	}
+	if err := store.Save(ctx, userB, sub("https://push.example/shared")); err != nil {
+		t.Fatalf("Save as userB: %v", err)
+	}
+
+	gotA, err := store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List userA: %v", err)
+	}
+	if len(gotA) != 0 {
+		t.Fatalf("List(userA) = %+v, want empty after endpoint moved to userB", gotA)
+	}
+	gotB, err := store.List(ctx, userB)
+	if err != nil {
+		t.Fatalf("List userB: %v", err)
+	}
+	if len(gotB) != 1 {
+		t.Fatalf("List(userB) returned %d rows, want 1", len(gotB))
+	}
+}
+
 func TestDeleteByEndpoint(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	if err := store.Save(ctx, sub("https://push.example/gone")); err != nil {
+	if err := store.Save(ctx, userA, sub("https://push.example/gone")); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if err := store.DeleteByEndpoint(ctx, "https://push.example/gone"); err != nil {
 		t.Fatalf("DeleteByEndpoint: %v", err)
 	}
-	got, err := store.List(ctx)
+	got, err := store.List(ctx, userA)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

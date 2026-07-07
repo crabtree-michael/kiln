@@ -1,14 +1,14 @@
-// Ticket detail sheet. Opening a board card slides a top-anchored sheet down
-// into view from the top edge (a classic notification/popover sheet) showing the
-// ticket's full record — everything the card elides: the complete body,
-// priority, timestamps, id, and (when blocked) the full blocked reason. This is
-// read-only inspection layered over the read-only board (D5); it never mutates
-// state, so there is no edit affordance here.
+// Ticket detail sheet. Opening a board card slides a bottom sheet up into view
+// from the bottom edge (a classic mobile sheet) showing the ticket's full
+// record — everything the card elides: the complete body, priority, timestamps,
+// id, and (when blocked) the full blocked reason. This is read-only inspection
+// layered over the read-only board (D5); it never mutates state, so there is no
+// edit affordance here.
 //
-// The slide-down entrance + native rubber-band overscroll and drag-to-dismiss
-// come from `vaul` (direction="top") — the standard React drawer/sheet, adopted
+// The slide-up entrance + native rubber-band overscroll and drag-to-dismiss come
+// from `vaul` (direction="bottom") — the standard React drawer/sheet, adopted
 // with explicit user sign-off waiving the former blanket no-library rule
-// (07 D4). Vaul owns dismissal entirely: dragging the sheet back up past the
+// (07 D4). Vaul owns dismissal entirely: dragging the sheet back down past the
 // threshold, clicking the scrim, and pressing Escape all route through
 // `onOpenChange(false)` → `onClose`, so this component adds none of that by
 // hand — dismiss stays low-friction, never a trap (07 §7–§8).
@@ -65,9 +65,9 @@ export function TicketDetail({
     // path (drag past threshold, scrim click, Escape) fires onOpenChange(false),
     // which we forward to onClose — the caller then unmounts us.
     <Drawer.Root
-      // Top-anchored: slides down into view from the top edge (07 §7 — a
-      // notification/popover sheet, not a bottom drawer).
-      direction="top"
+      // Bottom-anchored: slides up into view from the bottom edge (07 §7 — a
+      // classic mobile sheet).
+      direction="bottom"
       open
       onOpenChange={(next) => {
         if (!next) {
@@ -90,6 +90,10 @@ export function TicketDetail({
           data-ticket-state={ticket.state}
           data-surface={surface}
         >
+          {/* A bottom sheet's drag affordance sits on its upper edge — the
+              grabber is the first child, above the header. */}
+          <Drawer.Handle data-role="ticket-detail-grabber" />
+
           <header data-role="ticket-detail-header">
             <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
             <button
@@ -134,10 +138,6 @@ export function TicketDetail({
               </button>
             </div>
           )}
-
-          {/* A top sheet's drag affordance sits on its lower edge — the grabber
-              is the last child, pinned below the scrolling body. */}
-          <Drawer.Handle data-role="ticket-detail-grabber" />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

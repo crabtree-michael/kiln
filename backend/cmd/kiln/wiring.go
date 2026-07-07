@@ -167,7 +167,7 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 	rtSvc := runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), brainPort, boardSvc,
 		&blockerAdapter{inner: boardSvc}, agentSvc, newNotifier(cfg, pushStore, log),
-		&pushRegistrarAdapter{store: pushStore}, hub, hub,
+		hub, hub,
 		runtimepg.New(db), &boardViewAdapter{inner: boardSvc}, hub, hub,
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.

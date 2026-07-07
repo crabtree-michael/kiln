@@ -554,7 +554,6 @@ type notifyPayload struct {
 type toastPayload struct {
 	Verb        string `json:"verb"`
 	TicketTitle string `json:"ticket_title"`
-	TicketID    string `json:"ticket_id"`
 }
 
 // feedUpdatedPayload mirrors the board's FeedUpdatedPayload (03 §7.1) by value —
@@ -679,7 +678,7 @@ func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
 		slog.Error("runtime: activity.toast decode", "id", e.ID, "err", err)
 		return
 	}
-	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle, TicketID: p.TicketID}
+	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle}
 	if err := s.activityPusher.PushActivity(ctx, ev); err != nil {
 		slog.Error("runtime: activity.toast push", "id", e.ID, "err", err)
 	}

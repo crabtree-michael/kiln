@@ -103,7 +103,6 @@ type ActivityEvent struct {
 	On          *bool  // set for kind=thinking
 	Verb        string // set for kind=toast: started | nudged | finished | queued
 	TicketTitle string // set for kind=toast
-	TicketID    string // set for kind=toast: the client's per-ticket debounce key
 }
 
 // FeedPusher is the runtime's port onto the api SSE hub's feed fan-out (08

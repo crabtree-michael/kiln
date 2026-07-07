@@ -184,8 +184,10 @@
 }
 
 [data-role='notify-bell'] {
-  width: 17px;
-  height: 17px;
+  /* Sized to sit in proportion with the 12.5px stream-status label beside it
+   * (icon ~1.2x the text) so the header-actions cluster reads at one scale. */
+  width: 15px;
+  height: 15px;
   display: block;
 }
 
@@ -218,8 +220,10 @@
 }
 
 [data-role='clear-all-trash'] {
-  width: 17px;
-  height: 17px;
+  /* Matches the bell (15px) so the two cluster affordances share one scale and
+   * stay in proportion with the neighbouring status label. */
+  width: 15px;
+  height: 15px;
   display: block;
 }
 

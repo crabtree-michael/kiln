@@ -1,0 +1,616 @@
+/* Landing page styling (`/landing`). Plain CSS, no framework — same discipline
+   as App.css / PrimaryScreen.css. Every value reads a Kiln design token
+   (src/styles/tokens.css), so light/dark comes for free: the page follows the
+   OS theme via resolveTheme (src/theme.ts). Scoped under `.kiln-landing` so it
+   never touches the app shells; the product shots are real screenshots of the
+   running app (frontend/public/shots) and are only *framed* here. */
+
+.kiln-landing {
+  min-height: 100dvh;
+  background: var(--surface-page);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.kiln-landing a {
+  color: inherit;
+}
+
+/* ── shared bits ───────────────────────────────────────────────── */
+
+.kiln-eyebrow {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.kiln-accent {
+  color: var(--accent);
+}
+
+.kiln-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  border-radius: var(--radius-pill);
+  padding: 11px 20px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+
+.kiln-btn--lg {
+  font-size: 15px;
+  padding: 14px 26px;
+}
+
+.kiln-btn--primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-raised);
+}
+
+.kiln-btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+.kiln-btn--primary:active {
+  background: var(--accent-press);
+  transform: translateY(1px);
+}
+
+.kiln-btn--ghost {
+  background: var(--surface-card);
+  border-color: var(--border-strong);
+  color: var(--text-body);
+}
+
+.kiln-btn--ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── nav ───────────────────────────────────────────────────────── */
+
+.kiln-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.kiln-nav__inner {
+  max-width: var(--marketing-max);
+  margin: 0 auto;
+  padding: 14px var(--page-gutter);
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.kiln-nav__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+}
+
+.kiln-nav__wordmark {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+}
+
+.kiln-nav__links {
+  display: flex;
+  gap: var(--space-6);
+  margin-left: auto;
+}
+
+.kiln-nav__links a {
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.kiln-nav__links a:hover {
+  color: var(--accent);
+}
+
+.kiln-nav__cta {
+  margin-left: var(--space-2);
+}
+
+@media (max-width: 720px) {
+  .kiln-nav__links {
+    display: none;
+  }
+  .kiln-nav__cta {
+    margin-left: auto;
+  }
+}
+
+/* ── hero ──────────────────────────────────────────────────────── */
+
+.kiln-hero {
+  max-width: var(--marketing-max);
+  margin: 0 auto;
+  padding: clamp(48px, 8vw, 96px) var(--page-gutter) clamp(40px, 6vw, 72px);
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  align-items: center;
+  gap: clamp(32px, 5vw, 72px);
+}
+
+.kiln-hero__title {
+  margin: 16px 0 0;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: var(--tracking-display);
+}
+
+.kiln-hero__lead {
+  margin: 20px 0 0;
+  max-width: 34em;
+  font: var(--type-editorial);
+  color: var(--text-secondary);
+}
+
+.kiln-hero__actions {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.kiln-hero__chips {
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kiln-hero__chips li {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 6px 13px;
+}
+
+.kiln-hero__art {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .kiln-hero {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .kiln-hero__art {
+    order: -1;
+  }
+}
+
+/* ── sections ──────────────────────────────────────────────────── */
+
+.kiln-section {
+  max-width: var(--marketing-max);
+  margin: 0 auto;
+  padding: clamp(48px, 8vw, 88px) var(--page-gutter);
+}
+
+.kiln-section__head {
+  max-width: 620px;
+}
+
+.kiln-section__title {
+  margin: 14px 0 0;
+  font-size: clamp(1.75rem, 3.6vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: var(--tracking-display);
+}
+
+.kiln-section__lead {
+  margin: 16px 0 0;
+  font: var(--type-editorial);
+  color: var(--text-secondary);
+}
+
+/* ── the loop ──────────────────────────────────────────────────── */
+
+.kiln-loop__grid {
+  margin: clamp(32px, 5vw, 56px) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.kiln-loop__step {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 22px 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.kiln-loop__num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.kiln-loop__step h3 {
+  margin: 12px 0 6px;
+  font: var(--type-heading);
+}
+
+.kiln-loop__step p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .kiln-loop__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .kiln-loop__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── feature rows ──────────────────────────────────────────────── */
+
+.kiln-features {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(48px, 8vw, 96px);
+}
+
+.kiln-feature {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: clamp(32px, 5vw, 72px);
+}
+
+.kiln-feature--flip .kiln-feature__copy {
+  order: 2;
+}
+
+.kiln-feature__title {
+  margin: 12px 0 14px;
+  font-size: clamp(1.6rem, 3.2vw, 2.25rem);
+  font-weight: 600;
+  line-height: 1.18;
+  letter-spacing: var(--tracking-display);
+}
+
+.kiln-feature__copy p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.kiln-feature__art {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .kiln-feature,
+  .kiln-feature--flip {
+    grid-template-columns: 1fr;
+  }
+  .kiln-feature--flip .kiln-feature__copy {
+    order: 0;
+  }
+  .kiln-feature__art {
+    order: -1;
+  }
+}
+
+/* ── voice ─────────────────────────────────────────────────────── */
+
+.kiln-voice {
+  padding-top: clamp(24px, 4vw, 40px);
+}
+
+.kiln-voice__inner {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: clamp(32px, 5vw, 56px);
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  align-items: center;
+  gap: clamp(28px, 4vw, 56px);
+}
+
+.kiln-voice__copy .kiln-section__title {
+  margin-top: 12px;
+}
+
+.kiln-voice__actions {
+  margin-top: 24px;
+}
+
+.kiln-voice__art {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 820px) {
+  .kiln-voice__inner {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── palette / brand aside ─────────────────────────────────────── */
+
+.kiln-swatches {
+  margin: clamp(28px, 4vw, 48px) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.kiln-swatches li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.kiln-swatch {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+
+.kiln-swatch[data-tone='paper'] {
+  background: var(--surface-page);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.kiln-swatch[data-tone='fire'] {
+  background: var(--accent);
+}
+.kiln-swatch[data-tone='glaze'] {
+  background: var(--calm);
+}
+.kiln-swatch[data-tone='ember'] {
+  background: var(--warn);
+}
+
+.kiln-swatches strong {
+  display: block;
+  font-size: 14px;
+}
+
+.kiln-swatches span {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .kiln-swatches {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ── closing CTA ───────────────────────────────────────────────── */
+
+.kiln-cta {
+  padding: clamp(48px, 8vw, 96px) var(--page-gutter);
+}
+
+.kiln-cta__inner {
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: center;
+  background: linear-gradient(180deg, var(--accent-faint), var(--surface-card));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: clamp(40px, 6vw, 64px) var(--page-gutter);
+}
+
+.kiln-cta__inner h2 {
+  margin: 16px 0 8px;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+}
+
+.kiln-cta__inner p {
+  margin: 0 auto 26px;
+  max-width: 42ch;
+  font: var(--type-editorial);
+  color: var(--text-secondary);
+}
+
+/* ── footer ────────────────────────────────────────────────────── */
+
+.kiln-footer {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.kiln-footer__inner {
+  max-width: var(--marketing-max);
+  margin: 0 auto;
+  padding: 28px var(--page-gutter);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.kiln-footer__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.kiln-footer__links {
+  display: flex;
+  gap: 20px;
+}
+
+.kiln-footer__links a {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.kiln-footer__links a:hover {
+  color: var(--accent);
+}
+
+.kiln-footer__note {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .kiln-footer__note {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* ── product shots (real screenshots of the running app, frontend/public/shots) ── */
+
+/* Phone: the primary-screen capture in a rounded bezel. */
+.shot-phone {
+  display: block;
+  width: 306px;
+  max-width: 100%;
+  border: 8px solid var(--surface-raised);
+  border-radius: 42px;
+  box-shadow:
+    var(--shadow-overlay),
+    inset 0 0 0 1px var(--border-hairline);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.shot-phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Board: the /debug capture (dark-only) framed as a screen with a window bar. */
+.shot-window {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+  line-height: 0;
+  /* Fixed dark chrome — the board is the night-only developer view, shown as a
+     screen regardless of the surrounding page theme. */
+  background: #211a13;
+}
+
+.shot-window__bar {
+  display: flex;
+  gap: 7px;
+  padding: 12px 16px;
+  background: #2a211a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.shot-window__bar span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.shot-window img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Proposal close-up: the card capture carries its own (themed) background, so
+   it only needs a soft raised frame. */
+.shot-card {
+  display: block;
+  width: 420px;
+  max-width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.shot-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Voice dock close-up, framed as a floating control. */
+.shot-dock {
+  display: block;
+  width: 340px;
+  max-width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.shot-dock img {
+  display: block;
+  width: 100%;
+  height: auto;
+}

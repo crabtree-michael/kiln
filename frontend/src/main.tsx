@@ -19,6 +19,7 @@ import {
 import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
+import { Landing } from '@/landing/Landing';
 import { Dashboard } from '@/dashboard/Dashboard';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
@@ -72,7 +73,9 @@ if (root === null) {
 }
 
 // `/` is the primary (08) screen; `/debug` keeps the original board+chat client
-// (07) whole and unchanged as a developer view.
+// (07) whole and unchanged as a developer view. `/landing` is the standalone
+// marketing page — a stateless, scrolling page that reuses the design system and
+// the real presentational components to show the product.
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
@@ -80,6 +83,7 @@ createRoot(root).render(
         <ThemeColorSync />
         <SentryRoutes>
           <Route path="/" element={<PrimaryScreen />} />
+          <Route path="/landing" element={<Landing />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
           <Route path="/debug" element={<App />} />
         </SentryRoutes>

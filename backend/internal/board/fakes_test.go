@@ -9,6 +9,10 @@ package board_test
 // transaction" (03 §6) for unit-level tests. Concurrent-access races (SKIP
 // LOCKED, the one_active_ticket_per_worker backstop) are proven only against
 // real Postgres — see postgres/store_integration_test.go.
+//
+// Tenancy (11 §3): the fake mirrors the project-scoped port — every ticket,
+// worker, and emission is tagged with a project id, and every read/write
+// filters on it, so cross-project isolation is assertable at unit level.
 
 import (
 	"context"
@@ -23,15 +27,31 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
 
+// Fixed tenant ids for every unit test: operations run under projA; projB
+// exists to prove nothing leaks across the project boundary.
+const (
+	projA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	projB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+)
+
+// fakeEmission is one appended outbox row plus the project it was scoped to,
+// so tests can assert emissions land under the right tenant.
+type fakeEmission struct {
+	Project string
+	E       board.Emission
+}
+
 // fakeStore is an in-memory board.Store. Seed helpers (seedTicket,
 // seedWorker) write directly into the maps, bypassing Tx — that's
 // deliberate: test fixtures must not depend on the very Service behavior
 // under test (which, in the red phase, is all errNotImplemented stubs).
 type fakeStore struct {
-	mu      sync.Mutex
-	tickets map[board.TicketID]board.Ticket
-	workers map[board.WorkerID]board.Worker
-	outbox  []board.Emission
+	mu         sync.Mutex
+	tickets    map[board.TicketID]board.Ticket
+	ticketProj map[board.TicketID]string // ticket id -> owning project
+	workers    map[board.WorkerID]board.Worker
+	workerProj map[board.WorkerID]string // worker id -> owning project
+	outbox     []fakeEmission
 
 	seq      int
 	nextTime time.Time // monotonically-advancing fake clock for CreatedAt/UpdatedAt
@@ -39,9 +59,11 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		tickets:  map[board.TicketID]board.Ticket{},
-		workers:  map[board.WorkerID]board.Worker{},
-		nextTime: time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
+		tickets:    map[board.TicketID]board.Ticket{},
+		ticketProj: map[board.TicketID]string{},
+		workers:    map[board.WorkerID]board.Worker{},
+		workerProj: map[board.WorkerID]string{},
+		nextTime:   time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -55,35 +77,44 @@ func (s *fakeStore) Tx(ctx context.Context, fn func(board.Tx) error) error {
 
 	ticketsBefore := make(map[board.TicketID]board.Ticket, len(s.tickets))
 	maps.Copy(ticketsBefore, s.tickets)
+	ticketProjBefore := make(map[board.TicketID]string, len(s.ticketProj))
+	maps.Copy(ticketProjBefore, s.ticketProj)
 	workersBefore := make(map[board.WorkerID]board.Worker, len(s.workers))
 	maps.Copy(workersBefore, s.workers)
-	outboxBefore := make([]board.Emission, len(s.outbox))
+	workerProjBefore := make(map[board.WorkerID]string, len(s.workerProj))
+	maps.Copy(workerProjBefore, s.workerProj)
+	outboxBefore := make([]fakeEmission, len(s.outbox))
 	copy(outboxBefore, s.outbox)
 
 	txn := &fakeTx{s: s}
 	err := fn(txn)
 	if err != nil {
 		s.tickets = ticketsBefore
+		s.ticketProj = ticketProjBefore
 		s.workers = workersBefore
+		s.workerProj = workerProjBefore
 		s.outbox = outboxBefore
 		return err
 	}
 	return nil
 }
 
-// Snapshot groups tickets by their State field alone (03 D1: column/zone are
-// derived render groupings, never stored) and orders each group per 03 §4 /
-// entities.go's Snapshot doc. This grouping logic is test-fixture code
-// standing in for the real adapter's SQL ORDER BY (postgres/store.go); the
-// literal SQL ordering is proven separately in the integration suite against
-// real Postgres.
-func (s *fakeStore) Snapshot(ctx context.Context) (board.Snapshot, error) {
+// Snapshot groups the project's tickets by their State field alone (03 D1:
+// column/zone are derived render groupings, never stored) and orders each
+// group per 03 §4 / entities.go's Snapshot doc. This grouping logic is
+// test-fixture code standing in for the real adapter's SQL (postgres/
+// store.go); the literal SQL ordering and project predicates are proven
+// separately in the integration suite against real Postgres.
+func (s *fakeStore) Snapshot(ctx context.Context, projectID string) (board.Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var snap board.Snapshot
 	var ready []board.Ticket
-	for _, t := range s.tickets {
+	for id, t := range s.tickets {
+		if s.ticketProj[id] != projectID { // tenant boundary (11 §3)
+			continue
+		}
 		if t.ArchivedAt != nil { // archived tickets are gone from every read (03 §4 amended)
 			continue
 		}
@@ -109,25 +140,30 @@ func (s *fakeStore) Snapshot(ctx context.Context) (board.Snapshot, error) {
 	sort.Slice(ready, func(i, j int) bool { return readyLess(ready[i], ready[j]) })
 	snap.Ready = ready
 
-	snap.WorkerTotal = len(s.workers)
-	busy := busyWorkers(s.tickets)
-	free := 0
+	busy := s.busyWorkers(projectID)
+	total, free := 0, 0
 	for id := range s.workers {
+		if s.workerProj[id] != projectID {
+			continue
+		}
+		total++
 		if !busy[id] {
 			free++
 		}
 	}
+	snap.WorkerTotal = total
 	snap.WorkerFree = free
 	return snap, nil
 }
 
-// GetTicket reads one non-archived ticket by id (03 §4 amended). Archived or
-// missing ids are ErrNotFound, matching the store contract.
-func (s *fakeStore) GetTicket(_ context.Context, id board.TicketID) (board.Ticket, error) {
+// GetTicket reads one of the project's non-archived tickets by id (03 §4
+// amended). Archived, missing, or other-project ids are ErrNotFound, matching
+// the store contract.
+func (s *fakeStore) GetTicket(_ context.Context, projectID string, id board.TicketID) (board.Ticket, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tickets[id]
-	if !ok || t.ArchivedAt != nil {
+	if !ok || s.ticketProj[id] != projectID || t.ArchivedAt != nil {
 		return board.Ticket{}, board.ErrNotFound
 	}
 	return t, nil
@@ -141,9 +177,9 @@ func (s *fakeStore) now() time.Time {
 	return t
 }
 
-// seedTicket inserts a ticket exactly as given (fixture setup, not a Store
-// operation).
-func (s *fakeStore) seedTicket(t board.Ticket) {
+// seedTicket inserts a ticket under the project exactly as given (fixture
+// setup, not a Store operation).
+func (s *fakeStore) seedTicket(projectID string, t board.Ticket) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if t.CreatedAt.IsZero() {
@@ -156,23 +192,26 @@ func (s *fakeStore) seedTicket(t board.Ticket) {
 		t.StateChangedAt = t.UpdatedAt
 	}
 	s.tickets[t.ID] = t
+	s.ticketProj[t.ID] = projectID
 }
 
-// seedWorker inserts a worker row (fixture setup — no Board API operation
-// creates workers; that's postgres.Store.ReconcileWorkers, composition-root
-// only per 03 §8).
-func (s *fakeStore) seedWorker(id board.WorkerID) {
+// seedWorker inserts a worker row under the project (fixture setup — no Board
+// API operation creates workers; that's postgres.Store.ReconcileWorkers,
+// composition-root only per 03 §8). Worker ids stay globally unique (03 I2).
+func (s *fakeStore) seedWorker(projectID string, id board.WorkerID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workers[id] = board.Worker{ID: id, CreatedAt: s.now()}
+	s.workerProj[id] = projectID
 }
 
-// seedWorkers seeds n workers named w1..wn and returns their ids in order.
-func (s *fakeStore) seedWorkers(n int) []board.WorkerID {
+// seedWorkers seeds n workers named w1..wn under the project and returns
+// their ids in order.
+func (s *fakeStore) seedWorkers(projectID string, n int) []board.WorkerID {
 	ids := make([]board.WorkerID, 0, n)
 	for i := 1; i <= n; i++ {
 		id := board.WorkerID(fmt.Sprintf("w%d", i))
-		s.seedWorker(id)
+		s.seedWorker(projectID, id)
 		ids = append(ids, id)
 	}
 	return ids
@@ -185,17 +224,36 @@ func (s *fakeStore) ticket(id board.TicketID) (board.Ticket, bool) {
 	return t, ok
 }
 
+// outboxSnapshot returns every emission across all projects, in emission
+// order; use outboxEntries when the owning project matters.
 func (s *fakeStore) outboxSnapshot() []board.Emission {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]board.Emission, len(s.outbox))
+	out := make([]board.Emission, 0, len(s.outbox))
+	for _, e := range s.outbox {
+		out = append(out, e.E)
+	}
+	return out
+}
+
+// outboxEntries returns every emission with the project it was appended
+// under, for tenancy assertions.
+func (s *fakeStore) outboxEntries() []fakeEmission {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]fakeEmission, len(s.outbox))
 	copy(out, s.outbox)
 	return out
 }
 
-func busyWorkers(tickets map[board.TicketID]board.Ticket) map[board.WorkerID]bool {
+// busyWorkers derives the project's busy set (03 D2): a worker is busy iff
+// one of the project's active tickets references it. Caller holds s.mu.
+func (s *fakeStore) busyWorkers(projectID string) map[board.WorkerID]bool {
 	busy := map[board.WorkerID]bool{}
-	for _, t := range tickets {
+	for id, t := range s.tickets {
+		if s.ticketProj[id] != projectID {
+			continue
+		}
 		if t.State.Active() && t.WorkerID != nil {
 			busy[*t.WorkerID] = true
 		}
@@ -229,15 +287,17 @@ type fakeTx struct{ s *fakeStore }
 
 var _ board.Tx = (*fakeTx)(nil)
 
-func (t *fakeTx) LockTicket(_ context.Context, id board.TicketID) (board.Ticket, error) {
+func (t *fakeTx) LockTicket(_ context.Context, projectID string, id board.TicketID) (board.Ticket, error) {
 	tk, ok := t.s.tickets[id]
-	if !ok || tk.ArchivedAt != nil { // archived tickets are invisible to targeted ops (03 §4 amended)
+	// Archived tickets are invisible to targeted ops (03 §4 amended); an id
+	// owned by another project must be indistinguishable from a missing one.
+	if !ok || t.s.ticketProj[id] != projectID || tk.ArchivedAt != nil {
 		return board.Ticket{}, board.ErrNotFound
 	}
 	return tk, nil
 }
 
-func (t *fakeTx) InsertTicket(_ context.Context, tk board.Ticket) (board.Ticket, error) {
+func (t *fakeTx) InsertTicket(_ context.Context, projectID string, tk board.Ticket) (board.Ticket, error) {
 	t.s.seq++
 	if tk.ID == "" {
 		tk.ID = board.TicketID(fmt.Sprintf("ticket-%d", t.s.seq))
@@ -247,12 +307,13 @@ func (t *fakeTx) InsertTicket(_ context.Context, tk board.Ticket) (board.Ticket,
 	tk.UpdatedAt = now
 	tk.StateChangedAt = now
 	t.s.tickets[tk.ID] = tk
+	t.s.ticketProj[tk.ID] = projectID
 	return tk, nil
 }
 
-func (t *fakeTx) UpdateTicket(_ context.Context, tk board.Ticket) (board.Ticket, error) {
+func (t *fakeTx) UpdateTicket(_ context.Context, projectID string, tk board.Ticket) (board.Ticket, error) {
 	prev, ok := t.s.tickets[tk.ID]
-	if !ok {
+	if !ok || t.s.ticketProj[tk.ID] != projectID {
 		return board.Ticket{}, board.ErrNotFound
 	}
 	tk.UpdatedAt = t.s.now()
@@ -268,10 +329,10 @@ func (t *fakeTx) UpdateTicket(_ context.Context, tk board.Ticket) (board.Ticket,
 	return tk, nil
 }
 
-func (t *fakeTx) NextReadyTicket(_ context.Context) (board.Ticket, bool, error) {
+func (t *fakeTx) NextReadyTicket(_ context.Context, projectID string) (board.Ticket, bool, error) {
 	var best *board.Ticket
-	for _, tk := range t.s.tickets {
-		if tk.State != board.StateReady {
+	for id, tk := range t.s.tickets {
+		if t.s.ticketProj[id] != projectID || tk.State != board.StateReady {
 			continue
 		}
 		cand := tk
@@ -286,10 +347,13 @@ func (t *fakeTx) NextReadyTicket(_ context.Context) (board.Ticket, bool, error) 
 	return *best, true, nil
 }
 
-func (t *fakeTx) FreeWorker(_ context.Context) (board.Worker, bool, error) {
-	busy := busyWorkers(t.s.tickets)
+func (t *fakeTx) FreeWorker(_ context.Context, projectID string) (board.Worker, bool, error) {
+	busy := t.s.busyWorkers(projectID)
 	ids := make([]string, 0, len(t.s.workers))
 	for id := range t.s.workers {
+		if t.s.workerProj[id] != projectID {
+			continue
+		}
 		ids = append(ids, string(id))
 	}
 	sort.Strings(ids)
@@ -302,8 +366,8 @@ func (t *fakeTx) FreeWorker(_ context.Context) (board.Worker, bool, error) {
 	return board.Worker{}, false, nil
 }
 
-func (t *fakeTx) AppendOutbox(_ context.Context, e board.Emission) error {
-	t.s.outbox = append(t.s.outbox, e)
+func (t *fakeTx) AppendOutbox(_ context.Context, projectID string, e board.Emission) error {
+	t.s.outbox = append(t.s.outbox, fakeEmission{Project: projectID, E: e})
 	return nil
 }
 

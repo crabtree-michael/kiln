@@ -13,6 +13,10 @@ import (
 // pull.evaluate entries) and for the mechanical failure path of MarkBlocked
 // (03 §7.3, 04 §3).
 //
+// Every operation is scoped to one project (11 §3): projectID is the tenant
+// key, the first parameter after ctx on every method, passed through to the
+// store so no read or write ever crosses a project boundary.
+//
 // Every mutation is one transaction — lock the ticket, verify the
 // precondition, apply the change, append outbox rows, commit (03 §6) — and,
 // beyond the emissions noted per operation, every mutation emits
@@ -32,15 +36,15 @@ type ShapePatch struct {
 	Priority *int // higher pulls first; there is no separate reprioritize operation (03 §4)
 }
 
-// CreateTicket creates a ticket in shaping (03 §4).
+// CreateTicket creates a ticket in shaping (03 §4) under the project.
 // Precondition: title non-empty (ErrEmptyTitle otherwise, before any write).
-func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket, error) {
+func (s *Service) CreateTicket(ctx context.Context, projectID, title, body string) (Ticket, error) {
 	if title == "" {
 		return Ticket{}, ErrEmptyTitle
 	}
 	var out Ticket
 	err := s.store.Tx(ctx, func(tx Tx) error {
-		created, err := tx.InsertTicket(ctx, Ticket{
+		created, err := tx.InsertTicket(ctx, projectID, Ticket{
 			Title: title,
 			Body:  body,
 			State: StateShaping,
@@ -48,13 +52,13 @@ func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket,
 		if err != nil {
 			return fmt.Errorf("board: insert ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
 		// A ticket is created in shaping, and every shaping ticket is a
 		// proposal card (08 §5, superseding D5's approval_requested gate), so
 		// the feed must reassemble to show it.
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: created.Title,
 			Verb:  FeedVerbProposal,
 		}}); err != nil {
@@ -66,15 +70,15 @@ func (s *Service) CreateTicket(ctx context.Context, title, body string) (Ticket,
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: create ticket: %w", err)
 	}
-	logTransition(ctx, "create_ticket", string(out.ID), "", out.State)
+	logTransition(ctx, "create_ticket", projectID, string(out.ID), "", out.State)
 	return out, nil
 }
 
 // ShapeTicket updates a ticket's fields while it is still in Backlog; the
 // state is unchanged (03 §4).
 // Precondition: state ∈ {shaping, ready}.
-func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch) (Ticket, error) {
-	return s.mutate(ctx, "shape_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) ShapeTicket(ctx context.Context, projectID string, id TicketID, patch ShapePatch) (Ticket, error) {
+	return s.mutate(ctx, projectID, "shape_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping && t.State != StateReady {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ShapeTicket"}
 		}
@@ -87,7 +91,7 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 		if patch.Priority != nil {
 			t.Priority = *patch.Priority
 		}
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
@@ -95,7 +99,7 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 		// card's title/summary, so the feed must reassemble. A ready ticket has
 		// no feed surface, so it emits board.updated only.
 		if t.State == StateShaping {
-			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 				Title: updated.Title,
 				Verb:  FeedVerbReshaped,
 			}}); err != nil {
@@ -109,17 +113,17 @@ func (s *Service) ShapeTicket(ctx context.Context, id TicketID, patch ShapePatch
 // RequestApproval surfaces a shaping ticket to the user as a proposal awaiting
 // approval (08 §5). Sets ApprovalRequested = true; the ticket stays in shaping.
 // Precondition: state = shaping. Emits feed.updated (a proposal card appears).
-func (s *Service) RequestApproval(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, "request_approval", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) RequestApproval(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, projectID, "request_approval", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "RequestApproval"}
 		}
 		t.ApprovalRequested = true
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: updated.Title,
 			Verb:  FeedVerbProposal,
 		}}); err != nil {
@@ -133,8 +137,8 @@ func (s *Service) RequestApproval(ctx context.Context, id TicketID) (Ticket, err
 // approval request — the proposal is resolved once the ticket is queued (08 §5).
 // Precondition: state = shaping. Emits pull.evaluate, feed.updated, and a
 // "queued" activity toast (08 §B).
-func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, "mark_ready", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) MarkReady(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, projectID, "mark_ready", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateShaping {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkReady"}
 		}
@@ -142,20 +146,20 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 		t.State = StateReady
 		t.ReadyAt = &now
 		t.ApprovalRequested = false
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicPullEvaluate}); err != nil {
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicPullEvaluate}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: updated.Title,
 			Verb:  FeedVerbQueued,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 			Verb:        "queued",
 			TicketTitle: updated.Title,
 			TicketID:    updated.ID,
@@ -170,8 +174,8 @@ func (s *Service) MarkReady(ctx context.Context, id TicketID) (Ticket, error) {
 // user's answer) and Working→Working (a new turn). Result state is working;
 // blocked_reason is cleared (03 §4).
 // Precondition: state ∈ {working, blocked}. Emits agent.send.
-func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction string) (Ticket, error) {
-	return s.mutate(ctx, "send_to_agent", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) SendToAgent(ctx context.Context, projectID string, id TicketID, instruction string) (Ticket, error) {
+	return s.mutate(ctx, projectID, "send_to_agent", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "SendToAgent"}
 		}
@@ -181,11 +185,11 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 		worker := *t.WorkerID
 		t.State = StateWorking
 		t.BlockedReason = nil
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentSend, Payload: SendPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicAgentSend, Payload: SendPayload{
 			TicketID: updated.ID,
 			WorkerID: worker,
 			Message:  instruction,
@@ -193,13 +197,13 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 			return Ticket{}, fmt.Errorf("board: append agent.send: %w", err)
 		}
 		if leavingBlocked {
-			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+			if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 				Title: updated.Title,
 				Verb:  FeedVerbNudged,
 			}}); err != nil {
 				return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 			}
-			if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+			if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 				Verb:        "nudged",
 				TicketTitle: updated.Title,
 				TicketID:    updated.ID,
@@ -215,19 +219,19 @@ func (s *Service) SendToAgent(ctx context.Context, id TicketID, instruction stri
 // — or the failure being surfaced when the runtime calls it mechanically
 // (crash/timeout, exhausted delivery retries — 03 §7.3, 04 §3).
 // Precondition: state = working. Emits notify.send.
-func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (Ticket, error) {
-	return s.mutate(ctx, "mark_blocked", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) MarkBlocked(ctx context.Context, projectID string, id TicketID, reason string) (Ticket, error) {
+	return s.mutate(ctx, projectID, "mark_blocked", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State != StateWorking {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkBlocked"}
 		}
 		r := reason
 		t.State = StateBlocked
 		t.BlockedReason = &r
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicNotifySend, Payload: NotifyPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicNotifySend, Payload: NotifyPayload{
 			TicketID: updated.ID,
 			Title:    updated.Title,
 			Reason:   reason,
@@ -235,7 +239,7 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
 		}
 		// A blocker becomes a feed card (08 §5); no toast — the card is the surface.
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: updated.Title,
 			Verb:  FeedVerbBlocked,
 		}}); err != nil {
@@ -250,8 +254,8 @@ func (s *Service) MarkBlocked(ctx context.Context, id TicketID, reason string) (
 // Precondition: state ∈ {working, blocked}. Emits pull.evaluate,
 // agent.release (recycle the freed worker — 05 §4), feed.updated, the ephemeral
 // finished activity.toast, and feed.completion (the persistent "done" card).
-func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) AcceptToDone(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, projectID, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
 		}
@@ -259,25 +263,25 @@ func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error)
 		t.State = StateDone
 		t.WorkerID = nil
 		t.BlockedReason = nil
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicPullEvaluate}); err != nil {
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicPullEvaluate}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentRelease, Payload: ReleasePayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicAgentRelease, Payload: ReleasePayload{
 			WorkerID: worker,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append agent.release: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: updated.Title,
 			Verb:  FeedVerbFinished,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 			Verb:        "finished",
 			TicketTitle: updated.Title,
 			TicketID:    updated.ID,
@@ -286,7 +290,7 @@ func (s *Service) AcceptToDone(ctx context.Context, id TicketID) (Ticket, error)
 		}
 		// Persistent completion card: the transition itself posts the "done" feed
 		// card, so completions are never missed when the agent forgets to (08 §7).
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedCompletion, Payload: CompletionPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedCompletion, Payload: CompletionPayload{
 			TicketID:    updated.ID,
 			TicketTitle: updated.Title,
 		}}); err != nil {
@@ -312,12 +316,13 @@ type SeedSpec struct {
 // discretion. It is not a Board API operation and is never reachable by the
 // real client.
 //
-// Invariants are honored: a working/blocked seed binds a currently-free worker
-// (ErrNoFreeWorker if none), a blocked seed carries a blocked_reason (03 I3/I4),
-// a ready seed gets a ready_at, and approval_requested is only set on a shaping
-// seed. Emits board.updated always, plus feed.updated when the seed produces a
-// feed surface (blocker or proposal), so the feed reassembles immediately.
-func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error) {
+// Invariants are honored: a working/blocked seed binds one of the project's
+// currently-free workers (ErrNoFreeWorker if none), a blocked seed carries a
+// blocked_reason (03 I3/I4), a ready seed gets a ready_at, and
+// approval_requested is only set on a shaping seed. Emits board.updated
+// always, plus feed.updated when the seed produces a feed surface (blocker or
+// proposal), so the feed reassembles immediately.
+func (s *Service) SeedTicket(ctx context.Context, projectID string, spec SeedSpec) (Ticket, error) {
 	if spec.Title == "" {
 		return Ticket{}, ErrEmptyTitle
 	}
@@ -327,18 +332,18 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 	}
 	var out Ticket
 	err := s.store.Tx(ctx, func(tx Tx) error {
-		seed, err := buildSeedTicket(ctx, tx, spec, state)
+		seed, err := buildSeedTicket(ctx, tx, projectID, spec, state)
 		if err != nil {
 			return err
 		}
-		created, err := tx.InsertTicket(ctx, seed)
+		created, err := tx.InsertTicket(ctx, projectID, seed)
 		if err != nil {
 			return fmt.Errorf("board: seed insert ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
-		if err := appendSeedFeedUpdated(ctx, tx, state, created.Title); err != nil {
+		if err := appendSeedFeedUpdated(ctx, tx, projectID, state, created.Title); err != nil {
 			return err
 		}
 		out = created
@@ -347,7 +352,7 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: seed ticket: %w", err)
 	}
-	logTransition(ctx, "seed_ticket", string(out.ID), "", out.State)
+	logTransition(ctx, "seed_ticket", projectID, string(out.ID), "", out.State)
 	return out, nil
 }
 
@@ -355,7 +360,7 @@ func (s *Service) SeedTicket(ctx context.Context, spec SeedSpec) (Ticket, error)
 // feed surface — a blocker card (blocked) or a proposal card (any shaping ticket
 // — 08 §5, superseding D5's approval_requested gate) — so the feed reassembles
 // immediately. Other states have no feed surface and emit nothing here.
-func appendSeedFeedUpdated(ctx context.Context, tx Tx, state State, title string) error {
+func appendSeedFeedUpdated(ctx context.Context, tx Tx, projectID string, state State, title string) error {
 	if state != StateBlocked && state != StateShaping {
 		return nil // ready/working/done have no feed surface here
 	}
@@ -363,7 +368,7 @@ func appendSeedFeedUpdated(ctx context.Context, tx Tx, state State, title string
 	if state == StateBlocked {
 		verb = FeedVerbBlocked
 	}
-	if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+	if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 		Title: title,
 		Verb:  verb,
 	}}); err != nil {
@@ -375,10 +380,10 @@ func appendSeedFeedUpdated(ctx context.Context, tx Tx, state State, title string
 // buildSeedTicket assembles the invariant-honoring Ticket for SeedTicket: a
 // worker binding for active states (03 I3), a blocked_reason for blocked
 // (03 I4), a ready_at for ready, and approval_requested only for shaping.
-func buildSeedTicket(ctx context.Context, tx Tx, spec SeedSpec, state State) (Ticket, error) {
+func buildSeedTicket(ctx context.Context, tx Tx, projectID string, spec SeedSpec, state State) (Ticket, error) {
 	seed := Ticket{Title: spec.Title, Body: spec.Body, State: state}
 	if state.Active() { // working/blocked need a bound worker (03 I3)
-		w, ok, err := tx.FreeWorker(ctx)
+		w, ok, err := tx.FreeWorker(ctx, projectID)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: seed free worker: %w", err)
 		}
@@ -413,18 +418,18 @@ func buildSeedTicket(ctx context.Context, tx Tx, spec SeedSpec, state State) (Ti
 // resolved first; archiving it directly is refused with ErrInvalidTransition
 // rather than silently stranding or releasing the worker. Emits board.updated
 // (via mutate) and feed.updated (an archived proposal/blocker card disappears).
-func (s *Service) ArchiveTicket(ctx context.Context, id TicketID) (Ticket, error) {
-	return s.mutate(ctx, "archive_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+func (s *Service) ArchiveTicket(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, projectID, "archive_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if t.State.Active() {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ArchiveTicket"}
 		}
 		now := time.Now().UTC()
 		t.ArchivedAt = &now
-		updated, err := tx.UpdateTicket(ctx, *t)
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: updated.Title,
 			Verb:  FeedVerbArchived,
 		}}); err != nil {
@@ -434,19 +439,20 @@ func (s *Service) ArchiveTicket(ctx context.Context, id TicketID) (Ticket, error
 	})
 }
 
-// GetTicket reads one ticket by id (03 §4 amended), backing the brain's
-// get_ticket tool. Archived or missing ids surface as ErrNotFound.
-func (s *Service) GetTicket(ctx context.Context, id TicketID) (Ticket, error) {
-	t, err := s.store.GetTicket(ctx, id)
+// GetTicket reads one of the project's tickets by id (03 §4 amended), backing
+// the brain's get_ticket tool. Archived, missing, or other-project ids
+// surface as ErrNotFound.
+func (s *Service) GetTicket(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	t, err := s.store.GetTicket(ctx, projectID, id)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: get ticket %s: %w", id, err)
 	}
 	return t, nil
 }
 
-// GetBoard returns the full snapshot (03 §4).
-func (s *Service) GetBoard(ctx context.Context) (Snapshot, error) {
-	snap, err := s.store.Snapshot(ctx)
+// GetBoard returns the project's full snapshot (03 §4).
+func (s *Service) GetBoard(ctx context.Context, projectID string) (Snapshot, error) {
+	snap, err := s.store.Snapshot(ctx, projectID)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("board: get board: %w", err)
 	}
@@ -454,15 +460,16 @@ func (s *Service) GetBoard(ctx context.Context) (Snapshot, error) {
 }
 
 // RunPull is the deterministic pull (03 §5) — a system action, never a brain
-// decision (03 I6). It loops, one transaction per binding (pullOnce), until no
-// (ready ticket, free worker) pair remains: lock both with SKIP LOCKED,
-// move ready → working, bind the worker, emit agent.send with the work
-// order. Idempotent by construction, so duplicate pull.evaluate triggers and
-// at-least-once delivery are safe; the one_active_ticket_per_worker index
-// (03 I2) is the backstop against double-binding.
-func (s *Service) RunPull(ctx context.Context) error {
+// decision (03 I6). It works one project's board: it loops, one transaction
+// per binding (pullOnce), until no (ready ticket, free worker) pair remains
+// within the project: lock both with SKIP LOCKED, move ready → working, bind
+// the worker, emit agent.send with the work order. Idempotent by
+// construction, so duplicate pull.evaluate triggers and at-least-once
+// delivery are safe; the one_active_ticket_per_worker index (03 I2) is the
+// backstop against double-binding.
+func (s *Service) RunPull(ctx context.Context, projectID string) error {
 	for {
-		bound, err := s.pullOnce(ctx)
+		bound, err := s.pullOnce(ctx, projectID)
 		if err != nil {
 			return err
 		}
@@ -472,22 +479,22 @@ func (s *Service) RunPull(ctx context.Context) error {
 	}
 }
 
-// pullOnce binds at most one (ready ticket, free worker) pair in a single
-// transaction, reporting whether a binding happened. When either side is
-// exhausted it commits an empty transaction and reports bound=false, which
-// stops RunPull's loop.
-func (s *Service) pullOnce(ctx context.Context) (bool, error) {
+// pullOnce binds at most one of the project's (ready ticket, free worker)
+// pairs in a single transaction, reporting whether a binding happened. When
+// either side is exhausted it commits an empty transaction and reports
+// bound=false, which stops RunPull's loop.
+func (s *Service) pullOnce(ctx context.Context, projectID string) (bool, error) {
 	bound := false
 	var boundTicket, boundWorker string
 	err := s.store.Tx(ctx, func(tx Tx) error {
-		ticket, ok, err := tx.NextReadyTicket(ctx)
+		ticket, ok, err := tx.NextReadyTicket(ctx, projectID)
 		if err != nil {
 			return fmt.Errorf("board: next ready ticket: %w", err)
 		}
 		if !ok {
 			return nil
 		}
-		worker, ok, err := tx.FreeWorker(ctx)
+		worker, ok, err := tx.FreeWorker(ctx, projectID)
 		if err != nil {
 			return fmt.Errorf("board: free worker: %w", err)
 		}
@@ -497,22 +504,22 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 		wid := worker.ID
 		ticket.State = StateWorking
 		ticket.WorkerID = &wid
-		updated, err := tx.UpdateTicket(ctx, ticket)
+		updated, err := tx.UpdateTicket(ctx, projectID, ticket)
 		if err != nil {
 			return fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicAgentSend, Payload: SendPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicAgentSend, Payload: SendPayload{
 			TicketID: updated.ID,
 			WorkerID: wid,
 			Message:  workOrder(updated),
 		}}); err != nil {
 			return fmt.Errorf("board: append agent.send: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
 		// Dispatch is user-visible progress: a "started" toast (08 §5).
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 			Verb:        "started",
 			TicketTitle: updated.Title,
 			TicketID:    updated.ID,
@@ -527,7 +534,7 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("board: run pull: %w", err)
 	}
-	logPull(ctx, bound, boundTicket, boundWorker)
+	logPull(ctx, projectID, bound, boundTicket, boundWorker)
 	return bound, nil
 }
 
@@ -536,26 +543,28 @@ func (s *Service) pullOnce(ctx context.Context) (bool, error) {
 // (03 I6); logging it keeps every ready→working move — including an automatic
 // redelivery — in the same board.transition stream. Split out of pullOnce so
 // the pull's own control flow stays within the complexity budget.
-func logPull(ctx context.Context, bound bool, ticketID, workerID string) {
+func logPull(ctx context.Context, projectID string, bound bool, ticketID, workerID string) {
 	if !bound {
 		return
 	}
 	slog.InfoContext(ctx, "board.transition",
-		"op", "pull", "ticket_id", ticketID, "worker_id", workerID,
+		"op", "pull", "project_id", projectID, "ticket_id", ticketID, "worker_id", workerID,
 		"from", string(StateReady), "to", string(StateWorking))
 }
 
 // mutate runs the common lock-then-check transaction shape (03 §6): lock the
-// target ticket, hand it to apply for precondition-check + state change +
-// emissions, then append the universal board.updated signal (03 §4). apply
-// returns the persisted ticket; any error rolls back the whole transaction so
-// no partial write or emission survives a failed precondition (03 I7, D8).
+// target ticket within the project, hand it to apply for precondition-check +
+// state change + emissions, then append the universal board.updated signal
+// (03 §4). apply returns the persisted ticket; any error rolls back the whole
+// transaction so no partial write or emission survives a failed precondition
+// (03 I7, D8).
 //
 // op names the Board API operation for the board.transition log emitted on
 // commit — the authoritative before/after state record (turn_id injected from
 // context), covering every operation that flows through here.
 func (s *Service) mutate(
 	ctx context.Context,
+	projectID string,
 	op string,
 	id TicketID,
 	apply func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error),
@@ -563,7 +572,7 @@ func (s *Service) mutate(
 	var out Ticket
 	var before State
 	err := s.store.Tx(ctx, func(tx Tx) error {
-		locked, err := tx.LockTicket(ctx, id)
+		locked, err := tx.LockTicket(ctx, projectID, id)
 		if err != nil {
 			return fmt.Errorf("board: lock ticket %s: %w", id, err)
 		}
@@ -572,7 +581,7 @@ func (s *Service) mutate(
 		if err != nil {
 			return err
 		}
-		if err := tx.AppendOutbox(ctx, Emission{Topic: TopicBoardUpdated}); err != nil {
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicBoardUpdated}); err != nil {
 			return fmt.Errorf("board: append board.updated: %w", err)
 		}
 		out = updated
@@ -581,17 +590,18 @@ func (s *Service) mutate(
 	if err != nil {
 		return Ticket{}, fmt.Errorf("board: mutate ticket %s: %w", id, err)
 	}
-	logTransition(ctx, op, string(id), before, out.State)
+	logTransition(ctx, op, projectID, string(id), before, out.State)
 	return out, nil
 }
 
 // logTransition emits the structured board.transition record (before/after
-// state + ticket id) once a mutation has committed. Shared by mutate, the
-// create/seed inserts (from ""), and the pull (op="pull") so every state change
-// — brain-driven or the system pull — appears in one greppable log stream.
-func logTransition(ctx context.Context, op, ticketID string, from, to State) {
+// state + project + ticket id) once a mutation has committed. Shared by
+// mutate, the create/seed inserts (from ""), and the pull (op="pull") so
+// every state change — brain-driven or the system pull — appears in one
+// greppable log stream.
+func logTransition(ctx context.Context, op, projectID, ticketID string, from, to State) {
 	slog.InfoContext(ctx, "board.transition",
-		"op", op, "ticket_id", ticketID, "from", string(from), "to", string(to))
+		"op", op, "project_id", projectID, "ticket_id", ticketID, "from", string(from), "to", string(to))
 }
 
 // workOrder is RunPull's agent.send message — the ticket's title and body as

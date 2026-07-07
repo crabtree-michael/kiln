@@ -21,9 +21,9 @@ import (
 func TestRunPull_NoReadyTicket_NoOp(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	store.seedWorkers(1)
+	store.seedWorkers(projA, 1)
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull with no ready ticket: unexpected error: %v", err)
 	}
 	if len(store.outboxSnapshot()) != 0 {
@@ -35,10 +35,10 @@ func TestRunPull_NoFreeWorker_NoOp(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
 	rt := store.now()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateReady, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateReady, ReadyAt: &rt})
 	// No workers seeded at all: WorkerTotal == 0, so nothing can ever be free.
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull with no free worker: unexpected error: %v", err)
 	}
 	tk, _ := store.ticket("t1")
@@ -50,11 +50,13 @@ func TestRunPull_NoFreeWorker_NoOp(t *testing.T) {
 func TestRunPull_BindsReadyTicketToFreeWorker(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	workers := store.seedWorkers(1)
+	workers := store.seedWorkers(projA, 1)
 	rt := store.now()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "Do the thing", Body: "details", State: board.StateReady, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{
+		ID: "t1", Title: "Do the thing", Body: "details", State: board.StateReady, ReadyAt: &rt,
+	})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 	tk, ok := store.ticket("t1")
@@ -88,24 +90,26 @@ func TestRunPull_BindsReadyTicketToFreeWorker(t *testing.T) {
 func TestRunPull_OrderPriorityDescThenReadyAtAscThenIDAsc(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	store.seedWorkers(1) // exactly one slot: only the single highest-order ticket can be pulled
+	store.seedWorkers(projA, 1) // exactly one slot: only the single highest-order ticket can be pulled
 
 	base := store.now()
 	// Same priority, different ready_at: earlier ready_at must win the tie.
-	store.seedTicket(board.Ticket{ID: "low-priority", Title: "T", State: board.StateReady, Priority: 1, ReadyAt: &base})
+	store.seedTicket(projA, board.Ticket{
+		ID: "low-priority", Title: "T", State: board.StateReady, Priority: 1, ReadyAt: &base,
+	})
 	laterReady := base.Add(time.Hour)
-	store.seedTicket(board.Ticket{
+	store.seedTicket(projA, board.Ticket{
 		ID: "same-priority-later", Title: "T", State: board.StateReady, Priority: 5, ReadyAt: &laterReady,
 	})
 	earlierReady := base.Add(-time.Hour)
-	store.seedTicket(board.Ticket{
+	store.seedTicket(projA, board.Ticket{
 		ID: "same-priority-earlier", Title: "T", State: board.StateReady, Priority: 5, ReadyAt: &earlierReady,
 	})
-	store.seedTicket(board.Ticket{
+	store.seedTicket(projA, board.Ticket{
 		ID: "highest-priority", Title: "T", State: board.StateReady, Priority: 9, ReadyAt: &base,
 	})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 
@@ -118,14 +122,14 @@ func TestRunPull_OrderPriorityDescThenReadyAtAscThenIDAsc(t *testing.T) {
 func TestRunPull_TieBreakByReadyAtThenID(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	store.seedWorkers(1)
+	store.seedWorkers(projA, 1)
 
 	tie := store.now()
 	// Equal priority AND equal ready_at: id ASC must decide (D9).
-	store.seedTicket(board.Ticket{ID: "z-ticket", Title: "T", State: board.StateReady, Priority: 3, ReadyAt: &tie})
-	store.seedTicket(board.Ticket{ID: "a-ticket", Title: "T", State: board.StateReady, Priority: 3, ReadyAt: &tie})
+	store.seedTicket(projA, board.Ticket{ID: "z-ticket", Title: "T", State: board.StateReady, Priority: 3, ReadyAt: &tie})
+	store.seedTicket(projA, board.Ticket{ID: "a-ticket", Title: "T", State: board.StateReady, Priority: 3, ReadyAt: &tie})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 	pulled := boundWorkingTicketID(t, store)
@@ -137,14 +141,14 @@ func TestRunPull_TieBreakByReadyAtThenID(t *testing.T) {
 func TestRunPull_LoopsUntilExhausted(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	store.seedWorkers(3)
+	store.seedWorkers(projA, 3)
 
 	rt := store.now()
 	for _, id := range []board.TicketID{"t1", "t2", "t3"} {
-		store.seedTicket(board.Ticket{ID: id, Title: "T", State: board.StateReady, ReadyAt: &rt})
+		store.seedTicket(projA, board.Ticket{ID: id, Title: "T", State: board.StateReady, ReadyAt: &rt})
 	}
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 	for _, id := range []board.TicketID{"t1", "t2", "t3"} {
@@ -163,13 +167,13 @@ func TestRunPull_LoopsUntilExhausted(t *testing.T) {
 func TestRunPull_MoreReadyThanWorkers_LeavesRemainderReady(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	store.seedWorkers(1)
+	store.seedWorkers(projA, 1)
 
 	rt := store.now()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateReady, Priority: 5, ReadyAt: &rt})
-	store.seedTicket(board.Ticket{ID: "t2", Title: "T", State: board.StateReady, Priority: 1, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateReady, Priority: 5, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "t2", Title: "T", State: board.StateReady, Priority: 1, ReadyAt: &rt})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 	t1, _ := store.ticket("t1")
@@ -185,18 +189,18 @@ func TestRunPull_MoreReadyThanWorkers_LeavesRemainderReady(t *testing.T) {
 func TestRunPull_Idempotent_RerunDoesNotDoubleBind(t *testing.T) {
 	store := newFakeStore()
 	svc := board.NewService(store)
-	store.seedWorkers(1)
+	store.seedWorkers(projA, 1)
 	rt := store.now()
-	store.seedTicket(board.Ticket{ID: "t1", Title: "T", State: board.StateReady, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateReady, ReadyAt: &rt})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("first RunPull: unexpected error: %v", err)
 	}
 	firstSendCount := len(emissionsWithTopic(store.outboxSnapshot(), board.TopicAgentSend))
 
 	// A duplicate/re-delivered pull.evaluate must converge to a no-op:
 	// at-least-once drain + idempotent RunPull is the safety story (03 §5).
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("second RunPull: unexpected error: %v", err)
 	}
 	secondSendCount := len(emissionsWithTopic(store.outboxSnapshot(), board.TopicAgentSend))
@@ -218,12 +222,12 @@ func TestRunPull_BusyWorkerIsDerivedNotStored(t *testing.T) {
 	// free workers, because the only worker is derived-busy.
 	store := newFakeStore()
 	svc := board.NewService(store)
-	worker := store.seedWorkers(1)[0]
-	store.seedTicket(board.Ticket{ID: "already-working", Title: "T", State: board.StateWorking, WorkerID: &worker})
+	worker := store.seedWorkers(projA, 1)[0]
+	store.seedTicket(projA, board.Ticket{ID: "already-working", Title: "T", State: board.StateWorking, WorkerID: &worker})
 	rt := store.now()
-	store.seedTicket(board.Ticket{ID: "t-ready", Title: "T", State: board.StateReady, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "t-ready", Title: "T", State: board.StateReady, ReadyAt: &rt})
 
-	if err := svc.RunPull(context.Background()); err != nil {
+	if err := svc.RunPull(context.Background(), projA); err != nil {
 		t.Fatalf("RunPull: unexpected error: %v", err)
 	}
 	tk, _ := store.ticket("t-ready")

@@ -33,6 +33,13 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 )
 
+// Fixed tenant ids (11 §3): operations run under projA; projB exists to
+// prove the SQL project predicates keep tenants invisible to each other.
+const (
+	projA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	projB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+)
+
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -148,7 +155,7 @@ func TestCheckConstraint_WorkerIDRequiredWhenActive(t *testing.T) {
 func TestCheckConstraint_WorkerIDForbiddenWhenInactive(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	workerID := mustInsertWorker(ctx, t, db)
+	workerID := mustInsertWorker(ctx, t, db, projA)
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tickets (id, title, state, worker_id) VALUES (gen_random_uuid(), 'x', 'shaping', $1)`, workerID)
 	if err == nil {
@@ -161,7 +168,7 @@ func TestCheckConstraint_WorkerIDForbiddenWhenInactive(t *testing.T) {
 func TestCheckConstraint_BlockedReasonRequiredWhenBlocked(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	workerID := mustInsertWorker(ctx, t, db)
+	workerID := mustInsertWorker(ctx, t, db, projA)
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO tickets (id, title, state, worker_id, blocked_reason)
 		VALUES (gen_random_uuid(), 'x', 'blocked', $1, NULL)`, workerID)
@@ -173,7 +180,7 @@ func TestCheckConstraint_BlockedReasonRequiredWhenBlocked(t *testing.T) {
 func TestCheckConstraint_BlockedReasonForbiddenWhenNotBlocked(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	workerID := mustInsertWorker(ctx, t, db)
+	workerID := mustInsertWorker(ctx, t, db, projA)
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO tickets (id, title, state, worker_id, blocked_reason)
 		VALUES (gen_random_uuid(), 'x', 'working', $1, 'reason')`, workerID)
@@ -187,7 +194,7 @@ func TestCheckConstraint_BlockedReasonForbiddenWhenNotBlocked(t *testing.T) {
 func TestUniqueIndex_OneActiveTicketPerWorker(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	workerID := mustInsertWorker(ctx, t, db)
+	workerID := mustInsertWorker(ctx, t, db, projA)
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tickets (id, title, state, worker_id) VALUES (gen_random_uuid(), 'first', 'working', $1)`, workerID)
@@ -230,13 +237,13 @@ func TestParallelRunPull_NoDoubleBind(t *testing.T) {
 	const numReadyTickets = 20
 
 	for range numWorkers {
-		mustInsertWorker(ctx, t, db)
+		mustInsertWorker(ctx, t, db, projA)
 	}
 	for i := range numReadyTickets {
 		_, err := db.ExecContext(ctx, `
-			INSERT INTO tickets (id, title, state, priority, ready_at)
-			VALUES (gen_random_uuid(), $1, 'ready', $2, now())`,
-			fmt.Sprintf("ticket-%d", i), i)
+			INSERT INTO tickets (id, project_id, title, state, priority, ready_at)
+			VALUES (gen_random_uuid(), $1, $2, 'ready', $3, now())`,
+			projA, fmt.Sprintf("ticket-%d", i), i)
 		if err != nil {
 			t.Fatalf("seed ready ticket %d: %v", i, err)
 		}
@@ -250,7 +257,7 @@ func TestParallelRunPull_NoDoubleBind(t *testing.T) {
 			// Every caller races to drain the whole (ready, free) pair
 			// space; RunPull's own loop plus SKIP LOCKED must make this
 			// safe with no coordination between callers.
-			if err := svc.RunPull(ctx); err != nil {
+			if err := svc.RunPull(ctx, projA); err != nil {
 				errs <- err
 			}
 		})
@@ -311,21 +318,21 @@ func TestParallelRunPull_NoDoubleBind(t *testing.T) {
 func TestStateChangedAt_OnlyAdvancesOnRealTransition(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	mustInsertWorker(ctx, t, db)
+	mustInsertWorker(ctx, t, db, projA)
 	store := postgres.New(db)
 	svc := board.NewService(store)
 
-	created, err := svc.CreateTicket(ctx, "time-in-status", "")
+	created, err := svc.CreateTicket(ctx, projA, "time-in-status", "")
 	if err != nil {
 		t.Fatalf("CreateTicket: %v", err)
 	}
-	if _, err := svc.MarkReady(ctx, created.ID); err != nil {
+	if _, err := svc.MarkReady(ctx, projA, created.ID); err != nil {
 		t.Fatalf("MarkReady: %v", err)
 	}
-	if err := svc.RunPull(ctx); err != nil {
+	if err := svc.RunPull(ctx, projA); err != nil {
 		t.Fatalf("RunPull: %v", err)
 	}
-	working, err := svc.GetTicket(ctx, created.ID)
+	working, err := svc.GetTicket(ctx, projA, created.ID)
 	if err != nil {
 		t.Fatalf("GetTicket after pull: %v", err)
 	}
@@ -336,7 +343,7 @@ func TestStateChangedAt_OnlyAdvancesOnRealTransition(t *testing.T) {
 
 	// A nudge: same state, so state_changed_at must be byte-for-byte unchanged
 	// while updated_at moves forward.
-	nudged, err := svc.SendToAgent(ctx, created.ID, "keep going")
+	nudged, err := svc.SendToAgent(ctx, projA, created.ID, "keep going")
 	if err != nil {
 		t.Fatalf("SendToAgent (nudge): %v", err)
 	}
@@ -349,10 +356,10 @@ func TestStateChangedAt_OnlyAdvancesOnRealTransition(t *testing.T) {
 
 	// A real transition: block then resume. state_changed_at must advance past
 	// when the ticket first entered Working.
-	if _, err := svc.MarkBlocked(ctx, created.ID, "needs a decision"); err != nil {
+	if _, err := svc.MarkBlocked(ctx, projA, created.ID, "needs a decision"); err != nil {
 		t.Fatalf("MarkBlocked: %v", err)
 	}
-	resumed, err := svc.SendToAgent(ctx, created.ID, "here's the answer")
+	resumed, err := svc.SendToAgent(ctx, projA, created.ID, "here's the answer")
 	if err != nil {
 		t.Fatalf("SendToAgent (resume): %v", err)
 	}
@@ -370,12 +377,12 @@ func TestArchiveTicket_SoftDeletesFromReadsButKeepsRow(t *testing.T) {
 	store := postgres.New(db)
 	svc := board.NewService(store)
 
-	created, err := svc.CreateTicket(ctx, "mistake", "body")
+	created, err := svc.CreateTicket(ctx, projA, "mistake", "body")
 	if err != nil {
 		t.Fatalf("CreateTicket: %v", err)
 	}
 
-	archived, err := svc.ArchiveTicket(ctx, created.ID)
+	archived, err := svc.ArchiveTicket(ctx, projA, created.ID)
 	if err != nil {
 		t.Fatalf("ArchiveTicket: %v", err)
 	}
@@ -384,10 +391,10 @@ func TestArchiveTicket_SoftDeletesFromReadsButKeepsRow(t *testing.T) {
 	}
 
 	// Gone from both read paths...
-	if _, err := svc.GetTicket(ctx, created.ID); !errors.Is(err, board.ErrNotFound) {
+	if _, err := svc.GetTicket(ctx, projA, created.ID); !errors.Is(err, board.ErrNotFound) {
 		t.Fatalf("GetTicket after archive: err = %v, want ErrNotFound", err)
 	}
-	snap, err := svc.GetBoard(ctx)
+	snap, err := svc.GetBoard(ctx, projA)
 	if err != nil {
 		t.Fatalf("GetBoard: %v", err)
 	}
@@ -410,21 +417,21 @@ func TestArchiveTicket_SoftDeletesFromReadsButKeepsRow(t *testing.T) {
 func TestArchiveTicket_ArchivedReadyIsNotPulled(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	mustInsertWorker(ctx, t, db)
+	mustInsertWorker(ctx, t, db, projA)
 	store := postgres.New(db)
 	svc := board.NewService(store)
 
-	created, err := svc.CreateTicket(ctx, "ready-then-archived", "")
+	created, err := svc.CreateTicket(ctx, projA, "ready-then-archived", "")
 	if err != nil {
 		t.Fatalf("CreateTicket: %v", err)
 	}
-	if _, err := svc.MarkReady(ctx, created.ID); err != nil {
+	if _, err := svc.MarkReady(ctx, projA, created.ID); err != nil {
 		t.Fatalf("MarkReady: %v", err)
 	}
-	if _, err := svc.ArchiveTicket(ctx, created.ID); err != nil {
+	if _, err := svc.ArchiveTicket(ctx, projA, created.ID); err != nil {
 		t.Fatalf("ArchiveTicket: %v", err)
 	}
-	if err := svc.RunPull(ctx); err != nil {
+	if err := svc.RunPull(ctx, projA); err != nil {
 		t.Fatalf("RunPull: %v", err)
 	}
 
@@ -438,12 +445,203 @@ func TestArchiveTicket_ArchivedReadyIsNotPulled(t *testing.T) {
 	}
 }
 
-func mustInsertWorker(ctx context.Context, t *testing.T, db *sql.DB) string {
+func mustInsertWorker(ctx context.Context, t *testing.T, db *sql.DB, projectID string) string {
 	t.Helper()
 	var id string
 	if err := db.QueryRowContext(ctx,
-		`INSERT INTO workers (id) VALUES (gen_random_uuid()) RETURNING id`).Scan(&id); err != nil {
+		`INSERT INTO workers (id, project_id) VALUES (gen_random_uuid(), $1) RETURNING id`,
+		projectID).Scan(&id); err != nil {
 		t.Fatalf("insert worker: %v", err)
 	}
 	return id
+}
+
+// ---- Project isolation (11 §3): the SQL predicates, per query family --------
+
+// Snapshot family: tickets and worker counts are scoped by project_id.
+func TestProjectIsolation_SnapshotScoped(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	mustInsertWorker(ctx, t, db, projA)
+	mustInsertWorker(ctx, t, db, projB)
+	mustInsertWorker(ctx, t, db, projB)
+	if _, err := svc.CreateTicket(ctx, projA, "A's ticket", ""); err != nil {
+		t.Fatalf("CreateTicket(projA): %v", err)
+	}
+	if _, err := svc.CreateTicket(ctx, projB, "B's ticket", ""); err != nil {
+		t.Fatalf("CreateTicket(projB): %v", err)
+	}
+
+	snap, err := svc.GetBoard(ctx, projA)
+	if err != nil {
+		t.Fatalf("GetBoard(projA): %v", err)
+	}
+	if len(snap.Shaping) != 1 || snap.Shaping[0].Title != "A's ticket" {
+		t.Errorf("projA Shaping = %+v, want exactly A's ticket", snap.Shaping)
+	}
+	if snap.WorkerTotal != 1 || snap.WorkerFree != 1 {
+		t.Errorf("projA WorkerTotal/Free = %d/%d, want 1/1 — B's workers leaked into A's counts",
+			snap.WorkerTotal, snap.WorkerFree)
+	}
+}
+
+// Targeted-read + targeted-mutation families: a valid id from another project
+// is ErrNotFound for GetTicket and for the lock-then-check mutation path, and
+// the foreign row is left untouched.
+func TestProjectIsolation_ForeignTicketIDIsNotFound(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	created, err := svc.CreateTicket(ctx, projB, "B's ticket", "")
+	if err != nil {
+		t.Fatalf("CreateTicket(projB): %v", err)
+	}
+
+	if _, err := svc.GetTicket(ctx, projA, created.ID); !errors.Is(err, board.ErrNotFound) {
+		t.Errorf("GetTicket(projA, B's id) error = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.MarkReady(ctx, projA, created.ID); !errors.Is(err, board.ErrNotFound) {
+		t.Errorf("MarkReady(projA, B's id) error = %v, want ErrNotFound", err)
+	}
+
+	got, err := svc.GetTicket(ctx, projB, created.ID)
+	if err != nil {
+		t.Fatalf("GetTicket(projB): %v", err)
+	}
+	if got.State != board.StateShaping {
+		t.Errorf("B's ticket state = %q, want untouched shaping", got.State)
+	}
+}
+
+// Pull family, ticket side: A's pull must never select B's ready ticket even
+// with free A capacity (the NextReadyTicket project predicate).
+func TestProjectIsolation_PullIgnoresForeignReadyTicket(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	mustInsertWorker(ctx, t, db, projA)
+	bTicket, err := svc.CreateTicket(ctx, projB, "B ready", "")
+	if err != nil {
+		t.Fatalf("CreateTicket(projB): %v", err)
+	}
+	if _, err := svc.MarkReady(ctx, projB, bTicket.ID); err != nil {
+		t.Fatalf("MarkReady(projB): %v", err)
+	}
+
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull(projA): %v", err)
+	}
+	got, err := svc.GetTicket(ctx, projB, bTicket.ID)
+	if err != nil {
+		t.Fatalf("GetTicket(projB): %v", err)
+	}
+	if got.State != board.StateReady {
+		t.Errorf("B's ready ticket state = %q after RunPull(projA), want still ready", got.State)
+	}
+}
+
+// Pull family, worker side: A's ready ticket must not bind B's free worker
+// (the FreeWorker/lockFreeCandidates project predicate).
+func TestProjectIsolation_PullIgnoresForeignFreeWorker(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	mustInsertWorker(ctx, t, db, projB)
+	aTicket, err := svc.CreateTicket(ctx, projA, "A ready", "")
+	if err != nil {
+		t.Fatalf("CreateTicket(projA): %v", err)
+	}
+	if _, err := svc.MarkReady(ctx, projA, aTicket.ID); err != nil {
+		t.Fatalf("MarkReady(projA): %v", err)
+	}
+
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull(projA): %v", err)
+	}
+	got, err := svc.GetTicket(ctx, projA, aTicket.ID)
+	if err != nil {
+		t.Fatalf("GetTicket(projA): %v", err)
+	}
+	if got.State != board.StateReady {
+		t.Errorf("A's ticket state = %q, want still ready — only B has a free worker and it must be invisible to A", got.State)
+	}
+}
+
+// Worker-reconciliation family: ReconcileWorkers counts and inserts per
+// project, and WorkerIDs lists only the project's slots.
+func TestProjectIsolation_ReconcileWorkersAndWorkerIDs(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+
+	if err := store.ReconcileWorkers(ctx, projA, 3); err != nil {
+		t.Fatalf("ReconcileWorkers(projA, 3): %v", err)
+	}
+	if err := store.ReconcileWorkers(ctx, projB, 2); err != nil {
+		t.Fatalf("ReconcileWorkers(projB, 2): %v", err)
+	}
+	// Idempotent per project: A already has 3, so this must add none.
+	if err := store.ReconcileWorkers(ctx, projA, 3); err != nil {
+		t.Fatalf("ReconcileWorkers(projA, 3) again: %v", err)
+	}
+
+	aIDs, err := store.WorkerIDs(ctx, projA)
+	if err != nil {
+		t.Fatalf("WorkerIDs(projA): %v", err)
+	}
+	bIDs, err := store.WorkerIDs(ctx, projB)
+	if err != nil {
+		t.Fatalf("WorkerIDs(projB): %v", err)
+	}
+	if len(aIDs) != 3 {
+		t.Errorf("WorkerIDs(projA) = %d ids, want 3 (B's rows must not count toward A's cap)", len(aIDs))
+	}
+	if len(bIDs) != 2 {
+		t.Errorf("WorkerIDs(projB) = %d ids, want 2", len(bIDs))
+	}
+	seen := map[string]bool{}
+	for _, id := range aIDs {
+		seen[id] = true
+	}
+	for _, id := range bIDs {
+		if seen[id] {
+			t.Errorf("worker id %s listed under both projects", id)
+		}
+	}
+}
+
+// Outbox family: every emission is stamped with the project that produced it.
+func TestProjectIsolation_OutboxRowsCarryProjectID(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	if _, err := svc.CreateTicket(ctx, projA, "A's ticket", ""); err != nil {
+		t.Fatalf("CreateTicket(projA): %v", err)
+	}
+
+	var total, scoped int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM outbox`).Scan(&total); err != nil {
+		t.Fatalf("count outbox: %v", err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM outbox WHERE project_id = $1`, projA).Scan(&scoped); err != nil {
+		t.Fatalf("count scoped outbox: %v", err)
+	}
+	if total == 0 {
+		t.Fatal("CreateTicket must append outbox emissions")
+	}
+	if scoped != total {
+		t.Errorf("outbox rows with project_id=projA: %d of %d — every append must set the tenant column", scoped, total)
+	}
 }

@@ -263,48 +263,6 @@ export function Landing(): JSX.Element {
           </div>
         </section>
 
-        <section className="kiln-section kiln-palette">
-          <div className="kiln-section__head">
-            <span className="kiln-eyebrow">Designed to stay calm</span>
-            <h2 className="kiln-section__title">Paper is calm. Fire means you're needed.</h2>
-            <p className="kiln-section__lead">
-              A warm, quiet interface that reads at a glance. Colour carries meaning, motion settles
-              instead of bouncing, and the whole thing turns to warm charcoal at night — this page
-              included, following your system theme.
-            </p>
-          </div>
-          <ul className="kiln-swatches" aria-hidden="true">
-            <li>
-              <span className="kiln-swatch" data-tone="paper" />
-              <div>
-                <strong>Paper</strong>
-                <span>the resting state</span>
-              </div>
-            </li>
-            <li>
-              <span className="kiln-swatch" data-tone="fire" />
-              <div>
-                <strong>Fire</strong>
-                <span>you're needed</span>
-              </div>
-            </li>
-            <li>
-              <span className="kiln-swatch" data-tone="glaze" />
-              <div>
-                <strong>Glaze</strong>
-                <span>all clear</span>
-              </div>
-            </li>
-            <li>
-              <span className="kiln-swatch" data-tone="ember" />
-              <div>
-                <strong>Ember</strong>
-                <span>caution</span>
-              </div>
-            </li>
-          </ul>
-        </section>
-
         <section className="kiln-cta">
           <div className="kiln-cta__inner">
             <KilnGlyph size={44} />

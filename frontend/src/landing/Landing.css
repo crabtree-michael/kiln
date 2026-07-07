@@ -379,65 +379,6 @@
   }
 }
 
-/* ── palette / brand aside ─────────────────────────────────────── */
-
-.kiln-swatches {
-  margin: clamp(28px, 4vw, 48px) 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.kiln-swatches li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-}
-
-.kiln-swatch {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px var(--border-hairline);
-}
-
-.kiln-swatch[data-tone='paper'] {
-  background: var(--surface-page);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-.kiln-swatch[data-tone='fire'] {
-  background: var(--accent);
-}
-.kiln-swatch[data-tone='glaze'] {
-  background: var(--calm);
-}
-.kiln-swatch[data-tone='ember'] {
-  background: var(--warn);
-}
-
-.kiln-swatches strong {
-  display: block;
-  font-size: 14px;
-}
-
-.kiln-swatches span {
-  font-size: 12.5px;
-  color: var(--text-muted);
-}
-
-@media (max-width: 720px) {
-  .kiln-swatches {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
 /* ── closing CTA ───────────────────────────────────────────────── */
 
 .kiln-cta {

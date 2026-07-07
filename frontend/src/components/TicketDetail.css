@@ -6,9 +6,9 @@
  * The overlay and the panel are `vaul` (Radix Dialog) parts portaled to
  * document.body — so they are siblings, not nested, and their fixed positioning
  * escapes any transformed/clipping ancestor (the dock, the feed). Vaul injects
- * the slide-up transform (direction="bottom") + rubber-band drag itself, keyed to
+ * the slide-down transform (direction="top") + rubber-band drag itself, keyed to
  * Radix's data-state=open|closed; these rules only supply the appearance and the
- * bottom-anchored, full-width geometry. The sheet sits above every in-page layer
+ * top-anchored, full-width geometry. The sheet sits above every in-page layer
  * (the app tops out at z-index 30). */
 
 [data-role='ticket-detail-backdrop'] {
@@ -22,35 +22,35 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   z-index: 41; /* above its own scrim */
   width: 100%;
   max-height: 85dvh;
-  /* Flex column that clips: the grabber, header, top metadata and (pinned)
-   * Accept action hold their intrinsic height while the body between them takes
-   * the remaining space and scrolls on its own — the header no longer travels
-   * with the description (07 §7–§8). The grabber is the first child, pinned to
-   * the sheet's upper edge: it slides up from the bottom, so the drag affordance
-   * lives at the top. */
+  /* Flex column that clips: the header, top metadata and (pinned) Accept action
+   * hold their intrinsic height while the body between them takes the remaining
+   * space and scrolls on its own — the header no longer travels with the
+   * description (07 §7–§8). The grabber is the last child, pinned to the sheet's
+   * lower edge: it slides down from the top, so the drag affordance lives at the
+   * bottom. */
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
-  border-bottom: none;
-  border-top-left-radius: var(--radius-lg);
-  border-top-right-radius: var(--radius-lg);
-  padding: 0.5rem 0.9rem 1rem;
+  border-top: none;
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+  padding: 1rem 0.9rem 0.5rem;
   box-shadow: var(--shadow-overlay);
 }
 
-/* Vaul's drag handle, on the sheet's upper edge. Repaint its hard-coded
+/* Vaul's drag handle, on the sheet's lower edge. Repaint its hard-coded
  * light-grey default with a token so the grabber reads correctly in both themes,
- * and give it room below. */
+ * and give it room above. */
 [data-role='ticket-detail-grabber'] {
   flex: 0 0 auto;
-  margin-top: 0.15rem;
-  margin-bottom: 0.55rem;
+  margin-top: 0.55rem;
+  margin-bottom: 0.15rem;
   background: var(--border-strong);
 }
 
@@ -252,7 +252,7 @@
  * only overrides padding, color and the inner typography. */
 
 [data-role='ticket-detail'][data-surface='primary'] {
-  padding: 0.5rem 22px 22px;
+  padding: 22px 22px 0.5rem;
   color: var(--text-body);
 }
 

@@ -64,14 +64,21 @@
      backlog breathing room under the bar without a large gap. Sides keep 26px.
 
      Bottom: the base 8px mirrors the top so the last card never butts against
-     the dock's top hairline, PLUS `--feed-bottom-inset` — the live height of the
-     activity band (thinking indicator + toast stack) that floats up over the feed
-     as an opaque out-of-flow overlay (see [data-role='activity-row']). Reserving
-     that band's height as extra scroll inset lets the newest card be scrolled
-     fully clear of the band instead of staying tucked behind it; the var is
-     published by ActivityRow and defaults to 0px, so an empty band leaves the
-     idle layout exactly as before. */
-  padding: 8px 26px calc(8px + var(--feed-bottom-inset, 0px));
+     the dock's top hairline, PLUS the full height of everything that floats up
+     over the feed as an opaque out-of-flow overlay. Two things stack there and
+     both must be reserved:
+       - `--dock-overlay-height` — the live transcript, anchored at the dock's top
+         edge (`bottom: 100%`, see [data-role='dock-transcript']); and
+       - `--feed-bottom-inset` — the activity band (thinking indicator + toast
+         stack), which floats ABOVE the transcript in turn (its `bottom` is offset
+         by `--dock-overlay-height`, see [data-role='activity-row']).
+     Because the band sits on top of the transcript, the two heights are additive:
+     the occluded strip runs from the dock top up through the transcript and then
+     the band. Reserving their sum as extra scroll inset lets the newest card be
+     scrolled fully clear of BOTH overlays instead of staying tucked behind them.
+     Both vars are published on the screen root and default to 0px, so an empty
+     band with a collapsed dock leaves the idle layout exactly as before. */
+  padding: 8px 26px calc(8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px));
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav

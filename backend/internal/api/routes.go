@@ -919,6 +919,10 @@ func activityToWire(ev runtime.ActivityEvent) wire.ActivityEvent {
 		tt := ev.TicketTitle
 		out.TicketTitle = &tt
 	}
+	if ev.TicketID != "" {
+		id := ev.TicketID
+		out.TicketId = &id
+	}
 	return out
 }
 

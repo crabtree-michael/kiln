@@ -620,32 +620,55 @@ describe('FeedProvider', () => {
   });
 
   it('clears the optimistic marker once the server confirms the acceptance', async () => {
-    vi.mocked(transport.fetchFeed).mockResolvedValue(makeFeedSnapshot({ cards: [proposal('p1')] }));
+    // Fake timers so the live-feed coalesce window is spanned deterministically
+    // (a real setTimeout races the coalesced apply against waitFor and flakes,
+    // especially after a sibling test that used fake timers).
+    vi.useFakeTimers();
+    try {
+      vi.mocked(transport.fetchFeed).mockResolvedValue(
+        makeFeedSnapshot({ cards: [proposal('p1')] }),
+      );
 
-    render(
-      <FeedProvider>
-        <Probe acceptId="p1" />
-      </FeedProvider>,
-    );
-    await waitFor(() => {
+      render(
+        <FeedProvider>
+          <Probe acceptId="p1" />
+        </FeedProvider>,
+      );
+      // Flush the async mount fetch under fake timers.
+      await act(async () => {
+        await Promise.resolve();
+      });
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
-    });
 
-    act(() => {
-      screen.getByTestId('accept').click();
-    });
-    await waitFor(() => {
+      act(() => {
+        screen.getByTestId('accept').click();
+      });
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
-    });
 
-    // The accept lands: the proposal leaves the snapshot, clearing the marker.
-    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [] }));
-    // A brand-new proposal for the same ticket later must NOT be suppressed by the
-    // stale marker — it should render.
-    capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [proposal('p1')] }));
-    await waitFor(() => {
+      // The accept lands: the proposal leaves the snapshot, clearing the marker.
+      // The live `feed` path now coalesces a burst to its newest snapshot, so
+      // advance past that window between these two snapshots (separate brain
+      // passes in reality) — the marker-clearing empty snapshot must actually
+      // apply, not be collapsed into the re-proposal below.
+      act(() => {
+        capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [] }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+
+      // A brand-new proposal for the same ticket later must NOT be suppressed by
+      // the stale marker — it should render.
+      act(() => {
+        capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [proposal('p1')] }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('optimistically clears a swiped update card and retracts it server-side (08 §3)', async () => {
@@ -779,5 +802,45 @@ describe('FeedProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
     });
+  });
+
+  it('coalesces a burst of live feed snapshots to the newest (this change)', async () => {
+    // One ticket moving through several transitions emits a `feed.updated` per
+    // step; the absolute snapshots arrive near-simultaneously. The store should
+    // apply only the last, once the burst settles.
+    vi.mocked(transport.fetchFeed).mockResolvedValue(makeFeedSnapshot({ cards: [] }));
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardCount).toBe('0');
+    });
+
+    const FEED_COALESCE_MS = 100;
+    vi.useFakeTimers();
+    try {
+      // Three snapshots inside the window — each an absolute replacement, the
+      // last carrying the full accumulated update history (1, 2, 3).
+      act(() => {
+        capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [update(1, 'a')] }));
+        capturedHandlers?.onFeed?.(makeFeedSnapshot({ cards: [update(1, 'a'), update(2, 'b')] }));
+        capturedHandlers?.onFeed?.(
+          makeFeedSnapshot({ cards: [update(1, 'a'), update(2, 'b'), update(3, 'c')] }),
+        );
+      });
+      // Still buffered — nothing applied mid-burst.
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+
+      act(() => {
+        vi.advanceTimersByTime(FEED_COALESCE_MS);
+      });
+      // Only the newest snapshot lands, newest-first — no lost cards.
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:3,update:2,update:1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -71,7 +71,7 @@ describe('Dock snapshots', () => {
     expect(container).toMatchSnapshot();
   });
 
-  it('Keyboard mode: typed field replaces the transcript, mic gives way to X + send', () => {
+  it('Keyboard mode: typed field replaces the transcript, mic + dismiss + send flank the row', () => {
     mockVoiceValue = stubVoice({ keyboardMode: true });
     const { container } = render(<Dock />);
     expect(container).toMatchSnapshot();

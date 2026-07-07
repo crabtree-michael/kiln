@@ -1491,6 +1491,28 @@
   border-color: var(--border-strong);
 }
 
+/* Dismiss-keyboard button: sits in the centre column, to the mic's right, and
+   only while the soft keyboard is up. Same neutral 40px circle as the voice
+   toggle so the keyboard-mode row reads as a set of peer controls. */
+[data-role='dock-dismiss'] {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+[data-role='dock-dismiss']:hover {
+  color: var(--text-body);
+  border-color: var(--border-strong);
+}
+
 [data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-send'] {
   grid-column: 3;
   justify-self: end;

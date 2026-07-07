@@ -40,9 +40,12 @@ func deliveryTurn(idempotencyKey int64) string {
 // (04 §6): every terminal turn outcome becomes exactly one
 // agent.turn_completed event — the single inbound seam; this module never
 // mutates board state (05 §2.2, D3). Satisfied at the composition root by a
-// thin adapter over the runtime's EnqueueEvent.
+// thin adapter over the runtime's EnqueueEvent. Under multi-tenancy (11 §3)
+// the emitting turn's projectID travels alongside the event so the runtime can
+// stamp events.project_id and resolve the right tenant's brain — the agent
+// records it on the Turn (and agent_turns.project_id) and threads it here.
 type EventEnqueuer interface {
-	EnqueueEvent(ctx context.Context, eventType string, payload []byte) (int64, error)
+	EnqueueEvent(ctx context.Context, projectID, eventType string, payload []byte) (int64, error)
 }
 
 // Projects is this module's read-only port onto the set of live projects the
@@ -634,7 +637,7 @@ func (s *Service) emitCompleted(ctx context.Context, t Turn, isErr bool, output 
 		slog.ErrorContext(ctx, "agent: marshal turn_completed", "err", err)
 		return
 	}
-	if _, err := s.events.EnqueueEvent(ctx, EventTurnCompleted, payload); err != nil {
+	if _, err := s.events.EnqueueEvent(ctx, t.ProjectID, EventTurnCompleted, payload); err != nil {
 		slog.ErrorContext(ctx, "agent: enqueue turn_completed", "err", err)
 	}
 }

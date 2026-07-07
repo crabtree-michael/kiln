@@ -13,6 +13,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go/option"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	_ "github.com/lib/pq" // Postgres driver for database/sql.
 
@@ -36,6 +37,7 @@ import (
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/steward"
 	stewardpg "github.com/crabtree-michael/kiln/backend/internal/steward/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/tenant"
 	"github.com/crabtree-michael/kiln/backend/internal/voice/assemblyai"
 	"github.com/crabtree-michael/kiln/backend/internal/web"
 )
@@ -123,7 +125,7 @@ func serve(ctx context.Context, cfg Config, log *slog.Logger) error {
 		return err
 	}
 
-	g, err := buildGraph(ctx, cfg, db, idSvc, log)
+	g, err := buildGraph(cfg, db, idSvc, log)
 	if err != nil {
 		return err
 	}
@@ -161,55 +163,83 @@ type graph struct {
 	steward *steward.Service
 }
 
-// buildGraph constructs every service and adapter and resolves the two
-// construction cycles by late-binding the adapter fields (adapters.go):
-// runtime↔brain (brainAdapter.inner) and runtime↔agent (agentEventAdapter.rt).
-func buildGraph(ctx context.Context, cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logger) (graph, error) {
+// errIdentityNotConfigured is what every tenant resolver returns when the
+// identity surface is unmounted (no OAuth/secrets config, 11 §3): a project's
+// config cannot be resolved, so its events dead-letter feed-visibly and the
+// reconciler idles. The server still boots — app routes just 401/404.
+var errIdentityNotConfigured = errors.New("kiln: identity not configured")
+
+// errBrainType guards the tenant.Providers.Brain type assertion in
+// brainResolver: the registry always stores a *brainAdapter (a runtime.Brain),
+// so this only fires if that contract is ever broken.
+var errBrainType = errors.New("kiln: project brain is not a runtime.Brain")
+
+// buildGraph constructs every singleton service and adapter and the per-project
+// tenant registry (11 §3). Two construction cycles are broken by late-binding
+// adapter fields (adapters.go): runtime↔agent via agentEventAdapter.rt, and the
+// registry's build closure captures the still-nil rtSvc/agentSvc pointers,
+// which are assigned before any event can trigger a lazy build.
+func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logger) (graph, error) {
+	if cfg.AgentMode != "mock" && cfg.AgentMode != "amika" {
+		return graph{}, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)
+	}
+
 	boardStore := boardpg.New(db)
 	boardSvc := board.NewService(boardStore)
-	// Worker seeding is no longer a global boot step: it moves into the
-	// per-project registry build (11 phase 2, Task 11). cfg.WorkerCount now
-	// seeds projects.worker_count via bootstrap; the reset affordance still
-	// re-seeds the pool directly.
-
 	clock := realClock{}
 	hub := api.NewHub(boardSvc)
 
-	provider, err := newProvider(cfg)
-	if err != nil {
-		return graph{}, err
+	// Late-bound: filled once runtime.Service exists (runtime↔agent cycle).
+	agentEvents := &agentEventAdapter{}
+
+	// Forward declarations so the registry's build closure — invoked lazily, per
+	// project, after these are assigned — can close over the singleton
+	// runtime/agent services (11 §3).
+	var (
+		rtSvc    *runtime.Service
+		agentSvc *agent.Service
+	)
+
+	// The per-project provider cache (11 §3): resolve a project's decrypted
+	// config through identity, then build its worker seeding, brain, and agent
+	// provider once and cache them. It captures &rtSvc/&agentSvc so its lazy
+	// build closure sees them once assigned below (the construction cycle).
+	registry := newRegistry(cfg, idSvc, boardStore, boardSvc, &rtSvc, &agentSvc)
+	if idSvc != nil {
+		// A dashboard credential/project write drops the cached providers so the
+		// next event rebuilds from fresh config — no restart (11 §3).
+		idSvc.SetInvalidator(registry.Invalidate)
 	}
 
-	// The two adapters whose target is built later — filled in below once the
-	// service each points at exists (breaking the cycles without any setter).
-	agentEvents := &agentEventAdapter{}
-	brainPort := &brainAdapter{}
+	// Resolvers over the registry/identity the singleton services depend on.
+	projects := &projectsResolver{idSvc: idSvc}
+	owner := &ownerResolver{registry: registry}
 
-	// The agent runtime nudges the hub to re-push the board when a silent
-	// liveness change (e.g. a sandbox auto-stop) makes the Streams status stale
-	// (amended 2026-07-05). The hub already exists, so the refresher is direct;
-	// the reverse edge (hub reading agent status) is late-bound below.
-	agentSvc := agent.NewService(
-		agentpg.New(db), provider, agentEvents, &slotsAdapter{store: boardStore}, clock,
-		&boardRefreshAdapter{hub: hub},
-		agent.WithWorkerPrefix(cfg.WorkerPrefix),
+	// The agent runtime resolves each project's provider + worker prefix per
+	// sweep/turn (11 §3); its cross-project liveness loop nudges the hub to
+	// re-push (adapters.go's boardRefreshAdapter). Reverse edge (hub reading
+	// agent status) is late-bound below.
+	agentSvc = agent.NewService(
+		agentpg.New(db), &providerResolver{registry: registry}, projects,
+		agentEvents, &slotsAdapter{store: boardStore}, clock,
+		&boardRefreshAdapter{hub: hub, projects: projects},
 	)
-	// Close the hub↔agent cycle: the board snapshot now carries each live
-	// worker's real session status for the Streams view.
 	hub.SetAgentInspector(&agentStatusAdapter{inner: agentSvc})
 
 	// notify.send executor (02 §10): a real Web Push sender when the operator has
-	// configured a VAPID key pair, else the log-only fallback (local dev + tests).
+	// configured a VAPID key pair, else the log-only fallback. The runtime asks
+	// per project; the notifier and mode reader resolve owner→user via the
+	// registry (11 §3).
 	pushStore := pushpg.New(db)
-	rtSvc := runtime.NewService(
-		runtimepg.New(db), runtimepg.New(db), brainPort, boardSvc,
-		&blockerAdapter{inner: boardSvc}, agentSvc, newNotifier(cfg, pushStore, log),
-		&pushRegistrarAdapter{store: pushStore}, hub, hub,
+	rtSvc = runtime.NewService(
+		runtimepg.New(db), runtimepg.New(db), &brainResolver{registry: registry}, boardSvc,
+		&blockerAdapter{inner: boardSvc}, &agentRuntimeAdapter{inner: agentSvc},
+		newNotifier(cfg, pushStore, owner, log), &notifyModeReaderAdapter{store: pushStore, owner: owner},
+		hub, hub,
 		runtimepg.New(db), &boardViewAdapter{inner: boardSvc}, hub, hub,
+		owner,
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
-
-	brainPort.inner = buildBrain(ctx, cfg, boardSvc, rtSvc, agentSvc) // close the runtime↔brain cycle.
 
 	// STT token minter (09 §6): the api handler mints a short-lived AssemblyAI
 	// streaming token; the browser opens the STT socket directly, so the key
@@ -228,49 +258,222 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, idSvc *identity.Ser
 		events:  events,
 		outbox:  outbox,
 		agent:   agentSvc,
-		steward: newSteward(cfg, db, clock, boardSvc, agentSvc, rtSvc),
+		steward: newSteward(cfg, db, clock, projects, boardSvc, agentSvc, rtSvc),
 	}, nil
 }
+
+// newRegistry constructs the per-project provider cache (11 §3). Its resolve
+// closure decrypts a project's config through identity (a nil idSvc — identity
+// unconfigured — fails every resolve with errIdentityNotConfigured); its build
+// closure dereferences rtSvc/agentSvc, which buildGraph assigns before any event
+// can trigger a lazy build, so the runtime↔registry construction cycle is safe.
+func newRegistry(
+	cfg Config, idSvc *identity.Service, boardStore *boardpg.Store, boardSvc *board.Service,
+	rtSvc **runtime.Service, agentSvc **agent.Service,
+) *tenant.Registry {
+	return tenant.New(
+		func(rctx context.Context, projectID string) (identity.RuntimeConfig, error) {
+			if idSvc == nil {
+				return identity.RuntimeConfig{}, errIdentityNotConfigured
+			}
+			return idSvc.RuntimeConfig(rctx, projectID)
+		},
+		func(bctx context.Context, rc identity.RuntimeConfig) (*tenant.Providers, error) {
+			return buildTenantProviders(bctx, cfg, rc, boardStore, boardSvc, *rtSvc, *agentSvc)
+		},
+	)
+}
+
+// buildTenantProviders is the tenant registry's per-project build closure body
+// (11 §3): from one project's decrypted RuntimeConfig it seeds the board worker
+// pool, constructs the project's brain (over projectID-injecting adapters and an
+// Anthropic client keyed by the owner's API key + the project's model) and its
+// coding-agent provider, and returns them bundled for the registry to cache.
+// Extracted from buildGraph's closure to keep both within the complexity budget.
+func buildTenantProviders(
+	ctx context.Context, cfg Config, rc identity.RuntimeConfig,
+	boardStore *boardpg.Store, boardSvc *board.Service, rtSvc *runtime.Service, agentSvc *agent.Service,
+) (*tenant.Providers, error) {
+	pid := rc.Project.ID
+
+	// Seed this project's worker-slot pool to its configured size (03 §8, 11 §3)
+	// — the per-project replacement for the removed global boot reconcile.
+	if err := boardStore.ReconcileWorkers(ctx, pid, rc.Project.WorkerCount); err != nil {
+		return nil, fmt.Errorf("kiln: reconcile workers for project %s: %w", pid, err)
+	}
+
+	prefix := cfg.WorkerPrefix + workerPrefixScope(pid) + "-"
+
+	// The coding-agent provider: the in-memory mock, or the Amika HTTP client
+	// built from this project's owner credentials (11 §3). AGENT_MODE is
+	// validated once in buildGraph, so a non-mock mode here is always amika.
+	var provider agent.Provider
+	if cfg.AgentMode == "mock" {
+		provider = mock.New()
+	} else {
+		provider = amika.New(amika.Config{
+			BaseURL:      cfg.AmikaBaseURL,
+			APIKey:       rc.AmikaAPIKey,
+			RepoURL:      rc.Project.RepoURL,
+			Snapshot:     rc.Project.AmikaSnapshot,
+			ClaudeCredID: rc.AmikaClaudeCredID,
+			WorkerPrefix: prefix,
+		}, nil)
+	}
+
+	// The brain's repo-inspection shell: a maintained clone under a per-project
+	// directory, from the project repo with its owner's token. repo.New is
+	// non-fatal — an unconfigured/failed clone yields a disabled shell.
+	repoShell := repo.New(ctx, repo.Config{
+		RepoURL:   rc.Project.RepoURL,
+		AuthToken: rc.GitHubAuthToken,
+		Dir:       cfg.RepoDir + "/" + pid,
+	})
+
+	model := rc.Project.BrainModel
+	if model == "" {
+		model = brain.DefaultModel
+	}
+	llm := brain.NewAdapterWithClient(brain.Config{Model: model}, option.WithAPIKey(rc.AnthropicAPIKey))
+
+	brainSvc := brain.NewService(
+		&boardAPIAdapter{svc: boardSvc, projectID: pid},
+		&boardReaderAdapter{svc: boardSvc, projectID: pid},
+		&sayAdapter{rt: rtSvc, projectID: pid},
+		&notificationsAdapter{rt: rtSvc, projectID: pid},
+		&feedReaderAdapter{rt: rtSvc, projectID: pid},
+		&convoAdapter{rt: rtSvc, projectID: pid},
+		&agentInspectorAdapter{inner: agentSvc, projectID: pid},
+		&repoShellAdapter{inner: repoShell},
+		llm,
+		brain.Config{Model: model},
+	)
+
+	return &tenant.Providers{
+		ProjectID:    pid,
+		OwnerUserID:  rc.OwnerUserID,
+		WorkerPrefix: prefix,
+		WorkerCount:  rc.Project.WorkerCount,
+		Brain:        &brainAdapter{inner: brainSvc},
+		Agent:        provider,
+	}, nil
+}
+
+// workerPrefixScopeLen is how many leading project-uuid characters seed the
+// per-project worker-name prefix (11 §3) — enough to disambiguate tenants on a
+// shared provider account without carrying the whole 36-char uuid into a name.
+const workerPrefixScopeLen = 8
+
+// workerPrefixScope is the per-project segment of the provider worker-name
+// prefix (11 §3): the first workerPrefixScopeLen chars of the project uuid (or
+// the whole id when shorter), so each project's sandboxes are name-isolated on a
+// shared provider account.
+func workerPrefixScope(projectID string) string {
+	if len(projectID) < workerPrefixScopeLen {
+		return projectID
+	}
+	return projectID[:workerPrefixScopeLen]
+}
+
+// projectsResolver enumerates the live project set for the cross-project
+// singletons — the agent reconciler/liveness loop (agent.Projects), the steward
+// sweep (steward.Projects), and the board-refresh nudge (projectLister). A nil
+// idSvc (identity unconfigured) yields no projects, so those loops idle (11 §3).
+type projectsResolver struct{ idSvc *identity.Service }
+
+func (p *projectsResolver) ProjectIDs(ctx context.Context) ([]string, error) {
+	if p.idSvc == nil {
+		return nil, nil // identity unconfigured: no tenants to sweep
+	}
+	ids, err := p.idSvc.ListProjectIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list project ids: %w", err)
+	}
+	return ids, nil
+}
+
+var (
+	_ agent.Projects   = (*projectsResolver)(nil)
+	_ steward.Projects = (*projectsResolver)(nil)
+	_ projectLister    = (*projectsResolver)(nil)
+)
+
+// providerResolver satisfies agent.ProviderResolver over the tenant registry
+// (11 §3): a project's coding-agent Provider plus the worker-name prefix that
+// scopes its sandboxes.
+type providerResolver struct{ registry *tenant.Registry }
+
+func (r *providerResolver) For(ctx context.Context, projectID string) (agent.Provider, string, error) {
+	p, err := r.registry.For(ctx, projectID)
+	if err != nil {
+		return nil, "", fmt.Errorf("kiln: resolve provider for project %s: %w", projectID, err)
+	}
+	return p.Agent, p.WorkerPrefix, nil
+}
+
+var _ agent.ProviderResolver = (*providerResolver)(nil)
+
+// brainResolver satisfies runtime.BrainResolver over the tenant registry
+// (11 §3): each project's own brain, built over its credentials/config. The
+// registry stores the brain as a brainAdapter (runtime.Brain) so no assertion
+// can fail at runtime, but the type-check guards a future Providers.Brain shape
+// change.
+type brainResolver struct{ registry *tenant.Registry }
+
+func (r *brainResolver) For(ctx context.Context, projectID string) (runtime.Brain, error) {
+	p, err := r.registry.For(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: resolve brain for project %s: %w", projectID, err)
+	}
+	b, ok := p.Brain.(runtime.Brain)
+	if !ok {
+		return nil, fmt.Errorf("%w: project %s (%T)", errBrainType, projectID, p.Brain)
+	}
+	return b, nil
+}
+
+var _ runtime.BrainResolver = (*brainResolver)(nil)
+
+// ownerResolver resolves a project to its owning user id (11 §3) — the
+// notifier path's tenant→recipient hop. Over the registry so it shares the
+// single-flight config cache. Satisfies both runtime.Owner and the adapters'
+// ownerLookup.
+type ownerResolver struct{ registry *tenant.Registry }
+
+func (r *ownerResolver) Owner(ctx context.Context, projectID string) (string, error) {
+	p, err := r.registry.For(ctx, projectID)
+	if err != nil {
+		return "", fmt.Errorf("kiln: resolve owner for project %s: %w", projectID, err)
+	}
+	return p.OwnerUserID, nil
+}
+
+var (
+	_ runtime.Owner = (*ownerResolver)(nil)
+	_ ownerLookup   = (*ownerResolver)(nil)
+)
 
 // newSteward builds the mechanical stall watchdog: a deterministic sweep over
 // Working tickets that pokes an idle/stopped agent and escalates a genuine stall
 // (re-stall or post-poke error) to Blocked. It reaches the board, agent runtime,
 // and feed only through its own narrow ports (adapters.go); no brain judgment.
+// newSteward builds the mechanical stall watchdog: a per-project deterministic
+// sweep over Working tickets that pokes an idle/stopped agent and escalates a
+// genuine stall to Blocked. Under multi-tenancy (11 §3) it enumerates the live
+// projects via the same resolver the agent reconciler uses, reaching each
+// project's board/agent/feed only through its own narrow ports (adapters.go).
 func newSteward(
-	cfg Config, db *sql.DB, clock realClock,
+	cfg Config, db *sql.DB, clock realClock, projects *projectsResolver,
 	boardSvc *board.Service, agentSvc *agent.Service, rtSvc *runtime.Service,
 ) *steward.Service {
 	return steward.NewService(
+		projects,
 		&stewardBoardAdapter{inner: boardSvc},
 		&stewardAgentAdapter{inner: agentSvc},
 		&stewardFeedAdapter{inner: rtSvc},
 		stewardpg.New(db),
 		clock,
 		steward.Config{Stall: cfg.PokeStall, Interval: cfg.PokeInterval},
-	)
-}
-
-// buildBrain constructs the brain service, including its repo-inspection
-// shell (design 2026-07-04): a maintained local clone the bash tool runs
-// allowlisted git/gh/rg commands in, cloned once at boot. repo.New is
-// non-fatal — an unconfigured/failed clone yields a disabled shell whose tool
-// calls report "unavailable", and it logs the outcome itself. Extracted from
-// buildGraph to keep that function within the complexity budget.
-func buildBrain(
-	ctx context.Context, cfg Config, boardSvc *board.Service, rtSvc *runtime.Service, agentSvc *agent.Service,
-) *brain.Service {
-	repoShell := repo.New(ctx, repo.Config{
-		RepoURL:   cfg.GitHubRepoURL,
-		AuthToken: cfg.GitHubAuthToken,
-		Dir:       cfg.RepoDir,
-	})
-	return brain.NewService(
-		boardSvc, boardSvc, rtSvc, rtSvc, &feedReaderAdapter{rt: rtSvc},
-		&convoAdapter{rt: rtSvc},
-		&agentInspectorAdapter{inner: agentSvc},
-		&repoShellAdapter{inner: repoShell},
-		brain.NewAdapter(brain.Config{Model: cfg.BrainModel}),
-		brain.Config{Model: cfg.BrainModel},
 	)
 }
 
@@ -345,6 +548,11 @@ func enableServerRoutes(
 	// boot leaves /auth/* and /api/me absent (dark-when-unconfigured).
 	if idSvc != nil {
 		server.EnableIdentity(idSvc, idSvc)
+		// Every app route is project-scoped (11 phase 2): withProject resolves the
+		// caller's single project through identity's ProjectFor. Mounted with
+		// identity — unconfigured boots leave s.projects nil, and the app routes
+		// stay behind withSession's 401 (no session can be minted anyway).
+		server.EnableTenancy(idSvc)
 		if cfg.DevEndpoints {
 			// Dev/e2e only (11 §7): mint a session straight from a GitHub login,
 			// bypassing the real OAuth dance, so an e2e can sign in deterministically.
@@ -447,26 +655,6 @@ func (g graph) runSteward(ctx context.Context, log *slog.Logger) {
 	}()
 	if err := g.steward.Run(ctx); err != nil {
 		log.Error("kiln: steward exited", "err", err)
-	}
-}
-
-// newProvider selects the agent provider by AGENT_MODE (05 §9): the Amika HTTP
-// client (default) or the in-memory mock.
-func newProvider(cfg Config) (agent.Provider, error) {
-	switch cfg.AgentMode {
-	case "mock":
-		return mock.New(), nil
-	case "amika":
-		return amika.New(amika.Config{
-			BaseURL:      cfg.AmikaBaseURL,
-			APIKey:       os.Getenv("AMIKA_API_KEY"),
-			RepoURL:      os.Getenv("AMIKA_REPO_URL"),
-			Snapshot:     os.Getenv("AMIKA_SNAPSHOT"),
-			ClaudeCredID: os.Getenv("AMIKA_CLAUDE_CRED_ID"),
-			WorkerPrefix: cfg.WorkerPrefix,
-		}, nil), nil
-	default:
-		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)
 	}
 }
 

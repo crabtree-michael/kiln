@@ -160,6 +160,7 @@ func (s *fakeStore) recordCallCount(key int64) int {
 // ---- fakeEvents ---------------------------------------------------------
 
 type capturedEvent struct {
+	projectID string
 	eventType string
 	payload   []byte
 }
@@ -173,11 +174,15 @@ type fakeEvents struct {
 	nextID int64
 }
 
-func (e *fakeEvents) EnqueueEvent(ctx context.Context, eventType string, payload []byte) (int64, error) {
+func (e *fakeEvents) EnqueueEvent(ctx context.Context, projectID, eventType string, payload []byte) (int64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.nextID++
-	e.events = append(e.events, capturedEvent{eventType: eventType, payload: append([]byte(nil), payload...)})
+	e.events = append(e.events, capturedEvent{
+		projectID: projectID,
+		eventType: eventType,
+		payload:   append([]byte(nil), payload...),
+	})
 	return e.nextID, nil
 }
 

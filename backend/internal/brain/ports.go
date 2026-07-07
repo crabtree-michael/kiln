@@ -137,10 +137,9 @@ type RepoShell interface {
 	Run(ctx context.Context, command string) (RepoResult, error)
 }
 
-// Compile-time assertions: *board.Service is the Board API's only
-// implementation in v1 and satisfies both ports here with no adapter
-// (see doc.go and ports.go's BoardAPI comment).
-var (
-	_ BoardAPI    = (*board.Service)(nil)
-	_ BoardReader = (*board.Service)(nil)
-)
+// Under multi-tenancy (11 §3) *board.Service's methods take a leading
+// projectID, so it no longer satisfies these project-neutral ports directly;
+// the composition root (cmd/kiln) supplies thin per-project adapters that close
+// over the resolved projectID and inject it into each board call. The brain
+// stays tenancy-unaware — a pass is always scoped to exactly one project by the
+// adapters it was constructed with — so no compile-time assertion belongs here.

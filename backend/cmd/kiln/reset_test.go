@@ -42,15 +42,17 @@ func (f *fakeWorkerResetter) Reset(context.Context) error {
 }
 
 type fakePoolReconciler struct {
-	calls int
-	n     int
-	order *[]string
-	err   error
+	calls     int
+	n         int
+	projectID string
+	order     *[]string
+	err       error
 }
 
-func (f *fakePoolReconciler) ReconcileWorkers(_ context.Context, n int) error {
+func (f *fakePoolReconciler) ReconcileWorkers(_ context.Context, projectID string, n int) error {
 	f.calls++
 	f.n = n
+	f.projectID = projectID
 	*f.order = append(*f.order, "pool")
 	return f.err
 }
@@ -62,7 +64,7 @@ func TestResetCoordinator_TruncatesTearsDownThenReseeds(t *testing.T) {
 	pool := &fakePoolReconciler{order: &order}
 	c := &resetCoordinator{tables: tr, workers: wr, pool: pool, poolSize: 3}
 
-	if err := c.Reset(context.Background()); err != nil {
+	if err := c.Reset(context.Background(), "proj-1"); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
 	if want := []string{"truncate", "workers", "pool"}; len(order) != 3 ||
@@ -71,6 +73,9 @@ func TestResetCoordinator_TruncatesTearsDownThenReseeds(t *testing.T) {
 	}
 	if pool.n != 3 {
 		t.Errorf("pool re-seeded to %d, want configured 3", pool.n)
+	}
+	if pool.projectID != "proj-1" {
+		t.Errorf("pool re-seeded for project %q, want the reset's project proj-1", pool.projectID)
 	}
 }
 
@@ -81,7 +86,7 @@ func TestResetCoordinator_TruncateError_SkipsRest(t *testing.T) {
 	pool := &fakePoolReconciler{order: &order}
 	c := &resetCoordinator{tables: tr, workers: wr, pool: pool, poolSize: 3}
 
-	if err := c.Reset(context.Background()); err == nil {
+	if err := c.Reset(context.Background(), "proj-1"); err == nil {
 		t.Fatal("expected error when truncate fails")
 	}
 	if wr.calls != 0 || pool.calls != 0 {
@@ -96,7 +101,7 @@ func TestResetCoordinator_WorkerError_SkipsReseed(t *testing.T) {
 	pool := &fakePoolReconciler{order: &order}
 	c := &resetCoordinator{tables: tr, workers: wr, pool: pool, poolSize: 3}
 
-	if err := c.Reset(context.Background()); err == nil {
+	if err := c.Reset(context.Background(), "proj-1"); err == nil {
 		t.Fatal("expected error when worker teardown fails")
 	}
 	if tr.calls != 1 {

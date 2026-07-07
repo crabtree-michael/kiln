@@ -11,10 +11,11 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// DefaultModel is the default Anthropic model id (06 §2, D1): a
-// tool-following dispatcher over a small board favors strong tool-use at low
-// latency and cost over Opus's better judgment or Haiku's lower cost.
-const DefaultModel = "claude-sonnet-5"
+// DefaultModel is the default Anthropic model id (06 §2, D1): Haiku is the
+// default for a tool-following dispatcher over a small board, trading some of
+// Sonnet's or Opus's judgment for the lowest latency and cost. Step up via
+// KILN_BRAIN_MODEL when the eval set (§9) shows a pass needs stronger judgment.
+const DefaultModel = "claude-haiku-4-5-20251001"
 
 // ModelEnvVar overrides DefaultModel when set (06 §2, D1). Normally parsed
 // into Config.Model at the composition root; the Adapter also consults it

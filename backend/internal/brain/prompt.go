@@ -75,6 +75,8 @@ when any of the above do not fit.
 ### Best Practices
 
 - Include an objective of the ticket as the first section.
+- Write ticket bodies in markdown. Use headings, lists, and emphasis so the
+  description reads clearly and its structure is easy to scan.
 - Focus on product details and not technical details. Coding agents are better technically
   Implementation details not given by the user may sway them in the wrong direction.
 - Tickets are sized as small or medium tasks. For example, when the user requests several 

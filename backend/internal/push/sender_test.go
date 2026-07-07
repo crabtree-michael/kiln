@@ -13,24 +13,32 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/push"
 )
 
-// fakeStore is an in-memory push.Store recording deletes.
+const (
+	userA = "11111111-1111-1111-1111-111111111111"
+	userB = "22222222-2222-2222-2222-222222222222"
+)
+
+// fakeStore is an in-memory push.Store keyed by user, recording deletes.
 type fakeStore struct {
 	mu      sync.Mutex
-	subs    []push.Subscription
+	subs    map[string][]push.Subscription // userID → subscriptions
 	deleted []string
 }
 
-func (f *fakeStore) Save(_ context.Context, s push.Subscription) error {
+func (f *fakeStore) Save(_ context.Context, userID string, s push.Subscription) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.subs = append(f.subs, s)
+	if f.subs == nil {
+		f.subs = make(map[string][]push.Subscription)
+	}
+	f.subs[userID] = append(f.subs[userID], s)
 	return nil
 }
 
-func (f *fakeStore) List(_ context.Context) ([]push.Subscription, error) {
+func (f *fakeStore) List(_ context.Context, userID string) ([]push.Subscription, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]push.Subscription(nil), f.subs...), nil
+	return append([]push.Subscription(nil), f.subs[userID]...), nil
 }
 
 func (f *fakeStore) DeleteByEndpoint(_ context.Context, endpoint string) error {
@@ -40,9 +48,9 @@ func (f *fakeStore) DeleteByEndpoint(_ context.Context, endpoint string) error {
 	return nil
 }
 
-func (f *fakeStore) Mode(context.Context) (string, error) { return push.ModeBlocked, nil }
+func (f *fakeStore) Mode(context.Context, string) (string, error) { return push.ModeBlocked, nil }
 
-func (f *fakeStore) SetMode(context.Context, string) error { return nil }
+func (f *fakeStore) SetMode(context.Context, string, string) error { return nil }
 
 // testKeys is a throwaway VAPID pair + a client subscription key pair, generated
 // once so the encrypted send path runs end-to-end against a local server. The
@@ -61,7 +69,7 @@ func testKeys(t *testing.T) (string, string, string, string) {
 		"tBHItJI5svbpez7KI4CCXg"
 }
 
-func TestSendDeliversToAllSubscriptions(t *testing.T) {
+func TestSendDeliversToAllUserSubscriptions(t *testing.T) {
 	var mu sync.Mutex
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -73,20 +81,50 @@ func TestSendDeliversToAllSubscriptions(t *testing.T) {
 	defer srv.Close()
 
 	pub, priv, p256dh, auth := testKeys(t)
-	store := &fakeStore{subs: []push.Subscription{
-		{Endpoint: srv.URL + "/a", P256dh: p256dh, Auth: auth},
-		{Endpoint: srv.URL + "/b", P256dh: p256dh, Auth: auth},
+	store := &fakeStore{subs: map[string][]push.Subscription{
+		userA: {
+			{Endpoint: srv.URL + "/a", P256dh: p256dh, Auth: auth},
+			{Endpoint: srv.URL + "/b", P256dh: p256dh, Auth: auth},
+		},
 	}}
 	sender := push.NewSender(store, pub, priv, "mailto:ops@example.com", srv.Client(), slog.New(slog.DiscardHandler))
 
 	n := push.Notification{Title: "Blocked", Body: "needs you", URL: "/"}
-	if err := sender.Send(context.Background(), n); err != nil {
+	if err := sender.Send(context.Background(), userA, n); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if hits != 2 {
 		t.Fatalf("push service received %d requests, want 2", hits)
+	}
+}
+
+func TestSendIsolatesUsers(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	pub, priv, p256dh, auth := testKeys(t)
+	store := &fakeStore{subs: map[string][]push.Subscription{
+		userA: {{Endpoint: srv.URL + "/a", P256dh: p256dh, Auth: auth}},
+		userB: {{Endpoint: srv.URL + "/b", P256dh: p256dh, Auth: auth}},
+	}}
+	sender := push.NewSender(store, pub, priv, "mailto:ops@example.com", srv.Client(), slog.New(slog.DiscardHandler))
+
+	if err := sender.Send(context.Background(), userA, push.Notification{Title: "t", Body: "b", URL: "/"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(paths) != 1 || paths[0] != "/a" {
+		t.Fatalf("Send(userA) hit endpoints %v, want only [/a] — user B must not receive user A's notification", paths)
 	}
 }
 
@@ -97,13 +135,13 @@ func TestSendPrunesGoneSubscriptions(t *testing.T) {
 	defer srv.Close()
 
 	pub, priv, p256dh, auth := testKeys(t)
-	store := &fakeStore{subs: []push.Subscription{
-		{Endpoint: srv.URL + "/dead", P256dh: p256dh, Auth: auth},
+	store := &fakeStore{subs: map[string][]push.Subscription{
+		userA: {{Endpoint: srv.URL + "/dead", P256dh: p256dh, Auth: auth}},
 	}}
 	sender := push.NewSender(store, pub, priv, "mailto:ops@example.com", srv.Client(), slog.New(slog.DiscardHandler))
 
 	// Best-effort: a 410 is not a Send error, it prunes the subscription.
-	if err := sender.Send(context.Background(), push.Notification{Title: "t", Body: "b", URL: "/"}); err != nil {
+	if err := sender.Send(context.Background(), userA, push.Notification{Title: "t", Body: "b", URL: "/"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	store.mu.Lock()
@@ -116,7 +154,7 @@ func TestSendPrunesGoneSubscriptions(t *testing.T) {
 func TestSendNoSubscriptionsIsNoop(t *testing.T) {
 	pub, priv, _, _ := testKeys(t)
 	sender := push.NewSender(&fakeStore{}, pub, priv, "mailto:ops@example.com", nil, slog.New(slog.DiscardHandler))
-	if err := sender.Send(context.Background(), push.Notification{Title: "t", Body: "b", URL: "/"}); err != nil {
+	if err := sender.Send(context.Background(), userA, push.Notification{Title: "t", Body: "b", URL: "/"}); err != nil {
 		t.Fatalf("Send with no subscriptions: %v", err)
 	}
 }

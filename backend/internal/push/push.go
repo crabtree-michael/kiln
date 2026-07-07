@@ -6,8 +6,9 @@
 // (02 §10). The subscription store's write side is exposed to the client through
 // the api module (POST /api/push/subscribe); the read side is consumed here.
 //
-// Single user in v1 (spec 10 scope): subscriptions are stored globally and every
-// notification fans out to all of them — there is no per-user routing yet.
+// Per-user routing (11 phase 2): subscriptions and the notification mode are
+// keyed by user, and Send fans a notification out to exactly one user's
+// subscriptions — never to another tenant's browsers.
 package push
 
 import (
@@ -36,19 +37,21 @@ const (
 	ModeAll     = "all"
 )
 
-// Store persists browser push subscriptions and the global notification mode
+// Store persists browser push subscriptions and each user's notification mode
 // (02 §2: the module owns its port; the postgres adapter lives in push/postgres).
-// Save is an upsert on Endpoint so a browser re-subscribing is idempotent;
+// Save is an upsert on Endpoint so a browser re-subscribing is idempotent — the
+// endpoint is globally unique, so a re-subscribe under a different user moves it
+// to that user. List returns only the given user's subscriptions.
 // DeleteByEndpoint prunes an endpoint the push service has reported gone
-// (404/410) so a dead subscription is dropped on its next send attempt. Mode is
-// a single global value in v1 (single user); it defaults to ModeBlocked when
-// never set.
+// (404/410) so a dead subscription is dropped on its next send attempt; no
+// userID because the endpoint alone identifies the row. Mode is per user
+// (push_user_settings); a user who never set one gets ModeBlocked, not an error.
 type Store interface {
-	Save(ctx context.Context, sub Subscription) error
-	List(ctx context.Context) ([]Subscription, error)
+	Save(ctx context.Context, userID string, sub Subscription) error
+	List(ctx context.Context, userID string) ([]Subscription, error)
 	DeleteByEndpoint(ctx context.Context, endpoint string) error
-	Mode(ctx context.Context) (string, error)
-	SetMode(ctx context.Context, mode string) error
+	Mode(ctx context.Context, userID string) (string, error)
+	SetMode(ctx context.Context, userID, mode string) error
 }
 
 // Notification is the delivered content, mapped from a board.NotifyPayload at

@@ -92,7 +92,7 @@ func newTenServer(t *testing.T) *tenServer {
 	hub := api.NewHub(boardSvc)
 	rtSvc := runtime.NewService(
 		rtStore, rtStore, nil, nil, nil,
-		nil, nil, nil, hub, hub,
+		nil, nil, hub, hub,
 		rtStore, &tenBoardView{inner: boardSvc}, hub, hub,
 		nil,
 	)

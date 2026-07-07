@@ -42,7 +42,7 @@ func TestService_EventsWorker_BrainOutageDegradesOnlyTheFailingTenant(t *testing
 	sayer := &fakeSayPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, resolver, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, sayer,
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer,
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 		&fakeOwner{},
 	)

@@ -22,6 +22,8 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/agent/mock"
 	agentpg "github.com/crabtree-michael/kiln/backend/internal/agent/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/api"
+	"github.com/crabtree-michael/kiln/backend/internal/beta"
+	betapg "github.com/crabtree-michael/kiln/backend/internal/beta/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	boardpg "github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
@@ -80,6 +82,7 @@ func moduleMigrations() ([]migrationSet, error) {
 		{"internal/agent/postgres/migrations", agentpg.Migrations},
 		{"internal/steward/postgres/migrations", stewardpg.Migrations},
 		{"internal/push/postgres/migrations", pushpg.Migrations},
+		{"internal/beta/postgres/migrations", betapg.Migrations},
 	}
 	sets := make([]migrationSet, 0, len(mods))
 	for _, m := range mods {
@@ -234,7 +237,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	rtSvc = runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), &brainResolver{registry: registry}, boardSvc,
 		&blockerAdapter{inner: boardSvc}, &agentRuntimeAdapter{inner: agentSvc},
-		newNotifier(cfg, pushStore, owner, log), &notifyModeReaderAdapter{store: pushStore, owner: owner},
+		newNotifier(cfg, pushStore, owner, log),
 		hub, hub,
 		runtimepg.New(db), &boardViewAdapter{inner: boardSvc}, hub, hub,
 		owner,
@@ -250,7 +253,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	})
 
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
-	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore)
+	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore, betapg.New(db))
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
@@ -537,12 +540,16 @@ func enableServerRoutes(
 	server *api.Server, cfg Config, db *sql.DB,
 	boardSvc *board.Service, rtSvc *runtime.Service,
 	agentSvc *agent.Service, boardStore *boardpg.Store, idSvc *identity.Service,
-	pushStore push.Store,
+	pushStore push.Store, betaStore beta.Store,
 ) {
 	// Web Push registration (02 §10): the subscribe route is always mounted (the
 	// store always exists); the VAPID public key is served only when configured,
 	// else GET /api/push/key 404s and the client hides the notifications toggle.
 	server.EnablePush(&pushRegistrarAdapter{store: pushStore}, cfg.VAPIDPublicKey)
+	// Beta-signup collection: the pre-launch landing page's "Join the beta" form
+	// posts an email to POST /api/beta-signup, always mounted (the store always
+	// exists) since the marketing page depends on it.
+	server.EnableBeta(&betaRegistrarAdapter{store: betaStore})
 	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
 	// It re-seeds the worker pool to WorkerCount, mirroring startup, so a fresh

@@ -29,7 +29,7 @@ func newTestService(
 	pusher *fakeSnapshotPusher, sayer *fakeSayPusher,
 ) *runtime.Service {
 	return runtime.NewService(
-		store, messages, resolverFor(brain), puller, blocker, agents, notifier, nil, pusher, sayer,
+		store, messages, resolverFor(brain), puller, blocker, agents, notifier, pusher, sayer,
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 		&fakeOwner{},
 	)
@@ -249,7 +249,7 @@ func TestService_EventsWorker_ResolvesBrainPerProjectAndThreadsProjectID(t *test
 	resolver := resolverFor(brain)
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, resolver, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, &fakeSayPusher{},
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 		&fakeOwner{},
 	)
@@ -305,7 +305,7 @@ func TestService_EventsWorker_BrainResolutionFailureSaysAndMarksDone(t *testing.
 	sayer := &fakeSayPusher{}
 	svc := runtime.NewService(
 		store, messages, resolver, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, nil, &fakeSnapshotPusher{}, sayer,
+		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer,
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
 		&fakeOwner{},
 	)

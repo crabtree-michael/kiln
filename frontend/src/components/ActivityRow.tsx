@@ -4,7 +4,7 @@
 // the E2E asserts: `thinking-indicator`, `toast-pill` (+ `data-verb`), `say-pill`.
 // Multiple live toasts stack into a list; the spinner shows only when the stack
 // is empty.
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import type { ActivityToast } from '@/stores/activity-context';
 import { verbEmoji, verbLabel } from '@/components/feed-format';
@@ -142,9 +142,45 @@ function ActivityToastPill({
 
 export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): JSX.Element {
   const empty = toasts.length === 0;
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Keep the feed's last card clear of this band. The activity row is an
+  // out-of-flow overlay anchored above the dock (PrimaryScreen.css): when it
+  // holds a "Kiln is thinking…" spinner or a toast stack it floats UP over the
+  // feed's bottom with an opaque fill, occluding the newest card(s) — and with
+  // nothing reserving that space the feed can't be scrolled far enough to reveal
+  // them. Mirror the live transcript's `--dock-overlay-height` trick: publish the
+  // band's current height as `--feed-bottom-inset` on the screen root so the feed
+  // adds exactly that much bottom scroll inset (0px when the band is empty, so the
+  // idle layout is untouched), tracked live via ResizeObserver as toasts stack /
+  // dismiss and the spinner comes and goes. Written on the screen root (not this
+  // row) so it reaches the feed, a distant sibling; a no-op when the row renders
+  // outside a primary screen (isolated tests) since `closest` is null.
+  useEffect(() => {
+    const el = rowRef.current;
+    const root = el?.closest<HTMLElement>('[data-role="primary-screen"]') ?? null;
+    if (root === null) {
+      return;
+    }
+    const publish = (): void => {
+      root.style.setProperty('--feed-bottom-inset', `${(el?.offsetHeight ?? 0).toString()}px`);
+    };
+    publish();
+    if (el === null || typeof ResizeObserver === 'undefined') {
+      return () => {
+        root.style.removeProperty('--feed-bottom-inset');
+      };
+    }
+    const observer = new ResizeObserver(publish);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--feed-bottom-inset');
+    };
+  }, []);
 
   return (
-    <div data-role="activity-row">
+    <div data-role="activity-row" ref={rowRef}>
       {/* Toasts sit above the thinking indicator, both as children of the one
           activity row (a single stacking context, z-index 6). The row is a flex
           column, so the toast stack renders first (higher on screen) and the
@@ -161,7 +197,6 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
 
       {thinking && (
         <div data-role="thinking-indicator">
-          <span data-role="thinking-spinner" aria-hidden="true" />
           <span data-role="thinking-text">Kiln is thinking…</span>
         </div>
       )}

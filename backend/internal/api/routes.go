@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/mail"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
@@ -50,6 +52,10 @@ const maxMessageBody = 64 << 10
 // maxPushBody caps the POST /api/push/subscribe body before decoding. A browser
 // PushSubscription (endpoint URL + two short base64url keys) is well under 8 KiB.
 const maxPushBody = 8 << 10
+
+// maxBetaBody caps the POST /api/beta-signup body before decoding. A single
+// email address (RFC-max 254 chars) plus JSON framing is well under 1 KiB.
+const maxBetaBody = 1 << 10
 
 // BoardReader is the api's port onto the board's read path (03 §4 GetBoard),
 // scoped to one project (11 phase 2): a caller only ever reads the board of
@@ -189,6 +195,15 @@ type PushRegistrar interface {
 	SetMode(ctx context.Context, userID, mode string) error
 }
 
+// BetaRegistrar is the api's port onto the beta-signup store: POST
+// /api/beta-signup lands one landing-page email. Idempotent on the address so a
+// repeat submit still succeeds (the client always redirects to the confirmation
+// page). The api never imports internal/beta — email is a plain string on this
+// boundary, same rule PushRegistrar follows. Satisfied by a cmd/kiln adapter.
+type BetaRegistrar interface {
+	Register(ctx context.Context, email string) error
+}
+
 // Authenticator is the api's port onto the GitHub OAuth + cookie-session
 // lifecycle (11 §2): start the dance, complete it against the allowlist,
 // mint/resolve/revoke a session. Satisfied directly by *identity.Service —
@@ -252,6 +267,7 @@ type Server struct {
 	voice    VoiceTokenMinter
 	push     PushRegistrar      // non-nil ⇒ POST /api/push/subscribe + GET /api/push/key are mounted (02 §10)
 	vapidKey string             // VAPID public key served by GET /api/push/key; empty ⇒ that route 404s (push disabled)
+	beta     BetaRegistrar      // non-nil ⇒ POST /api/beta-signup is mounted (landing-page beta list)
 	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
@@ -300,6 +316,12 @@ func (s *Server) EnablePush(registrar PushRegistrar, vapidPublicKey string) {
 	s.push = registrar
 	s.vapidKey = vapidPublicKey
 }
+
+// EnableBeta turns on the POST /api/beta-signup route (call before Handler):
+// the landing page's "Join the beta" form lands an email on the registrar. Wired
+// unconditionally at the composition root — the pre-launch landing page relies
+// on it always being present.
+func (s *Server) EnableBeta(registrar BetaRegistrar) { s.beta = registrar }
 
 // EnableIdentity turns on the GitHub OAuth + cookie-session routes (11 §2):
 // GET /auth/github/login, GET /auth/github/callback, POST /auth/logout —
@@ -350,6 +372,7 @@ func (s *Server) Handler() http.Handler {
 	// handler runs, so every port call below is scoped to exactly that project.
 	mux.HandleFunc("GET /api/stream", s.withProject(s.handleStream))
 	mux.HandleFunc("GET /api/board", s.withProject(s.handleBoard))
+	mux.HandleFunc("GET /api/activity", s.withProject(s.handleActivityStatus))
 	mux.HandleFunc("POST /api/message", s.withProject(s.handleMessage))
 	mux.HandleFunc("GET /api/messages", s.withProject(s.handleMessages))
 	mux.HandleFunc("GET /api/feed", s.withProject(s.handleFeed))
@@ -361,6 +384,13 @@ func (s *Server) Handler() http.Handler {
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
+	// Beta signup is the one PUBLIC app data route (11 phase 2): the pre-launch
+	// landing page's visitors have no session, so it mounts unguarded when the
+	// registrar is wired — it is genuinely stateless (one email → the beta list)
+	// and touches no project.
+	if s.beta != nil {
+		mux.HandleFunc("POST /api/beta-signup", s.handleBetaSignup)
+	}
 	if s.push != nil {
 		mux.HandleFunc("POST /api/push/subscribe", s.withSession(s.handlePushSubscribe))
 		mux.HandleFunc("GET /api/push/key", s.withSession(s.handlePushKey))
@@ -376,20 +406,7 @@ func (s *Server) Handler() http.Handler {
 	if s.resetter != nil {
 		mux.HandleFunc("POST /api/dev/reset", s.withProject(s.handleReset))
 	}
-	if s.auth != nil {
-		mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
-		mux.HandleFunc("GET /auth/github/callback", s.handleAuthCallback)
-		mux.HandleFunc("POST /auth/logout", s.handleLogout)
-		mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))
-		mux.HandleFunc("PUT /api/settings", s.withSession(s.handlePutSettings))
-		mux.HandleFunc("PUT /api/project", s.withSession(s.handlePutProject))
-		mux.HandleFunc("POST /api/settings/verify", s.withSession(s.handleVerify))
-		// dev-only (KILN_DEV_ENDPOINTS=1 AND identity enabled): mint a session
-		// straight from a GitHub login, bypassing the OAuth dance (11 §7).
-		if s.devSession != nil {
-			mux.HandleFunc("POST /api/dev/session", s.handleDevSession)
-		}
-	}
+	s.mountIdentityRoutes(mux)
 	if s.healthPing != nil {
 		mux.HandleFunc("GET /healthz", s.handleHealthz)
 	}
@@ -400,6 +417,28 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/", s.spa)
 	}
 	return mux
+}
+
+// mountIdentityRoutes registers the GitHub OAuth + cookie-session routes and the
+// session-protected account surface (11 §2, §4) when identity is enabled — plus
+// the dev-only session mint nested under it. Extracted from Handler so that
+// method stays within the statement budget as new route groups are added.
+func (s *Server) mountIdentityRoutes(mux *http.ServeMux) {
+	if s.auth == nil {
+		return
+	}
+	mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
+	mux.HandleFunc("GET /auth/github/callback", s.handleAuthCallback)
+	mux.HandleFunc("POST /auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))
+	mux.HandleFunc("PUT /api/settings", s.withSession(s.handlePutSettings))
+	mux.HandleFunc("PUT /api/project", s.withSession(s.handlePutProject))
+	mux.HandleFunc("POST /api/settings/verify", s.withSession(s.handleVerify))
+	// dev-only (KILN_DEV_ENDPOINTS=1 AND identity enabled): mint a session
+	// straight from a GitHub login, bypassing the OAuth dance (11 §7).
+	if s.devSession != nil {
+		mux.HandleFunc("POST /api/dev/session", s.handleDevSession)
+	}
 }
 
 // handleHealthz is the liveness + DB-reachability probe (design 2026-07-05):
@@ -525,6 +564,19 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request, _ identity.
 		return
 	}
 	writeJSON(w, http.StatusOK, bw)
+}
+
+// handleActivityStatus returns the current thinking state (08 §4): the same
+// flag the `activity` kind=thinking SSE event toggles, but as a pull. The
+// client hits it on foreground/resume and stream reconnect to resync the
+// spinner — the activity event is ephemeral and never replayed, so a missed
+// closing `on:false` (backgrounded mid-pass) would otherwise leave the spinner
+// stuck. Read off the hub, the single fan-out point every bracket passes through.
+// Wrapped in withProject like the other app routes (11 phase 2) so an
+// unauthenticated caller cannot poll it; the thinking flag itself is hub-global
+// (brain passes run serially), so the resolved project is not consulted here.
+func (s *Server) handleActivityStatus(w http.ResponseWriter, _ *http.Request, _ identity.User, _ identity.Project) {
+	writeJSON(w, http.StatusOK, wire.ActivityStatus{Thinking: s.hub.Thinking()})
 }
 
 // handleMessage decodes {text}, validates its bounds (schema MessageRequest),
@@ -708,6 +760,40 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, _ iden
 		return
 	}
 	writeJSON(w, http.StatusOK, wire.VoiceToken{Token: token, ExpiresAt: expiresAt})
+}
+
+// handleBetaSignup records a landing-page beta-interest email. It caps and
+// decodes {email}, validates it parses as a single address within the wire
+// bounds (schema BetaSignupRequest: 3–254 chars), and stores it. Idempotent on
+// the address (the store swallows a duplicate), so a repeat submit is still a
+// 202 — the client always redirects to the confirmation page on success.
+func (s *Server) handleBetaSignup(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBetaBody)
+	var req wire.BetaSignupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	email := strings.TrimSpace(req.Email)
+	if len(email) < 3 || len(email) > 254 {
+		http.Error(w, "email must be 3-254 characters", http.StatusBadRequest)
+		return
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		http.Error(w, "email is not a valid address", http.StatusBadRequest)
+		return
+	}
+	if err := s.beta.Register(r.Context(), email); err != nil {
+		slog.Error("api: beta signup", "err", err)
+		http.Error(w, "record signup", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // handlePushKey serves the VAPID public key for pushManager.subscribe (02 §10).
@@ -943,10 +1029,6 @@ func activityToWire(ev runtime.ActivityEvent) wire.ActivityEvent {
 	if ev.TicketTitle != "" {
 		tt := ev.TicketTitle
 		out.TicketTitle = &tt
-	}
-	if ev.TicketID != "" {
-		id := ev.TicketID
-		out.TicketId = &id
 	}
 	return out
 }

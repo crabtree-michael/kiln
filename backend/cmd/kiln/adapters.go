@@ -31,6 +31,7 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/api"
+	"github.com/crabtree-michael/kiln/backend/internal/beta"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 	"github.com/crabtree-michael/kiln/backend/internal/push"
@@ -628,9 +629,13 @@ func notifyURL(id board.TicketID) string {
 
 // pushRegistrarAdapter satisfies api.PushRegistrar over the push store (02 §10,
 // 11 §3): the client's POST /api/push/subscribe lands a browser subscription
-// under the signed-in user, and GET/PUT /api/push/mode read/write that user's
-// notification frequency. Every method is scoped by userID — the push routes
-// are withSession-guarded (per-user, not per-project).
+// under the signed-in user that webPushNotifier later reads (wire.PushSubscription
+// → push.Subscription), and GET/PUT /api/push/mode read/write that user's
+// notification frequency. Every method is scoped by userID — the push routes are
+// withSession-guarded (per-user, not per-project). The mode no longer gates the
+// runtime's pushes — only genuine ticket state transitions notify, regardless of
+// mode (design 2026-07-07) — but the endpoint is retained so the existing
+// Settings toggle keeps working.
 type pushRegistrarAdapter struct{ store push.Store }
 
 func (a *pushRegistrarAdapter) Subscribe(ctx context.Context, userID string, sub api.PushSubscription) error {
@@ -661,30 +666,19 @@ func (a *pushRegistrarAdapter) SetMode(ctx context.Context, userID, mode string)
 
 var _ api.PushRegistrar = (*pushRegistrarAdapter)(nil)
 
-// notifyModeReaderAdapter satisfies runtime.NotifyModeReader (02 §10, 11 §3):
-// the runtime asks for a project's notification frequency per feed.updated, but
-// the mode is stored per user, so this resolves the project's owner first and
-// reads that user's mode. Distinct from pushRegistrarAdapter because the port's
-// key is a projectID here and a userID there — the same Go Mode(ctx, string)
-// signature with opposite meaning, so they cannot be one type.
-type notifyModeReaderAdapter struct {
-	store push.Store
-	owner ownerLookup
+// betaRegistrarAdapter satisfies api.BetaRegistrar over the beta store: the
+// landing page's POST /api/beta-signup lands one email on the beta_signups
+// table. Idempotent on the address (the store swallows a duplicate).
+type betaRegistrarAdapter struct{ store beta.Store }
+
+func (a *betaRegistrarAdapter) Register(ctx context.Context, email string) error {
+	if err := a.store.Save(ctx, email); err != nil {
+		return fmt.Errorf("kiln: save beta signup: %w", err)
+	}
+	return nil
 }
 
-func (a *notifyModeReaderAdapter) Mode(ctx context.Context, projectID string) (string, error) {
-	userID, err := a.owner.Owner(ctx, projectID)
-	if err != nil {
-		return "", fmt.Errorf("kiln: notify mode resolve owner: %w", err)
-	}
-	mode, err := a.store.Mode(ctx, userID)
-	if err != nil {
-		return "", fmt.Errorf("kiln: read notify mode: %w", err)
-	}
-	return mode, nil
-}
-
-var _ runtime.NotifyModeReader = (*notifyModeReaderAdapter)(nil)
+var _ api.BetaRegistrar = (*betaRegistrarAdapter)(nil)
 
 // newNotifier chooses the notify.send executor (02 §10): a real Web Push sender
 // when the operator has supplied a VAPID key pair (VAPID_PUBLIC_KEY +

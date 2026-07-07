@@ -81,20 +81,6 @@ type Notifier interface {
 	Send(ctx context.Context, projectID string, payload []byte) error
 }
 
-// NotifyModeReader reports the notification frequency for a project's owner
-// (02 §10, 11 §3) — "all" (a push on every feed update) or "blocked" (the
-// default: a push only for the notify.send entries a block emits). Consulted
-// per feed.updated so a mode change takes effect immediately. Satisfied by a
-// cmd/kiln adapter over the push store; nil when push is unconfigured, in
-// which case the feed-update push is simply never sent.
-type NotifyModeReader interface {
-	Mode(ctx context.Context, projectID string) (string, error)
-}
-
-// notifyModeAll is the frequency that fans a push out on every feed update
-// (mirroring push.ModeAll by value — this module never imports internal/push).
-const notifyModeAll = "all"
-
 // SnapshotPusher executes board.updated entries: fan out a fresh full board
 // snapshot to the project's connected clients (04 §7, 11 §3; implemented by
 // the api SSE hub). Snapshots are absolute, so duplicates are harmless
@@ -157,7 +143,6 @@ type Service struct {
 	blocker        Blocker
 	agents         AgentRuntime
 	notifier       Notifier
-	notifyMode     NotifyModeReader
 	pusher         SnapshotPusher
 	sayer          SayPusher
 	notifications  NotificationStore
@@ -178,7 +163,7 @@ type Service struct {
 // composition root updates a single call site.
 func NewService(
 	store Store, messages MessageStore, brains BrainResolver, puller Puller, blocker Blocker,
-	agents AgentRuntime, notifier Notifier, notifyMode NotifyModeReader,
+	agents AgentRuntime, notifier Notifier,
 	pusher SnapshotPusher, sayer SayPusher,
 	notifications NotificationStore, boardReader BoardReader, feedPusher FeedPusher,
 	activityPusher ActivityPusher,
@@ -192,7 +177,6 @@ func NewService(
 		blocker:        blocker,
 		agents:         agents,
 		notifier:       notifier,
-		notifyMode:     notifyMode,
 		pusher:         pusher,
 		sayer:          sayer,
 		notifications:  notifications,
@@ -651,7 +635,7 @@ func (s *Service) blockOnDeliveryFailure(ctx context.Context, e Entry, cause err
 // notifyPayload is the notify.send payload the Notifier decodes (a
 // board.NotifyPayload — Title/Reason → Title/Body), mirrored by value so this
 // module keeps not importing internal/board. Built here only for the
-// "all"-mode feed-update notification; the block path's payload is minted by the
+// transition feed-update notification; the block path's payload is minted by the
 // board.
 type notifyPayload struct {
 	Title  string `json:"title"`
@@ -663,14 +647,13 @@ type notifyPayload struct {
 type toastPayload struct {
 	Verb        string `json:"verb"`
 	TicketTitle string `json:"ticket_title"`
-	TicketID    string `json:"ticket_id"`
 }
 
 // feedUpdatedPayload mirrors the board's FeedUpdatedPayload (03 §7.1) by value —
 // this module never imports internal/board. Title names the changed ticket;
-// Verb labels the nature of the change and drives the "all"-mode push copy (02
-// §10). Empty when a feed.updated carries no descriptor (the push falls back to
-// a generic line).
+// Verb labels the nature of the change and drives the transition push copy (02
+// §10). Empty when a feed.updated carries no descriptor (the update then stays
+// silent — no verb is, by definition, not a state transition).
 type feedUpdatedPayload struct {
 	Title string `json:"title"`
 	Verb  string `json:"verb"`
@@ -697,9 +680,9 @@ func (s *Service) handleFeedUpdated(ctx context.Context, e Entry) {
 	if err := s.feedPusher.PushFeed(ctx, e.ProjectID, snap); err != nil {
 		slog.Error("runtime: feed.updated push", "project_id", e.ProjectID, "err", err)
 	}
-	// Decode the change descriptor for the "all"-mode push. A decode failure or
-	// an empty payload leaves p zero-valued, and the notification falls back to a
-	// generic line rather than dropping the push.
+	// Decode the change descriptor that drives the transition push. A decode
+	// failure or an empty payload leaves p zero-valued, so the update stays silent
+	// (no verb ⇒ not a state transition).
 	var p feedUpdatedPayload
 	if len(e.Payload) > 0 {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
@@ -709,28 +692,24 @@ func (s *Service) handleFeedUpdated(ctx context.Context, e Entry) {
 	s.pushFeedUpdateNotification(ctx, e.ProjectID, p)
 }
 
-// pushFeedUpdateNotification fires a Web Push on a feed update when the user has
-// opted into the "all" notification frequency (02 §10). The push names the
-// ticket and what happened (feedUpdateNotification), so it is informative at a
-// glance rather than a generic "board was updated". In the default "blocked"
-// mode it is a no-op; the only pushes then come from the notify.send entries a
-// block emits. Self-heals like the feed push itself: a mode-read or send failure
-// logs-and-drops rather than wedging the outbox (the notification is
-// best-effort, 04 §3). A block emits its own, more-specific notify.send, so the
-// feed-update push for a block is skipped here (feedUpdateNotification returns
-// ok=false) to avoid a duplicate.
+// pushFeedUpdateNotification fires a Web Push on a feed update, but ONLY when the
+// update is a genuine ticket state transition — the sole event allowed to reach
+// the user (design 2026-07-07, per the user's standing rule: "the only
+// notifications I should get are actual ticket status changes"). Progress
+// narration, edits, mark-seen, a proposal being reshaped, and an instruction
+// resuming a blocked ticket are all silent: feedUpdateNotification returns
+// ok=false for each. There is no notification-frequency gate anymore — every
+// real status change pushes, and nothing else ever does, so the old
+// "blocked"-vs-"all" mode is no longer the right shape and does not participate
+// here. The push names the ticket and what happened, so it is informative at a
+// glance rather than a generic "board was updated". The push still routes to the
+// right tenant: notifyOwner resolves the project's owning user before delivery
+// (11 §3), so projectID is threaded through from the emitting feed.updated entry.
+// Self-heals like the feed push itself: a send failure logs-and-drops rather than
+// wedging the outbox (the notification is best-effort, 04 §3). A block emits its
+// own, more-specific notify.send, so its feed-update push is skipped here too
+// (ok=false) to avoid a duplicate.
 func (s *Service) pushFeedUpdateNotification(ctx context.Context, projectID string, p feedUpdatedPayload) {
-	if s.notifyMode == nil {
-		return
-	}
-	mode, err := s.notifyMode.Mode(ctx, projectID)
-	if err != nil {
-		slog.Error("runtime: feed.updated notify mode", "project_id", projectID, "err", err)
-		return
-	}
-	if mode != notifyModeAll {
-		return
-	}
 	note, ok := feedUpdateNotification(p)
 	if !ok {
 		return
@@ -749,32 +728,37 @@ func (s *Service) pushFeedUpdateNotification(ctx context.Context, projectID stri
 }
 
 // feedUpdateVerbBody maps a feed.updated change verb (board.FeedUpdatedPayload)
-// to the push body describing what happened, keeping the "all"-mode push copy in
-// sync with the board's feed-update verbs (03 §7.1) and the feed's own verb
-// vocabulary (08 §5). A block has no entry: it emits a dedicated notify.send
-// carrying the actual blocker question, so its feed-update push is suppressed.
+// to the push body describing what happened, keeping the push copy in sync with
+// the board's feed-update verbs (03 §7.1) and the feed's own verb vocabulary
+// (08 §5). ONLY genuine ticket state transitions have an entry — the
+// sole events allowed to push (design 2026-07-07). Deliberately absent, so they
+// resolve to ok=false in feedUpdateNotification and stay silent:
+//   - "reshaped": editing a proposal's fields is not a state change.
+//   - "nudged":   blocked→working is driven by sending the agent an instruction,
+//     which never notifies the user.
+//   - "blocked":  a state change, but it emits its own dedicated notify.send
+//     carrying the actual blocker question, so a second, vaguer push is skipped.
+//
+// An empty/unknown verb (progress narration, edits, mark-seen — the runtime's own
+// signal-only feed.updated rows) is likewise absent and stays silent.
 var feedUpdateVerbBody = map[string]string{
 	"proposal": "New proposal",
-	"reshaped": "Proposal updated",
 	"queued":   "Queued for work",
-	"nudged":   "Nudged",
 	"finished": "Finished",
 	"archived": "Archived",
 }
 
-// feedUpdateNotification builds the "all"-mode push payload for a feed change,
-// naming the ticket (Title) and what happened (Body). ok is false when the
-// change warrants no generic push — a block, which already emits its own
-// specific notify.send. An unrecognized or empty descriptor falls back to a
-// non-empty generic line so the push still fires (e.g. a bare feed.updated with
-// no payload).
+// feedUpdateNotification builds the push payload for a feed change, naming the
+// ticket (Title) and what happened (Body). ok is false whenever the
+// change is not a genuine ticket state transition and so must not reach the user:
+// an unrecognized/empty verb (narration, edits, mark-seen), a reshaped proposal,
+// a nudge, or a block (all absent from feedUpdateVerbBody). There is no generic
+// "board was updated" fallback — a change with no descriptive verb is, by
+// definition, not a status change.
 func feedUpdateNotification(p feedUpdatedPayload) (notifyPayload, bool) {
-	if p.Verb == "blocked" {
+	body, isTransition := feedUpdateVerbBody[p.Verb]
+	if !isTransition || p.Title == "" {
 		return notifyPayload{}, false
-	}
-	body, known := feedUpdateVerbBody[p.Verb]
-	if !known || p.Title == "" {
-		return notifyPayload{Title: "Kiln", Reason: "The board was updated."}, true
 	}
 	return notifyPayload{Title: p.Title, Reason: body}, true
 }
@@ -789,7 +773,7 @@ func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
 		slog.Error("runtime: activity.toast decode", "id", e.ID, "err", err)
 		return
 	}
-	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle, TicketID: p.TicketID}
+	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle}
 	if err := s.activityPusher.PushActivity(ctx, e.ProjectID, ev); err != nil {
 		slog.Error("runtime: activity.toast push", "id", e.ID, "project_id", e.ProjectID, "err", err)
 	}

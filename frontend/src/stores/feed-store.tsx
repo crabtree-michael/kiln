@@ -36,16 +36,6 @@ const HISTORY_PAGE_SIZE = 30;
 // a genuinely-failed accept resurfaces the proposal so nothing is silently lost.
 const OPTIMISTIC_ACCEPT_TTL_MS = 5 * 60 * 1000;
 
-// A single ticket moving through several transitions in one brain pass triggers a
-// `feed.updated` per step, so a burst of whole-feed snapshots arrives near-
-// simultaneously — each an absolute replacement of the last. Coalescing them to
-// the newest within this window collapses the burst to one render (the latest
-// snapshot is the most complete, so applying only it is lossless). Tunable; kept
-// in step with the toast debounce window. Only the live SSE path is coalesced —
-// the mount fetch and reconnect refetch still apply immediately, so first paint
-// and gap-closing are never delayed.
-const FEED_COALESCE_MS = 100;
-
 // Notification-backed card kinds (08 §3, §7): update/preview are brain-authored,
 // poke is the steward's mechanical stall nudge, done is the runtime's mechanical
 // completion card. All four are rows in the `notifications` table — the runtime
@@ -486,35 +476,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       }
     }
 
-    // Coalesce a burst of live `feed` snapshots to the newest one: hold each
-    // arrival and apply only the latest once the burst settles (this change).
-    // Snapshots are absolute, so the last carries everything the intermediates
-    // did — dropping them loses nothing and saves the churn.
-    let coalesceTimer: ReturnType<typeof setTimeout> | null = null;
-    let latestSnapshot: FeedSnapshot | null = null;
-    function onFeedCoalesced(snapshot: FeedSnapshot): void {
-      latestSnapshot = snapshot;
-      if (coalesceTimer !== null) {
-        clearTimeout(coalesceTimer);
-      }
-      coalesceTimer = setTimeout(() => {
-        coalesceTimer = null;
-        const pending = latestSnapshot;
-        latestSnapshot = null;
-        if (pending !== null) {
-          applySnapshot(pending);
-        }
-      }, FEED_COALESCE_MS);
-    }
-
-    const unsubscribe = subscribeStream({
+    return subscribeStream({
       onBoard: () => {
         // The feed store doesn't care about raw board snapshots.
       },
       onSay: () => {
         // The feed store doesn't care about chat replies.
       },
-      onFeed: onFeedCoalesced,
+      onFeed: applySnapshot,
       onConnectionStateChange: (state) => {
         if (state === 'connected' && previousState === 'reconnecting') {
           void refetchFeed();
@@ -523,12 +492,6 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         setConnectionState(state);
       },
     });
-    return () => {
-      if (coalesceTimer !== null) {
-        clearTimeout(coalesceTimer);
-      }
-      unsubscribe();
-    };
   }, [applySnapshot]);
 
   const value = useMemo<FeedStoreValue>(

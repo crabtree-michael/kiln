@@ -51,13 +51,10 @@ type NotifyPayload struct {
 
 // ToastPayload — activity.toast (08 §5): a short-lived pill announcing a board
 // verb. Verb ∈ {started, nudged, finished, queued}; TicketTitle names the
-// ticket the toast is about and TicketID identifies it — the client debounces a
-// burst of toasts for one ticket by that stable id. The runtime turns this into
-// a wire ActivityEvent.
+// ticket the toast is about. The runtime turns this into a wire ActivityEvent.
 type ToastPayload struct {
-	Verb        string   `json:"verb"`
-	TicketTitle string   `json:"ticket_title"`
-	TicketID    TicketID `json:"ticket_id"`
+	Verb        string `json:"verb"`
+	TicketTitle string `json:"ticket_title"`
 }
 
 // FeedUpdatedPayload — feed.updated (08 §7). A snapshot describing the change

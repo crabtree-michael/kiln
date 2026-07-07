@@ -62,6 +62,14 @@ type Hub struct {
 
 	mu      sync.Mutex
 	clients map[*client]struct{}
+
+	// thinking mirrors the last `thinking` bracket that passed through
+	// PushActivity — the authoritative current spinner state, since every on/off
+	// fans out through here and brain passes run serially (04 §4). The activity
+	// event itself is ephemeral (never replayed on reconnect), so this is what
+	// GET /api/activity reads to resync a client on foreground/resume (08 §4).
+	// Guarded by mu, alongside the client set it is written next to.
+	thinking bool
 }
 
 // NewHub wires fan-out over the board's read path.
@@ -176,8 +184,29 @@ func (h *Hub) PushActivity(_ context.Context, projectID string, ev runtime.Activ
 	if err != nil {
 		return fmt.Errorf("api: marshal activity event: %w", err)
 	}
+	// Record the thinking bracket before fanning it out, so GET /api/activity
+	// reflects the state the instant this push lands. Toasts carry no On and
+	// leave it untouched.
+	if ev.Kind == "thinking" && ev.On != nil {
+		h.setThinking(*ev.On)
+	}
 	h.broadcast(projectID, sseFrame{event: eventActivity, data: data})
 	return nil
+}
+
+// Thinking reports the current spinner state — the last `thinking` bracket
+// pushed (08 §4). Read by GET /api/activity so a client that missed the closing
+// `on:false` (backgrounded mid-pass) can resync on resume.
+func (h *Hub) Thinking() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.thinking
+}
+
+func (h *Hub) setThinking(on bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.thinking = on
 }
 
 // boardWire reads one fresh snapshot and joins the live-worker statuses onto it

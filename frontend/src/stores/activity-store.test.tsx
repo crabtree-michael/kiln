@@ -20,6 +20,7 @@ vi.mock('@/transport/transport', () => ({
   fetchMessages: vi.fn(),
   postMessage: vi.fn(),
   openStream: vi.fn(),
+  fetchActivityStatus: vi.fn(),
 }));
 
 const TOAST_MS = 20000;
@@ -62,12 +63,29 @@ describe('ActivityProvider', () => {
       capturedHandlers = handlers;
       return { close: closeStream };
     });
+    // Default: the server reports nothing in flight, so the mount/resume/reconnect
+    // resync is a no-op unless a test overrides it.
+    vi.mocked(transport.fetchActivityStatus).mockResolvedValue({ thinking: false });
   });
 
   afterEach(() => {
     vi.mocked(transport.openStream).mockReset();
+    vi.mocked(transport.fetchActivityStatus).mockReset();
     vi.useRealTimers();
   });
+
+  // Flush the microtasks a resync fetch resolves through, applying its React
+  // state update inside act. An empty async act drains the pending promise
+  // continuation deterministically even under fake timers.
+  async function flushResync(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  function thinkingAttr(): string | undefined {
+    return screen.getByTestId('probe').dataset.thinking;
+  }
 
   function mount(): void {
     render(
@@ -86,12 +104,107 @@ describe('ActivityProvider', () => {
     act(() => {
       capturedHandlers?.onActivity?.(makeActivityEvent({ kind: 'thinking', on: true }));
     });
-    expect(screen.getByTestId('probe').dataset.thinking).toBe('true');
+    expect(thinkingAttr()).toBe('true');
 
     act(() => {
       capturedHandlers?.onActivity?.(makeActivityEvent({ kind: 'thinking', on: false }));
     });
-    expect(screen.getByTestId('probe').dataset.thinking).toBe('false');
+    expect(thinkingAttr()).toBe('false');
+  });
+
+  it('resyncs the thinking flag from GET /api/activity on mount', async () => {
+    // A pass was already in flight when this client attached; the stream pushes
+    // no activity snapshot on connect, so the mount pull is what recovers it.
+    vi.mocked(transport.fetchActivityStatus).mockResolvedValue({ thinking: true });
+    mount();
+    await flushResync();
+    expect(thinkingAttr()).toBe('true');
+    expect(transport.fetchActivityStatus).toHaveBeenCalled();
+  });
+
+  it('recovers a stuck spinner from the server on a reconnecting -> connected transition', async () => {
+    mount();
+    await flushResync();
+    act(() => {
+      capturedHandlers?.onActivity?.(makeActivityEvent({ kind: 'thinking', on: true }));
+    });
+    expect(thinkingAttr()).toBe('true');
+
+    // The stream dropped while Kiln was mid-pass (app backgrounded), so the
+    // `thinking off` frame was missed. On reconnect we pull the real state — the
+    // pass finished server-side — and the spinner clears.
+    vi.mocked(transport.fetchActivityStatus).mockResolvedValue({ thinking: false });
+    act(() => {
+      capturedHandlers?.onConnectionStateChange('reconnecting');
+      capturedHandlers?.onConnectionStateChange('connected');
+    });
+    await flushResync();
+    expect(thinkingAttr()).toBe('false');
+  });
+
+  it('keeps the spinner on across reconnect when the server says a pass is still running', async () => {
+    mount();
+    await flushResync();
+    act(() => {
+      capturedHandlers?.onActivity?.(makeActivityEvent({ kind: 'thinking', on: true }));
+    });
+
+    // Unlike a blind reset-to-false, the pull reflects a genuinely-still-running
+    // pass, so the spinner is not wrongly hidden on reconnect.
+    vi.mocked(transport.fetchActivityStatus).mockResolvedValue({ thinking: true });
+    act(() => {
+      capturedHandlers?.onConnectionStateChange('reconnecting');
+      capturedHandlers?.onConnectionStateChange('connected');
+    });
+    await flushResync();
+    expect(thinkingAttr()).toBe('true');
+  });
+
+  it('resyncs the thinking flag when the app returns to the foreground', async () => {
+    mount();
+    await flushResync();
+
+    // Backgrounded mid-pass, the closing bracket is missed; the server reports
+    // the pass finished, so becoming visible again clears the spinner.
+    vi.mocked(transport.fetchActivityStatus).mockResolvedValue({ thinking: false });
+    act(() => {
+      capturedHandlers?.onActivity?.(makeActivityEvent({ kind: 'thinking', on: true }));
+    });
+    expect(thinkingAttr()).toBe('true');
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await flushResync();
+    expect(thinkingAttr()).toBe('false');
+  });
+
+  it('does not let a stale resync clobber a fresher live thinking frame', async () => {
+    mount();
+    await flushResync();
+
+    // The reconnect pull resolves to false, but a live `thinking on` frame lands
+    // while it is in flight (fresher truth). The generation guard drops the stale
+    // pulled snapshot so the live spinner survives.
+    let resolvePull: ((s: { thinking: boolean }) => void) | undefined;
+    vi.mocked(transport.fetchActivityStatus).mockReturnValue(
+      new Promise<{ thinking: boolean }>((resolve) => {
+        resolvePull = resolve;
+      }),
+    );
+    act(() => {
+      capturedHandlers?.onConnectionStateChange('reconnecting');
+      capturedHandlers?.onConnectionStateChange('connected');
+    });
+    act(() => {
+      capturedHandlers?.onActivity?.(makeActivityEvent({ kind: 'thinking', on: true }));
+    });
+    await act(async () => {
+      resolvePull?.({ thinking: false });
+      await Promise.resolve();
+    });
+    expect(thinkingAttr()).toBe('true');
   });
 
   it('shows a say pill and auto-dismisses it after 20s', () => {
@@ -268,88 +381,6 @@ describe('ActivityProvider', () => {
 
     act(() => {
       capturedDismissToast?.();
-    });
-    expect(pills()).toBe('');
-  });
-
-  // Per-ticket debounce (08 §5, this change): a burst of transitions on one
-  // ticket collapses to a single, latest pill; distinct tickets stay separate.
-  const TOAST_DEBOUNCE_MS = 100;
-
-  it('collapses a burst of toasts for one ticket to the latest', () => {
-    mount();
-    // queue → ready → working all land inside the debounce window for ticket t1.
-    act(() => {
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'Login', ticketId: 't1' }),
-      );
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'nudged', ticketTitle: 'Login', ticketId: 't1' }),
-      );
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login', ticketId: 't1' }),
-      );
-    });
-    // Nothing surfaces until the window closes — the burst is still buffered.
-    expect(pills()).toBe('');
-
-    act(() => {
-      vi.advanceTimersByTime(TOAST_DEBOUNCE_MS);
-    });
-    // Only the last transition ('started') reaches the row.
-    expect(pills()).toBe('toast:started:Login');
-
-    // And it then dwells and auto-dismisses on the normal 20s clock.
-    act(() => {
-      vi.advanceTimersByTime(TOAST_MS);
-    });
-    expect(pills()).toBe('');
-  });
-
-  it('keeps toasts for different tickets separate through the window', () => {
-    mount();
-    act(() => {
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'A', ticketId: 't1' }),
-      );
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'B', ticketId: 't2' }),
-      );
-    });
-    expect(pills()).toBe('');
-
-    act(() => {
-      vi.advanceTimersByTime(TOAST_DEBOUNCE_MS);
-    });
-    // Two genuinely different tickets → two pills, in arrival order.
-    expect(pills()).toBe('toast:queued:A|toast:started:B');
-  });
-
-  it('shows a toast with no ticket id immediately (cannot be grouped)', () => {
-    mount();
-    act(() => {
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login' }),
-      );
-    });
-    // No ticket id → not debounced; it surfaces at once.
-    expect(pills()).toBe('toast:started:Login');
-  });
-
-  it('dismissToast drops a toast still buffered in the debounce window', () => {
-    mount();
-    act(() => {
-      capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'queued', ticketTitle: 'A', ticketId: 't1' }),
-      );
-    });
-    // Buffered, not yet shown; the user sends input before it flushes.
-    act(() => {
-      capturedDismissToast?.();
-    });
-    // Advancing past the window must NOT resurrect the superseded toast.
-    act(() => {
-      vi.advanceTimersByTime(TOAST_DEBOUNCE_MS + TOAST_MS);
     });
     expect(pills()).toBe('');
   });

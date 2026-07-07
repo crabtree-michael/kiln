@@ -61,9 +61,24 @@
   /* Slight top inset: the nav bar sits directly above the feed as a pinned
      sibling (not inside the scroll region), and its hairline separator would
      otherwise butt right up against the first card. A small top pad gives the
-     backlog breathing room under the bar without a large gap. Sides/bottom keep
-     their padding. */
-  padding: 8px 26px;
+     backlog breathing room under the bar without a large gap. Sides keep 26px.
+
+     Bottom: the base 8px mirrors the top so the last card never butts against
+     the dock's top hairline, PLUS the full height of everything that floats up
+     over the feed as an opaque out-of-flow overlay. Two things stack there and
+     both must be reserved:
+       - `--dock-overlay-height` — the live transcript, anchored at the dock's top
+         edge (`bottom: 100%`, see [data-role='dock-transcript']); and
+       - `--feed-bottom-inset` — the activity band (thinking indicator + toast
+         stack), which floats ABOVE the transcript in turn (its `bottom` is offset
+         by `--dock-overlay-height`, see [data-role='activity-row']).
+     Because the band sits on top of the transcript, the two heights are additive:
+     the occluded strip runs from the dock top up through the transcript and then
+     the band. Reserving their sum as extra scroll inset lets the newest card be
+     scrolled fully clear of BOTH overlays instead of staying tucked behind them.
+     Both vars are published on the screen root and default to 0px, so an empty
+     band with a collapsed dock leaves the idle layout exactly as before. */
+  padding: 8px 26px calc(8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px));
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav
@@ -129,13 +144,13 @@
 }
 
 [data-role='kiln-glyph'] {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
 }
 
 [data-role='kiln-wordmark'] {
   font-weight: 700;
-  font-size: 28px;
+  font-size: 25px;
   letter-spacing: -0.01em;
   color: var(--accent);
 }
@@ -184,10 +199,11 @@
 }
 
 [data-role='notify-bell'] {
-  /* Sized to sit in proportion with the 12.5px stream-status label beside it
-   * (icon ~1.2x the text) so the header-actions cluster reads at one scale. */
-  width: 15px;
-  height: 15px;
+  /* Sized to sit in proportion with the 18px stream-status label beside it
+   * (icon ~1.2x the text) so the header-actions cluster reads at one scale —
+   * scaled up toward the brand lockup so the two sides of the bar cohere. */
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -220,10 +236,10 @@
 }
 
 [data-role='clear-all-trash'] {
-  /* Matches the bell (15px) so the two cluster affordances share one scale and
+  /* Matches the bell (22px) so the two cluster affordances share one scale and
    * stay in proportion with the neighbouring status label. */
-  width: 15px;
-  height: 15px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -379,7 +395,7 @@
   align-items: center;
   gap: 6px;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 18px;
   color: var(--text-muted);
   background: none;
   border: none;
@@ -672,7 +688,9 @@
 
 [data-role='feed-card-head'] {
   display: flex;
-  align-items: center;
+  /* Top-align so the poke/done marker and the right-pinned age ride the first
+     line when the ticket name wraps to two (see feed-card-label below). */
+  align-items: flex-start;
   gap: 9px;
 }
 
@@ -691,8 +709,27 @@
 [data-role='feed-card-poke'],
 [data-role='feed-card-done'] {
   flex-shrink: 0;
-  font-size: 14px;
+  /* Scaled up from 14px to sit proportionate to the enlarged 16px ticket name —
+     the emoji is the whole card body, so the head marker carries the signal and
+     shouldn't read smaller than the title beside it (kept from PR #68). */
+  font-size: 17px;
+  /* Lock the marker to the title's first-line box (16px x 1.3 = 20.8px) and
+     centre the glyph *inside* that box. Matching line-heights alone (PR #68)
+     only aligned the two line boxes; the emoji still floated to wherever its own
+     baseline metrics land, which reads as off-centre. inline-flex + centring
+     pins the glyph to the middle of line one instead. The head stays
+     top-aligned (align-items: flex-start above), so this fixed-height box keeps
+     the marker on line one even when the title wraps to two lines rather than
+     drifting to the vertical centre of the taller row. */
+  display: inline-flex;
+  align-items: center;
+  height: calc(16px * 1.3);
   line-height: 1;
+  /* Optical correction: emoji glyphs sit a hair high inside their box relative
+     to where the title's x-height reads, so pure geometric centring still looks
+     slightly raised. Nudge down 1px. This is the lever to tune on-device if it
+     still reads off — adjust the offset, not the metrics above. */
+  transform: translateY(1px);
 }
 
 /* Type label, leftmost: the small uppercase kind marker ("Preview") that anchors
@@ -707,20 +744,24 @@
   color: var(--text-muted);
 }
 
-/* Ticket name — the de-emphasized head of the card. Muted by default across
-   every kind so the emphasis sits on the body copy below, not the title.
-   Flexes to fill the row and truncates with an ellipsis so a long title keeps
-   the head to one line (the age stays pinned right). */
+/* Ticket name — the head of the card. Uses the secondary text colour so it
+   reads legibly in both themes (darker in light, lighter in dark) while the
+   emphasis still sits on the body copy below. Flexes to fill the row and wraps
+   up to two lines, then truncates with an ellipsis so a long title grows the
+   head to at most two lines (the age stays pinned right). */
 [data-role='feed-card-label'] {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 16px;
+  line-height: 1.3;
   font-weight: 700;
   letter-spacing: -0.006em;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* Proposal cards drop the kind tag too; the fire (Kiln red) ticket name carries
@@ -740,6 +781,8 @@
 [data-role='feed-card-age'] {
   flex-shrink: 0;
   font-size: 11px;
+  /* Ride the label's first line when the title wraps (head is top-aligned). */
+  line-height: 1.9;
   color: var(--text-faint);
 }
 
@@ -1102,19 +1145,21 @@
   gap: 9px;
 }
 
-[data-role='thinking-spinner'] {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  border: 2px solid var(--accent-soft);
-  border-top-color: var(--accent);
-  animation: kiln-spin 0.7s linear infinite;
-}
-
+/* The "Kiln is thinking" tell reads as a live ember rather than a mechanical
+   spinner: the text sits in a calm muted grey and a warm red glow breathes and
+   flickers around it, matching the mic-listening ring and the building-dot pulse
+   (the app's on-brand motion language). Two loops of different, coprime-ish
+   durations run at once — a slow glow breathe and a faster brightness flicker —
+   so their beat never lines up cleanly and the flame never repeats the same way
+   twice. */
 [data-role='thinking-text'] {
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--accent);
+  /* Muted grey text; the life comes from the red glow pulsing around it. */
+  color: var(--text-muted);
+  animation:
+    kiln-thinking-glow 2.2s ease-in-out infinite,
+    kiln-thinking-flicker 1.5s ease-in-out infinite;
 }
 
 [data-role='toast-pill'] {
@@ -1422,12 +1467,28 @@
   border-color: var(--border-strong);
 }
 
-/* Keyboard mode: no mic in the centre — just the exit (X) on the left and the
-   send on the right, each hugging the row's outer edges so the pair reads as a
-   balanced two-button bar. Overrides the voice-mode column assignments. */
-[data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-cancel'] {
+/* Keyboard mode: no mic glyph in the centre — just the voice toggle (mic) on the
+   left and the send on the right, each hugging the row's outer edges so the pair
+   reads as a balanced two-button bar. The mic button turns voice input back on;
+   same neutral 40px circle as the cancel (X) box so it reads as a peer control. */
+[data-role='dock-voice'] {
   grid-column: 1;
   justify-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+[data-role='dock-voice']:hover {
+  color: var(--text-body);
+  border-color: var(--border-strong);
 }
 
 [data-role='dock-controls'][data-mode='keyboard'] [data-role='dock-send'] {
@@ -1605,10 +1666,75 @@
   }
 }
 
+/* Ember glow: heat radiating off the coal. A tight fire ring inside a wider
+   ember (amber) halo that breathes wider at the peak — the same two-layer
+   box-shadow idea as the mic-listening ring, warmed toward ember. */
+/* Thinking glow: a red halo (accent/fire red) breathes around the text via
+   text-shadow, so the words themselves pulse rather than a separate orb. */
+@keyframes kiln-thinking-glow {
+  0%,
+  100% {
+    text-shadow:
+      0 0 4px var(--accent-soft),
+      0 0 9px var(--accent);
+  }
+  50% {
+    text-shadow:
+      0 0 7px var(--accent-soft),
+      0 0 15px var(--accent);
+  }
+}
+
+/* Thinking flicker: brightness and opacity jitter at irregular stops so the glow
+   pulses like a real flame instead of a smooth sine. */
+@keyframes kiln-thinking-flicker {
+  0% {
+    filter: brightness(1);
+    opacity: 0.92;
+  }
+  15% {
+    filter: brightness(1.18);
+    opacity: 1;
+  }
+  28% {
+    filter: brightness(0.94);
+    opacity: 0.84;
+  }
+  43% {
+    filter: brightness(1.26);
+    opacity: 1;
+  }
+  57% {
+    filter: brightness(1);
+    opacity: 0.9;
+  }
+  71% {
+    filter: brightness(1.3);
+    opacity: 1;
+  }
+  85% {
+    filter: brightness(0.97);
+    opacity: 0.87;
+  }
+  100% {
+    filter: brightness(1);
+    opacity: 0.92;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  [data-role='thinking-spinner'],
   [data-role='dock-caret'] {
     animation: none;
+  }
+
+  /* Reduced motion: no breathe and no flicker — but keep a static warm red glow
+     around the text so the "thinking" state stays legible, mirroring how the
+     listening ring and building dot degrade. */
+  [data-role='thinking-text'] {
+    animation: none;
+    text-shadow:
+      0 0 4px var(--accent-soft),
+      0 0 9px var(--accent);
   }
 
   /* Reduced motion: drop the breathing pulse for motion-sensitive users, but keep

@@ -41,6 +41,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current thinking state for resume-time resync (08 §4).
+         * @description The authoritative current value of the `thinking` bracket — the same flag the `activity` kind=thinking SSE event toggles. Unlike that event, which is ephemeral and never replayed on reconnect, this is a pull: the client calls it on foreground/resume (and on stream reconnect) to resync the spinner to the real current state, closing the gap where a missed `on:false` (app backgrounded mid-pass) leaves the indicator stuck. Toasts are not resyncable (they auto-dismiss) and are not carried here.
+         */
+        get: operations["getActivityStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/message": {
         parameters: {
             query?: never;
@@ -195,6 +215,26 @@ export interface paths {
          * @description Tap-accept on a proposal card. Per this project's decision (overriding 08 D6), acceptance routes through the brain: this appends a user transcript row and enqueues a human.message event expressing the acceptance, exactly like POST /api/message. The brain then marks the ticket Ready via mark_ready. Voice accept flows through the same brain path (08 §5).
          */
         post: operations["acceptTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/beta-signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Collect a beta-interest email from the landing page.
+         * @description The marketing landing page's "Join the beta" form posts one email here. Idempotent on the address (a repeat submit is a no-op, still 202) so the client can always redirect to the confirmation page on success. Stored in the beta module's beta_signups table; there is no read side in v1.
+         */
+        post: operations["postBetaSignup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -469,6 +509,11 @@ export interface components {
             /** Format: date-time */
             at: string;
         };
+        /** @description POST /api/beta-signup body — the visitor's email for the beta list. */
+        BetaSignupRequest: {
+            /** @description The visitor's email. Kept a plain string on the wire (no format:email, which would pull an openapi_types dependency into the generated Go); the server validates it parses as a real address (net/mail). */
+            email: string;
+        };
         /** @description POST /api/voice/token's 200 body (09 §2, §6): a short-lived AssemblyAI Universal-Streaming token and its absolute expiry. The client opens the STT WebSocket with `token` and refreshes proactively before `expires_at`. */
         VoiceToken: {
             /** @description The temporary AssemblyAI streaming token (bearer for the wss connection). */
@@ -559,8 +604,11 @@ export interface components {
             verb?: "started" | "nudged" | "finished" | "queued" | null;
             /** @description For kind=toast — the affected ticket's title. */
             ticket_title?: string | null;
-            /** @description For kind=toast — the affected ticket's id. Stable across a ticket's rapid transitions, so the client debounces a burst of toasts for one ticket by this key (title can collide or be reused). */
-            ticket_id?: string | null;
+        };
+        /** @description GET /api/activity response (08 §4) — the current value of the `thinking` bracket, pulled by the client on foreground/resume and stream reconnect to resync the spinner. Server-authoritative: the client never writes it (it is derived from whether a brain pass is in flight), so this is a read-only snapshot, not a settable state. */
+        ActivityStatus: {
+            /** @description True while a brain pass is in flight (the spinner is showing). */
+            thinking: boolean;
         };
         /** @description The signed-in user's account view (11 §4). Secret values never appear. */
         Me: {
@@ -686,6 +734,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Board"];
+                };
+            };
+        };
+    };
+    getActivityStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current thinking state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityStatus"];
                 };
             };
         };
@@ -863,6 +931,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MessagePostResponse"];
                 };
+            };
+        };
+    };
+    postBetaSignup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BetaSignupRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted — the email is recorded (or was already present). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body (missing or malformed email). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

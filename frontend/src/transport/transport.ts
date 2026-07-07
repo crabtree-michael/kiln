@@ -23,10 +23,12 @@ export type FeedSummary = components['schemas']['FeedSummary'];
 export type FeedSnapshot = components['schemas']['FeedSnapshot'];
 export type FeedHistoryPage = components['schemas']['FeedHistoryPage'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
+export type ActivityStatus = components['schemas']['ActivityStatus'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
+export type BetaSignupRequest = components['schemas']['BetaSignupRequest'];
 export type NotificationMode = components['schemas']['NotificationMode'];
 /** The push-notification frequency values, mirroring the wire enum. */
 export type NotificationModeValue = NotificationMode['mode'];
@@ -226,9 +228,12 @@ function isActivityEvent(value: unknown): value is ActivityEvent {
     isActivityKind(value.kind) &&
     (value.on === undefined || value.on === null || typeof value.on === 'boolean') &&
     isActivityVerb(value.verb) &&
-    isNullableString(value.ticket_title) &&
-    isNullableString(value.ticket_id)
+    isNullableString(value.ticket_title)
   );
+}
+
+function isActivityStatus(value: unknown): value is ActivityStatus {
+  return isRecord(value) && typeof value.thinking === 'boolean';
 }
 
 function isMessageEvent(event: Event): event is MessageEvent<string> {
@@ -347,6 +352,21 @@ export async function postMessage(text: string): Promise<MessagePostResponse> {
   const payload: unknown = await response.json();
   if (!isMessagePostResponse(payload)) {
     throw new Error('postMessage: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `GET /api/activity` — the current `thinking` state (08 §4). Pulled on
+ * foreground/resume and stream reconnect to resync the spinner, since the
+ * `activity` SSE event is ephemeral and never replayed. */
+export async function fetchActivityStatus(): Promise<ActivityStatus> {
+  const response = await fetch('/api/activity');
+  if (!response.ok) {
+    throw new Error(`fetchActivityStatus: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isActivityStatus(payload)) {
+    throw new Error('fetchActivityStatus: unexpected response shape');
   }
   return payload;
 }
@@ -554,6 +574,22 @@ export async function postPushSubscription(sub: PushSubscriptionPayload): Promis
   });
   if (!response.ok) {
     throw new Error(`postPushSubscription: HTTP ${String(response.status)}`);
+  }
+}
+
+/** `POST /api/beta-signup` — record a landing-page beta-interest email. The
+ * server is idempotent on the address, so a repeat submit still resolves; the
+ * caller redirects to the confirmation page on success. Throws on a non-2xx so
+ * the form can surface an error and keep the visitor on the page. */
+export async function postBetaSignup(email: string): Promise<void> {
+  const body: BetaSignupRequest = { email };
+  const response = await fetch('/api/beta-signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`postBetaSignup: HTTP ${String(response.status)}`);
   }
 }
 

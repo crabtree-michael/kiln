@@ -589,11 +589,12 @@ func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 	if len(got.Cards) != 2 {
 		t.Fatalf("cards = %d, want 2", len(got.Cards))
 	}
-	if got.Cards[0].Kind != wire.Blocker || got.Cards[0].TicketId == nil || *got.Cards[0].TicketId != tid {
+	if got.Cards[0].Kind != wire.FeedCardKindBlocker || got.Cards[0].TicketId == nil || *got.Cards[0].TicketId != tid {
 		t.Errorf("card0 = %+v, want blocker with ticket_id %s", got.Cards[0], tid)
 	}
-	if got.Cards[1].Kind != wire.Update || got.Cards[1].NotificationId == nil || *got.Cards[1].NotificationId != nid {
-		t.Errorf("card1 = %+v, want update with notification_id %d", got.Cards[1], nid)
+	card1 := got.Cards[1]
+	if card1.Kind != wire.FeedCardKindUpdate || card1.NotificationId == nil || *card1.NotificationId != nid {
+		t.Errorf("card1 = %+v, want update with notification_id %d", card1, nid)
 	}
 	if !got.HasMoreHistory {
 		t.Errorf("HasMoreHistory = false, want true (carried through from the snapshot)")

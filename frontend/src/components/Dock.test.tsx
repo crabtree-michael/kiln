@@ -236,11 +236,13 @@ describe('Dock', () => {
       expect(screen.queryByRole('button', { name: 'Type a message' })).toBeNull();
     });
 
-    it('renders the typed field (not the transcript) in keyboard mode, and the mic is gone', () => {
+    it('renders the typed field (not the transcript) in keyboard mode, and the centre mic glyph is gone', () => {
       mockVoiceValue = stubVoice({ keyboardMode: true });
-      render(<Dock />);
+      const { container } = render(<Dock />);
       expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Talk' })).toBeNull();
+      // The volume-reactive central mic glyph (dock-talk) is absent; the left
+      // slot instead holds the voice toggle that re-enables the mic.
+      expect(container.querySelector('[data-role="dock-talk"]')).toBeNull();
     });
 
     it('submits the typed text through submitText and clears the field on success', async () => {
@@ -293,12 +295,14 @@ describe('Dock', () => {
       expect(submitText).not.toHaveBeenCalled();
     });
 
-    it('exits keyboard mode via the close button', () => {
+    it('leaves keyboard mode and turns the mic back on via the voice button', () => {
       const closeKeyboard = vi.fn();
-      mockVoiceValue = stubVoice({ keyboardMode: true, closeKeyboard });
+      const resume = vi.fn();
+      mockVoiceValue = stubVoice({ keyboardMode: true, closeKeyboard, resume });
       render(<Dock />);
-      fireEvent.click(screen.getByRole('button', { name: 'Close keyboard' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
       expect(closeKeyboard).toHaveBeenCalledTimes(1);
+      expect(resume).toHaveBeenCalledTimes(1);
     });
   });
 });

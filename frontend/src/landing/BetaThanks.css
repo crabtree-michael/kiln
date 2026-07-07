@@ -1,0 +1,39 @@
+/* Standalone confirmation page (`/beta/thanks`). No app chrome — a single
+   centred reassurance panel. Every value reads a Kiln design token
+   (src/styles/tokens.css), so light/dark follows the OS theme for free. Scoped
+   under `.kiln-thanks` so it never touches the app or marketing shells. */
+
+.kiln-thanks {
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: var(--surface-page);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.kiln-thanks__inner {
+  display: flex;
+  max-width: 30rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.kiln-thanks__title {
+  margin: 6px 0 0;
+  font-size: clamp(28px, 6vw, 40px);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+}
+
+.kiln-thanks__lead {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}

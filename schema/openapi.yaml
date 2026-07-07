@@ -47,6 +47,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Board'
+  /api/activity:
+    get:
+      operationId: getActivityStatus
+      summary: Current thinking state for resume-time resync (08 §4).
+      description: >
+        The authoritative current value of the `thinking` bracket — the same
+        flag the `activity` kind=thinking SSE event toggles. Unlike that event,
+        which is ephemeral and never replayed on reconnect, this is a pull: the
+        client calls it on foreground/resume (and on stream reconnect) to resync
+        the spinner to the real current state, closing the gap where a missed
+        `on:false` (app backgrounded mid-pass) leaves the indicator stuck.
+        Toasts are not resyncable (they auto-dismiss) and are not carried here.
+      responses:
+        '200':
+          description: Current thinking state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityStatus'
   /api/message:
     post:
       operationId: postMessage
@@ -240,6 +259,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessagePostResponse'
+  /api/beta-signup:
+    post:
+      operationId: postBetaSignup
+      summary: Collect a beta-interest email from the landing page.
+      description: >
+        The marketing landing page's "Join the beta" form posts one email here.
+        Idempotent on the address (a repeat submit is a no-op, still 202) so the
+        client can always redirect to the confirmation page on success. Stored in
+        the beta module's beta_signups table; there is no read side in v1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BetaSignupRequest'
+      responses:
+        '202':
+          description: Accepted — the email is recorded (or was already present).
+        '400':
+          description: Invalid request body (missing or malformed email).
   /api/voice/token:
     post:
       operationId: postVoiceToken
@@ -631,6 +670,21 @@ components:
           format: date-time
       additionalProperties: false
 
+    BetaSignupRequest:
+      type: object
+      description: POST /api/beta-signup body — the visitor's email for the beta list.
+      required: [email]
+      properties:
+        email:
+          type: string
+          description: >
+            The visitor's email. Kept a plain string on the wire (no format:email,
+            which would pull an openapi_types dependency into the generated Go);
+            the server validates it parses as a real address (net/mail).
+          minLength: 3
+          maxLength: 254
+      additionalProperties: false
+
     VoiceToken:
       type: object
       description: >
@@ -826,13 +880,21 @@ components:
           type: string
           nullable: true
           description: For kind=toast — the affected ticket's title.
-        ticket_id:
-          type: string
-          nullable: true
-          description: >
-            For kind=toast — the affected ticket's id. Stable across a ticket's
-            rapid transitions, so the client debounces a burst of toasts for one
-            ticket by this key (title can collide or be reused).
+      additionalProperties: false
+
+    ActivityStatus:
+      type: object
+      description: >
+        GET /api/activity response (08 §4) — the current value of the `thinking`
+        bracket, pulled by the client on foreground/resume and stream reconnect
+        to resync the spinner. Server-authoritative: the client never writes it
+        (it is derived from whether a brain pass is in flight), so this is a
+        read-only snapshot, not a settable state.
+      required: [thinking]
+      properties:
+        thinking:
+          type: boolean
+          description: True while a brain pass is in flight (the spinner is showing).
       additionalProperties: false
 
     Me:

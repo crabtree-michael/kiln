@@ -285,6 +285,20 @@ func (s *Service) ProjectFor(ctx context.Context, userID string) (Project, error
 	return p, nil
 }
 
+// GetProject resolves a project by id to its plaintext metadata — including
+// OwnerUserID — WITHOUT touching the credential store or the cipher. It is the
+// cheap owner/config-metadata lookup the notifier path uses (11 §3): unlike
+// RuntimeConfig it decrypts nothing and reads no user_config, so a notification
+// never pays a secret-decrypt (or, at the composition root, a provider build).
+// Returns ErrNotFound (through the wrap) when the project doesn't exist.
+func (s *Service) GetProject(ctx context.Context, projectID string) (Project, error) {
+	p, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return Project{}, fmt.Errorf("identity: get project: %w", err)
+	}
+	return p, nil
+}
+
 // ListProjectIDs returns every project's id (created_at order), for the
 // runtime to enumerate the tenants it must stand up at startup.
 func (s *Service) ListProjectIDs(ctx context.Context) ([]string, error) {

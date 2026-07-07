@@ -23,6 +23,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -737,7 +738,7 @@ var (
 // modules — a DB state truncate and the agent service's worker teardown —
 // neither of which owns the other's state, so it lives at the composition root.
 type resetCoordinator struct {
-	tables   stateTruncator
+	state    projectStateDeleter
 	workers  workerResetter
 	pool     poolReconciler
 	poolSize int
@@ -747,24 +748,25 @@ type resetCoordinator struct {
 // and the board's worker-pool store.
 func newResetCoordinator(db *sql.DB, workers workerResetter, pool poolReconciler, poolSize int) *resetCoordinator {
 	return &resetCoordinator{
-		tables:   &dbTruncator{db: db},
+		state:    &dbStateDeleter{db: db},
 		workers:  workers,
 		pool:     pool,
 		poolSize: poolSize,
 	}
 }
 
-// stateTruncator wipes every runtime state table (board, transcript, queue,
-// notifications) in one shot; schema_migrations is left intact.
-type stateTruncator interface {
-	TruncateState(ctx context.Context) error
+// projectStateDeleter deletes one project's runtime state rows (board,
+// transcript, queue, notifications) scoped by project_id; schema_migrations and
+// every other tenant's rows are left intact (11 §3).
+type projectStateDeleter interface {
+	DeleteProjectState(ctx context.Context, projectID string) error
 }
 
-// workerResetter tears down live agent sandboxes across every project and
-// clears the module's in-memory worker cache. Satisfied directly by
-// *agent.Service (its Reset is a cross-project sweep, 11 §3).
+// workerResetter tears down one project's live agent sandboxes and clears that
+// project's entries from the module's in-memory worker cache. Satisfied directly
+// by *agent.Service (its ResetProject is scoped to the caller's project, 11 §3).
 type workerResetter interface {
-	Reset(ctx context.Context) error
+	ResetProject(ctx context.Context, projectID string) error
 }
 
 // poolReconciler re-seeds one project's worker-slot pool to n rows — the same
@@ -774,17 +776,17 @@ type poolReconciler interface {
 	ReconcileWorkers(ctx context.Context, projectID string, n int) error
 }
 
-// Reset returns the given project to a fresh session in three steps: (1)
-// truncate the state tables (empties every project's worker slots — a dev-only
-// affordance, in practice the operator's single project); (2) tear down the live
-// sandboxes and clear the agent's in-memory cache while the wanted set is empty;
-// (3) re-seed THIS project's worker pool so its reconciler provisions a fresh
-// idle pool, exactly as at startup.
+// Reset returns the caller's project to a fresh session in three steps, all
+// scoped to projectID so a reset never touches another tenant's data (11 §3):
+// (1) delete this project's state rows (empties its worker slots so nothing is
+// "wanted"); (2) tear down this project's live sandboxes and clear its cached
+// handles while its wanted set is empty; (3) re-seed THIS project's worker pool
+// so its reconciler provisions a fresh idle pool, exactly as at startup.
 func (c *resetCoordinator) Reset(ctx context.Context, projectID string) error {
-	if err := c.tables.TruncateState(ctx); err != nil {
-		return fmt.Errorf("kiln: reset truncate state: %w", err)
+	if err := c.state.DeleteProjectState(ctx, projectID); err != nil {
+		return fmt.Errorf("kiln: reset delete project state: %w", err)
 	}
-	if err := c.workers.Reset(ctx); err != nil {
+	if err := c.workers.ResetProject(ctx, projectID); err != nil {
 		return fmt.Errorf("kiln: reset workers: %w", err)
 	}
 	if err := c.pool.ReconcileWorkers(ctx, projectID, c.poolSize); err != nil {
@@ -794,22 +796,41 @@ func (c *resetCoordinator) Reset(ctx context.Context, projectID string) error {
 }
 
 var (
-	_ api.Resetter   = (*resetCoordinator)(nil)
-	_ workerResetter = (*agent.Service)(nil)
-	_ stateTruncator = (*dbTruncator)(nil)
+	_ api.Resetter        = (*resetCoordinator)(nil)
+	_ workerResetter      = (*agent.Service)(nil)
+	_ projectStateDeleter = (*dbStateDeleter)(nil)
 )
 
-// dbTruncator is the stateTruncator over the shared Postgres pool: one
-// TRUNCATE across every state table. RESTART IDENTITY resets sequences so a
-// fresh session starts ids from 1; CASCADE covers any FK edges between them.
-type dbTruncator struct{ db *sql.DB }
+// dbStateDeleter is the projectStateDeleter over the shared Postgres pool: a
+// per-table DELETE ... WHERE project_id = $1 across the eight state tables, so
+// only the caller's rows are removed (11 §3). It reuses bootstrap's
+// projectIDTables — the same eight tables, in the same order — so the delete set
+// can never drift from the adoption set. That order also happens to be FK-safe:
+// tickets (which references workers) comes before workers, the only FK edge
+// among these tables (agent_turns/steward_pokes carry worker_id by value). No
+// RESTART IDENTITY — sequences are shared bigserials that cannot be reset per
+// tenant, and ids incrementing across tenants is harmless.
+type dbStateDeleter struct{ db *sql.DB }
 
-const truncateStateSQL = `TRUNCATE tickets, workers, outbox, messages, events, ` +
-	`agent_turns, notifications, steward_pokes RESTART IDENTITY CASCADE`
-
-func (t *dbTruncator) TruncateState(ctx context.Context) error {
-	if _, err := t.db.ExecContext(ctx, truncateStateSQL); err != nil {
-		return fmt.Errorf("kiln: truncate state tables: %w", err)
+func (t *dbStateDeleter) DeleteProjectState(ctx context.Context, projectID string) error {
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("kiln: delete project state begin: %w", err)
+	}
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			slog.ErrorContext(ctx, "kiln: delete project state rollback", "err", rbErr)
+		}
+	}()
+	for _, table := range projectIDTables {
+		// table is a hardcoded name from projectIDTables, never user input.
+		//nolint:gosec // G202: constant table name, not attacker-controlled
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE project_id = $1`, projectID); err != nil {
+			return fmt.Errorf("kiln: delete project state from %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("kiln: delete project state commit: %w", err)
 	}
 	return nil
 }

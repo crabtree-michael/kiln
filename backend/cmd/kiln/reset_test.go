@@ -1,10 +1,12 @@
 package main
 
-// Unit tests for resetCoordinator: it truncates state, tears down workers, then
-// re-seeds the worker pool — in that order (so teardown happens while the
-// wanted set is empty and the fresh session comes back up with capacity) — and
-// surfaces any step's error. The real DB truncate and pool re-seed are verified
-// live; this pins ordering and error propagation against fakes.
+// Unit tests for resetCoordinator: it deletes the caller's project state, tears
+// down that project's workers, then re-seeds its worker pool — in that order (so
+// teardown happens while the wanted set is empty and the fresh session comes
+// back up with capacity) — and surfaces any step's error. Every step must carry
+// the caller's projectID so a reset never touches another tenant (11 §3). The
+// real DB delete and pool re-seed are verified live (reset_integration_test.go);
+// this pins ordering, projectID threading, and error propagation against fakes.
 
 import (
 	"context"
@@ -13,30 +15,38 @@ import (
 )
 
 var (
-	errFakeTruncate = errors.New("synthetic truncate failure")
-	errFakeWorkers  = errors.New("synthetic worker teardown failure")
+	errFakeDelete  = errors.New("synthetic state delete failure")
+	errFakeWorkers = errors.New("synthetic worker teardown failure")
 )
 
-type fakeTruncator struct {
-	calls int
-	order *[]string
-	err   error
+// testProjectID is the caller project every resetCoordinator unit test threads;
+// each destructive step must carry exactly this id.
+const testProjectID = "proj-1"
+
+type fakeStateDeleter struct {
+	calls     int
+	projectID string
+	order     *[]string
+	err       error
 }
 
-func (f *fakeTruncator) TruncateState(context.Context) error {
+func (f *fakeStateDeleter) DeleteProjectState(_ context.Context, projectID string) error {
 	f.calls++
-	*f.order = append(*f.order, "truncate")
+	f.projectID = projectID
+	*f.order = append(*f.order, "delete")
 	return f.err
 }
 
 type fakeWorkerResetter struct {
-	calls int
-	order *[]string
-	err   error
+	calls     int
+	projectID string
+	order     *[]string
+	err       error
 }
 
-func (f *fakeWorkerResetter) Reset(context.Context) error {
+func (f *fakeWorkerResetter) ResetProject(_ context.Context, projectID string) error {
 	f.calls++
+	f.projectID = projectID
 	*f.order = append(*f.order, "workers")
 	return f.err
 }
@@ -57,55 +67,62 @@ func (f *fakePoolReconciler) ReconcileWorkers(_ context.Context, projectID strin
 	return f.err
 }
 
-func TestResetCoordinator_TruncatesTearsDownThenReseeds(t *testing.T) {
+func TestResetCoordinator_DeletesTearsDownThenReseeds(t *testing.T) {
 	var order []string
-	tr := &fakeTruncator{order: &order}
+	sd := &fakeStateDeleter{order: &order}
 	wr := &fakeWorkerResetter{order: &order}
 	pool := &fakePoolReconciler{order: &order}
-	c := &resetCoordinator{tables: tr, workers: wr, pool: pool, poolSize: 3}
+	c := &resetCoordinator{state: sd, workers: wr, pool: pool, poolSize: 3}
 
-	if err := c.Reset(context.Background(), "proj-1"); err != nil {
+	if err := c.Reset(context.Background(), testProjectID); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
-	if want := []string{"truncate", "workers", "pool"}; len(order) != 3 ||
+	if want := []string{"delete", "workers", "pool"}; len(order) != 3 ||
 		order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
 		t.Errorf("order = %v, want %v", order, want)
 	}
 	if pool.n != 3 {
 		t.Errorf("pool re-seeded to %d, want configured 3", pool.n)
 	}
-	if pool.projectID != "proj-1" {
+	// Every destructive/reseed step must be scoped to the caller's project.
+	if sd.projectID != testProjectID {
+		t.Errorf("state deleted for project %q, want the reset's project proj-1", sd.projectID)
+	}
+	if wr.projectID != testProjectID {
+		t.Errorf("workers reset for project %q, want the reset's project proj-1", wr.projectID)
+	}
+	if pool.projectID != testProjectID {
 		t.Errorf("pool re-seeded for project %q, want the reset's project proj-1", pool.projectID)
 	}
 }
 
-func TestResetCoordinator_TruncateError_SkipsRest(t *testing.T) {
+func TestResetCoordinator_DeleteError_SkipsRest(t *testing.T) {
 	var order []string
-	tr := &fakeTruncator{order: &order, err: errFakeTruncate}
+	sd := &fakeStateDeleter{order: &order, err: errFakeDelete}
 	wr := &fakeWorkerResetter{order: &order}
 	pool := &fakePoolReconciler{order: &order}
-	c := &resetCoordinator{tables: tr, workers: wr, pool: pool, poolSize: 3}
+	c := &resetCoordinator{state: sd, workers: wr, pool: pool, poolSize: 3}
 
-	if err := c.Reset(context.Background(), "proj-1"); err == nil {
-		t.Fatal("expected error when truncate fails")
+	if err := c.Reset(context.Background(), testProjectID); err == nil {
+		t.Fatal("expected error when state delete fails")
 	}
 	if wr.calls != 0 || pool.calls != 0 {
-		t.Errorf("nothing should run after a truncate failure, got workers=%d pool=%d", wr.calls, pool.calls)
+		t.Errorf("nothing should run after a state-delete failure, got workers=%d pool=%d", wr.calls, pool.calls)
 	}
 }
 
 func TestResetCoordinator_WorkerError_SkipsReseed(t *testing.T) {
 	var order []string
-	tr := &fakeTruncator{order: &order}
+	sd := &fakeStateDeleter{order: &order}
 	wr := &fakeWorkerResetter{order: &order, err: errFakeWorkers}
 	pool := &fakePoolReconciler{order: &order}
-	c := &resetCoordinator{tables: tr, workers: wr, pool: pool, poolSize: 3}
+	c := &resetCoordinator{state: sd, workers: wr, pool: pool, poolSize: 3}
 
-	if err := c.Reset(context.Background(), "proj-1"); err == nil {
+	if err := c.Reset(context.Background(), testProjectID); err == nil {
 		t.Fatal("expected error when worker teardown fails")
 	}
-	if tr.calls != 1 {
-		t.Errorf("truncate should still have run, got %d calls", tr.calls)
+	if sd.calls != 1 {
+		t.Errorf("state delete should still have run, got %d calls", sd.calls)
 	}
 	if pool.calls != 0 {
 		t.Errorf("pool should not be re-seeded after a teardown failure, got %d calls", pool.calls)

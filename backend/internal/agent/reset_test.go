@@ -1,10 +1,13 @@
 package agent
 
-// White-box unit tests for Service.Reset (the developer "fresh session" reset):
-// it destroys every live kiln-worker-* sandbox, leaves non-kiln sandboxes
-// alone, keeps going past a per-worker destroy failure, and empties the
+// White-box unit tests for Service.ResetProject (the developer "fresh session"
+// reset, scoped to one project — 11 §3): it destroys the project's live
+// kiln-worker-* sandboxes, leaves non-kiln sandboxes alone, keeps going past a
+// per-worker destroy failure, and clears the project's entries from the
 // in-memory worker cache. Same-package so it can inspect the unexported cache;
-// Reset touches only the provider and the cache, so the other ports are nil.
+// ResetProject touches only the provider and the cache, so the other ports are
+// nil. staticResolver ignores the projectID, so these single-tenant tests pass
+// "".
 
 import (
 	"context"
@@ -92,7 +95,7 @@ func TestReset_DestroysKilnWorkersAndClearsCache(t *testing.T) {
 	svc.putWorker(ProviderWorker{Name: kilnA, Ref: "ra"})
 	svc.putWorker(ProviderWorker{Name: kilnB, Ref: "rb"})
 
-	if err := svc.Reset(context.Background()); err != nil {
+	if err := svc.ResetProject(context.Background(), ""); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
 
@@ -117,7 +120,7 @@ func TestReset_ScopedToConfiguredPrefix(t *testing.T) {
 	}}
 	svc := NewService(nil, staticResolver{provider, prefix}, staticProjects{}, nil, nil, nil, nil)
 
-	if err := svc.Reset(context.Background()); err != nil {
+	if err := svc.ResetProject(context.Background(), ""); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
 	if !slices.Contains(provider.destroyed, own) {
@@ -136,7 +139,7 @@ func TestReset_ContinuesPastDestroyError(t *testing.T) {
 	}
 	svc := NewService(nil, staticResolver{provider, WorkerNamePrefix}, staticProjects{}, nil, nil, nil, nil)
 
-	if err := svc.Reset(context.Background()); err != nil {
+	if err := svc.ResetProject(context.Background(), ""); err != nil {
 		t.Fatalf("Reset should be best-effort, got err: %v", err)
 	}
 	if !slices.Contains(provider.destroyed, kilnB) {

@@ -84,7 +84,8 @@ func TestService_EventsWorker_BrainOutageDegradesOnlyTheFailingTenant(t *testing
 		t.Fatalf("HandleEvent arg = %T, want runtime.Event", handled[0].Args[0])
 	}
 	if ev.ProjectID != projB {
-		t.Errorf("healthy brain saw Event.ProjectID = %q, want %q — A's event must never reach B's brain", ev.ProjectID, projB)
+		t.Errorf("healthy brain saw Event.ProjectID = %q, want %q — A's event must never reach B's brain",
+			ev.ProjectID, projB)
 	}
 
 	// The system-error Say landed on the failing project only, kiln-authored,

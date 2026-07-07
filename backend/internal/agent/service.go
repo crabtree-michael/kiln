@@ -306,45 +306,43 @@ func (s *Service) GetAgentUpdates(ctx context.Context, projectID, workerID strin
 	return u, nil
 }
 
-// Reset tears down every live worker across all projects and clears the
-// in-memory worker cache — the developer "fresh session" reset (docs/
-// superpowers/specs/2026-07-04-debug-reset-session-design.md). It resolves each
-// project's provider + prefix (11 §3) and destroys only that project's
-// prefix-matched sandboxes, so it never touches another environment's workers.
-// Best-effort: a resolver miss or a destroy failure on one project/worker is
-// logged and does not abort the others, so a single stuck project never blocks
-// the reset. Clearing the cache under the same mutex that guards the reconcile
-// loop and turn execution is what a bare DB truncate misses — stale cached
-// handles would otherwise survive the wipe. The caller truncates the board
-// first, so the reconcile loop has no wanted slots to re-provision while this
-// runs.
-func (s *Service) Reset(ctx context.Context) error {
-	pids, err := s.projects.ProjectIDs(ctx)
+// ResetProject tears down one project's live workers and clears that project's
+// entries from the in-memory worker cache — the developer "fresh session" reset,
+// scoped to the caller's project (docs/superpowers/specs/
+// 2026-07-04-debug-reset-session-design.md, 11 §3). It resolves ONLY that
+// project's provider + prefix and destroys only its prefix-matched sandboxes, so
+// it never touches another tenant's workers. Best-effort: a destroy failure on
+// one worker is logged and does not abort the others, so a single stuck sandbox
+// never blocks the reset. Clearing the cache under the same mutex that guards the
+// reconcile loop and turn execution is what a bare DB delete misses — stale
+// cached handles would otherwise survive the wipe. The caller deletes the
+// project's board rows first, so the reconcile loop has no wanted slots to
+// re-provision for this project while this runs.
+func (s *Service) ResetProject(ctx context.Context, projectID string) error {
+	provider, prefix, err := s.providers.For(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("agent: reset list projects: %w", err)
+		return fmt.Errorf("agent: reset resolve provider for project %s: %w", projectID, err)
 	}
-	for _, pid := range pids {
-		provider, prefix, rerr := s.providers.For(ctx, pid)
-		if rerr != nil {
-			slog.ErrorContext(ctx, "agent: reset resolve provider; skipping project", "project", pid, "err", rerr)
+	live, err := provider.ListWorkers(ctx)
+	if err != nil {
+		return fmt.Errorf("agent: reset list workers for project %s: %w", projectID, err)
+	}
+	for _, w := range live {
+		if !strings.HasPrefix(w.Name, prefix) {
 			continue
 		}
-		live, lerr := provider.ListWorkers(ctx)
-		if lerr != nil {
-			slog.ErrorContext(ctx, "agent: reset list workers; skipping project", "project", pid, "err", lerr)
-			continue
-		}
-		for _, w := range live {
-			if !strings.HasPrefix(w.Name, prefix) {
-				continue
-			}
-			if derr := provider.DestroyWorker(ctx, w); derr != nil {
-				slog.ErrorContext(ctx, "agent: reset destroy worker", "worker", w.Name, "err", derr)
-			}
+		if derr := provider.DestroyWorker(ctx, w); derr != nil {
+			slog.ErrorContext(ctx, "agent: reset destroy worker", "worker", w.Name, "err", derr)
 		}
 	}
+	// Drop only this project's cached handles; names are prefix-scoped, so the
+	// prefix uniquely selects one tenant's slots (11 §3).
 	s.mu.Lock()
-	s.workers = map[string]ProviderWorker{}
+	for name := range s.workers {
+		if strings.HasPrefix(name, prefix) {
+			delete(s.workers, name)
+		}
+	}
 	s.mu.Unlock()
 	return nil
 }

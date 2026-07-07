@@ -213,7 +213,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 
 	// Resolvers over the registry/identity the singleton services depend on.
 	projects := &projectsResolver{idSvc: idSvc}
-	owner := &ownerResolver{registry: registry}
+	owner := &ownerResolver{idSvc: idSvc}
 
 	// The agent runtime resolves each project's provider + worker prefix per
 	// sweep/turn (11 §3); its cross-project liveness loop nudges the hub to
@@ -435,13 +435,23 @@ func (r *brainResolver) For(ctx context.Context, projectID string) (runtime.Brai
 var _ runtime.BrainResolver = (*brainResolver)(nil)
 
 // ownerResolver resolves a project to its owning user id (11 §3) — the
-// notifier path's tenant→recipient hop. Over the registry so it shares the
-// single-flight config cache. Satisfies both runtime.Owner and the adapters'
-// ownerLookup.
-type ownerResolver struct{ registry *tenant.Registry }
+// notifier path's tenant→recipient hop. Over identity's cheap GetProject (not
+// the tenant registry) so a notification for an as-yet-unbuilt project maps
+// projectID→owner without triggering a full provider build (repo clone,
+// ReconcileWorkers, client construction). Satisfies both runtime.Owner and the
+// adapters' ownerLookup.
+type ownerResolver struct{ idSvc *identity.Service }
+
+// errIdentityUnconfigured is returned when an owner lookup is attempted with no
+// identity service — an unconfigured boot has no tenants, so a notifier path
+// reaching here is a wiring bug, not a runtime condition.
+var errIdentityUnconfigured = errors.New("kiln: identity not configured")
 
 func (r *ownerResolver) Owner(ctx context.Context, projectID string) (string, error) {
-	p, err := r.registry.For(ctx, projectID)
+	if r.idSvc == nil {
+		return "", fmt.Errorf("kiln: resolve owner for project %s: %w", projectID, errIdentityUnconfigured)
+	}
+	p, err := r.idSvc.GetProject(ctx, projectID)
 	if err != nil {
 		return "", fmt.Errorf("kiln: resolve owner for project %s: %w", projectID, err)
 	}

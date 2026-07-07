@@ -30,7 +30,8 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 // store adapters.
 func (s *Store) List(ctx context.Context) (_ []steward.PokeRecord, err error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT ticket_id, worker_id, poked_at FROM steward_pokes`)
+		`SELECT COALESCE(project_id::text, ''), ticket_id, worker_id, poked_at
+		 FROM steward_pokes`)
 	if err != nil {
 		return nil, fmt.Errorf("steward/postgres: query poke records: %w", err)
 	}
@@ -43,7 +44,7 @@ func (s *Store) List(ctx context.Context) (_ []steward.PokeRecord, err error) {
 	var out []steward.PokeRecord
 	for rows.Next() {
 		var r steward.PokeRecord
-		if serr := rows.Scan(&r.TicketID, &r.WorkerID, &r.PokedAt); serr != nil {
+		if serr := rows.Scan(&r.ProjectID, &r.TicketID, &r.WorkerID, &r.PokedAt); serr != nil {
 			return nil, fmt.Errorf("steward/postgres: scan poke record: %w", serr)
 		}
 		out = append(out, r)
@@ -54,14 +55,18 @@ func (s *Store) List(ctx context.Context) (_ []steward.PokeRecord, err error) {
 	return out, nil
 }
 
-// Upsert records (or refreshes) a poke, keyed by ticket_id.
-func (s *Store) Upsert(ctx context.Context, ticketID, workerID string, pokedAt time.Time) error {
+// Upsert records (or refreshes) a poke, keyed by ticket_id. An empty
+// projectID is stored as NULL (the column is nullable pre-adoption) rather
+// than failing the uuid cast.
+func (s *Store) Upsert(ctx context.Context, projectID, ticketID, workerID string, pokedAt time.Time) error {
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO steward_pokes (ticket_id, worker_id, poked_at)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO steward_pokes (project_id, ticket_id, worker_id, poked_at)
+		 VALUES (NULLIF($1, '')::uuid, $2, $3, $4)
 		 ON CONFLICT (ticket_id)
-		 DO UPDATE SET worker_id = EXCLUDED.worker_id, poked_at = EXCLUDED.poked_at`,
-		ticketID, workerID, pokedAt); err != nil {
+		 DO UPDATE SET project_id = EXCLUDED.project_id,
+		               worker_id = EXCLUDED.worker_id,
+		               poked_at = EXCLUDED.poked_at`,
+		projectID, ticketID, workerID, pokedAt); err != nil {
 		return fmt.Errorf("steward/postgres: upsert poke record: %w", err)
 	}
 	return nil

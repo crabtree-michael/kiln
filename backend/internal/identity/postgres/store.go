@@ -186,6 +186,49 @@ func (s *Store) GetProjectByOwner(ctx context.Context, ownerUserID string) (iden
 	return p, nil
 }
 
+// GetProject returns ErrNotFound for an unknown projects.id.
+func (s *Store) GetProject(ctx context.Context, id string) (identity.Project, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+projectColumns+` FROM projects WHERE id = $1`, id)
+	p, err := scanProject(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return identity.Project{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return identity.Project{}, fmt.Errorf("identity/postgres: get project: %w", err)
+	}
+	return p, nil
+}
+
+// ListProjects returns every project ordered by created_at (stable startup
+// ordering for the runtime's per-project registry). The named err return lets
+// the deferred rows.Close failure surface (the board/postgres idiom).
+func (s *Store) ListProjects(ctx context.Context) (_ []identity.Project, err error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+projectColumns+` FROM projects ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("identity/postgres: list projects: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("identity/postgres: close projects: %w", cerr)
+		}
+	}()
+
+	var out []identity.Project
+	for rows.Next() {
+		p, serr := scanProject(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		out = append(out, p)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return nil, fmt.Errorf("identity/postgres: iterate projects: %w", rerr)
+	}
+	return out, nil
+}
+
 // UpsertProject creates or updates the owner's project in place (one project
 // per owner in phase 1).
 func (s *Store) UpsertProject(ctx context.Context, p identity.Project) (identity.Project, error) {

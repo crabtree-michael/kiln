@@ -56,12 +56,13 @@ type Verifier interface {
 
 // Service is identity's domain service (11 §2–§4): login, sessions, config.
 type Service struct {
-	store    Store
-	cipher   *Cipher
-	gh       GitHub
-	verifier Verifier
-	allowed  map[string]bool
-	now      func() time.Time
+	store      Store
+	cipher     *Cipher
+	gh         GitHub
+	verifier   Verifier
+	allowed    map[string]bool
+	now        func() time.Time
+	invalidate func(projectID string)
 }
 
 func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) *Service {
@@ -95,8 +96,18 @@ func (s *Service) CompleteLogin(ctx context.Context, code string) (User, error) 
 }
 
 // DevSignIn is the KILN_DEV_ENDPOINTS-only seam (11 §7): find-or-create with
-// NO allowlist check, so e2e can mint sessions without real OAuth.
+// NO allowlist check, so e2e can mint sessions without real OAuth. It shares
+// EnsureUser's find-or-create mechanics.
 func (s *Service) DevSignIn(ctx context.Context, login string) (User, error) {
+	return s.EnsureUser(ctx, login)
+}
+
+// EnsureUser finds-or-creates a user by GitHub login WITHOUT the allowlist
+// check — the shared find-or-create used by DevSignIn (11 §7) and the phase-2
+// bootstrap-from-env path. A deterministic fnv64a hash of the login stands in
+// for the GitHub id (not cryptographic). Real OAuth logins still go through
+// CompleteLogin, which enforces the allowlist on every login (11 §2).
+func (s *Service) EnsureUser(ctx context.Context, login string) (User, error) {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(strings.ToLower(login)))
 	return s.upsertFromGitHub(ctx, githubapi.GitHubUser{
@@ -211,6 +222,16 @@ func (s *Service) UpdateSettings(ctx context.Context, userID string, upd Setting
 	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("identity: update settings: %w", err)
 	}
+	// Config is per-user; invalidate the owner's project runtime if they have
+	// one. A user who hasn't onboarded a project yet has nothing to invalidate
+	// (not an error).
+	switch proj, perr := s.store.GetProjectByOwner(ctx, userID); {
+	case perr == nil:
+		s.fireInvalidate(proj.ID)
+	case errors.Is(perr, ErrNotFound): // no project yet — nothing to invalidate
+	default:
+		return fmt.Errorf("identity: update settings: %w", perr)
+	}
 	return nil
 }
 
@@ -242,7 +263,84 @@ func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectU
 	if err != nil {
 		return Project{}, fmt.Errorf("identity: upsert project: %w", err)
 	}
+	s.fireInvalidate(p.ID)
 	return p, nil
+}
+
+// SetInvalidator registers a hook fired after a successful config write
+// (UpdateSettings for the owner's project, UpsertProject) with the affected
+// project id, so the runtime's per-project registry can rebuild that project.
+// Setter, not a constructor arg, to keep NewService's signature stable and the
+// hook optional (nil-safe when unset).
+func (s *Service) SetInvalidator(f func(projectID string)) { s.invalidate = f }
+
+// ProjectFor returns the owner's project, wrapping the store's
+// GetProjectByOwner for runtime callers. Returns ErrNotFound before onboarding
+// creates it (detectable with errors.Is through the wrap).
+func (s *Service) ProjectFor(ctx context.Context, userID string) (Project, error) {
+	p, err := s.store.GetProjectByOwner(ctx, userID)
+	if err != nil {
+		return Project{}, fmt.Errorf("identity: project for owner: %w", err)
+	}
+	return p, nil
+}
+
+// ListProjectIDs returns every project's id (created_at order), for the
+// runtime to enumerate the tenants it must stand up at startup.
+func (s *Service) ListProjectIDs(ctx context.Context) ([]string, error) {
+	projects, err := s.store.ListProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list project ids: %w", err)
+	}
+	ids := make([]string, 0, len(projects))
+	for _, p := range projects {
+		ids = append(ids, p.ID)
+	}
+	return ids, nil
+}
+
+// RuntimeConfig is the fully-decrypted, in-process credential bundle the
+// runtime needs to drive one project's brain/board/agents. It carries
+// PLAINTEXT secrets and therefore MUST NEVER be returned over the wire,
+// serialized into any API/DTO, or logged — in-process use only. (There is
+// deliberately no String()/wire mapping for this type.)
+type RuntimeConfig struct {
+	Project           Project
+	OwnerUserID       string
+	AnthropicAPIKey   string // decrypted; empty = unset
+	AmikaAPIKey       string
+	AmikaClaudeCredID string
+	GitHubAuthToken   string
+}
+
+// RuntimeConfig resolves a project to its owner's decrypted credentials:
+// project → owner user → user_config → cipher.Decrypt per set column. An unset
+// (NULL) credential column decrypts to "" rather than erroring. Returns
+// ErrNotFound when the project doesn't exist.
+//
+// The result carries plaintext secrets for in-process use ONLY — never log it
+// or expose it via a wire type (see the RuntimeConfig type doc).
+func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeConfig, error) {
+	proj, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return RuntimeConfig{}, fmt.Errorf("identity: runtime config: %w", err)
+	}
+	// Resolve the owner (guards against a dangling owner_user_id).
+	if _, uerr := s.store.GetUser(ctx, proj.OwnerUserID); uerr != nil {
+		return RuntimeConfig{}, fmt.Errorf("identity: runtime config: %w", uerr)
+	}
+	cfg, err := s.store.GetUserConfig(ctx, proj.OwnerUserID)
+	if err != nil {
+		return RuntimeConfig{}, fmt.Errorf("identity: runtime config: %w", err)
+	}
+	return RuntimeConfig{
+		Project:           proj,
+		OwnerUserID:       proj.OwnerUserID,
+		AnthropicAPIKey:   s.decrypt(cfg.AnthropicKeyEnc),
+		AmikaAPIKey:       s.decrypt(cfg.AmikaKeyEnc),
+		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
+		GitHubAuthToken:   s.decrypt(cfg.GitHubTokenEnc),
+	}, nil
 }
 
 // SetVerifier injects the live-check adapter (nil-safe: without it every
@@ -289,6 +387,14 @@ func (s *Service) check(
 	res := run(ctx)
 	res.Name = name
 	return res
+}
+
+// fireInvalidate calls the registered invalidator (if any) for a non-empty
+// project id.
+func (s *Service) fireInvalidate(projectID string) {
+	if s.invalidate != nil && projectID != "" {
+		s.invalidate(projectID)
+	}
 }
 
 // decrypt is nil-safe (an unset ciphertext yields "") and swallows a

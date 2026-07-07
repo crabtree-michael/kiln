@@ -35,5 +35,10 @@ type Store interface {
 
 	// GetProjectByOwner returns ErrNotFound before onboarding creates it.
 	GetProjectByOwner(ctx context.Context, ownerUserID string) (Project, error)
+	// GetProject returns ErrNotFound for an unknown projects.id.
+	GetProject(ctx context.Context, id string) (Project, error)
+	// ListProjects returns every project ordered by created_at (stable startup
+	// ordering for the runtime's per-project registry).
+	ListProjects(ctx context.Context) ([]Project, error)
 	UpsertProject(ctx context.Context, p Project) (Project, error)
 }

@@ -6,6 +6,7 @@ package identity_test
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -148,11 +149,46 @@ func (s *fakeStore) GetProjectByOwner(_ context.Context, ownerUserID string) (id
 	return p, nil
 }
 
+// UpsertProject finds-or-creates by OwnerUserID (one project per owner),
+// assigning ids "project-1", "project-2", … and stamping CreatedAt on first
+// write so GetProject/ListProjects behave like the real store.
 func (s *fakeStore) UpsertProject(_ context.Context, p identity.Project) (identity.Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if existing, ok := s.projects[p.OwnerUserID]; ok {
+		p.ID = existing.ID
+		p.CreatedAt = existing.CreatedAt
+	} else {
+		s.seq++
+		p.ID = fmt.Sprintf("project-%d", s.seq)
+		p.CreatedAt = time.Now()
+	}
 	s.projects[p.OwnerUserID] = p
 	return p, nil
+}
+
+// GetProject returns ErrNotFound for an unknown project id.
+func (s *fakeStore) GetProject(_ context.Context, id string) (identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.projects {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return identity.Project{}, identity.ErrNotFound
+}
+
+// ListProjects returns every project ordered by CreatedAt.
+func (s *fakeStore) ListProjects(_ context.Context) ([]identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]identity.Project, 0, len(s.projects))
+	for _, p := range s.projects {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
 }
 
 // touchSessionCallCount reports how many times TouchSession was invoked, for

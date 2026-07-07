@@ -161,7 +161,7 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
 
       {thinking && (
         <div data-role="thinking-indicator">
-          <span data-role="thinking-spinner" aria-hidden="true" />
+          <span data-role="thinking-ember" aria-hidden="true" />
           <span data-role="thinking-text">Kiln is thinking…</span>
         </div>
       )}

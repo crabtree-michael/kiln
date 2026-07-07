@@ -80,7 +80,7 @@ exports[`ActivityRow > matches the DOM-structure snapshot: thinking indicator (6
     >
       <span
         aria-hidden="true"
-        data-role="thinking-spinner"
+        data-role="thinking-ember"
       />
       <span
         data-role="thinking-text"

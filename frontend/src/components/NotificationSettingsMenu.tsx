@@ -104,15 +104,12 @@ export function NotificationSettingsMenu({
           setOpen((wasOpen) => !wasOpen);
         }}
       >
-        <svg data-role="notify-bell" viewBox="0 0 20 20" aria-hidden="true">
+        <svg data-role="notify-bell" viewBox="0 0 96 96" aria-hidden="true">
           <path
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M10 3a4 4 0 0 0-4 4c0 3-1.2 4.6-1.8 5.3-.3.4 0 1 .5 1h10.6c.5 0 .8-.6.5-1C15.2 11.6 14 10 14 7a4 4 0 0 0-4-4ZM8.5 16a1.5 1.5 0 0 0 3 0"
+            fill="currentColor"
+            d="M48 12 C33 12 25 25 25 43 C25 56 21 63 16.5 67.5 C14.5 69.7 16 74 19.5 74 H76.5 C80 74 81.5 69.7 79.5 67.5 C75 63 71 56 71 43 C71 25 63 12 48 12 Z"
           />
+          <path fill="currentColor" d="M39 78 A9 9 0 0 0 57 78 Z" />
         </svg>
       </button>
       <div

@@ -7,13 +7,66 @@ package api_test
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/crabtree-michael/kiln/backend/internal/api"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 )
+
+// testProjectID is the project every authenticated test session resolves to
+// (11 phase 2). fakeProjects hands it back, and the guarded handlers pass it
+// straight through to their ports, so a test can assert the project id that
+// reached a fake equals this.
+const testProjectID = "proj-A"
+
+// fakeProjects is api.ProjectResolver: it resolves every caller to one canned
+// project (or an injected error — identity.ErrNotFound for the no-project 404
+// path) and records the user ids it was asked to resolve, so a test can assert
+// withProject scoped to the resolved session's user/project.
+type fakeProjects struct {
+	mu      sync.Mutex
+	project identity.Project
+	err     error
+	userIDs []string
+}
+
+func (f *fakeProjects) ProjectFor(_ context.Context, userID string) (identity.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userIDs = append(f.userIDs, userID)
+	return f.project, f.err
+}
+
+func (f *fakeProjects) resolvedUserIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.userIDs...)
+}
+
+// authCookie is the kiln_session request cookie every authenticated test call
+// carries. Its value is irrelevant — the fake authenticator resolves any token
+// to a valid user — so what matters is only that the cookie is present, which
+// is what withSession/withProject gate on.
+func authCookie() *http.Cookie {
+	//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
+	return &http.Cookie{Name: testSessionCookie, Value: "test-session"}
+}
+
+// enableSession turns a bare *api.Server into a fully session+project-scoped
+// one (11 phase 2): EnableIdentity with an authenticator that resolves any
+// cookie to testUserID, and EnableTenancy with a resolver that hands back
+// testProjectID. It is how every app-route test server is made to pass the
+// withSession/withProject guards the routes are now wrapped in. Returns srv so
+// it can wrap an inline api.NewServer(...) expression.
+func enableSession(srv *api.Server) *api.Server {
+	srv.EnableIdentity(&fakeAuth{resolveUser: identity.User{ID: testUserID}}, &fakeAccount{})
+	srv.EnableTenancy(&fakeProjects{project: identity.Project{ID: testProjectID}})
+	return srv
+}
 
 // fakeVoiceTokenMinter is api.VoiceTokenMinter (09 §6 POST /api/voice/token):
 // a canned token/expiry or an injected mint error.
@@ -31,17 +84,25 @@ func (f *fakeVoiceTokenMinter) MintStreamingToken(context.Context) (string, time
 // returned to every caller (GET /api/board and the hub's board pushes
 // share this same port, 04 §7).
 type fakeBoardReader struct {
-	mu       sync.Mutex
-	snapshot board.Snapshot
-	err      error
-	calls    int
+	mu            sync.Mutex
+	snapshot      board.Snapshot
+	err           error
+	calls         int
+	lastProjectID string
 }
 
-func (f *fakeBoardReader) GetBoard(context.Context) (board.Snapshot, error) {
+func (f *fakeBoardReader) GetBoard(_ context.Context, projectID string) (board.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.lastProjectID = projectID
 	return f.snapshot, f.err
+}
+
+func (f *fakeBoardReader) projectID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastProjectID
 }
 
 func (f *fakeBoardReader) setSnapshot(s board.Snapshot) {
@@ -58,18 +119,26 @@ func (f *fakeBoardReader) callCount() int {
 
 // fakeMessagePoster is api.MessagePoster (07 §3-§4).
 type fakeMessagePoster struct {
-	mu        sync.Mutex
-	texts     []string
-	messageID int64
-	eventID   int64
-	err       error
+	mu            sync.Mutex
+	texts         []string
+	messageID     int64
+	eventID       int64
+	err           error
+	lastProjectID string
 }
 
-func (f *fakeMessagePoster) PostMessage(_ context.Context, text string) (int64, int64, error) {
+func (f *fakeMessagePoster) PostMessage(_ context.Context, projectID, text string) (int64, int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.texts = append(f.texts, text)
+	f.lastProjectID = projectID
 	return f.messageID, f.eventID, f.err
+}
+
+func (f *fakeMessagePoster) projectID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastProjectID
 }
 
 func (f *fakeMessagePoster) callCount() int {
@@ -95,7 +164,7 @@ type fakeMessagesReader struct {
 	ns       []int
 }
 
-func (f *fakeMessagesReader) Recent(_ context.Context, n int) ([]runtime.Message, error) {
+func (f *fakeMessagesReader) Recent(_ context.Context, _ string, n int) ([]runtime.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ns = append(f.ns, n)
@@ -135,14 +204,16 @@ type fakeFeedReader struct {
 	historyCalls  int
 }
 
-func (f *fakeFeedReader) Feed(context.Context) (runtime.FeedSnapshot, error) {
+func (f *fakeFeedReader) Feed(_ context.Context, _ string) (runtime.FeedSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	return f.snapshot, f.err
 }
 
-func (f *fakeFeedReader) FeedHistory(_ context.Context, before int64, limit int) ([]runtime.FeedCard, bool, error) {
+func (f *fakeFeedReader) FeedHistory(
+	_ context.Context, _ string, before int64, limit int,
+) ([]runtime.FeedCard, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.historyCalls++
@@ -167,21 +238,21 @@ type fakeSeenAcker struct {
 	err            error
 }
 
-func (f *fakeSeenAcker) MarkSeen(_ context.Context, lastID int64) error {
+func (f *fakeSeenAcker) MarkSeen(_ context.Context, _ string, lastID int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastIDs = append(f.lastIDs, lastID)
 	return f.err
 }
 
-func (f *fakeSeenAcker) DismissNotification(_ context.Context, id int64) error {
+func (f *fakeSeenAcker) DismissNotification(_ context.Context, _ string, id int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dismissedIDs = append(f.dismissedIDs, id)
 	return f.err
 }
 
-func (f *fakeSeenAcker) DismissAllNotifications(_ context.Context) error {
+func (f *fakeSeenAcker) DismissAllNotifications(_ context.Context, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dismissAllCall++
@@ -212,15 +283,17 @@ const devTicketID = "t-1"
 // fakeSeeder is the double for the dev-only TicketSeeder port: it records the
 // SeedTicket spec and can inject a failure (including board.ErrNoFreeWorker).
 type fakeSeeder struct {
-	seedErr     error
-	spec        board.SeedSpec
-	markedReady board.TicketID
+	seedErr       error
+	spec          board.SeedSpec
+	markedReady   board.TicketID
+	lastProjectID string
 }
 
-func (f *fakeSeeder) SeedTicket(_ context.Context, spec board.SeedSpec) (board.Ticket, error) {
+func (f *fakeSeeder) SeedTicket(_ context.Context, projectID string, spec board.SeedSpec) (board.Ticket, error) {
 	if f.seedErr != nil {
 		return board.Ticket{}, f.seedErr
 	}
+	f.lastProjectID = projectID
 	f.spec = spec
 	state := spec.State
 	if state == "" {
@@ -234,10 +307,11 @@ func (f *fakeSeeder) SeedTicket(_ context.Context, spec board.SeedSpec) (board.T
 
 // MarkReady records the ready transition the dev route triggers for a state=ready
 // seed and returns the ticket in ready.
-func (f *fakeSeeder) MarkReady(_ context.Context, id board.TicketID) (board.Ticket, error) {
+func (f *fakeSeeder) MarkReady(_ context.Context, projectID string, id board.TicketID) (board.Ticket, error) {
 	if f.seedErr != nil {
 		return board.Ticket{}, f.seedErr
 	}
+	f.lastProjectID = projectID
 	f.markedReady = id
 	return board.Ticket{ID: id, Title: f.spec.Title, Body: f.spec.Body, State: board.StateReady}, nil
 }
@@ -245,9 +319,10 @@ func (f *fakeSeeder) MarkReady(_ context.Context, id board.TicketID) (board.Tick
 // fakeNotificationPoster is the double for the dev-only NotificationPoster port
 // (08 §E.3 POST /api/dev/notifications).
 type fakeNotificationPoster struct {
-	mu    sync.Mutex
-	calls []devNote
-	err   error
+	mu        sync.Mutex
+	calls     []devNote
+	err       error
+	projectID string
 }
 
 type devNote struct {
@@ -256,10 +331,11 @@ type devNote struct {
 }
 
 func (f *fakeNotificationPoster) PostNotification(
-	_ context.Context, kind, body string, ticketID, imageURL *string,
+	_ context.Context, projectID, kind, body string, ticketID, imageURL *string,
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.projectID = projectID
 	f.calls = append(f.calls, devNote{kind: kind, body: body, ticketID: ticketID, imageURL: imageURL})
 	return f.err
 }

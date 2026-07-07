@@ -28,11 +28,15 @@ var errFakeMintFailed = errors.New("fakeVoiceTokenMinter: synthetic mint failure
 func newTestServer(boards *fakeBoardReader, poster *fakeMessagePoster, messages *fakeMessagesReader) *httptest.Server {
 	hub := api.NewHub(boards)
 	srv := api.NewServer(boards, poster, messages, &fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
-	return httptest.NewServer(srv.Handler())
+	return httptest.NewServer(enableSession(srv).Handler())
 }
 
 // newBareServer builds a *api.Server over all-default fakes (no live board,
-// runtime, or feed) — the base for tests that then EnableDev* on it.
+// runtime, or feed) with NOTHING enabled — the base for tests that then layer
+// on exactly the Enable* they exercise (EnableIdentity, EnableDev*, EnablePush,
+// EnableHealthz, EnableSPA). Callers that hit a guarded app route wrap it in
+// enableSession (or use newTestServer); callers that assert a route is absent
+// when its Enable* was never called rely on it staying bare.
 func newBareServer() *api.Server {
 	boards := &fakeBoardReader{}
 	return api.NewServer(
@@ -41,8 +45,44 @@ func newBareServer() *api.Server {
 	)
 }
 
-// doGet issues a context-ful GET and fails the test on a transport error.
+// doGet issues a context-ful, authenticated GET (carrying the kiln_session
+// cookie every guarded route now requires) and fails the test on a transport
+// error. Tests that exercise the unauthenticated 401 path build a cookieless
+// request directly instead.
 func doGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("build GET %s: %v", url, err)
+	}
+	req.AddCookie(authCookie())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
+// doPost issues a context-ful, authenticated application/json POST (carrying
+// the kiln_session cookie) and fails the test on a transport error.
+func doPost(t *testing.T, url string, body []byte) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build POST %s: %v", url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(authCookie())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	return resp
+}
+
+// doGetNoAuth issues a cookieless GET, for asserting a guarded route rejects an
+// unauthenticated caller with 401.
+func doGetNoAuth(t *testing.T, url string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
@@ -51,22 +91,6 @@ func doGet(t *testing.T, url string) *http.Response {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
-	}
-	return resp
-}
-
-// doPost issues a context-ful application/json POST and fails the test on a
-// transport error.
-func doPost(t *testing.T, url string, body []byte) *http.Response {
-	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("build POST %s: %v", url, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("POST %s: %v", url, err)
 	}
 	return resp
 }
@@ -137,7 +161,7 @@ type fakeAgentInspector struct {
 	err   error
 }
 
-func (f *fakeAgentInspector) ListAgents(context.Context) ([]api.AgentInfo, error) {
+func (f *fakeAgentInspector) ListAgents(context.Context, string) ([]api.AgentInfo, error) {
 	return f.infos, f.err
 }
 
@@ -155,7 +179,7 @@ func TestHandleBoard_JoinsAgentStatuses(t *testing.T) {
 	}})
 	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/api/board")
@@ -180,7 +204,7 @@ func TestHandleBoard_AgentInspectorError_BoardStillRenders(t *testing.T) {
 	hub.SetAgentInspector(&fakeAgentInspector{err: errFakeBoardFailed})
 	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/api/board")
@@ -376,7 +400,7 @@ func TestDevCreateTicket(t *testing.T) {
 	newDevServer := func(seeder api.TicketSeeder) *httptest.Server {
 		srv := newBareServer()
 		srv.EnableDevTickets(seeder)
-		return httptest.NewServer(srv.Handler())
+		return httptest.NewServer(enableSession(srv).Handler())
 	}
 
 	t.Run("not mounted unless enabled", func(t *testing.T) {
@@ -465,14 +489,17 @@ func TestDevCreateTicket(t *testing.T) {
 
 var errFakeResetFailed = errors.New("fakeResetter: synthetic reset failure")
 
-// fakeResetter records reset calls and can fail on demand.
+// fakeResetter records reset calls (and the project id each was scoped to) and
+// can fail on demand.
 type fakeResetter struct {
-	calls int
-	err   error
+	calls         int
+	err           error
+	lastProjectID string
 }
 
-func (f *fakeResetter) Reset(context.Context) error {
+func (f *fakeResetter) Reset(_ context.Context, projectID string) error {
 	f.calls++
+	f.lastProjectID = projectID
 	return f.err
 }
 
@@ -482,7 +509,7 @@ func TestHandleReset(t *testing.T) {
 	newResetServer := func(r api.Resetter) *httptest.Server {
 		srv := newBareServer()
 		srv.EnableReset(r)
-		return httptest.NewServer(srv.Handler())
+		return httptest.NewServer(enableSession(srv).Handler())
 	}
 
 	t.Run("not mounted unless enabled", func(t *testing.T) {
@@ -541,7 +568,7 @@ func TestHandleFeed_ReturnsMappedSnapshot(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		feed, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/api/feed")
@@ -589,7 +616,7 @@ func TestHandleFeedHistory_PagesOlderUpdates(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		feed, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/api/feed/history?before=50&limit=10")
@@ -618,7 +645,7 @@ func TestHandleFeedHistory_RejectsBadLimit(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/api/feed/history?limit=999")
@@ -635,7 +662,7 @@ func TestHandleFeedSeen_CallsMarkSeen(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, seen, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	body := mustJSON(t, wire.FeedSeenRequest{LastNotificationId: 123})
@@ -656,7 +683,7 @@ func TestHandleFeedDismiss_CallsDismiss(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, seen, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/feed/77/dismiss", nil)
@@ -676,7 +703,7 @@ func TestHandleFeedDismissAll_CallsDismissAll(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, seen, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/feed/dismiss-all", nil)
@@ -700,7 +727,7 @@ func TestHandleFeedDismiss_RejectsBadID(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/feed/not-a-number/dismiss", nil)
@@ -719,7 +746,7 @@ func TestHandleAccept_PostsSynthesizedMessageAndReturns202(t *testing.T) {
 		boards, poster, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/tickets/t-42/accept", nil)
@@ -751,7 +778,7 @@ func TestHandleAccept_UnknownTicketFallsBackToID(t *testing.T) {
 		boards, poster, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/tickets/t-unknown/accept", nil)
@@ -772,7 +799,7 @@ func TestVoiceToken_HappyPath(t *testing.T) {
 	boards := &fakeBoardReader{}
 	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), minter)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/voice/token", nil)
@@ -797,7 +824,7 @@ func TestVoiceToken_MintError_Returns502(t *testing.T) {
 	boards := &fakeBoardReader{}
 	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), minter)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/voice/token", nil)
@@ -812,7 +839,7 @@ func TestDevPostNotification(t *testing.T) {
 	newDevServer := func(poster api.NotificationPoster) *httptest.Server {
 		srv := newBareServer()
 		srv.EnableDevNotifications(poster)
-		return httptest.NewServer(srv.Handler())
+		return httptest.NewServer(enableSession(srv).Handler())
 	}
 
 	t.Run("not mounted unless enabled", func(t *testing.T) {

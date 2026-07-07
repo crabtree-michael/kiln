@@ -8,8 +8,10 @@ package api
 // HttpOnly/SameSite/Secure flags never drift between call sites.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -52,6 +54,39 @@ func (s *Server) withSession(next func(http.ResponseWriter, *http.Request, ident
 		setCookie(w, r, sessionCookie, c.Value, time.Until(expiresAt))
 		next(w, r, user)
 	}
+}
+
+// ProjectResolver resolves the caller's active project from their user id
+// (11 phase 2): withProject uses it to scope every tenant-state handler to
+// exactly one project. Satisfied directly by *identity.Service's ProjectFor,
+// which returns identity.ErrNotFound until onboarding creates the project.
+type ProjectResolver interface {
+	ProjectFor(ctx context.Context, userID string) (identity.Project, error)
+}
+
+// withProject authenticates the request exactly like withSession and then
+// resolves the caller's single project, handing both the user and the project
+// to the wrapped handler. It is the guard every tenant-state route wraps with,
+// so a handler only ever runs against a concrete project it is scoped to
+// (11 phase 2). A missing/invalid session stays withSession's 401; an
+// authenticated caller with no project yet (identity.ErrNotFound) is a 404
+// with a JSON {"error":"no project configured"} body — the client's cue to
+// finish onboarding. Any other resolve failure is a 500.
+func (s *Server) withProject(
+	next func(http.ResponseWriter, *http.Request, identity.User, identity.Project),
+) http.HandlerFunc {
+	return s.withSession(func(w http.ResponseWriter, r *http.Request, user identity.User) {
+		project, err := s.projects.ProjectFor(r.Context(), user.ID)
+		if err != nil {
+			if errors.Is(err, identity.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "no project configured"})
+				return
+			}
+			http.Error(w, "resolve project", http.StatusInternalServerError)
+			return
+		}
+		next(w, r, user, project)
+	})
 }
 
 // randomToken mints a CSPRNG token suitable for an OAuth state parameter:

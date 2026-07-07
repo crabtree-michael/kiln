@@ -41,6 +41,110 @@ func (a *stubAuthenticator) ResolveSession(context.Context, string) (identity.Us
 
 func (a *stubAuthenticator) Logout(context.Context, string) error { return nil }
 
+// stubUser and stubToken are the fixed user id and session token the
+// withSession/withProject white-box tests share (goconst: named once).
+const (
+	stubUser  = "u-1"
+	stubToken = "good-token"
+)
+
+// stubProjects is a minimal ProjectResolver double for the withProject
+// white-box tests, local to this in-package file. It records whether it was
+// consulted, so a test can assert withSession short-circuits before the resolve.
+type stubProjects struct {
+	project identity.Project
+	err     error
+	called  bool
+}
+
+func (p *stubProjects) ProjectFor(context.Context, string) (identity.Project, error) {
+	p.called = true
+	return p.project, p.err
+}
+
+// TestWithProject_NoCookie_Returns401 asserts withProject inherits withSession's
+// guard: no session cookie is a 401, and the resolver is never consulted.
+func TestWithProject_NoCookie_Returns401(t *testing.T) {
+	projects := &stubProjects{}
+	srv := &Server{auth: &stubAuthenticator{}, projects: projects}
+	called := false
+	h := srv.withProject(func(http.ResponseWriter, *http.Request, identity.User, identity.Project) { called = true })
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/scoped", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 with no session cookie", rec.Code)
+	}
+	if called {
+		t.Error("wrapped handler called despite no session cookie")
+	}
+	if projects.called {
+		t.Error("ProjectFor consulted despite the request never authenticating")
+	}
+}
+
+// TestWithProject_NoProject_Returns404 asserts an authenticated caller whose
+// resolver reports no project (identity.ErrNotFound) is a 404, and the handler
+// never runs.
+func TestWithProject_NoProject_Returns404(t *testing.T) {
+	srv := &Server{
+		auth:     &stubAuthenticator{user: identity.User{ID: stubUser}, expires: time.Now().Add(time.Hour)},
+		projects: &stubProjects{err: identity.ErrNotFound},
+	}
+	called := false
+	h := srv.withProject(func(http.ResponseWriter, *http.Request, identity.User, identity.Project) { called = true })
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/scoped", nil)
+	//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: stubToken})
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 when the session has no project", rec.Code)
+	}
+	if called {
+		t.Error("wrapped handler called despite no project resolving")
+	}
+}
+
+// TestWithProject_ValidSession_CallsNextWithUserAndProject asserts the happy
+// path hands both the resolved user and project to the wrapped handler.
+func TestWithProject_ValidSession_CallsNextWithUserAndProject(t *testing.T) {
+	wantUser := identity.User{ID: stubUser, GitHubLogin: "octocat"}
+	wantProject := identity.Project{ID: "proj-9", Name: "kiln"}
+	srv := &Server{
+		auth:     &stubAuthenticator{user: wantUser, expires: time.Now().Add(time.Hour)},
+		projects: &stubProjects{project: wantProject},
+	}
+	var gotUser identity.User
+	var gotProject identity.Project
+	called := false
+	h := srv.withProject(func(_ http.ResponseWriter, _ *http.Request, u identity.User, p identity.Project) {
+		called = true
+		gotUser = u
+		gotProject = p
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/scoped", nil)
+	//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: stubToken})
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if !called {
+		t.Fatal("wrapped handler not called on a valid session with a project")
+	}
+	if gotUser != wantUser {
+		t.Errorf("user = %+v, want %+v", gotUser, wantUser)
+	}
+	if gotProject != wantProject {
+		t.Errorf("project = %+v, want %+v", gotProject, wantProject)
+	}
+}
+
 func TestWithSession_NoCookie_Returns401(t *testing.T) {
 	srv := &Server{auth: &stubAuthenticator{}}
 	called := false

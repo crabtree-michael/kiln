@@ -48,6 +48,9 @@ func connectStream(t *testing.T, baseURL string) *sseClient {
 		cancel()
 		t.Fatalf("build request: %v", err)
 	}
+	// /api/stream is now project-scoped (withProject): carry the session cookie
+	// so the connection authenticates and resolves to testProjectID.
+	req.AddCookie(authCookie())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		cancel()
@@ -129,7 +132,7 @@ func TestHandleStream_SendsBoardSnapshotImmediatelyOnConnect(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	client := connectStream(t, ts.URL)
@@ -160,7 +163,7 @@ func TestHub_PushBoard_FansOutToEveryConnectedClient(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	a := connectStream(t, ts.URL)
@@ -177,7 +180,7 @@ func TestHub_PushBoard_FansOutToEveryConnectedClient(t *testing.T) {
 	}
 
 	boards.setSnapshot(board.Snapshot{WorkerTotal: 9, WorkerFree: 0})
-	if err := hub.PushBoard(context.Background()); err != nil {
+	if err := hub.PushBoard(context.Background(), testProjectID); err != nil {
 		t.Fatalf("Hub.PushBoard: %v", err)
 	}
 
@@ -208,7 +211,7 @@ func TestHub_PushSay_DeliversSayEventToConnectedClients(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	client := connectStream(t, ts.URL)
@@ -219,7 +222,7 @@ func TestHub_PushSay_DeliversSayEventToConnectedClients(t *testing.T) {
 
 	at := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	msg := runtime.Message{ID: 55, Role: runtime.RoleKiln, Text: "shaping done", CreatedAt: at}
-	if err := hub.PushSay(context.Background(), msg); err != nil {
+	if err := hub.PushSay(context.Background(), testProjectID, msg); err != nil {
 		t.Fatalf("Hub.PushSay: %v", err)
 	}
 
@@ -249,7 +252,7 @@ func TestHandleStream_Reconnect_GetsFreshSnapshotNotReplay(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{},
 	)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	first := connectStream(t, ts.URL)
@@ -261,7 +264,7 @@ func TestHandleStream_Reconnect_GetsFreshSnapshotNotReplay(t *testing.T) {
 	// Push several board updates while nobody is connected to receive them.
 	for i := range 3 {
 		boards.setSnapshot(board.Snapshot{WorkerTotal: i + 10})
-		if err := hub.PushBoard(context.Background()); err != nil {
+		if err := hub.PushBoard(context.Background(), testProjectID); err != nil {
 			t.Fatalf("PushBoard: %v", err)
 		}
 	}

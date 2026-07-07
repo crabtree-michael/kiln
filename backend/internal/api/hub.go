@@ -40,9 +40,13 @@ type sseFrame struct {
 	data  []byte
 }
 
-// client is one connected SSE stream's outbound queue.
+// client is one connected SSE stream's outbound queue, tagged with the project
+// it is scoped to (11 phase 2): broadcast only enqueues a frame to clients whose
+// projectID matches the push's, so one project's board/say/feed/activity events
+// never leak onto another project's stream.
 type client struct {
-	ch chan sseFrame
+	ch        chan sseFrame
+	projectID string
 }
 
 // Hub tracks connected SSE clients and fans out server→client events
@@ -73,19 +77,18 @@ func NewHub(boards BoardReader) *Hub {
 func (h *Hub) SetAgentInspector(a AgentInspector) { h.agents = a }
 
 // The hub satisfies every runtime push port: board/say snapshots (04/07) and
-// the 08 feed/activity fan-out.
-var (
-	_ runtime.SnapshotPusher = (*Hub)(nil)
-	_ runtime.SayPusher      = (*Hub)(nil)
-	_ runtime.FeedPusher     = (*Hub)(nil)
-	_ runtime.ActivityPusher = (*Hub)(nil)
-)
+// the 08 feed/activity fan-out. Each port method now carries the projectID the
+// event belongs to (11 phase 2), so the fan-out stays scoped to that project's
+// streams. The compile-time interface assertions live at the composition root
+// (cmd/kiln), which pairs this Hub with the runtime whose ports match this
+// tenancy-aware shape — asserting them here would couple the api package's tests
+// to that cross-module change.
 
 // ServeStream handles one /api/stream connection (04 §7): send the current
 // board snapshot immediately, then stream board/say frames as they are pushed,
 // with a comment-line keepalive, until the client disconnects. Reconnect is a
 // fresh snapshot, never a replay (04 D6/D7).
-func (h *Hub) ServeStream(w http.ResponseWriter, r *http.Request) {
+func (h *Hub) ServeStream(w http.ResponseWriter, r *http.Request, projectID string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -96,11 +99,11 @@ func (h *Hub) ServeStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	c := &client{ch: make(chan sseFrame, clientBuffer)}
+	c := &client{ch: make(chan sseFrame, clientBuffer), projectID: projectID}
 	h.add(c)
 	defer h.remove(c)
 
-	if !h.writeInitialSnapshot(r.Context(), w, flusher) {
+	if !h.writeInitialSnapshot(r.Context(), projectID, w, flusher) {
 		return
 	}
 
@@ -127,8 +130,8 @@ func (h *Hub) ServeStream(w http.ResponseWriter, r *http.Request) {
 
 // PushBoard implements runtime.SnapshotPusher (04 §2): read one fresh
 // snapshot, send it to every connected stream.
-func (h *Hub) PushBoard(ctx context.Context) error {
-	bw, err := h.boardWire(ctx)
+func (h *Hub) PushBoard(ctx context.Context, projectID string) error {
+	bw, err := h.boardWire(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("api: push board: %w", err)
 	}
@@ -136,19 +139,19 @@ func (h *Hub) PushBoard(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("api: marshal board event: %w", err)
 	}
-	h.broadcast(sseFrame{event: eventBoard, data: data})
+	h.broadcast(projectID, sseFrame{event: eventBoard, data: data})
 	return nil
 }
 
 // PushSay implements runtime.SayPusher (07 §3–§4): send one say event to
 // every connected stream. Duplicates on crash-replay are benign — the
 // client reconciles by message_id (07 §5).
-func (h *Hub) PushSay(_ context.Context, m runtime.Message) error {
+func (h *Hub) PushSay(_ context.Context, projectID string, m runtime.Message) error {
 	data, err := json.Marshal(wire.SayEvent{MessageId: m.ID, Text: m.Text, At: m.CreatedAt})
 	if err != nil {
 		return fmt.Errorf("api: marshal say event: %w", err)
 	}
-	h.broadcast(sseFrame{event: eventSay, data: data})
+	h.broadcast(projectID, sseFrame{event: eventSay, data: data})
 	return nil
 }
 
@@ -156,42 +159,42 @@ func (h *Hub) PushSay(_ context.Context, m runtime.Message) error {
 // out to every connected stream, distinguished by the feed event name. The
 // snapshot is passed in already assembled — the hub never reads the feed
 // itself, so there is no feed-reader dependency (and no runtime↔api cycle).
-func (h *Hub) PushFeed(_ context.Context, snap runtime.FeedSnapshot) error {
+func (h *Hub) PushFeed(_ context.Context, projectID string, snap runtime.FeedSnapshot) error {
 	data, err := json.Marshal(feedToWire(snap))
 	if err != nil {
 		return fmt.Errorf("api: marshal feed event: %w", err)
 	}
-	h.broadcast(sseFrame{event: eventFeed, data: data})
+	h.broadcast(projectID, sseFrame{event: eventFeed, data: data})
 	return nil
 }
 
 // PushActivity implements runtime.ActivityPusher (08 §4): fan one ephemeral
 // activity event (thinking bracket or toast) out to every connected stream.
 // Ephemeral — never stored, never replayed on reconnect.
-func (h *Hub) PushActivity(_ context.Context, ev runtime.ActivityEvent) error {
+func (h *Hub) PushActivity(_ context.Context, projectID string, ev runtime.ActivityEvent) error {
 	data, err := json.Marshal(activityToWire(ev))
 	if err != nil {
 		return fmt.Errorf("api: marshal activity event: %w", err)
 	}
-	h.broadcast(sseFrame{event: eventActivity, data: data})
+	h.broadcast(projectID, sseFrame{event: eventActivity, data: data})
 	return nil
 }
 
 // boardWire reads one fresh snapshot and joins the live-worker statuses onto it
 // (amended 2026-07-05) — the single shape behind GET /api/board, the connect
 // snapshot, and every board push.
-func (h *Hub) boardWire(ctx context.Context) (wire.Board, error) {
-	snap, err := h.boards.GetBoard(ctx)
+func (h *Hub) boardWire(ctx context.Context, projectID string) (wire.Board, error) {
+	snap, err := h.boards.GetBoard(ctx, projectID)
 	if err != nil {
 		return wire.Board{}, fmt.Errorf("api: get board: %w", err)
 	}
-	return boardToWire(snap, agentStatuses(ctx, h.agents)), nil
+	return boardToWire(snap, agentStatuses(ctx, projectID, h.agents)), nil
 }
 
 // writeInitialSnapshot sends the connect-time board event (04 §7). It returns
 // false if the snapshot could not be read or written, so ServeStream can bail.
-func (h *Hub) writeInitialSnapshot(ctx context.Context, w io.Writer, flusher http.Flusher) bool {
-	bw, err := h.boardWire(ctx)
+func (h *Hub) writeInitialSnapshot(ctx context.Context, projectID string, w io.Writer, flusher http.Flusher) bool {
+	bw, err := h.boardWire(ctx, projectID)
 	if err != nil {
 		slog.ErrorContext(ctx, "api: initial snapshot: get board", "err", err)
 		return false
@@ -221,12 +224,18 @@ func (h *Hub) remove(c *client) {
 	delete(h.clients, c)
 }
 
-// broadcast enqueues a frame to every client, non-blocking: a client whose
-// buffer is full drops the frame and resyncs on the next absolute snapshot.
-func (h *Hub) broadcast(f sseFrame) {
+// broadcast enqueues a frame to every client scoped to projectID, non-blocking:
+// a client whose buffer is full drops the frame and resyncs on the next absolute
+// snapshot. Clients of other projects never see the frame (11 phase 2) — the
+// fan-out is partitioned by project so board/say/feed/activity events stay
+// within the tenant they belong to.
+func (h *Hub) broadcast(projectID string, f sseFrame) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.clients {
+		if c.projectID != projectID {
+			continue
+		}
 		select {
 		case c.ch <- f:
 		default:

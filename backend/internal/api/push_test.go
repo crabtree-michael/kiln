@@ -21,40 +21,44 @@ var errFakeRegistrarFailed = errors.New("fakePushRegistrar: synthetic failure")
 // fakePushRegistrar records the subscriptions it is asked to store and holds the
 // global notification mode (defaulting to "blocked", as a fresh store would).
 type fakePushRegistrar struct {
-	mu   sync.Mutex
-	subs []api.PushSubscription
-	mode string
-	err  error
+	mu         sync.Mutex
+	subs       []api.PushSubscription
+	mode       string
+	err        error
+	lastUserID string
 }
 
-func (f *fakePushRegistrar) Subscribe(_ context.Context, sub api.PushSubscription) error {
+func (f *fakePushRegistrar) Subscribe(_ context.Context, userID string, sub api.PushSubscription) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastUserID = userID
 	f.subs = append(f.subs, sub)
 	return nil
 }
 
-func (f *fakePushRegistrar) Mode(context.Context) (string, error) {
+func (f *fakePushRegistrar) Mode(_ context.Context, userID string) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastUserID = userID
 	if f.mode == "" {
 		return "blocked", nil
 	}
 	return f.mode, nil
 }
 
-func (f *fakePushRegistrar) SetMode(_ context.Context, mode string) error {
+func (f *fakePushRegistrar) SetMode(_ context.Context, userID, mode string) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastUserID = userID
 	f.mode = mode
 	return nil
 }
@@ -63,7 +67,7 @@ func newPushServer(t *testing.T, reg api.PushRegistrar, vapidKey string) *httpte
 	t.Helper()
 	srv := newBareServer()
 	srv.EnablePush(reg, vapidKey)
-	return httptest.NewServer(srv.Handler())
+	return httptest.NewServer(enableSession(srv).Handler())
 }
 
 func TestHandlePushKey(t *testing.T) {

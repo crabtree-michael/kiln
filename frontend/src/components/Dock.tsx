@@ -94,11 +94,13 @@ export function Dock(): JSX.Element {
     }
   };
 
-  // Leaving keyboard mode discards the un-sent draft (like the X on a voice
-  // transcript) so reopening starts clean, then hands back to voice.
-  const exitKeyboard = (): void => {
+  // Hand input back to voice: discard the un-sent draft (like the X on a voice
+  // transcript) so reopening starts clean, leave keyboard mode, and turn the mic
+  // on via the same `resume` flow the mic button uses.
+  const switchToVoice = (): void => {
     setDraft('');
     closeKeyboard();
+    resume();
   };
 
   // Focus the field the moment keyboard mode opens so the user can type straight
@@ -241,14 +243,23 @@ export function Dock(): JSX.Element {
       <div data-role="dock-controls" data-mode={keyboardMode ? 'keyboard' : 'voice'}>
         {keyboardMode ? (
           <>
-            {/* Leave keyboard mode → back to the default voice input. */}
-            <button
-              type="button"
-              data-role="dock-cancel"
-              aria-label="Close keyboard"
-              onClick={exitKeyboard}
-            >
-              <span aria-hidden="true">×</span>
+            {/* Leave keyboard mode → turn the mic back on for voice input. */}
+            <button type="button" data-role="dock-voice" aria-label="Talk" onClick={switchToVoice}>
+              <svg
+                viewBox="0 0 24 24"
+                width="22"
+                height="22"
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0" />
+                <path d="M12 18v3" />
+              </svg>
             </button>
             <button
               type="button"

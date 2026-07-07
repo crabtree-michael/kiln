@@ -102,6 +102,8 @@ Tickets should not be marked as done until the change is on origin/main. Before 
 a ticket as done use the bash tool to check lastest main if the change is there. 
 Send a message to the agent to have them get it to main when they report done, but it is
 not there. Do not inform the user when you message an agent for this purpose.
+IT IS IMPERATIVE THAT YOU CHECK GIT TO SEE THE LAST MERGE IS FOR THE TICKET BEFORE 
+MARKING A TICKET AS DONE.
 `
 
 var systemPromptTemplate = template.Must(template.New("system").Parse(systemPrompt))

@@ -9,7 +9,7 @@ type Topic string
 const (
 	TopicAgentSend      Topic = "agent.send"      // RunPull (work order) and SendToAgent (instruction)
 	TopicAgentRelease   Topic = "agent.release"   // AcceptToDone: recycle the worker to a fresh workspace
-	TopicNotifySend     Topic = "notify.send"     // MarkBlocked: push notification to the user
+	TopicNotifySend     Topic = "notify.send"     // start/blocked/done: push notification to the user (02 §10)
 	TopicPullEvaluate   Topic = "pull.evaluate"   // MarkReady, AcceptToDone: trigger RunPull
 	TopicBoardUpdated   Topic = "board.updated"   // every mutation: full-snapshot push (03 D7)
 	TopicFeedUpdated    Topic = "feed.updated"    // feed-relevant change: reassemble the feed (08 §7)
@@ -42,12 +42,23 @@ type ReleasePayload struct {
 	WorkerID WorkerID `json:"worker_id"`
 }
 
-// NotifyPayload — notify.send (03 §7.1).
+// NotifyPayload — notify.send (03 §7.1). The user is pushed on exactly three
+// ticket transitions (02 §10): start (RunPull ready→working), blocked
+// (MarkBlocked), and done (AcceptToDone). Title is the ticket title; Reason
+// becomes the push body — the actual blocker text for blocked, or a fixed
+// phrase for the start/done transitions that carry no free-text reason.
 type NotifyPayload struct {
 	TicketID TicketID `json:"ticket_id"`
 	Title    string   `json:"title"`
 	Reason   string   `json:"reason"`
 }
+
+// Push bodies for the start/done transitions (02 §10). MarkBlocked carries the
+// real blocker reason instead; only these two transitions need a fixed phrase.
+const (
+	notifyReasonStarted = "Started working on this."
+	notifyReasonDone    = "Finished."
+)
 
 // ToastPayload — activity.toast (08 §5): a short-lived pill announcing a board
 // verb. Verb ∈ {started, nudged, finished, queued}; TicketTitle names the

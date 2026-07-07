@@ -588,6 +588,31 @@ func TestAcceptToDone_EmitsFeedCompletion(t *testing.T) {
 	}
 }
 
+// The user is pushed on done as well as start/blocked (02 §10): completion fires
+// exactly one notify.send, distinct from the persistent feed.completion card.
+func TestAcceptToDone_EmitsNotifySend(t *testing.T) {
+	svc, store := newTestService()
+	worker := board.WorkerID("w1")
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Wrap it up", State: board.StateWorking, WorkerID: &worker})
+
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+		t.Fatalf("AcceptToDone: unexpected error: %v", err)
+	}
+	ems := store.outboxSnapshot()
+	notifies := emissionsWithTopic(ems, board.TopicNotifySend)
+	if len(notifies) != 1 {
+		t.Fatalf("AcceptToDone must emit exactly one notify.send, got: %+v", ems)
+	}
+	payload, ok := notifies[0].Payload.(board.NotifyPayload)
+	if !ok {
+		t.Fatalf("notify.send payload type = %T, want board.NotifyPayload", notifies[0].Payload)
+	}
+	if payload.TicketID != "t1" || payload.Title != "Wrap it up" {
+		t.Errorf("notify.send payload = %+v", payload)
+	}
+}
+
 // D8: repeated AcceptToDone (done -> done) is also a "reopen" attempt via
 // D10 — no such edge exists, and it must reject loudly, not no-op.
 func TestAcceptToDone_AlreadyDone_Rejected(t *testing.T) {

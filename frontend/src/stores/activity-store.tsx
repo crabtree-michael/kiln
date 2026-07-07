@@ -38,17 +38,6 @@ export interface ActivityProviderProps {
 /** How long each toast dwells before it auto-dismisses itself (08 §4). */
 const TOAST_MS = 20000;
 
-// When a ticket runs through several transitions in one brain pass (e.g.
-// queue → ready → working), the board emits a toast per step and they arrive
-// near-simultaneously. Rather than flood the row with a burst of pills for one
-// logical transition, we hold each ticket's toast for this window and, on new
-// toasts for the same ticket landing inside it, keep only the latest — the most
-// recent/relevant state — flushing exactly one pill once the burst settles.
-// Tunable; ~100ms comfortably spans one worker-drained outbox burst without a
-// perceptible delay. Keyed off ticket id (stable across a ticket's transitions,
-// where its title is not).
-const TOAST_DEBOUNCE_MS = 100;
-
 export function ActivityProvider({ children }: ActivityProviderProps): JSX.Element {
   const [thinking, setThinking] = useState(false);
   const [toasts, setToasts] = useState<ActivityToast[]>([]);
@@ -63,11 +52,6 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
   // clock independent of its neighbours.
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const nextIdRef = useRef(0);
-  // Per-ticket debounce buffer: ticket id -> the in-flight timer that will flush
-  // that ticket's latest pending toast once its burst settles. A fresh toast for
-  // a ticket already buffered here cancels and replaces the timer, so only the
-  // last pill survives the window.
-  const pendingToastsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const dismiss = useCallback((id: number): void => {
     const timer = timersRef.current.get(id);
@@ -93,40 +77,12 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
     [dismiss],
   );
 
-  // Buffer a board toast for its ticket, collapsing a rapid burst to the latest
-  // (08 §5, this change). A new toast for a ticket still inside its window cancels
-  // the prior pending flush and replaces it, so only the last pill is pushed once
-  // the burst settles. `say` pills never route through here — each brain utterance
-  // is distinct and shows immediately.
-  const queueToast = useCallback(
-    (key: string, pill: ActivityPill): void => {
-      const existing = pendingToastsRef.current.get(key);
-      if (existing !== undefined) {
-        clearTimeout(existing);
-      }
-      pendingToastsRef.current.set(
-        key,
-        setTimeout(() => {
-          pendingToastsRef.current.delete(key);
-          push(pill);
-        }, TOAST_DEBOUNCE_MS),
-      );
-    },
-    [push],
-  );
-
   // Dismiss every transient toast on the row at once, clearing each one's
   // auto-dismiss timer. Used when the user sends input: the fresh turn
   // supersedes lingering board toasts, but persistent `say` pills and an
   // already-clear row are left untouched (a submission with no toast up is a
   // no-op).
   const dismissToast = useCallback((): void => {
-    // Drop toasts still buffered in the per-ticket debounce window too: the fresh
-    // turn supersedes them, so they should never surface after the user speaks.
-    for (const timer of pendingToastsRef.current.values()) {
-      clearTimeout(timer);
-    }
-    pendingToastsRef.current.clear();
     setToasts((prev) => {
       for (const toast of prev) {
         if (toast.pill.kind === 'toast') {
@@ -152,21 +108,9 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
       if (event.verb === undefined || event.verb === null) {
         return;
       }
-      const pill: ActivityPill = {
-        kind: 'toast',
-        verb: event.verb,
-        ticketTitle: event.ticket_title ?? '',
-      };
-      // Debounce per ticket. A toast with no ticket id can't be grouped, so it
-      // shows at once rather than risk collapsing unrelated toasts together.
-      const key = event.ticket_id ?? '';
-      if (key === '') {
-        push(pill);
-        return;
-      }
-      queueToast(key, pill);
+      push({ kind: 'toast', verb: event.verb, ticketTitle: event.ticket_title ?? '' });
     },
-    [push, queueToast],
+    [push],
   );
 
   // Resync the spinner to the server's authoritative state (08 §4). The
@@ -235,21 +179,14 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
     });
   }, [push, handleActivity, resyncThinking]);
 
-  // Cancel every pending timer on unmount — both the live auto-dismiss timers and
-  // any per-ticket debounce flushes still buffered — so none fire into an
-  // unmounted store.
+  // Cancel every pending auto-dismiss on unmount.
   useEffect(() => {
     const timers = timersRef.current;
-    const pending = pendingToastsRef.current;
     return () => {
       for (const timer of timers.values()) {
         clearTimeout(timer);
       }
       timers.clear();
-      for (const timer of pending.values()) {
-        clearTimeout(timer);
-      }
-      pending.clear();
     };
   }, []);
 

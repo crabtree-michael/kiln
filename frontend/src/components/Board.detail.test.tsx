@@ -51,7 +51,8 @@ describe('Board ticket detail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Build the widget' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Ticket: Build the widget' });
+    // The sheet's dialog is named by its visible title (Radix aria-labelledby).
+    const dialog = screen.getByRole('dialog', { name: 'Build the widget' });
     expect(dialog.querySelector('[data-role="ticket-detail-body"]')?.textContent).toBe(
       'The full widget body.',
     );

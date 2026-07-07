@@ -1,38 +1,60 @@
-/* Ticket detail overlay. Co-located with TicketDetail.tsx (and imported by it)
- * so any screen that opens the overlay gets these styles — the debug board (07)
- * and the primary screen's proposal click-through (08 §5) alike. Plain global
- * data-role selectors (not a CSS module), matching the rest of the app. */
+/* Ticket detail sheet. Co-located with TicketDetail.tsx (and imported by it) so
+ * any screen that opens the sheet gets these styles — the debug board (07) and
+ * the primary screen's proposal click-through (08 §5) alike. Plain global
+ * data-role selectors (not a CSS module), matching the rest of the app.
+ *
+ * The overlay and the panel are `vaul` (Radix Dialog) parts portaled to
+ * document.body — so they are siblings, not nested, and their fixed positioning
+ * escapes any transformed/clipping ancestor (the dock, the feed). Vaul injects
+ * the slide-up transform (direction="bottom") + rubber-band drag itself, keyed to
+ * Radix's data-state=open|closed; these rules only supply the appearance and the
+ * bottom-anchored, full-width geometry. The sheet sits above every in-page layer
+ * (the app tops out at z-index 30). */
 
 [data-role='ticket-detail-backdrop'] {
   position: fixed;
   inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  z-index: 40;
   background: var(--scrim);
-  padding: 0.75rem;
 }
 
 [data-role='ticket-detail'] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41; /* above its own scrim */
   width: 100%;
-  max-width: 32rem;
   max-height: 85dvh;
-  /* Flex column that clips: the header, top metadata and (pinned) Accept action
-   * hold their intrinsic height while the body between them takes the remaining
-   * space and scrolls on its own — the header no longer travels with the
-   * description (07 §7–§8). */
+  /* Flex column that clips: the grabber, header, top metadata and (pinned)
+   * Accept action hold their intrinsic height while the body between them takes
+   * the remaining space and scrolls on its own — the header no longer travels
+   * with the description (07 §7–§8). The grabber is the first child, pinned to
+   * the sheet's upper edge: it slides up from the bottom, so the drag affordance
+   * lives at the top. */
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 0.75rem 0.9rem 1rem;
+  border-bottom: none;
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+  padding: 0.5rem 0.9rem 1rem;
   box-shadow: var(--shadow-overlay);
 }
 
-[data-role='ticket-detail'][data-state='blocked'] {
+/* Vaul's drag handle, on the sheet's upper edge. Repaint its hard-coded
+ * light-grey default with a token so the grabber reads correctly in both themes,
+ * and give it room below. */
+[data-role='ticket-detail-grabber'] {
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+  margin-bottom: 0.55rem;
+  background: var(--border-strong);
+}
+
+[data-role='ticket-detail'][data-ticket-state='blocked'] {
   border-color: var(--danger);
 }
 
@@ -217,40 +239,35 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Primary-screen skin (08 §5). The base rules above dress the overlay for the
- * /debug board's denser register; when the overlay is a descendant of the
- * primary screen we repaint it in the app's own — card surface, larger type,
- * pill Accept — so it reads as a first-class Kiln surface, consistent with the
- * feed cards, toasts and dock. Two data-role selectors → higher specificity
- * than the base rules, so these win here without touching the /debug look or
- * the component markup. All colors are the global semantic tokens
- * (src/styles/tokens.css), so both themes render both usages correctly. */
+ * Primary-screen skin (08 §5). The base rules above dress the sheet for the
+ * /debug board's denser register; on the primary screen we repaint it in the
+ * app's own — larger type, pill Accept — so it reads as a first-class Kiln
+ * surface, consistent with the feed cards, toasts and dock. The skin is keyed
+ * off data-surface='primary' on the panel itself (not DOM ancestry: the sheet
+ * portals to document.body, out of the [data-role='primary-screen'] subtree).
+ * The extra attribute lifts specificity above the base rules, so these win here
+ * without touching the /debug look. All colors are the global semantic tokens
+ * (src/styles/tokens.css), so both themes render both usages correctly. The base
+ * geometry (bottom-anchored, full-width, top-rounded) carries through; the skin
+ * only overrides padding, color and the inner typography. */
 
-[data-role='primary-screen'] [data-role='ticket-detail-backdrop'] {
-  background: var(--scrim);
-}
-
-[data-role='primary-screen'] [data-role='ticket-detail'] {
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 20px 22px 22px;
-  box-shadow: var(--shadow-overlay);
+[data-role='ticket-detail'][data-surface='primary'] {
+  padding: 0.5rem 22px 22px;
   color: var(--text-body);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail'][data-state='blocked'] {
+[data-role='ticket-detail'][data-surface='primary'][data-ticket-state='blocked'] {
   border-color: var(--accent-soft);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-title'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-title'] {
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text-body);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-close'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close'] {
   width: 32px;
   height: 32px;
   font-size: 20px;
@@ -260,28 +277,28 @@
   color: var(--text-faint);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-close']:hover {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close']:hover {
   color: var(--text-body);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-meta'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-meta'] {
   margin-top: 16px;
   gap: 8px 16px;
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-meta'] dt {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-meta'] dt {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.12em;
   color: var(--text-faint);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-meta'] dd {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-meta'] dd {
   font-size: 13px;
   color: var(--text-secondary);
 }
 
-[data-role='primary-screen'] [data-role='detail-blocked-reason'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-blocked-reason'] {
   margin-top: 14px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -291,7 +308,7 @@
   font-weight: 500;
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-body'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-body'] {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--border-default);
@@ -300,13 +317,13 @@
   color: var(--text-body);
 }
 
-[data-role='primary-screen'] [data-role='ticket-detail-actions'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-actions'] {
   margin-top: 20px;
 }
 
 /* Match the feed's proposal Accept button exactly, so accepting from the detail
  * reads as the same affirmative action as accepting from the card. */
-[data-role='primary-screen'] [data-role='detail-accept'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept'] {
   font-size: 13px;
   color: var(--text-on-accent);
   background: var(--accent);
@@ -315,11 +332,11 @@
   box-shadow: var(--shadow-raised);
 }
 
-[data-role='primary-screen'] [data-role='detail-accept']:hover {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept']:hover {
   background: var(--accent-hover);
 }
 
-[data-role='primary-screen'] [data-role='detail-accept']:active {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept']:active {
   background: var(--accent-press);
   transform: translateY(1px);
 }

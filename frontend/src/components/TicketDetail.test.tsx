@@ -1,8 +1,12 @@
-// TicketDetail overlay: shows a ticket's full record and is dismissable via the
-// close button, backdrop click, and Escape — never a trap (07 §7–§8). Clicks
-// inside the panel must not fall through to the backdrop close.
+// TicketDetail sheet: shows a ticket's full record and is dismissable — never a
+// trap (07 §7–§8). It renders as a `vaul` bottom sheet, so its content and scrim
+// portal to document.body (query via `screen`/`document`, not the render
+// container) and dismissal — Escape, scrim, drag — is Vaul's concern, routed to
+// onClose via onOpenChange. We test our own surface here (the close button, the
+// content, the Escape wiring reaching onClose); the drag physics are the
+// library's and are not re-tested.
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { TicketDetail } from '@/components/TicketDetail';
 import { makeTicket, LONG_BLOCKED_REASON } from '@/test/fixtures';
 
@@ -20,7 +24,9 @@ describe('TicketDetail', () => {
   it('shows only the title and description by default — no internal metadata (main app view)', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} />);
 
-    const dialog = screen.getByRole('dialog', { name: 'Ticket: Build the widget' });
+    // The dialog is named by its visible title (Radix wires aria-labelledby to
+    // the <Drawer.Title>).
+    const dialog = screen.getByRole('dialog', { name: 'Build the widget' });
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Build the widget' })).toBeInTheDocument();
     expect(screen.getByText('The complete body text the card only previews.')).toBeInTheDocument();
@@ -49,11 +55,14 @@ describe('TicketDetail', () => {
       updatedAt: '2026-07-01T00:00:00Z',
     });
 
-    const { container } = render(<TicketDetail ticket={markdown} onClose={vi.fn()} />);
+    // Content portals to document.body, so scope the query to the dialog itself
+    // rather than the render container (which is now empty of the sheet).
+    render(<TicketDetail ticket={markdown} onClose={vi.fn()} />);
+    const dialog = screen.getByRole('dialog');
 
-    expect(container.querySelector('strong')?.textContent).toBe('bold');
-    expect(container.querySelectorAll('li')).toHaveLength(2);
-    expect(container.querySelector('code')?.textContent).toBe('code');
+    expect(dialog.querySelector('strong')?.textContent).toBe('bold');
+    expect(dialog.querySelectorAll('li')).toHaveLength(2);
+    expect(dialog.querySelector('code')?.textContent).toBe('code');
   });
 
   it('shows the full blocked reason for a blocked ticket', () => {
@@ -73,6 +82,13 @@ describe('TicketDetail', () => {
     expect(screen.getByText(LONG_BLOCKED_REASON)).toBeInTheDocument();
   });
 
+  it('renders the scrim so the sheet reads as a modal surface', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+
+    // The scrim is Vaul's overlay, portaled alongside the panel.
+    expect(document.querySelector('[data-role="ticket-detail-backdrop"]')).not.toBeNull();
+  });
+
   it('calls onClose from the close button', () => {
     const onClose = vi.fn();
     render(<TicketDetail ticket={working} onClose={onClose} />);
@@ -82,23 +98,7 @@ describe('TicketDetail', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onClose when the backdrop is clicked, but not the panel', () => {
-    const onClose = vi.fn();
-    const { container } = render(<TicketDetail ticket={working} onClose={onClose} />);
-
-    // A click inside the panel must not close it.
-    fireEvent.click(screen.getByRole('dialog'));
-    expect(onClose).not.toHaveBeenCalled();
-
-    const backdrop = container.querySelector('[data-role="ticket-detail-backdrop"]');
-    if (backdrop === null) {
-      throw new Error('backdrop not found');
-    }
-    fireEvent.click(backdrop);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onClose when Escape is pressed', () => {
+  it('calls onClose when Escape is pressed (Vaul dismiss → onOpenChange → onClose)', () => {
     const onClose = vi.fn();
     render(<TicketDetail ticket={working} onClose={onClose} />);
 
@@ -117,7 +117,7 @@ describe('TicketDetail', () => {
     const onAccept = vi.fn();
     render(<TicketDetail ticket={working} onClose={vi.fn()} onAccept={onAccept} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }));
 
     expect(onAccept).toHaveBeenCalledWith('t-42');
   });

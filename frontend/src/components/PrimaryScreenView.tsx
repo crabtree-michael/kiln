@@ -355,6 +355,7 @@ export function PrimaryScreenView({
       {openTicket !== null && (
         <TicketDetail
           ticket={openTicket}
+          surface="primary"
           onClose={() => {
             setOpenTicketId(null);
           }}

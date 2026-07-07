@@ -61,9 +61,17 @@
   /* Slight top inset: the nav bar sits directly above the feed as a pinned
      sibling (not inside the scroll region), and its hairline separator would
      otherwise butt right up against the first card. A small top pad gives the
-     backlog breathing room under the bar without a large gap. Sides/bottom keep
-     their padding. */
-  padding: 8px 26px;
+     backlog breathing room under the bar without a large gap. Sides keep 26px.
+
+     Bottom: the base 8px mirrors the top so the last card never butts against
+     the dock's top hairline, PLUS `--feed-bottom-inset` — the live height of the
+     activity band (thinking indicator + toast stack) that floats up over the feed
+     as an opaque out-of-flow overlay (see [data-role='activity-row']). Reserving
+     that band's height as extra scroll inset lets the newest card be scrolled
+     fully clear of the band instead of staying tucked behind it; the var is
+     published by ActivityRow and defaults to 0px, so an empty band leaves the
+     idle layout exactly as before. */
+  padding: 8px 26px calc(8px + var(--feed-bottom-inset, 0px));
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav

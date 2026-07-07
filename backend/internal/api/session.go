@@ -41,6 +41,14 @@ const randomTokenBytes = 32
 // activity (final review, Important #1).
 func (s *Server) withSession(next func(http.ResponseWriter, *http.Request, identity.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil {
+			// Identity is not mounted (no OAuth config): the app routes are
+			// gated but there is no authenticator to resolve against, so no
+			// request can be authenticated. Fail closed with 401 rather than
+			// dereferencing a nil authenticator.
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil {
 			http.Error(w, "authentication required", http.StatusUnauthorized)

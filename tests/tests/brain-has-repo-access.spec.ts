@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { mintSession } from '../session';
 
 // E2E: the brain can actually reach the project repository (design
 // docs/superpowers/specs/2026-07-04-brain-repo-bash-tool-design.md). The brain
@@ -87,6 +88,11 @@ test('the brain can reach the project repository via its bash tool', async ({ re
   const slug = parseSlug(repoURL);
   expect(slug, `GITHUB_REPO_URL is not a recognizable GitHub URL: ${repoURL}`).not.toBeNull();
   const { owner, repo } = slug as { owner: string; repo: string };
+
+  // All /api/* calls need a session cookie; mint one in this request context.
+  // (The cookie is host-scoped, so it rides only the apiBase calls — the GitHub
+  // API requests above/below are untouched.)
+  await mintSession(request, { base: apiBase });
 
   // Independent source of truth: the current HEAD SHA of the default branch. A
   // hard error here (bad token, unreachable) fails fast rather than as a mystery

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { mintSession } from '../session';
 
 // E2E (spec 08 §3, §7): a brain-authored UPDATE reaches the primary-screen feed, and an
 // update that has been SEEN drains out of the feed (the "inbox that drains", 08 D2).
@@ -47,6 +48,12 @@ test('a brain-authored update appears in the feed, then drains once seen', async
   request,
 }) => {
   test.setTimeout(120_000); // one real-LLM turn, then the seen-drain poll window.
+
+  // This test drives BOTH transports (separate cookie jars): mint a dev session
+  // in each, and in the browser context BEFORE page.goto (the app's session gate
+  // calls GET /api/me on boot).
+  await mintSession(request, { base: apiBase });
+  await mintSession(page.request);
 
   await openConnectedFeed(page);
 

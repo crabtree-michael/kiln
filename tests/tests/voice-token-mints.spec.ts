@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { mintSession } from '../session';
 
 // E2E (gated): the REAL AssemblyAI voice path (docs/specs/09 §2, §6, §8).
 //
@@ -150,6 +151,10 @@ test('backend-minted AssemblyAI token authenticates the real streaming socket', 
 }) => {
   test.skip(!SMOKE, 'gated real-service test: set KILN_VOICE_SMOKE=1 to run (09 §8)');
 
+  // All /api/* calls need a session cookie; mint one in this request context
+  // (after the gate, so ungated runs never touch the stack).
+  await mintSession(request, { base: apiBase });
+
   const { token, expires_at } = await mintToken(request);
   expect(token, 'token should be non-empty').not.toBe('');
   expect(
@@ -168,6 +173,9 @@ test('spoken audio becomes a human.message via STT + /api/message', async ({ req
     'set KILN_VOICE_SAMPLE=/path/to/clip.pcm (raw PCM16 mono 16 kHz) to exercise the STT path',
   );
   test.setTimeout(90_000);
+
+  // All /api/* calls need a session cookie; mint one in this request context.
+  await mintSession(request, { base: apiBase });
 
   const pcm = await readFile(samplePath as string);
   const { token } = await mintToken(request);

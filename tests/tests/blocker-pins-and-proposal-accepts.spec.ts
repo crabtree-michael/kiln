@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { mintSession } from '../session';
 
 // E2E (spec 08 §2, §3, §5): the two DERIVED feed cards — the blocker that pins to the top,
 // and the proposal you accept. Both derive from board state (08 D1), so they cannot go
@@ -50,6 +51,14 @@ async function seedTicket(
   const res = await request.post(`${apiBase}/api/dev/tickets`, { data: { body: 'seeded by e2e', ...spec } });
   expect(res.ok(), `POST /api/dev/tickets -> ${res.status()} (needs KILN_DEV_ENDPOINTS=1)`).toBeTruthy();
 }
+
+// Both tests drive BOTH transports (request fixture + browser context), and the
+// two have separate cookie jars — mint a dev session in each. The browser mint
+// runs before openConnectedFeed's page.goto, so the app's session gate passes.
+test.beforeEach(async ({ page, request }) => {
+  await mintSession(request, { base: apiBase });
+  await mintSession(page.request);
+});
 
 async function openConnectedFeed(page: Page): Promise<void> {
   await page.goto('/');

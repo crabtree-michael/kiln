@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { mintSession } from '../session';
 
 // E2E (spec 08 §4): the ephemeral ACTIVITY LAYER above the dock surfaces the brain's
 // live work — the `thinking` spinner while a pass runs, the brain's `say` reply in the
@@ -18,6 +19,14 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 // deterministic. Cheap model, no sandbox, no teardown.
 
 const apiBase = (process.env.KILN_E2E_API_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
+
+// Both tests drive BOTH transports (request fixture + browser context), and the
+// two have separate cookie jars — mint a dev session in each. The browser mint
+// runs before openConnectedFeed's page.goto, so the app's session gate passes.
+test.beforeEach(async ({ page, request }) => {
+  await mintSession(request, { base: apiBase });
+  await mintSession(page.request);
+});
 
 async function openConnectedFeed(page: Page): Promise<void> {
   await page.goto('/');

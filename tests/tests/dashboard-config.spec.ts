@@ -1,15 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { mintSession } from '../session';
 
 // Phase 1 dashboard flow (spec 11 §8): dev session → onboard → config sticks.
 // Needs the compose stack up with KILN_DEV_ENDPOINTS=1 and identity env set
 // (GITHUB_OAUTH_CLIENT_ID, KILN_SECRETS_KEY) — both default in local .env.
 test('dashboard onboarding stores config and reflects status', async ({ page }) => {
   // page.request shares the browser context's cookie jar, so the minted
-  // session cookie authenticates subsequent page navigation.
-  const mint = await page.request.post('/api/dev/session', {
-    data: { github_login: `e2e-dash-${Date.now()}` },
-  });
-  expect(mint.ok()).toBe(true);
+  // session cookie authenticates subsequent page navigation. A THROWAWAY login
+  // (not the shared e2e user): this test must onboard from scratch.
+  await mintSession(page.request, { login: `e2e-dash-${Date.now()}` });
 
   await page.goto('/dashboard');
   // Fresh user → onboarding.

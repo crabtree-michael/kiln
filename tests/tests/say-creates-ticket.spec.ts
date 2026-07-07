@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mintSession } from '../session';
 
 // E2E: the first two steps of the core loop (docs/specs/01 §2).
 //
@@ -18,6 +19,9 @@ import { expect, test } from '@playwright/test';
 // state `shaping` (03 §2.1), rendered as a `ticket-card` inside that column
 // (BoardColumn.tsx / TicketCard.tsx).
 test('saying a build request creates a ticket in Backlog', async ({ page }) => {
+  // Mint the dev session in the browser context BEFORE the app boots — the
+  // session gate calls GET /api/me on load (page.request shares the page's jar).
+  await mintSession(page.request);
   await page.goto('/debug');
 
   // The board region must render, and the live stream must be connected, before

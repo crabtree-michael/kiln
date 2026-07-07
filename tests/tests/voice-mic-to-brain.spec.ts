@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { mintSession } from "../session";
 
 // E2E (gated): the FULL voice path in a real browser — fake mic → STT → brain.
 //
@@ -48,6 +49,12 @@ test('speaking "This is a test" into the mic lands a human.message and the brain
     "gated real-service test: set KILN_VOICE_SMOKE=1 to run (09 §8)",
   );
   test.setTimeout(120_000);
+
+  // This test drives BOTH transports (separate cookie jars): mint a dev session
+  // in each — after the gate so ungated runs never touch the stack, and in the
+  // browser context BEFORE page.goto (the app's session gate calls GET /api/me).
+  await mintSession(request, { base: apiBase });
+  await mintSession(page.request);
 
   // Baseline: the highest message id before we speak, so we assert on rows that
   // arrive AFTER (a persistent stack may already hold prior transcript rows).

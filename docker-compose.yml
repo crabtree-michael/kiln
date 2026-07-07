@@ -73,6 +73,10 @@ services:
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
       KILN_ALLOWED_GITHUB_USERS: ${KILN_ALLOWED_GITHUB_USERS:-}
       KILN_SECRETS_KEY: ${KILN_SECRETS_KEY:-}
+      # Phase 2 (spec 11 §3): GitHub login the boot-time adoption seeds the owner
+      # user/project from and backfills every legacy orphan row into. Unset ⇒ no
+      # adoption (the NOT NULL finalizer still runs, a no-op on a fresh DB).
+      KILN_BOOTSTRAP_GITHUB_USER: ${KILN_BOOTSTRAP_GITHUB_USER:-}
     depends_on:
       db:
         condition: service_healthy

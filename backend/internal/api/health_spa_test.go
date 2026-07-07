@@ -27,7 +27,7 @@ var errPingDown = errors.New("db down")
 func TestHealthz_OKWhenPingSucceeds(t *testing.T) {
 	srv := newBareServer()
 	srv.EnableHealthz("v-test", func(context.Context) error { return nil })
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/healthz")
@@ -50,7 +50,7 @@ func TestHealthz_OKWhenPingSucceeds(t *testing.T) {
 func TestHealthz_DegradedWhenPingFails(t *testing.T) {
 	srv := newBareServer()
 	srv.EnableHealthz("v-test", func(context.Context) error { return errPingDown })
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/healthz")
@@ -72,7 +72,7 @@ func TestHealthz_DegradedWhenPingFails(t *testing.T) {
 func TestSPA_FallsBackToIndexForClientRoute(t *testing.T) {
 	srv := newBareServer()
 	srv.EnableSPA(fakeSPAHandler(t))
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	// A client route with no matching asset must render the SPA shell, not 404.
@@ -93,7 +93,7 @@ func TestSPA_DoesNotShadowAPIRoutes(t *testing.T) {
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
 	srv.EnableSPA(fakeSPAHandler(t))
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(enableSession(srv).Handler())
 	defer ts.Close()
 
 	// The specific /api/board pattern must win over the "/" SPA catch-all.
@@ -114,7 +114,7 @@ func TestSSE_SurvivesSentryHTTPMiddleware(t *testing.T) {
 		boards, &fakeMessagePoster{}, &fakeMessagesReader{},
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
-	wrapped := sentryhttp.New(sentryhttp.Options{Repanic: true}).Handle(srv.Handler())
+	wrapped := sentryhttp.New(sentryhttp.Options{Repanic: true}).Handle(enableSession(srv).Handler())
 	ts := httptest.NewServer(wrapped)
 	defer ts.Close()
 

@@ -59,6 +59,12 @@ func doPut(t *testing.T, url string, body []byte, cookies ...*http.Cookie) *http
 		t.Fatalf("build PUT %s: %v", url, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Default to an authenticated call so callers that don't manage cookies
+	// (e.g. the push/mode PUT tests, now behind withSession) still pass the
+	// session guard; callers that pass explicit cookies override this.
+	if len(cookies) == 0 {
+		req.AddCookie(authCookie())
+	}
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -105,7 +111,7 @@ func TestMeRequiresSession(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp := doGet(t, ts.URL+"/api/me")
+	resp := doGetNoAuth(t, ts.URL+"/api/me")
 	defer closeBody(t, resp)
 
 	if resp.StatusCode != http.StatusUnauthorized {

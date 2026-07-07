@@ -51,9 +51,11 @@ const maxMessageBody = 64 << 10
 // PushSubscription (endpoint URL + two short base64url keys) is well under 8 KiB.
 const maxPushBody = 8 << 10
 
-// BoardReader is the api's port onto the board's read path (03 §4 GetBoard).
+// BoardReader is the api's port onto the board's read path (03 §4 GetBoard),
+// scoped to one project (11 phase 2): a caller only ever reads the board of
+// the project their session resolves to.
 type BoardReader interface {
-	GetBoard(ctx context.Context) (board.Snapshot, error)
+	GetBoard(ctx context.Context, projectID string) (board.Snapshot, error)
 }
 
 // AgentInspector is the api's read seam onto live worker status, joined into
@@ -63,7 +65,7 @@ type BoardReader interface {
 // follows). Optional: a nil inspector yields an empty agents array (the board
 // still renders).
 type AgentInspector interface {
-	ListAgents(ctx context.Context) ([]AgentInfo, error)
+	ListAgents(ctx context.Context, projectID string) ([]AgentInfo, error)
 }
 
 // AgentInfo is one live worker's status joined to its most-recent ticket
@@ -82,14 +84,14 @@ type AgentInfo struct {
 // transaction — the transcript and the event queue cannot disagree.
 // Satisfied directly by *runtime.Service's PostMessage.
 type MessagePoster interface {
-	PostMessage(ctx context.Context, text string) (messageID, eventID int64, err error)
+	PostMessage(ctx context.Context, projectID, text string) (messageID, eventID int64, err error)
 }
 
 // MessagesReader is the api's port onto the persisted transcript (07 §4 GET
 // /api/messages): the most-recent n rows, oldest first. Satisfied directly
 // by *runtime.Service's Recent.
 type MessagesReader interface {
-	Recent(ctx context.Context, n int) ([]runtime.Message, error)
+	Recent(ctx context.Context, projectID string, n int) ([]runtime.Message, error)
 }
 
 // FeedReader is the api's port onto the runtime's feed assembly (08 §3, D2′):
@@ -97,10 +99,10 @@ type MessagesReader interface {
 // of retained updates) and one older keyset page for GET /api/feed/history.
 // Satisfied directly by *runtime.Service's Feed / FeedHistory.
 type FeedReader interface {
-	Feed(ctx context.Context) (runtime.FeedSnapshot, error)
+	Feed(ctx context.Context, projectID string) (runtime.FeedSnapshot, error)
 	// FeedHistory returns update/preview cards older than `before` (newest-first,
 	// up to `limit`) and whether a further page remains (08 D2′).
-	FeedHistory(ctx context.Context, before int64, limit int) ([]runtime.FeedCard, bool, error)
+	FeedHistory(ctx context.Context, projectID string, before int64, limit int) ([]runtime.FeedCard, bool, error)
 }
 
 // FeedMutator is the api's port onto the client-driven feed mutations (08 §3):
@@ -110,13 +112,13 @@ type FeedReader interface {
 // MarkSeen / DismissNotification / DismissAllNotifications.
 type FeedMutator interface {
 	// MarkSeen marks every update up to and including lastID as seen.
-	MarkSeen(ctx context.Context, lastID int64) error
+	MarkSeen(ctx context.Context, projectID string, lastID int64) error
 	// DismissNotification clears one update/preview card for good by its
 	// notification id (user swiped it away). Idempotent on an unknown/gone id.
-	DismissNotification(ctx context.Context, id int64) error
+	DismissNotification(ctx context.Context, projectID string, id int64) error
 	// DismissAllNotifications clears every feed notification at once (the user's
 	// "clear all" header trash affordance). Idempotent: a no-op when none active.
-	DismissAllNotifications(ctx context.Context) error
+	DismissAllNotifications(ctx context.Context, projectID string) error
 }
 
 // TicketSeeder is the DEV-ONLY port behind POST /api/dev/tickets: seed a ticket
@@ -127,13 +129,13 @@ type FeedMutator interface {
 // Mounted only when EnableDevTickets was called; NOT part of the wire contract
 // (/schema) — never the real client.
 type TicketSeeder interface {
-	SeedTicket(ctx context.Context, spec board.SeedSpec) (board.Ticket, error)
+	SeedTicket(ctx context.Context, projectID string, spec board.SeedSpec) (board.Ticket, error)
 	// MarkReady is the real board op, reused by the dev route for a state=ready
 	// seed: a direct insert into ready would be inert (no pull.evaluate, no
 	// queued toast), so ready is seeded as shaping then marked ready, exactly
 	// like the brain's own path — feeding the pull and emitting the activity
 	// toast (08 §4). Satisfied by *board.Service.
-	MarkReady(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	MarkReady(ctx context.Context, projectID string, id board.TicketID) (board.Ticket, error)
 }
 
 // NotificationPoster is the DEV-ONLY port behind POST /api/dev/notifications:
@@ -142,7 +144,7 @@ type TicketSeeder interface {
 // (08 §E.3). Satisfied by *runtime.Service's PostNotification. Mounted only when
 // EnableDevNotifications was called; NOT part of the wire contract (/schema).
 type NotificationPoster interface {
-	PostNotification(ctx context.Context, kind, body string, ticketID, imageURL *string) error
+	PostNotification(ctx context.Context, projectID, kind, body string, ticketID, imageURL *string) error
 }
 
 // Resetter is the port behind POST /api/dev/reset: return the whole system to a
@@ -152,7 +154,7 @@ type NotificationPoster interface {
 // button; NOT part of the wire contract (/schema). Satisfied by the composition
 // root's reset coordinator, which spans the DB and the agent service.
 type Resetter interface {
-	Reset(ctx context.Context) error
+	Reset(ctx context.Context, projectID string) error
 }
 
 // VoiceTokenMinter is the api's port onto the STT provider's temporary-token
@@ -182,9 +184,9 @@ type PushSubscription struct {
 // allowed values are validated against the wire enum before SetMode. Satisfied
 // by a cmd/kiln adapter over the push store.
 type PushRegistrar interface {
-	Subscribe(ctx context.Context, sub PushSubscription) error
-	Mode(ctx context.Context) (string, error)
-	SetMode(ctx context.Context, mode string) error
+	Subscribe(ctx context.Context, userID string, sub PushSubscription) error
+	Mode(ctx context.Context, userID string) (string, error)
+	SetMode(ctx context.Context, userID, mode string) error
 }
 
 // Authenticator is the api's port onto the GitHub OAuth + cookie-session
@@ -255,6 +257,7 @@ type Server struct {
 	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
 	auth     Authenticator      // non-nil ⇒ the /auth/github/* + /auth/logout routes are mounted (11 §2)
 	account  AccountService     // the signed-in account surface (11 §4); set together with auth
+	projects ProjectResolver    // resolves the caller's project; withProject-guarded routes require it (11 phase 2)
 
 	devSession DevSessionMinter // dev-only; non-nil (AND auth enabled) ⇒ POST /api/dev/session is mounted (11 §7)
 
@@ -309,6 +312,15 @@ func (s *Server) EnableIdentity(auth Authenticator, account AccountService) {
 	s.account = account
 }
 
+// EnableTenancy turns on per-project scoping for the whole app surface (11
+// phase 2, call before Handler): every board/message/feed/stream/dev route is
+// wrapped in withProject, which resolves the caller's project through this
+// resolver and hands it to the handler so a session only ever touches its own
+// project's state. Set together with EnableIdentity — withProject authenticates
+// via the same session guard before it resolves the project. Satisfied by
+// *identity.Service (ProjectFor).
+func (s *Server) EnableTenancy(projects ProjectResolver) { s.projects = projects }
+
 // EnableDevSession turns on the dev-only POST /api/dev/session route (call
 // before Handler, alongside EnableIdentity): mint a session for a
 // dev-supplied GitHub login without the real OAuth dance (11 §7). Local/e2e
@@ -333,31 +345,36 @@ func (s *Server) EnableSPA(h http.Handler) { s.spa = h }
 // Handler returns the api's http.Handler, ready to mount.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/stream", s.handleStream)
-	mux.HandleFunc("GET /api/board", s.handleBoard)
-	mux.HandleFunc("POST /api/message", s.handleMessage)
-	mux.HandleFunc("GET /api/messages", s.handleMessages)
-	mux.HandleFunc("GET /api/feed", s.handleFeed)
-	mux.HandleFunc("GET /api/feed/history", s.handleFeedHistory)
-	mux.HandleFunc("POST /api/feed/seen", s.handleFeedSeen)
-	mux.HandleFunc("POST /api/feed/dismiss-all", s.handleFeedDismissAll)
-	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.handleFeedDismiss)
-	mux.HandleFunc("POST /api/tickets/{id}/accept", s.handleAccept)
-	mux.HandleFunc("POST /api/voice/token", s.handleVoiceToken)
+	// The whole app surface is project-scoped (11 phase 2): withProject
+	// authenticates the session and resolves the caller's project before the
+	// handler runs, so every port call below is scoped to exactly that project.
+	mux.HandleFunc("GET /api/stream", s.withProject(s.handleStream))
+	mux.HandleFunc("GET /api/board", s.withProject(s.handleBoard))
+	mux.HandleFunc("POST /api/message", s.withProject(s.handleMessage))
+	mux.HandleFunc("GET /api/messages", s.withProject(s.handleMessages))
+	mux.HandleFunc("GET /api/feed", s.withProject(s.handleFeed))
+	mux.HandleFunc("GET /api/feed/history", s.withProject(s.handleFeedHistory))
+	mux.HandleFunc("POST /api/feed/seen", s.withProject(s.handleFeedSeen))
+	mux.HandleFunc("POST /api/feed/dismiss-all", s.withProject(s.handleFeedDismissAll))
+	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.withProject(s.handleFeedDismiss))
+	mux.HandleFunc("POST /api/tickets/{id}/accept", s.withProject(s.handleAccept))
+	// Voice + push are per-user, not per-project: withSession authenticates and
+	// hands the user through; the push ports scope to user.ID.
+	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
 	if s.push != nil {
-		mux.HandleFunc("POST /api/push/subscribe", s.handlePushSubscribe)
-		mux.HandleFunc("GET /api/push/key", s.handlePushKey)
-		mux.HandleFunc("GET /api/push/mode", s.handlePushModeGet)
-		mux.HandleFunc("PUT /api/push/mode", s.handlePushModeSet)
+		mux.HandleFunc("POST /api/push/subscribe", s.withSession(s.handlePushSubscribe))
+		mux.HandleFunc("GET /api/push/key", s.withSession(s.handlePushKey))
+		mux.HandleFunc("GET /api/push/mode", s.withSession(s.handlePushModeGet))
+		mux.HandleFunc("PUT /api/push/mode", s.withSession(s.handlePushModeSet))
 	}
 	if s.seeder != nil {
-		mux.HandleFunc("POST /api/dev/tickets", s.handleDevCreateTicket)
+		mux.HandleFunc("POST /api/dev/tickets", s.withProject(s.handleDevCreateTicket))
 	}
 	if s.devNotes != nil {
-		mux.HandleFunc("POST /api/dev/notifications", s.handleDevPostNotification)
+		mux.HandleFunc("POST /api/dev/notifications", s.withProject(s.handleDevPostNotification))
 	}
 	if s.resetter != nil {
-		mux.HandleFunc("POST /api/dev/reset", s.handleReset)
+		mux.HandleFunc("POST /api/dev/reset", s.withProject(s.handleReset))
 	}
 	if s.auth != nil {
 		mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
@@ -405,8 +422,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // handleReset returns the system to a fresh agent session (204). The reset is
 // destructive and irreversible; the /debug client guards it behind a confirm
 // dialog. No request body.
-func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
-	if err := s.resetter.Reset(r.Context()); err != nil {
+func (s *Server) handleReset(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
+	if err := s.resetter.Reset(r.Context(), project.ID); err != nil {
 		slog.Error("api: reset", "err", err)
 		http.Error(w, "reset", http.StatusInternalServerError)
 		return
@@ -421,7 +438,9 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 // approval_requested surfaces a proposal card, state=ready feeds the pull. Body
 // is the work order the agent receives. Mounted only when EnableDevTickets was
 // called (KILN_DEV_ENDPOINTS).
-func (s *Server) handleDevCreateTicket(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDevCreateTicket(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
 	var req struct {
 		Title             string `json:"title"`
 		Body              string `json:"body"`
@@ -442,7 +461,7 @@ func (s *Server) handleDevCreateTicket(w http.ResponseWriter, r *http.Request) {
 	if markReady {
 		seedState = board.StateShaping
 	}
-	t, err := s.seeder.SeedTicket(r.Context(), board.SeedSpec{
+	t, err := s.seeder.SeedTicket(r.Context(), project.ID, board.SeedSpec{
 		Title:             req.Title,
 		Body:              req.Body,
 		State:             seedState,
@@ -450,7 +469,7 @@ func (s *Server) handleDevCreateTicket(w http.ResponseWriter, r *http.Request) {
 		ApprovalRequested: req.ApprovalRequested,
 	})
 	if err == nil && markReady {
-		t, err = s.seeder.MarkReady(r.Context(), t.ID)
+		t, err = s.seeder.MarkReady(r.Context(), project.ID, t.ID)
 	}
 	switch {
 	case errors.Is(err, board.ErrNoFreeWorker):
@@ -467,7 +486,9 @@ func (s *Server) handleDevCreateTicket(w http.ResponseWriter, r *http.Request) {
 // handleDevPostNotification posts a brain-authored feed notification directly
 // (dev only), so an e2e can produce an update/preview card without the LLM.
 // Mounted only when EnableDevNotifications was called (KILN_DEV_ENDPOINTS).
-func (s *Server) handleDevPostNotification(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDevPostNotification(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
 	var req struct {
 		Kind     string  `json:"kind"`
 		Body     string  `json:"body"`
@@ -478,7 +499,9 @@ func (s *Server) handleDevPostNotification(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if err := s.devNotes.PostNotification(r.Context(), req.Kind, req.Body, req.TicketID, req.ImageURL); err != nil {
+	if err := s.devNotes.PostNotification(
+		r.Context(), project.ID, req.Kind, req.Body, req.TicketID, req.ImageURL,
+	); err != nil {
 		slog.Error("api: dev post notification", "err", err)
 		http.Error(w, "post notification", http.StatusInternalServerError)
 		return
@@ -488,14 +511,14 @@ func (s *Server) handleDevPostNotification(w http.ResponseWriter, r *http.Reques
 
 // handleStream serves the SSE connection (04 §7): the hub owns the client
 // registry, the snapshot-on-connect, fan-out, and keepalive.
-func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
-	s.hub.ServeStream(w, r)
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
+	s.hub.ServeStream(w, r, project.ID)
 }
 
 // handleBoard returns the full board snapshot (04 §7), the same shape the
 // stream's board event carries.
-func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
-	bw, err := s.hub.boardWire(r.Context())
+func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
+	bw, err := s.hub.boardWire(r.Context(), project.ID)
 	if err != nil {
 		slog.Error("api: get board", "err", err)
 		http.Error(w, "read board", http.StatusInternalServerError)
@@ -507,7 +530,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 // handleMessage decodes {text}, validates its bounds (schema MessageRequest),
 // delegates to the runtime's transactional PostMessage, and returns 202 with
 // both ids (07 §3–§4).
-func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBody)
 	var req wire.MessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -523,7 +546,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text must be 1-4000 characters", http.StatusBadRequest)
 		return
 	}
-	messageID, eventID, err := s.poster.PostMessage(r.Context(), req.Text)
+	messageID, eventID, err := s.poster.PostMessage(r.Context(), project.ID, req.Text)
 	if err != nil {
 		slog.Error("api: post message", "err", err)
 		http.Error(w, "post message", http.StatusInternalServerError)
@@ -534,7 +557,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleMessages returns the most-recent transcript rows oldest-first (07 §4),
 // honouring the limit query param (default 50, bounds 1–500).
-func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	limit := defaultLimit
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -544,7 +567,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	msgs, err := s.messages.Recent(r.Context(), limit)
+	msgs, err := s.messages.Recent(r.Context(), project.ID, limit)
 	if err != nil {
 		slog.Error("api: read messages", "err", err)
 		http.Error(w, "read messages", http.StatusInternalServerError)
@@ -555,8 +578,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 // handleFeed returns the absolute feed snapshot (08 §3): the same shape the
 // stream's feed event carries.
-func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
-	snap, err := s.feed.Feed(r.Context())
+func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
+	snap, err := s.feed.Feed(r.Context(), project.ID)
 	if err != nil {
 		slog.Error("api: read feed", "err", err)
 		http.Error(w, "read feed", http.StatusInternalServerError)
@@ -569,7 +592,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 // (08 D2′): notification-backed cards with id < before, newest-first, plus a
 // has_more flag. `before` omitted starts from the newest; `limit` defaults to 30
 // (bounds 1–100), mirroring handleMessages.
-func (s *Server) handleFeedHistory(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleFeedHistory(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	before := int64(math.MaxInt64)
 	if raw := r.URL.Query().Get("before"); raw != "" {
 		n, err := strconv.ParseInt(raw, 10, 64)
@@ -588,7 +611,7 @@ func (s *Server) handleFeedHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	cards, hasMore, err := s.feed.FeedHistory(r.Context(), before, limit)
+	cards, hasMore, err := s.feed.FeedHistory(r.Context(), project.ID, before, limit)
 	if err != nil {
 		slog.Error("api: read feed history", "err", err)
 		http.Error(w, "read feed history", http.StatusInternalServerError)
@@ -599,13 +622,13 @@ func (s *Server) handleFeedHistory(w http.ResponseWriter, r *http.Request) {
 
 // handleFeedSeen advances the seen high-water mark (08 §3): every update up to
 // and including last_notification_id is marked seen. Returns 202.
-func (s *Server) handleFeedSeen(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleFeedSeen(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	var req wire.FeedSeenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if err := s.seen.MarkSeen(r.Context(), req.LastNotificationId); err != nil {
+	if err := s.seen.MarkSeen(r.Context(), project.ID, req.LastNotificationId); err != nil {
 		slog.Error("api: mark seen", "err", err)
 		http.Error(w, "mark seen", http.StatusInternalServerError)
 		return
@@ -617,13 +640,13 @@ func (s *Server) handleFeedSeen(w http.ResponseWriter, r *http.Request) {
 // user swiped the row left, so retract the notification behind {id} for good.
 // Idempotent — an unknown/already-gone id is a no-op under the store's guard.
 // Returns 202.
-func (s *Server) handleFeedDismiss(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleFeedDismiss(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id < 1 {
 		http.Error(w, "id must be a positive notification id", http.StatusBadRequest)
 		return
 	}
-	if err := s.seen.DismissNotification(r.Context(), id); err != nil {
+	if err := s.seen.DismissNotification(r.Context(), project.ID, id); err != nil {
 		slog.Error("api: dismiss card", "err", err)
 		http.Error(w, "dismiss card", http.StatusInternalServerError)
 		return
@@ -634,8 +657,10 @@ func (s *Server) handleFeedDismiss(w http.ResponseWriter, r *http.Request) {
 // handleFeedDismissAll clears every feed notification at once (08 §3, clear-all):
 // the user tapped the header trash affordance. Retracts all still-active
 // notifications for good. Idempotent — a no-op when nothing is active. Returns 202.
-func (s *Server) handleFeedDismissAll(w http.ResponseWriter, r *http.Request) {
-	if err := s.seen.DismissAllNotifications(r.Context()); err != nil {
+func (s *Server) handleFeedDismissAll(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	if err := s.seen.DismissAllNotifications(r.Context(), project.ID); err != nil {
 		slog.Error("api: dismiss all cards", "err", err)
 		http.Error(w, "dismiss all cards", http.StatusInternalServerError)
 		return
@@ -648,10 +673,10 @@ func (s *Server) handleFeedDismissAll(w http.ResponseWriter, r *http.Request) {
 // title, synthesize an explicit acceptance message, and post it exactly like
 // POST /api/message so the brain marks the ticket ready via mark_ready. Returns
 // 202 {event_id, message_id} — the same reconcile ids as a normal send.
-func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	id := r.PathValue("id")
 	title := id // fall back to the id if the title lookup fails or misses.
-	if snap, err := s.boards.GetBoard(r.Context()); err == nil {
+	if snap, err := s.boards.GetBoard(r.Context(), project.ID); err == nil {
 		if t, ok := findTicket(snap, id); ok {
 			title = t.Title
 		}
@@ -661,7 +686,7 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request) {
 			"Mark that ticket ready now; do not ask for confirmation.",
 		title, id,
 	)
-	messageID, eventID, err := s.poster.PostMessage(r.Context(), text)
+	messageID, eventID, err := s.poster.PostMessage(r.Context(), project.ID, text)
 	if err != nil {
 		slog.Error("api: accept proposal", "err", err)
 		http.Error(w, "accept proposal", http.StatusInternalServerError)
@@ -675,7 +700,7 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request) {
 // directly with this token; audio never transits our backend (09 §2). A
 // provider mint failure is a 502 — the client's one silent reconnect then
 // Retry surface handles it (09 §5).
-func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, _ identity.User) {
 	token, expiresAt, err := s.voice.MintStreamingToken(r.Context())
 	if err != nil {
 		slog.Error("api: mint voice token", "err", err)
@@ -688,7 +713,7 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 // handlePushKey serves the VAPID public key for pushManager.subscribe (02 §10).
 // When no key is configured (the VAPID env vars are unset) it 404s, and the
 // client treats notifications as unavailable.
-func (s *Server) handlePushKey(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handlePushKey(w http.ResponseWriter, _ *http.Request, _ identity.User) {
 	if s.vapidKey == "" {
 		http.Error(w, "push not configured", http.StatusNotFound)
 		return
@@ -698,7 +723,7 @@ func (s *Server) handlePushKey(w http.ResponseWriter, _ *http.Request) {
 
 // handlePushSubscribe stores a browser PushSubscription (02 §10). Upsert on
 // endpoint (via the registrar), so a re-subscribe is idempotent; 204 on success.
-func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request, user identity.User) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPushBody)
 	var req wire.PushSubscription
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -714,7 +739,7 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "endpoint and keys are required", http.StatusBadRequest)
 		return
 	}
-	if err := s.push.Subscribe(r.Context(), PushSubscription{
+	if err := s.push.Subscribe(r.Context(), user.ID, PushSubscription{
 		Endpoint: req.Endpoint,
 		P256dh:   req.Keys.P256dh,
 		Auth:     req.Keys.Auth,
@@ -728,8 +753,8 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 
 // handlePushModeGet returns the current notification frequency (02 §10) — the
 // single global mode gating when the runtime emits a Web Push message.
-func (s *Server) handlePushModeGet(w http.ResponseWriter, r *http.Request) {
-	mode, err := s.push.Mode(r.Context())
+func (s *Server) handlePushModeGet(w http.ResponseWriter, r *http.Request, user identity.User) {
+	mode, err := s.push.Mode(r.Context(), user.ID)
 	if err != nil {
 		slog.Error("api: read push mode", "err", err)
 		http.Error(w, "read mode", http.StatusInternalServerError)
@@ -741,7 +766,7 @@ func (s *Server) handlePushModeGet(w http.ResponseWriter, r *http.Request) {
 // handlePushModeSet persists the notification frequency (02 §10). The mode must
 // be one of the wire enum values (validated via NotificationModeMode.Valid), so
 // an unknown mode is a 400 rather than a silent write. Echoes the stored mode.
-func (s *Server) handlePushModeSet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePushModeSet(w http.ResponseWriter, r *http.Request, user identity.User) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPushBody)
 	var req wire.NotificationMode
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -757,7 +782,7 @@ func (s *Server) handlePushModeSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mode must be one of: all, blocked", http.StatusBadRequest)
 		return
 	}
-	if err := s.push.SetMode(r.Context(), string(req.Mode)); err != nil {
+	if err := s.push.SetMode(r.Context(), user.ID, string(req.Mode)); err != nil {
 		slog.Error("api: set push mode", "err", err)
 		http.Error(w, "set mode", http.StatusInternalServerError)
 		return
@@ -809,11 +834,11 @@ func boardToWire(s board.Snapshot, agents []wire.AgentStatus) wire.Board {
 // always returning a non-nil slice so the JSON is an array (never null). It is
 // best-effort: a nil inspector or a read failure yields an empty array — the
 // board still renders, Streams just shows nothing new (amended 2026-07-05).
-func agentStatuses(ctx context.Context, inspector AgentInspector) []wire.AgentStatus {
+func agentStatuses(ctx context.Context, projectID string, inspector AgentInspector) []wire.AgentStatus {
 	if inspector == nil {
 		return []wire.AgentStatus{}
 	}
-	infos, err := inspector.ListAgents(ctx)
+	infos, err := inspector.ListAgents(ctx, projectID)
 	if err != nil {
 		slog.WarnContext(ctx, "api: list agents for board", "err", err)
 		return []wire.AgentStatus{}

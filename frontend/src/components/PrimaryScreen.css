@@ -1145,13 +1145,21 @@
   gap: 9px;
 }
 
-[data-role='thinking-spinner'] {
-  width: 15px;
-  height: 15px;
+/* The "Kiln is thinking" tell reads as a live ember rather than a mechanical
+   spinner: a warm coal that glows and flickers, matching the mic-listening ring
+   and the building-dot pulse (the app's on-brand motion language). Two loops of
+   different, coprime-ish durations run at once — a slow glow breathe and a
+   faster brightness flicker — so their beat never lines up cleanly and the
+   flame never repeats the same way twice. */
+[data-role='thinking-ember'] {
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  border: 2px solid var(--accent-soft);
-  border-top-color: var(--accent);
-  animation: kiln-spin 0.7s linear infinite;
+  /* Hot core (fire-300) melting out to a deeper fire edge — a coal, not a flat dot. */
+  background: radial-gradient(circle at 50% 38%, var(--fire-300), var(--accent) 72%);
+  animation:
+    kiln-ember-glow 2.2s ease-in-out infinite,
+    kiln-ember-flicker 1.5s ease-in-out infinite;
 }
 
 [data-role='thinking-text'] {
@@ -1648,10 +1656,74 @@
   }
 }
 
+/* Ember glow: heat radiating off the coal. A tight fire ring inside a wider
+   ember (amber) halo that breathes wider at the peak — the same two-layer
+   box-shadow idea as the mic-listening ring, warmed toward ember. */
+@keyframes kiln-ember-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 4px 0 var(--accent-soft),
+      0 0 9px 1px var(--warn-soft);
+  }
+  50% {
+    box-shadow:
+      0 0 7px 1px var(--accent-soft),
+      0 0 15px 3px var(--warn-soft);
+  }
+}
+
+/* Ember flicker: brightness and opacity jitter at irregular stops so the coal
+   guts pulse like a real flame instead of a smooth sine. */
+@keyframes kiln-ember-flicker {
+  0% {
+    filter: brightness(1);
+    opacity: 0.92;
+  }
+  15% {
+    filter: brightness(1.18);
+    opacity: 1;
+  }
+  28% {
+    filter: brightness(0.94);
+    opacity: 0.84;
+  }
+  43% {
+    filter: brightness(1.26);
+    opacity: 1;
+  }
+  57% {
+    filter: brightness(1);
+    opacity: 0.9;
+  }
+  71% {
+    filter: brightness(1.3);
+    opacity: 1;
+  }
+  85% {
+    filter: brightness(0.97);
+    opacity: 0.87;
+  }
+  100% {
+    filter: brightness(1);
+    opacity: 0.92;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  [data-role='thinking-spinner'],
   [data-role='dock-caret'] {
     animation: none;
+  }
+
+  /* Reduced motion: still no rotation, and no flicker — but keep a static warm
+     ember glow so the "thinking" state stays legible, mirroring how the
+     listening ring and building dot degrade. */
+  [data-role='thinking-ember'] {
+    animation: none;
+    opacity: 1;
+    box-shadow:
+      0 0 4px 0 var(--accent-soft),
+      0 0 9px 1px var(--warn-soft);
   }
 
   /* Reduced motion: drop the breathing pulse for motion-sensitive users, but keep

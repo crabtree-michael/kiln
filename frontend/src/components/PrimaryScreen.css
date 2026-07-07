@@ -702,10 +702,14 @@
 [data-role='feed-card-poke'],
 [data-role='feed-card-done'] {
   flex-shrink: 0;
-  font-size: 14px;
-  /* Match the label's first-line box (16px x 1.3 = ~20.8px) so the top-aligned
+  /* Scaled up from 14px to sit proportionate to the enlarged 16px ticket name —
+     the emoji is the whole card body, so the head marker carries the signal and
+     shouldn't read smaller than the title beside it. */
+  font-size: 17px;
+  /* Keep the marker's line box matched to the label's first-line box
+     (16px x 1.3 = ~20.8px; here 17px x 1.224 = ~20.8px) so the top-aligned
      marker sits centred on line one rather than riding above it. */
-  line-height: 1.49;
+  line-height: 1.224;
 }
 
 /* Type label, leftmost: the small uppercase kind marker ("Preview") that anchors

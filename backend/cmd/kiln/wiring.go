@@ -59,21 +59,24 @@ type migrationSet struct {
 }
 
 // moduleMigrations lists each module's embedded migrations in dependency order
-// (board first — the outbox's FK-free tables — then runtime's events/messages,
-// then agent_turns, then identity's users/sessions/config, then push's
-// subscriptions). Embedding (see each module's migrations.go) ships them in the
-// single static binary, so there is no runtime file dependency
-// (backend/Dockerfile).
+// (identity first — its users/projects tables now exist before anything
+// references them by value on a fresh DB, 11 §3 — then board's outbox's
+// FK-free tables, then runtime's events/messages, then agent_turns, then
+// steward, then push's subscriptions). The ledger tracks applied migrations
+// by file path, so reordering module sets is safe for existing databases:
+// already-applied files are skipped by name regardless of set order.
+// Embedding (see each module's migrations.go) ships them in the single
+// static binary, so there is no runtime file dependency (backend/Dockerfile).
 func moduleMigrations() ([]migrationSet, error) {
 	mods := []struct {
 		key string
 		emb fs.FS
 	}{
+		{"internal/identity/postgres/migrations", identitypg.Migrations},
 		{"internal/board/postgres/migrations", boardpg.Migrations},
 		{"internal/runtime/postgres/migrations", runtimepg.Migrations},
 		{"internal/agent/postgres/migrations", agentpg.Migrations},
 		{"internal/steward/postgres/migrations", stewardpg.Migrations},
-		{"internal/identity/postgres/migrations", identitypg.Migrations},
 		{"internal/push/postgres/migrations", pushpg.Migrations},
 	}
 	sets := make([]migrationSet, 0, len(mods))

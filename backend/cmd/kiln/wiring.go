@@ -111,11 +111,44 @@ func serve(ctx context.Context, cfg Config, log *slog.Logger) error {
 		return err
 	}
 
-	g, err := buildGraph(ctx, cfg, db, log)
+	// Identity is built once here (not again in buildGraph) so bootstrap can use
+	// it to know whether the identity surface is mounted and to seed the owner
+	// user/project/config. A nil idSvc means unconfigured — bootstrap then only
+	// runs the NOT NULL finalizer.
+	idSvc, err := buildIdentity(cfg, db, log)
+	if err != nil {
+		return err
+	}
+	if err = bootstrap(ctx, db, idSvc, bootstrapInputFromConfig(cfg), log); err != nil {
+		return err
+	}
+
+	g, err := buildGraph(ctx, cfg, db, idSvc, log)
 	if err != nil {
 		return err
 	}
 	return g.run(ctx, cfg, log)
+}
+
+// bootstrapInputFromConfig resolves the env-shaped values boot-time adoption
+// seeds from: repo_url prefers GITHUB_REPO_URL, falling back to AMIKA_REPO_URL,
+// and the AMIKA_* credentials are the same plain env vars newProvider reads.
+func bootstrapInputFromConfig(cfg Config) bootstrapInput {
+	repoURL := cfg.GitHubRepoURL
+	if repoURL == "" {
+		repoURL = os.Getenv("AMIKA_REPO_URL")
+	}
+	return bootstrapInput{
+		GitHubUser:        cfg.BootstrapGitHubUser,
+		RepoURL:           repoURL,
+		AmikaSnapshot:     os.Getenv("AMIKA_SNAPSHOT"),
+		BrainModel:        cfg.BrainModel,
+		WorkerCount:       cfg.WorkerCount,
+		AnthropicAPIKey:   cfg.AnthropicAPIKey,
+		AmikaAPIKey:       os.Getenv("AMIKA_API_KEY"),
+		AmikaClaudeCredID: os.Getenv("AMIKA_CLAUDE_CRED_ID"),
+		GitHubAuthToken:   cfg.GitHubAuthToken,
+	}
 }
 
 // graph is the wired, ready-to-run object graph: the HTTP server plus the two
@@ -131,12 +164,13 @@ type graph struct {
 // buildGraph constructs every service and adapter and resolves the two
 // construction cycles by late-binding the adapter fields (adapters.go):
 // runtime↔brain (brainAdapter.inner) and runtime↔agent (agentEventAdapter.rt).
-func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (graph, error) {
+func buildGraph(ctx context.Context, cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logger) (graph, error) {
 	boardStore := boardpg.New(db)
 	boardSvc := board.NewService(boardStore)
-	if err := boardStore.ReconcileWorkers(ctx, cfg.WorkerCount); err != nil {
-		return graph{}, fmt.Errorf("kiln: reconcile workers: %w", err)
-	}
+	// Worker seeding is no longer a global boot step: it moves into the
+	// per-project registry build (11 phase 2, Task 11). cfg.WorkerCount now
+	// seeds projects.worker_count via bootstrap; the reset affordance still
+	// re-seeds the pool directly.
 
 	clock := realClock{}
 	hub := api.NewHub(boardSvc)
@@ -184,11 +218,6 @@ func buildGraph(ctx context.Context, cfg Config, db *sql.DB, log *slog.Logger) (
 		APIKey:  cfg.AssemblyAIAPIKey,
 		BaseURL: cfg.AssemblyAIBaseURL,
 	})
-
-	idSvc, err := buildIdentity(cfg, db, log)
-	if err != nil {
-		return graph{}, err
-	}
 
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
 	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore)

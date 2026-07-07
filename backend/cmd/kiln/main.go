@@ -87,6 +87,12 @@ type Config struct {
 	AllowedGitHubUsers      []string // KILN_ALLOWED_GITHUB_USERS — comma-separated logins
 	SecretsKey              string   // KILN_SECRETS_KEY — 64 hex chars; malformed-but-set ⇒ refuse boot
 
+	// Multi-user phase 2 (11 §3): the GitHub login the boot-time adoption seeds
+	// the owner user + project from and backfills every legacy orphan row into.
+	// Unset ⇒ no adoption (the NOT NULL finalizer still runs, a no-op on a
+	// fresh empty DB).
+	BootstrapGitHubUser string // KILN_BOOTSTRAP_GITHUB_USER
+
 	// Web Push notification transport (02 §10). The operator supplies the VAPID
 	// key pair; we never generate it. Both keys empty ⇒ push is disabled and the
 	// runtime keeps the log-only notifier (local dev + tests unaffected).
@@ -163,6 +169,7 @@ func loadConfig() Config {
 		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
 		AllowedGitHubUsers:      splitCSV(os.Getenv("KILN_ALLOWED_GITHUB_USERS")),
 		SecretsKey:              os.Getenv("KILN_SECRETS_KEY"),
+		BootstrapGitHubUser:     os.Getenv("KILN_BOOTSTRAP_GITHUB_USER"),
 
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),

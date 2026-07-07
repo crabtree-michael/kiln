@@ -52,9 +52,14 @@ async function post(path, body) {
 const seedTicket = (spec) => post('/api/dev/tickets', { body: 'seeded', ...spec });
 const postNote = (note) => post('/api/dev/notifications', note);
 
-// Reset so a rerun is deterministic, then bind the worker pool FIRST (blocked +
-// working) so the deterministic pull can't drain the Ready zone we seed after.
-await post('/api/dev/reset', {});
+// Reset so a rerun is deterministic (best-effort — falls back to assuming a
+// fresh stack), then bind the worker pool FIRST (blocked + working) so the
+// deterministic pull can't drain the Ready zone we seed after.
+try {
+  await post('/api/dev/reset', {});
+} catch (err) {
+  console.warn('reset skipped (run against a fresh stack for a clean board):', err.message);
+}
 await seedTicket({
   title: 'checkout-refactor',
   body: 'Move checkout onto the new payments SDK.',

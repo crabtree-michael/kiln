@@ -101,6 +101,15 @@ export function Dock(): JSX.Element {
     }
   };
 
+  // Wipe the typed draft in one tap — the standard trailing "×" affordance for a
+  // text field. Only the text is discarded (unlike the voice-mode X, which also
+  // tears down the transcript): stay in keyboard mode and refocus the field so
+  // the soft keyboard stays up and the user can retype straight away.
+  const clearDraft = (): void => {
+    setDraft('');
+    inputRef.current?.focus();
+  };
+
   // Hand input back to voice: discard the un-sent draft (like the X on a voice
   // transcript) so reopening starts clean, leave keyboard mode, and turn the mic
   // on via the same `resume` flow the mic button uses.
@@ -225,24 +234,43 @@ export function Dock(): JSX.Element {
           {keyboardMode ? (
             // Reuse the very container that shows the live voice transcript, swapping
             // its read-only spans for an editable field (09 §4 seam, keyboard input).
-            <textarea
-              data-role="dock-input"
-              ref={inputRef}
-              rows={1}
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-              }}
-              onKeyDown={onInputKeyDown}
-              onFocus={() => {
-                setKeyboardVisible(true);
-              }}
-              onBlur={() => {
-                setKeyboardVisible(false);
-              }}
-              placeholder="Type a message…"
-              aria-label="Message"
-            />
+            <>
+              <textarea
+                data-role="dock-input"
+                ref={inputRef}
+                rows={1}
+                value={draft}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                }}
+                onKeyDown={onInputKeyDown}
+                onFocus={() => {
+                  setKeyboardVisible(true);
+                }}
+                onBlur={() => {
+                  setKeyboardVisible(false);
+                }}
+                placeholder="Type a message…"
+                aria-label="Message"
+              />
+              {draft !== '' && (
+                // The clear (×) affordance, pinned to the field's top-right corner
+                // while there is text to wipe. Preventing the default on
+                // pointer-down keeps the field focused through the tap (as the
+                // dismiss button does) so clearing never drops the soft keyboard.
+                <button
+                  type="button"
+                  data-role="dock-clear"
+                  aria-label="Clear text"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                  }}
+                  onClick={clearDraft}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
+            </>
           ) : (
             <>
               {settledText !== '' && <span data-role="dock-settled">{settledText}</span>}

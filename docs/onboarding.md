@@ -29,7 +29,6 @@ in one pass:
 | --- | --- | --- |
 | A **GitHub account** (allowlisted) | Signing in; connecting your repo | You already have it — ask your admin to be added to the allowlist |
 | A **repository URL** | The single repo your agents will work in | The GitHub repo you want Kiln to build in |
-| An **Anthropic API key** | Powers the orchestrator's brain (Claude) | [console.anthropic.com](https://console.anthropic.com) → API keys |
 | A **GitHub token** (PAT) | Lets agents clone, read, and push to your repo | GitHub → Settings → Developer settings → Personal access tokens (grant `repo` access) |
 | An **Amika API key** + **credential ID** | Provisions and runs the cloud sandboxes agents work in | Your Amika console |
 
@@ -40,7 +39,8 @@ one live before you rely on it.
 
 ### Step 1 — Sign in with GitHub
 
-Open Kiln in your browser and go to the dashboard (`/dashboard`). You'll see a
+Open Kiln in your browser and go to the dashboard at
+[trykiln.dev/dashboard](https://trykiln.dev/dashboard). You'll see a
 single centered card:
 
 - The **Kiln** wordmark
@@ -96,14 +96,13 @@ Settings is where your credentials live. It opens with your **account card** (yo
 GitHub avatar, name, and a **Sign out** button) at the top, followed by the
 credential fields:
 
-- **Anthropic API key**
 - **Amika API key**
 - **GitHub token**
 - **Amika Claude credential ID**
 
 These fields **auto-save** — there's no "Save credentials" button. Type a value
 and either press **Enter** or click away from the field; that one field saves on
-its own. Saving any of the three secret keys immediately kicks off a **live
+its own. Saving either of the two secret keys immediately kicks off a **live
 verification**, so a status mark appears to the right of each field:
 
 | Mark | Meaning |
@@ -117,32 +116,26 @@ The keys are **write-only**: once saved, the field never shows the value again �
 only a masked placeholder like `configured · …x4Kd`. Leaving a field blank keeps
 whatever was already stored, so you never have to re-type a key you didn't change.
 
-![The Settings page: account card at top, then Anthropic / Amika / GitHub credential fields each with a green checkmark to the right](images/onboarding/03-credentials.png)
+![The Settings page: account card at top, then Amika / GitHub credential fields each with a green checkmark to the right](images/onboarding/03-credentials.png)
 *Figure 3 — Credentials in Settings after verification. Capture: the credential fields showing ✓ marks, plus the account card above them.*
 
-**Wait for all three checks to go green** before moving on. A red ✗ means that
+**Wait for both checks to go green** before moving on. A red ✗ means that
 connection won't work at runtime — fix the key and it re-verifies as you go.
 
-### Step 4 — Turn on notifications (optional)
-
-Below the credentials is a **Notifications** section. If your browser supports it,
-click **Enable notifications** so Kiln can reach you when a ticket needs a
-decision while the app is closed. You can skip this and enable it later.
-
-### Step 5 — Open Kiln on your phone
+### Step 4 — Open Kiln on your phone
 
 Kiln is mobile-first. The Settings page ends with a reminder:
 
-> Open kiln on your phone at this URL — the app itself doesn't need sign-in yet.
+> Open kiln on your phone at trykiln.dev — the app itself doesn't need sign-in yet.
 
-Open the same URL's home screen (`/`) on your phone. If setup is complete you'll
-see your board and the message dock. If you land on a card that says *"Almost
-there — connect a project to light the kiln,"* your project isn't saved yet — tap
-**Finish setup on your dashboard** and finish Step 2.
+Open the home screen at [trykiln.dev](https://trykiln.dev) on your phone. If setup
+is complete you'll see your board and the message dock. If you land on a card that
+says *"Almost there — connect a project to light the kiln,"* your project isn't
+saved yet — tap **Finish setup on your dashboard** and finish Step 2.
 
 You're set up. From here on, you drive Kiln by talking to the orchestrator.
 
-### Step 6 — Install Kiln on your iPhone (recommended)
+### Step 5 — Install Kiln on your iPhone (recommended)
 
 Kiln is a web app, but on iPhone you can add it to your Home Screen so it opens
 full-screen like a native app — no Safari address bar, and it's one tap away.
@@ -161,12 +154,30 @@ In **Safari** on your iPhone, with Kiln open:
 *Figure 5 — Installing Kiln on iPhone. Capture: the Safari Share sheet showing the "Add to Home Screen" option, and the confirm screen with "Install as Web App".*
 
 Kiln now appears as an icon on your Home Screen. Open it from there — you'll stay
-signed in, and (once you enabled notifications in Step 4) blockers can reach you
-even when the app isn't open.
+signed in, and (once you turn on notifications in the next step) blockers can reach
+you even when the app isn't open.
 
 > **Note:** This must be done in **Safari** — Chrome and other iOS browsers don't
 > offer "Add to Home Screen." Apple's own walkthrough is here:
 > [Add a website to your Home Screen on iPhone](https://support.apple.com/guide/iphone/bookmark-favorite-webpages-iph42ab2f3a7/ios#iph4f9a47bbc).
+
+### Step 6 — Turn on notifications
+
+Set up notifications **after** you've installed Kiln on your Home Screen (Step 5)
+and opened it from there — on iPhone, push can only reach you from the installed
+app, not from a Safari tab. So save this for last, once Kiln is running from its
+Home Screen icon.
+
+In the header, tap the **bell** icon to open the notification settings dropdown,
+then tap **Enable notifications** and allow the permission prompt when your phone
+asks. Kiln can now reach you when a ticket needs a decision while the app is
+closed. The same dropdown lets you choose *when* to be notified:
+
+- **Blocked** (the default) — a notification only when a ticket needs your decision.
+- **All updates** — a notification on every feed update (handy for testing).
+
+You can change the mode, or turn notifications back off, from the bell dropdown at
+any time.
 
 ---
 

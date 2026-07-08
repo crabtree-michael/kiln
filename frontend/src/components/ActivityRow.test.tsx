@@ -39,7 +39,7 @@ describe('ActivityRow', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const firstWord = KILN_WORDS[0] ?? '';
     render(<ActivityRow thinking={true} toasts={[]} onDismiss={noop} />);
-    expect(screen.getByText(`Kiln is ${firstWord}…`)).toBeInTheDocument();
+    expect(screen.getByText(`${firstWord}…`)).toBeInTheDocument();
     const indicator = document.querySelector('[data-role="thinking-indicator"]');
     expect(indicator).not.toBeNull();
   });

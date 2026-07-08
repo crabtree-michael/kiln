@@ -1,9 +1,9 @@
 // Unit tests for the ticket-list derivation behind the header dropdown (amended
 // 2026-07-06: only working, blocked, and ready tickets — done and shaping are
 // excluded entirely). Active tickets (working/blocked) come first, then the
-// ready backlog, each in decreasing-activity order. Active rows still join their
-// worker's real session status from board.agents by ticket id, falling back to
-// the column default before a status has arrived.
+// ready backlog, each newest-ticket first (by created_at). Active rows still
+// join their worker's real session status from board.agents by ticket id,
+// falling back to the column default before a status has arrived.
 import { describe, expect, it } from 'vitest';
 import { ticketStatuses } from '@/components/feed-format';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
@@ -69,8 +69,8 @@ describe('ticketStatuses', () => {
   });
 
   it('lists working then blocked (active) then the ready backlog, excluding done and shaping', () => {
-    const at = (id: string, state: ReturnType<typeof makeTicket>['state'], updatedAt: string) =>
-      makeTicket({ ...baseFields, id, title: id, body: '', state, priority: 0, updatedAt });
+    const at = (id: string, state: ReturnType<typeof makeTicket>['state'], createdAt: string) =>
+      makeTicket({ ...baseFields, id, title: id, body: '', state, priority: 0, createdAt });
     const board = makeBoard({
       shaping: [at('sh', 'shaping', '2026-07-05T00:00:00Z')],
       ready: [at('rd', 'ready', '2026-07-04T00:00:00Z')],
@@ -79,7 +79,7 @@ describe('ticketStatuses', () => {
       done: [at('dn', 'done', '2026-07-03T00:00:00Z')],
     });
     // working, blocked (active), then ready — done and shaping are dropped
-    // entirely, regardless of raw updated_at recency (which only breaks ties).
+    // entirely, regardless of raw created_at recency (which only breaks ties).
     expect(ticketStatuses(board).map((t) => t.id)).toEqual(['wk', 'bl', 'rd']);
   });
 
@@ -93,8 +93,8 @@ describe('ticketStatuses', () => {
     expect(ticketStatuses(board)).toEqual([]);
   });
 
-  it('orders same-rank tickets by decreasing activity (most-recently-updated first)', () => {
-    const ready = (id: string, updatedAt: string) =>
+  it('orders same-rank tickets newest-ticket first (by created_at)', () => {
+    const ready = (id: string, createdAt: string) =>
       makeTicket({
         ...baseFields,
         id,
@@ -102,7 +102,7 @@ describe('ticketStatuses', () => {
         body: '',
         state: 'ready',
         priority: 0,
-        updatedAt,
+        createdAt,
       });
     const board = makeBoard({
       ready: [

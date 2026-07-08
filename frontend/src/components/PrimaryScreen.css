@@ -1524,6 +1524,34 @@
   color: var(--text-body);
 }
 
+/* Clear (×) button for the typed draft: the standard trailing affordance to wipe
+   a text field in one tap. Pinned to the input overlay's top-right corner and
+   shown only while there is draft text. Smaller and lighter than the flanking
+   controls so it reads as an in-field accent, not a peer button; faint by
+   default, firming on hover. Clearing keeps the user in keyboard mode. */
+[data-role='dock-clear'] {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+[data-role='dock-clear']:hover {
+  color: var(--text-body);
+  border-color: var(--border-strong);
+}
+
 /* Keyboard toggle: the alternate-input entry point (icon-only), parked on the
    right of the controls row in the resting voice state. Same neutral 40px circle
    as the cancel (X) box so it reads as a peer control; justify-self:end pins it to

@@ -84,8 +84,8 @@ export interface TicketStatus {
 /** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
  * (working then blocked) first, then the ready backlog at the bottom. Done and
  * shaping tickets are excluded from the dropdown entirely (see `ticketStatuses`),
- * so their ranks are only placeholders. Within a rank rows sort by decreasing
- * activity (most-recently-updated first). */
+ * so their ranks are only placeholders. Within a rank rows sort newest-ticket
+ * first (by `created_at`), oldest last. */
 const STATE_RANK: Record<Ticket['state'], number> = {
   working: 0,
   blocked: 1,
@@ -114,10 +114,9 @@ function ticketRowStatus(ticket: Ticket, byTicket: Map<string, StreamState>): Ti
 }
 
 /** Break out the header dropdown's per-ticket list: only the working, blocked,
- * and ready tickets, active first then the ready backlog, each in
- * decreasing-activity order (08 §2, amended 2026-07-06). Done and shaping
- * tickets are excluded entirely, not just sorted last. Returns [] before the
- * first board snapshot. */
+ * and ready tickets, active first then the ready backlog, each newest-ticket
+ * first (08 §2, amended 2026-07-06). Done and shaping tickets are excluded
+ * entirely, not just sorted last. Returns [] before the first board snapshot. */
 export function ticketStatuses(board: Board | null): TicketStatus[] {
   if (board === null) {
     return [];
@@ -132,7 +131,7 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       if (rank !== 0) {
         return rank;
       }
-      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     })
     .map((ticket) => ({
       id: ticket.id,

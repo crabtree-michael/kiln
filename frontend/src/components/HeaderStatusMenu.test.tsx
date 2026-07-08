@@ -44,6 +44,58 @@ describe('HeaderStatusMenu', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('counts queued (ready) tickets in the collapsed badge, matching the dropdown', () => {
+    // The badge reflects everything the panel lists — active plus queued — not
+    // just the active stream_count. Here two active + two ready = four, even
+    // though the summary's stream_count only tracks the two active streams.
+    const withQueue = makeBoard({
+      working: [
+        makeTicket({
+          ...baseFields,
+          id: 'w1',
+          title: 'Auth',
+          body: '',
+          state: 'working',
+          priority: 0,
+        }),
+      ],
+      blocked: [
+        makeTicket({
+          ...baseFields,
+          id: 'b1',
+          title: 'Billing',
+          body: '',
+          state: 'blocked',
+          priority: 0,
+        }),
+      ],
+      ready: [
+        makeTicket({
+          ...baseFields,
+          id: 'r1',
+          title: 'Export',
+          body: '',
+          state: 'ready',
+          priority: 0,
+        }),
+        makeTicket({
+          ...baseFields,
+          id: 'r2',
+          title: 'Import',
+          body: '',
+          state: 'ready',
+          priority: 0,
+        }),
+      ],
+    });
+    render(<HeaderStatusMenu summary={makeFeedSummary({ stream_count: 2 })} board={withQueue} />);
+    // Badge counts all four, not the stream_count of two.
+    expect(screen.getByText('4 tickets')).toHaveAttribute('data-role', 'feed-status');
+    // …and it matches the number of rows the dropdown renders.
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getAllByRole('listitem')).toHaveLength(4);
+  });
+
   it('opens on click and lists each ticket broken out per-agent (working first)', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
     fireEvent.click(screen.getByRole('button'));

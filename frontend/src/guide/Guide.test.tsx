@@ -1,4 +1,4 @@
-// Smoke coverage for the onboarding guide page (`/guide`): it renders standalone
+// Smoke coverage for the onboarding guide page (`/onboarding`): it renders standalone
 // (no stores/providers), leads with the guide's title, structures the three
 // parts as headings, renders the credential checklist and board-state tables,
 // and links into the app (dashboard) rather than embedding it.

@@ -1,4 +1,4 @@
-/* Styling for the onboarding guide page (`/guide`). Plain CSS, no framework —
+/* Styling for the onboarding guide page (`/onboarding`). Plain CSS, no framework —
    same discipline as Landing2.css / App.css. Every value reads a Kiln design
    token (src/styles/tokens.css), so light/dark comes for free: the page follows
    the OS theme via resolveTheme (src/theme.ts). Everything is scoped under

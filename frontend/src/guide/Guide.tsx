@@ -1,4 +1,4 @@
-// The onboarding guide as a styled webpage (`/guide`). A standalone, scrolling
+// The onboarding guide as a styled webpage (`/onboarding`). A standalone, scrolling
 // long-form page — the web rendering of docs/onboarding.md. Like the marketing
 // page (Landing2) it is NOT part of the app shell: it holds no state, opens no
 // stream/mic, and mounts no provider. It only reuses the Kiln design tokens

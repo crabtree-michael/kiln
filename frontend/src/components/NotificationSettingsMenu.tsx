@@ -23,6 +23,9 @@ export interface NotificationSettingsMenuProps {
   pushStatus?: WebPushStatus | undefined;
   /** Request OS notification permission + register for push. Optional. */
   onEnablePush?: (() => void) | undefined;
+  /** Turn push back off (unsubscribe this browser). Invoked when the permission
+   * button is clicked while already `enabled`. Optional. */
+  onDisablePush?: (() => void) | undefined;
 }
 
 interface ModeOption {
@@ -38,8 +41,9 @@ const MODE_OPTIONS: ModeOption[] = [
   { value: 'blocked', label: 'Blocked', detail: 'Notify only when a ticket needs you.' },
 ];
 
-// The permission button's label per push state. `default`/`error` invite the
-// action; the terminal states explain why it is unavailable or already done.
+// The permission button's label per push state. `default`/`error` invite
+// enabling and `enabled` invites disabling — so the label names the action a
+// click performs; the other states explain why it is unavailable or pending.
 const PUSH_LABEL: Record<WebPushStatus, string> = {
   checking: 'Checking notifications…',
   unsupported: 'Notifications unavailable',
@@ -47,7 +51,7 @@ const PUSH_LABEL: Record<WebPushStatus, string> = {
   default: 'Enable notifications',
   denied: 'Notifications blocked in browser',
   enabling: 'Enabling…',
-  enabled: 'Notifications enabled',
+  enabled: 'Disable notifications',
   error: 'Retry enabling notifications',
 };
 
@@ -56,6 +60,7 @@ export function NotificationSettingsMenu({
   onSelectMode,
   pushStatus = 'checking',
   onEnablePush,
+  onDisablePush,
 }: NotificationSettingsMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -85,10 +90,12 @@ export function NotificationSettingsMenu({
     };
   }, [open]);
 
-  // The button is actionable only when the user can start or retry the flow;
-  // the terminal/pending states render it disabled as a status line.
-  const canEnablePush =
-    pushStatus === 'default' || pushStatus === 'error' || pushStatus === 'enabled';
+  // The button toggles: `enabled` turns push off, `default`/`error` turn it on.
+  // Its click routes to the matching handler; the other (pending/terminal)
+  // states render it disabled as a status line.
+  const isEnabled = pushStatus === 'enabled';
+  const pushAction = isEnabled ? onDisablePush : onEnablePush;
+  const canTogglePush = isEnabled || pushStatus === 'default' || pushStatus === 'error';
 
   return (
     <div data-role="notify-settings" ref={rootRef}>
@@ -150,9 +157,9 @@ export function NotificationSettingsMenu({
           type="button"
           data-role="notify-settings-permission"
           data-status={pushStatus}
-          disabled={!canEnablePush || onEnablePush === undefined}
+          disabled={!canTogglePush || pushAction === undefined}
           onClick={() => {
-            onEnablePush?.();
+            pushAction?.();
           }}
         >
           {PUSH_LABEL[pushStatus]}

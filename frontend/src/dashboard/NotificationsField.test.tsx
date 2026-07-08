@@ -7,6 +7,7 @@ import { NotificationsField } from '@/dashboard/NotificationsField';
 import type { WebPush, WebPushStatus } from '@/stores/use-web-push';
 
 const enable = vi.fn(() => Promise.resolve());
+const disable = vi.fn(() => Promise.resolve());
 let hookValue: WebPush;
 
 vi.mock('@/stores/use-web-push', () => ({
@@ -14,7 +15,7 @@ vi.mock('@/stores/use-web-push', () => ({
 }));
 
 function setStatus(status: WebPushStatus, error: string | null = null): void {
-  hookValue = { status, error, enable };
+  hookValue = { status, error, enable, disable };
 }
 
 describe('NotificationsField', () => {

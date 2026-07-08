@@ -30,6 +30,9 @@ export interface WebPush {
   error: string | null;
   /** Run the opt-in flow: permission → register SW → subscribe → POST. */
   enable: () => Promise<void>;
+  /** Unsubscribe this browser so pushes stop; drops back to `default`. The
+   * backend keeps the now-dead endpoint until its next send prunes it (404/410). */
+  disable: () => Promise<void>;
 }
 
 function browserSupportsPush(): boolean {
@@ -151,5 +154,28 @@ export function useWebPush(): WebPush {
     }
   }, []);
 
-  return { status, error, enable };
+  const disable = useCallback(async (): Promise<void> => {
+    if (!browserSupportsPush()) {
+      setStatus('unsupported');
+      return;
+    }
+    setError(null);
+    try {
+      const registration = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_URL);
+      const existing = registration ? await registration.pushManager.getSubscription() : null;
+      // unsubscribe() invalidates the endpoint browser-side; the next notify.send
+      // to it 404/410s and the sender prunes it, so no server call is needed here.
+      if (existing !== null) {
+        await existing.unsubscribe();
+      }
+      // Permission stays granted, but with no subscription we're back to 'default'
+      // (supported + configured, not yet subscribed) — the enable affordance.
+      setStatus('default');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disable notifications');
+      setStatus('error');
+    }
+  }, []);
+
+  return { status, error, enable, disable };
 }

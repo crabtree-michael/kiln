@@ -37,7 +37,7 @@ function PrimaryScreenBody(): JSX.Element {
   const { board, refreshBoard, refreshing } = useBoardStore();
   const { thinking, toasts, dismiss } = useActivityStore();
   const { mode: notificationMode, setMode: setNotificationMode } = useNotificationMode();
-  const { status: pushStatus, enable: enablePush } = useWebPush();
+  const { status: pushStatus, enable: enablePush, disable: disablePush } = useWebPush();
 
   const onAccept = useCallback(
     (ticketId: string): void => {
@@ -74,6 +74,9 @@ function PrimaryScreenBody(): JSX.Element {
       pushStatus={pushStatus}
       onEnablePush={() => {
         void enablePush();
+      }}
+      onDisablePush={() => {
+        void disablePush();
       }}
     />
   );

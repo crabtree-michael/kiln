@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -276,6 +277,42 @@ func TestRun_StartTurnExhaustingRetryBudgetBecomesFailed(t *testing.T) {
 	}
 	if row.Attempts < 2 {
 		t.Errorf("exhausting a retry budget implies more than one attempt was recorded, got Attempts=%d", row.Attempts)
+	}
+}
+
+func TestRun_OutOfCreditsFailsTurnWithoutExhaustingBudget(t *testing.T) {
+	store, events, slots, clock := newHarness(testWorkerID)
+	provider := &recordingProvider{Provider: &mock.Provider{OutOfCredits: true}}
+	svc := newService(store, provider, events, slots, clock, nil)
+
+	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "no credits")); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	testutil.Eventually(t, func() bool { return events.count() >= 1 })
+
+	tcs := events.turnCompletedEvents(t)
+	if len(tcs) != 1 {
+		t.Fatalf("want exactly 1 agent.turn_completed event on an out-of-credits turn, got %d", len(tcs))
+	}
+	if !tcs[0].IsError {
+		t.Errorf("an out-of-credits turn must terminate as is_error=true (05 §5), got %+v", tcs[0])
+	}
+	if !strings.Contains(tcs[0].Output, "out of API credits") {
+		t.Errorf("output must tell the user they are out of credits, got %q", tcs[0].Output)
+	}
+
+	// Out of credits is terminal, not transient: the turn fails on the first
+	// rejection rather than burning the 8-attempt retry budget on doomed calls.
+	row, ok := store.get(1)
+	if !ok {
+		t.Fatal("turn row missing after completion")
+	}
+	if row.Attempts != 1 {
+		t.Errorf("out-of-credits must fail without retrying, want Attempts=1, got %d", row.Attempts)
 	}
 }
 

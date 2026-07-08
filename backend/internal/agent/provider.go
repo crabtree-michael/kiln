@@ -33,6 +33,14 @@ type ProviderResolver interface {
 // so errors.Is still matches.
 var ErrConversationLost = errors.New("agent: provider lost the conversation")
 
+// ErrOutOfCredits is the sentinel an adapter returns from any port call the
+// provider rejects because the account's API credits are exhausted — a billing
+// stop, not a transient fault. The machine recognises it and fails the turn
+// immediately instead of burning its retry budget on calls that cannot succeed
+// until the user tops up, and the error-turn output tells the user to replenish
+// (05 §5). Adapters wrap it (fmt.Errorf("…: %w", …)) so errors.Is still matches.
+var ErrOutOfCredits = errors.New("agent: provider credits exhausted")
+
 // WorkerName derives the deterministic provider-side name for a board worker
 // slot under the DEFAULT prefix (05 §4). The name is the whole board↔provider
 // join — no shared registry, adoption is pure list-and-match (05 D5). A project

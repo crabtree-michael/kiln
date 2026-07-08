@@ -21,6 +21,9 @@ var (
 	errProvisioning      = errors.New("mock: provisioning failed")
 	errStartTurnInjected = errors.New("mock: injected StartTurn failure")
 	errUnknownJob        = errors.New("mock: unknown job")
+	// errOutOfCredits wraps the neutral sentinel so a test/e2e can drive the
+	// credits-exhausted fail-fast path (05 §5, §8).
+	errOutOfCredits = fmt.Errorf("mock: %w", agent.ErrOutOfCredits)
 )
 
 // DefaultTurnDelay is the canned turn latency for unscripted messages (05 §8).
@@ -56,6 +59,12 @@ type Provider struct {
 	// FailStartTurns makes StartTurn fail this many times, then succeed; each
 	// failure decrements it.
 	FailStartTurns int
+
+	// OutOfCredits makes StartTurn fail with agent.ErrOutOfCredits, simulating the
+	// provider rejecting a turn because the account's API credits are exhausted
+	// (05 §8): the machine must fail the turn at once, never exhausting its retry
+	// budget.
+	OutOfCredits bool
 
 	// StatusByName overrides a live worker's reported liveness in ListWorkers
 	// (05 §8 test knob); a name with no entry reports RunReady, matching the
@@ -131,6 +140,10 @@ func (p *Provider) StartTurn(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.init()
+
+	if p.OutOfCredits {
+		return agent.TurnRef{}, errOutOfCredits
+	}
 
 	if p.FailStartTurns > 0 {
 		p.FailStartTurns--

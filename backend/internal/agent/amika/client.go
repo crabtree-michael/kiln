@@ -423,7 +423,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) (er
 		}
 	}()
 	if resp.StatusCode >= http.StatusBadRequest {
-		return decodeAPIError(resp)
+		apiErr := decodeAPIError(resp)
+		if isOutOfCredits(apiErr) {
+			// Credits exhausted is terminal for every call, not just this one: map it
+			// to the neutral sentinel so the machine fails the turn now instead of
+			// retrying (05 §5). The *APIError is still wrapped so logs keep the trace.
+			return fmt.Errorf("amika: %s %s: %w: %w", method, path, agent.ErrOutOfCredits, apiErr)
+		}
+		return apiErr
 	}
 	if out == nil {
 		return nil
@@ -493,6 +500,28 @@ func isConversationLost(err error) bool {
 	switch apiErr.Status {
 	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict:
 		return strings.Contains(strings.ToLower(apiErr.Code+" "+apiErr.Message), "session")
+	}
+	return false
+}
+
+// isOutOfCredits reports whether err is an Amika rejection for exhausted account
+// credits — a 402 Payment Required, or any envelope whose code/message names a
+// credit/quota/billing stop. Maps to agent.ErrOutOfCredits (05 §5). A hardening
+// point: v0beta1 documents no per-error codes, so this matches defensively on the
+// status and known billing vocabulary — tighten once the real envelope is known.
+func isOutOfCredits(err error) bool {
+	apiErr := new(APIError)
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.Status == http.StatusPaymentRequired {
+		return true
+	}
+	hay := strings.ToLower(apiErr.Code + " " + apiErr.Message)
+	for _, kw := range []string{"credit", "quota", "insufficient", "balance", "billing"} {
+		if strings.Contains(hay, kw) {
+			return true
+		}
 	}
 	return false
 }

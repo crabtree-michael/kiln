@@ -401,8 +401,8 @@ export function PrimaryScreenView({
           onClose={() => {
             setOpenTicketId(null);
           }}
-          // Accept is a proposal action; TicketDetail itself suppresses it for
-          // done/blocked, so it's safe to always wire — the sheet decides.
+          // Accept is a proposal action; TicketDetail only surfaces it while the
+          // ticket is still shaping, so it's safe to always wire — the sheet decides.
           onAccept={(ticketId) => {
             onAccept(ticketId);
             setOpenTicketId(null);

@@ -1143,23 +1143,31 @@
   display: flex;
   align-items: center;
   gap: 9px;
+  /* Padding + full rounding give the container's glow room to sit as a soft halo
+     and let the outline ring hug a pill, echoing the listening mic orb. */
+  padding: 5px 13px;
+  border-radius: var(--radius-pill);
+  /* The warm ember lives on the container now — a soft, wide-blur box-shadow halo
+     plus a thin outline ring — rather than hugging the text. Mirrors the listening
+     mic ring's motion language; the large blur keeps it a diffuse glow, not a flash. */
+  animation: kiln-thinking-glow 2.2s ease-in-out infinite;
 }
 
 /* The "Kiln is thinking" tell reads as a live ember rather than a mechanical
-   spinner: the text sits in a calm muted grey and a warm red glow breathes and
-   flickers around it, matching the mic-listening ring and the building-dot pulse
-   (the app's on-brand motion language). Two loops of different, coprime-ish
-   durations run at once — a slow glow breathe and a faster brightness flicker —
-   so their beat never lines up cleanly and the flame never repeats the same way
-   twice. */
+   spinner: the text sits in a calm muted grey while a warm red glow breathes on
+   the surrounding container (see thinking-indicator), matching the mic-listening
+   ring and the building-dot pulse (the app's on-brand motion language). Two loops
+   of different, coprime-ish durations run at once — a slow container-glow breathe
+   and a faster brightness flicker on the text — so their beat never lines up
+   cleanly and the flame never repeats the same way twice. */
 [data-role='thinking-text'] {
   font-size: 12.5px;
   font-weight: 500;
-  /* Muted grey text; the life comes from the red glow pulsing around it. */
+  /* Muted grey text; the life comes from the red glow pulsing on the container. */
   color: var(--text-muted);
-  animation:
-    kiln-thinking-glow 2.2s ease-in-out infinite,
-    kiln-thinking-flicker 1.5s ease-in-out infinite;
+  /* Only the subtle brightness/opacity flicker rides the text now; the glow moved
+     to the container above so it reads as a soft halo instead of harsh on-text light. */
+  animation: kiln-thinking-flicker 1.5s ease-in-out infinite;
 }
 
 [data-role='toast-pill'] {
@@ -1693,17 +1701,22 @@
    box-shadow idea as the mic-listening ring, warmed toward ember. */
 /* Thinking glow: a red halo (accent/fire red) breathes around the text via
    text-shadow, so the words themselves pulse rather than a separate orb. */
+/* Container glow: a thin outline ring plus a soft, wide-blur halo that breathes,
+   echoing the listening mic ring (kiln-mic-glow) so the two states share one motion
+   language. The ring stays constant (a steady outline); only the halo's blur breathes,
+   and its radii are far larger than the old on-text shadow so the light stays diffuse
+   and soft rather than a harsh flash. */
 @keyframes kiln-thinking-glow {
   0%,
   100% {
-    text-shadow:
-      0 0 4px var(--accent-soft),
-      0 0 9px var(--accent);
+    box-shadow:
+      0 0 0 1px var(--accent-soft),
+      0 0 16px 3px var(--accent-soft);
   }
   50% {
-    text-shadow:
-      0 0 7px var(--accent-soft),
-      0 0 15px var(--accent);
+    box-shadow:
+      0 0 0 1px var(--accent-soft),
+      0 0 26px 6px var(--accent-soft);
   }
 }
 
@@ -1750,13 +1763,17 @@
   }
 
   /* Reduced motion: no breathe and no flicker — but keep a static warm red glow
-     around the text so the "thinking" state stays legible, mirroring how the
-     listening ring and building dot degrade. */
+     (outline ring + soft halo) on the container so the "thinking" state stays
+     legible, mirroring how the listening ring and building dot degrade. */
   [data-role='thinking-text'] {
     animation: none;
-    text-shadow:
-      0 0 4px var(--accent-soft),
-      0 0 9px var(--accent);
+  }
+
+  [data-role='thinking-indicator'] {
+    animation: none;
+    box-shadow:
+      0 0 0 1px var(--accent-soft),
+      0 0 16px 3px var(--accent-soft);
   }
 
   /* Reduced motion: drop the breathing pulse for motion-sensitive users, but keep

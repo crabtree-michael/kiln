@@ -1,7 +1,7 @@
 # Design: mechanical push-gate on ticket Done
 
 **Date:** 2026-07-08
-**Status:** proposed
+**Status:** implemented (worktree-brain-done-push-gate, 2026-07-08)
 **Scope:** `internal/brain`, `internal/repo` (backend only). No wire-schema change, no DB migration.
 
 ## Problem

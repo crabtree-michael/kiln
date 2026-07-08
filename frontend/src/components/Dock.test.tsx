@@ -318,6 +318,21 @@ describe('Dock', () => {
       expect(submitText).not.toHaveBeenCalled();
     });
 
+    it('offers the clear (×) only once there is draft text, and wipes the field on tap', () => {
+      mockVoiceValue = stubVoice({ keyboardMode: true });
+      render(<Dock />);
+      const field = screen.getByRole('textbox', { name: 'Message' });
+      // Nothing typed yet — no clear affordance.
+      expect(screen.queryByRole('button', { name: 'Clear text' })).toBeNull();
+      fireEvent.change(field, { target: { value: 'scratch this' } });
+      const clear = screen.getByRole('button', { name: 'Clear text' });
+      fireEvent.click(clear);
+      // The field is emptied and the button retires with the text it cleared;
+      // clearing does not send or leave keyboard mode.
+      expect(field).toHaveValue('');
+      expect(screen.queryByRole('button', { name: 'Clear text' })).toBeNull();
+    });
+
     it('leaves keyboard mode and turns the mic back on via the voice button', () => {
       const closeKeyboard = vi.fn();
       const resume = vi.fn();

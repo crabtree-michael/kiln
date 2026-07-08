@@ -12,6 +12,16 @@ const (
 	DefaultInterval = time.Minute
 )
 
+// Backoff bounds for retrying a poke whose delivery to the agent failed. A
+// delivery failure leaves nothing recorded, so without a cooldown the next
+// sweep would re-attempt immediately and keep hammering a transiently unhealthy
+// agent/board every interval. Instead the retry delay grows geometrically from
+// BackoffBase, doubling per consecutive failure up to BackoffCap.
+const (
+	DefaultBackoffBase = time.Minute
+	DefaultBackoffCap  = 15 * time.Minute
+)
+
 // Config parameterizes the sweep. Zero values fall back to the defaults, so the
 // composition root can pass an unset (env-absent) value through untouched.
 type Config struct {
@@ -20,6 +30,11 @@ type Config struct {
 	Stall time.Duration
 	// Interval is the delay between sweeps.
 	Interval time.Duration
+	// BackoffBase is the cooldown after the first failed poke delivery; it
+	// doubles per consecutive failure, capped at BackoffCap.
+	BackoffBase time.Duration
+	// BackoffCap is the ceiling on the poke-retry cooldown.
+	BackoffCap time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -28,6 +43,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Interval <= 0 {
 		c.Interval = DefaultInterval
+	}
+	if c.BackoffBase <= 0 {
+		c.BackoffBase = DefaultBackoffBase
+	}
+	if c.BackoffCap <= 0 {
+		c.BackoffCap = DefaultBackoffCap
+	}
+	if c.BackoffCap < c.BackoffBase {
+		c.BackoffCap = c.BackoffBase
 	}
 	return c
 }

@@ -204,7 +204,7 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
       <p
         data-role="dashboard-footnote"
       >
-        Open kiln on your phone at this URL — the app itself doesn't need sign-in yet.
+        Open kiln on your phone at trykiln.dev — the app itself doesn't need sign-in yet.
       </p>
     </div>
   </div>

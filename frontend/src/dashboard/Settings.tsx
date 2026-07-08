@@ -69,7 +69,7 @@ export function Settings(): JSX.Element {
       ) : null}
 
       <p data-role="dashboard-footnote">
-        Open kiln on your phone at this URL — the app itself doesn&apos;t need sign-in yet.
+        Open kiln on your phone at trykiln.dev — the app itself doesn&apos;t need sign-in yet.
       </p>
     </div>
   );

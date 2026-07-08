@@ -208,7 +208,9 @@ describe('TicketDetail', () => {
     it('shows a "blocked" status indicator (with the reason below), not a "done" one', () => {
       render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} />);
       const dialog = screen.getByRole('dialog');
-      const status = within(dialog).getByText('Blocked').closest('[data-role="ticket-detail-status"]');
+      const status = within(dialog)
+        .getByText('Blocked')
+        .closest('[data-role="ticket-detail-status"]');
       expect(status).not.toBeNull();
       expect(status).toHaveAttribute('data-state', 'blocked');
       expect(within(dialog).queryByText('Done')).toBeNull();

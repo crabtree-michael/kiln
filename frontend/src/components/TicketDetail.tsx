@@ -24,8 +24,16 @@ export interface TicketDetailProps {
   onClose: () => void;
   /** When provided, the detail is a proposal reached via click-through and shows
    * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
-   * the overlay stays strictly read-only (the debug board's inspection use, D5). */
+   * the overlay stays strictly read-only (the debug board's inspection use, D5).
+   * Accept is suppressed for done/blocked tickets regardless: a completed ticket
+   * has nothing to accept, and a blocked one needs a conversation, not a nod. */
   onAccept?: (ticketId: string) => void;
+  /** When provided on a *blocked* ticket, the Accept action is replaced by a Talk
+   * button — the blocked work can't be accepted, only discussed. Tapping it hands
+   * off to the voice pipeline so the user can tell the brain how to unblock (the
+   * caller closes the sheet and turns the mic on). Omitted → no Talk affordance
+   * (the debug board's read-only inspection, and non-blocked states). */
+  onTalk?: () => void;
   /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
    * default: the main app view shows only the title and description. The /debug
    * board opts in to inspect a ticket's full record (D5). */
@@ -56,9 +64,22 @@ export function TicketDetail({
   ticket,
   onClose,
   onAccept,
+  onTalk,
   showInternalMeta = false,
   surface = 'debug',
 }: TicketDetailProps): JSX.Element {
+  // Which affordance the sheet's footer carries is decided purely by lifecycle
+  // state, so the caller can't wire a nonsensical one:
+  //  • done    → no action at all; the header dot already says "done" and there
+  //              is nothing left to accept or discuss.
+  //  • blocked → Talk (when wired): the work can't be accepted, only unblocked
+  //              through a conversation with the brain.
+  //  • else    → Accept (when wired): the proposal click-through (08 §5).
+  // The two footer branches below narrow on the callbacks directly (not derived
+  // booleans) so TypeScript knows they're defined inside the handler — no
+  // optional chain, which the lint gate rejects (mirrors FeedCardItem).
+  const isDone = ticket.state === 'done';
+  const isBlocked = ticket.state === 'blocked';
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -96,6 +117,15 @@ export function TicketDetail({
 
           <header data-role="ticket-detail-header">
             <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
+            {/* A completed ticket wears its status as a dot in the top right — the
+                clear at-a-glance signal that the work is finished, standing in for
+                the Accept the card no longer offers. */}
+            {isDone && (
+              <span data-role="ticket-detail-status" data-state="done">
+                <span data-role="ticket-detail-status-dot" aria-hidden="true" />
+                Done
+              </span>
+            )}
             <button
               type="button"
               data-role="ticket-detail-close"
@@ -125,7 +155,36 @@ export function TicketDetail({
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{ticket.body}</ReactMarkdown>
           </div>
 
-          {onAccept !== undefined && (
+          {isBlocked && onTalk !== undefined && (
+            <div data-role="ticket-detail-actions">
+              <button
+                type="button"
+                data-role="detail-talk"
+                onClick={() => {
+                  onTalk();
+                }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0" />
+                  <path d="M12 18v3" />
+                </svg>
+                Talk to unblock
+              </button>
+            </div>
+          )}
+
+          {!isDone && !isBlocked && onAccept !== undefined && (
             <div data-role="ticket-detail-actions">
               <button
                 type="button"

@@ -24,6 +24,7 @@ import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { streamDetail } from '@/components/feed-format';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { useVoice } from '@/voice/voice-context';
 import '@/components/PrimaryScreen.css';
 
 const EMPTY_SUMMARY: FeedSummary = {
@@ -206,6 +207,11 @@ export function PrimaryScreenView({
   // service worker. The id resolves against the board below like any other open.
   useDeepLinkTicket(setOpenTicketId);
   const openTicket = findTicket(board, openTicketId);
+  // The mic control, shared with the dock. A blocked ticket's detail hands off
+  // to it: tapping Talk closes the sheet (so the single dock voice surface is no
+  // longer covered) and turns the mic on, dropping the user straight into a
+  // spoken exchange with the brain about how to unblock the work.
+  const { resume } = useVoice();
 
   return (
     <div data-role="primary-screen" data-connection-state={connectionState}>
@@ -359,9 +365,17 @@ export function PrimaryScreenView({
           onClose={() => {
             setOpenTicketId(null);
           }}
+          // Accept is a proposal action; TicketDetail itself suppresses it for
+          // done/blocked, so it's safe to always wire — the sheet decides.
           onAccept={(ticketId) => {
             onAccept(ticketId);
             setOpenTicketId(null);
+          }}
+          // Talk only surfaces on a blocked ticket (TicketDetail gates it):
+          // close the sheet to uncover the dock and open the mic for unblocking.
+          onTalk={() => {
+            setOpenTicketId(null);
+            resume();
           }}
         />
       )}

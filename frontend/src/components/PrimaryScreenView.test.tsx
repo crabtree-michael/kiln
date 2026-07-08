@@ -25,20 +25,26 @@ vi.mock('@/transport/transport', async (importOriginal) => {
   return { ...actual, acceptTicket: vi.fn() };
 });
 
-// The dock is a live voice-store consumer (09). These presentational tests
-// render `PrimaryScreenView` directly (no `VoiceProvider`), so `useVoice` is
-// mocked to a static resting state — deterministic, and no mic/socket I/O. The
-// dock's own state rendering is covered by Dock.test.tsx / Dock.snapshot.test.tsx.
+// The dock is a live voice-store consumer (09), and the screen itself now reads
+// `resume` off the voice store to hand a blocked ticket's Talk button off to the
+// mic. These presentational tests render `PrimaryScreenView` directly (no
+// `VoiceProvider`), so `useVoice` is mocked to a static resting state —
+// deterministic, and no mic/socket I/O. `resume` is a hoisted spy shared across
+// renders so the Talk hand-off can be asserted. The dock's own state rendering
+// is covered by Dock.test.tsx / Dock.snapshot.test.tsx.
+const { voiceResume } = vi.hoisted(() => ({ voiceResume: vi.fn() }));
+
 vi.mock('@/voice/voice-context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/voice/voice-context')>();
   return {
     ...actual,
     useVoice: () => ({
       micState: 'listening' as const,
+      connecting: false,
       settledText: '',
       tailText: '',
       pause: vi.fn(),
-      resume: vi.fn(),
+      resume: voiceResume,
       cancel: vi.fn(),
       sendNow: vi.fn(),
       getLevel: vi.fn(() => 0),
@@ -115,9 +121,13 @@ function renderView(feed: ViewProps['feed'], extra: Partial<ViewProps> = {}) {
 describe('PrimaryScreenView', () => {
   beforeEach(() => {
     vi.mocked(acceptTicket).mockReset();
+    voiceResume.mockReset();
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    // A deep-link test may have set ?ticket=; reset so it doesn't leak into the
+    // next test (which would open an unexpected sheet on mount).
+    window.history.replaceState(null, '', '/');
   });
 
   it('exposes the Feed region as the SSE-live gate with the connection state', () => {
@@ -522,6 +532,66 @@ describe('PrimaryScreenView', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept' }));
     expect(onAccept).toHaveBeenCalledWith('t-login');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  describe('ticket detail affordances by state (deep-linked open)', () => {
+    // A push-notification tap deep-links a ticket open by id (02 §10). Unlike a
+    // proposal click-through (always Shaping), this opens whatever state the
+    // ticket is now in — including the blocked/done tickets a notification points
+    // at. Simulate the cold-open path by seeding the ?ticket= query before render.
+    const openDeepLink = (id: string): void => {
+      window.history.replaceState(null, '', `/?ticket=${id}`);
+    };
+
+    it('opens a blocked ticket with a Talk button (no Accept) and hands off to the mic on tap', () => {
+      const blocked = makeTicket({
+        id: 't-stuck',
+        title: 'Stuck ticket',
+        body: 'body',
+        state: 'blocked',
+        priority: 1,
+        createdAt: minutesAgo(30),
+        updatedAt: minutesAgo(5),
+        blockedReason: 'Needs a decision on the auth scheme.',
+      });
+      openDeepLink('t-stuck');
+      renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [] }), {
+        board: makeBoard({ blocked: [blocked] }),
+      });
+
+      const dialog = screen.getByRole('dialog', { name: 'Stuck ticket' });
+      // A blocked ticket is discussed, not accepted.
+      expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+      const talk = within(dialog).getByRole('button', { name: 'Talk to unblock' });
+
+      fireEvent.click(talk);
+      // Talk closes the sheet (uncovering the dock) and turns the mic on.
+      expect(voiceResume).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('opens a done ticket with a "done" status indicator and no Accept', () => {
+      const done = makeTicket({
+        id: 't-shipped',
+        title: 'Shipped ticket',
+        body: 'body',
+        state: 'done',
+        priority: 1,
+        createdAt: minutesAgo(120),
+        updatedAt: minutesAgo(10),
+      });
+      openDeepLink('t-shipped');
+      renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [] }), {
+        board: makeBoard({ done: [done] }),
+      });
+
+      const dialog = screen.getByRole('dialog', { name: 'Shipped ticket' });
+      const status = within(dialog).getByText('Done').closest('[data-role="ticket-detail-status"]');
+      expect(status).toHaveAttribute('data-state', 'done');
+      // Completed work has nothing to accept, and no Talk either.
+      expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+      expect(within(dialog).queryByRole('button', { name: 'Talk to unblock' })).toBeNull();
+    });
   });
 
   it('leaves the body non-interactive (no toggle, no cue) when it fits within the clamp', () => {

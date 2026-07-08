@@ -121,4 +121,69 @@ describe('TicketDetail', () => {
 
     expect(onAccept).toHaveBeenCalledWith('t-42');
   });
+
+  describe('done ticket', () => {
+    const done = makeTicket({
+      id: 't-done',
+      title: 'Shipped thing',
+      body: 'body',
+      state: 'done',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-02T00:00:00Z',
+    });
+
+    it('shows a "done" status indicator in the header', () => {
+      render(<TicketDetail ticket={done} onClose={vi.fn()} />);
+      const dialog = screen.getByRole('dialog');
+      const status = within(dialog).getByText('Done').closest('[data-role="ticket-detail-status"]');
+      expect(status).not.toBeNull();
+      expect(status).toHaveAttribute('data-state', 'done');
+      // The clear dot is part of the indicator.
+      expect(status?.querySelector('[data-role="ticket-detail-status-dot"]')).not.toBeNull();
+    });
+
+    it('never offers Accept — completed work has nothing to accept, even if onAccept is wired', () => {
+      render(<TicketDetail ticket={done} onClose={vi.fn()} onAccept={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+    });
+  });
+
+  describe('blocked ticket', () => {
+    const blocked = makeTicket({
+      id: 't-blocked',
+      title: 'Stuck thing',
+      body: 'body',
+      state: 'blocked',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-02T00:00:00Z',
+      blockedReason: 'Needs a decision on the auth scheme.',
+    });
+
+    it('offers Talk (not Accept) when onTalk is wired, and fires it on tap', () => {
+      const onTalk = vi.fn();
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={onTalk} />);
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Talk to unblock' }));
+      expect(onTalk).toHaveBeenCalledTimes(1);
+    });
+
+    it('never offers Accept even when onAccept is wired — a block is discussed, not accepted', () => {
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onAccept={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+    });
+
+    it('shows no action when neither onTalk nor onAccept is wired (read-only inspection)', () => {
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Talk to unblock' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+    });
+
+    it('shows no "done" status indicator', () => {
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} />);
+      expect(document.querySelector('[data-role="ticket-detail-status"]')).toBeNull();
+    });
+  });
 });

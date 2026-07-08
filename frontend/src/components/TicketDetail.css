@@ -71,6 +71,31 @@
   font-size: 1.05rem;
 }
 
+/* Done status pill — a dot + label pinned in the header's top right on a
+ * completed ticket, the at-a-glance "this is finished" signal that stands in for
+ * the Accept a done ticket no longer offers. The glaze/calm token reads as
+ * all-clear, distinct from the fire the blocked state wears. */
+[data-role='ticket-detail-status'] {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--calm-strong);
+}
+
+[data-role='ticket-detail-status-dot'] {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--calm);
+  box-shadow: var(--shadow-card);
+}
+
 [data-role='ticket-detail-close'] {
   flex: 0 0 auto;
   width: 1.9rem;
@@ -238,6 +263,29 @@
   transform: translateY(1px);
 }
 
+/* Talk action — the blocked ticket's stand-in for Accept (a blocked ticket
+ * can't be accepted, only discussed). Same pill geometry as Accept so the footer
+ * reads consistently, with a mic glyph marking it as the voice hand-off. */
+[data-role='detail-talk'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0.55rem 1.4rem;
+  cursor: pointer;
+}
+
+[data-role='detail-talk']:active {
+  transform: translateY(1px);
+}
+
 /* ---------------------------------------------------------------------------
  * Primary-screen skin (08 §5). The base rules above dress the sheet for the
  * /debug board's denser register; on the primary screen we repaint it in the
@@ -337,6 +385,26 @@
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept']:active {
+  background: var(--accent-press);
+  transform: translateY(1px);
+}
+
+/* Talk wears the same primary-surface skin as Accept — same pill, same fire —
+ * so the blocked ticket's action reads as a first-class Kiln control. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk'] {
+  font-size: 13px;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  padding: 9px 18px;
+  box-shadow: var(--shadow-raised);
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk']:hover {
+  background: var(--accent-hover);
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk']:active {
   background: var(--accent-press);
   transform: translateY(1px);
 }

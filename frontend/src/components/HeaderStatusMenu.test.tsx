@@ -200,4 +200,43 @@ describe('HeaderStatusMenu', () => {
     expect(screen.queryByText('Loading tickets…')).not.toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
   });
+
+  it('makes each row select its ticket (and dismiss the menu) when onSelectTicket is wired', () => {
+    const onSelectTicket = vi.fn();
+    render(
+      <HeaderStatusMenu summary={summary} board={board} onSelectTicket={onSelectTicket} />,
+    );
+    const trigger = screen.getByRole('button', { name: /3 tickets/i });
+    fireEvent.click(trigger);
+
+    // With a select handler the rows become buttons; the first is w1 (Auth).
+    const row = screen.getByRole('button', { name: 'Open ticket: Auth' });
+    fireEvent.click(row);
+    expect(onSelectTicket).toHaveBeenCalledWith('w1');
+    // Selecting a ticket closes the dropdown so the detail overlay is unobscured.
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('selects the ticket on Enter/Space so rows are keyboard-actionable', () => {
+    const onSelectTicket = vi.fn();
+    render(
+      <HeaderStatusMenu summary={summary} board={board} onSelectTicket={onSelectTicket} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /3 tickets/i }));
+
+    const row = screen.getByRole('button', { name: 'Open ticket: Billing' });
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(onSelectTicket).toHaveBeenNthCalledWith(1, 'b1');
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onSelectTicket).toHaveBeenNthCalledWith(2, 'b1');
+  });
+
+  it('leaves rows presentational (non-interactive) when onSelectTicket is omitted', () => {
+    render(<HeaderStatusMenu summary={summary} board={board} />);
+    fireEvent.click(screen.getByRole('button'));
+    // Without a handler the rows stay plain list items — no button role, no
+    // interactive affordance — so purely presentational renders are unchanged.
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: /^Open ticket:/ })).not.toBeInTheDocument();
+  });
 });

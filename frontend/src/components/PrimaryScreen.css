@@ -501,6 +501,18 @@
   margin-top: 2px;
 }
 
+/* Rows are clickable only when wired to open the detail sheet (onSelectTicket);
+   give those the button affordance without disturbing the presentational rows. */
+[data-role='header-status-row'][data-interactive='true'] {
+  cursor: pointer;
+}
+
+[data-role='header-status-row'][data-interactive='true']:hover,
+[data-role='header-status-row'][data-interactive='true']:focus-visible {
+  background: var(--surface-card);
+  outline: none;
+}
+
 [data-role='header-status-dot'] {
   width: 7px;
   height: 7px;

@@ -265,6 +265,10 @@ export function PrimaryScreenView({
             board={board}
             onOpen={onOpenTickets}
             refreshing={ticketsRefreshing}
+            // Selecting a ticket from the dropdown drives the same detail
+            // overlay as a proposal card / deep link (08 §5): the id resolves
+            // against the live board below into the TicketDetail sheet.
+            onSelectTicket={setOpenTicketId}
           />
         </div>
       </header>

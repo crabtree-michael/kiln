@@ -4,7 +4,7 @@
 // rest in decreasing-activity order with backlog at the bottom. Presentational:
 // the board comes in as a prop (PrimaryScreen bridges the board store),
 // open/close is local UI state. The panel stays mounted so it animates both ways.
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type HTMLAttributes, type JSX } from 'react';
 import type { Board, FeedSummary } from '@/transport/transport';
 import { feedStatus, relativeAge, ticketStatuses } from '@/components/feed-format';
 
@@ -19,6 +19,12 @@ export interface HeaderStatusMenuProps {
    * panel renders a loading indicator instead of "No tickets", so a genuinely
    * empty board reads differently from one still loading. */
   refreshing?: boolean;
+  /** Open a ticket's detail sheet by id. When supplied, each row becomes
+   * clickable (and keyboard-actionable) and selecting one dismisses the menu;
+   * the parent resolves the id against the live board to drive the existing
+   * TicketDetail overlay. Optional so presentational tests can omit it — the
+   * rows then stay purely presentational, as before. */
+  onSelectTicket?: ((ticketId: string) => void) | undefined;
 }
 
 export function HeaderStatusMenu({
@@ -26,6 +32,7 @@ export function HeaderStatusMenu({
   board,
   onOpen,
   refreshing = false,
+  onSelectTicket,
 }: HeaderStatusMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -92,16 +99,50 @@ export function HeaderStatusMenu({
           <div data-role="header-status-empty">No tickets</div>
         ) : (
           <ul data-role="header-status-list">
-            {tickets.map((ticket) => (
-              <li key={ticket.id} data-role="header-status-row" data-status={ticket.status}>
-                <span data-role="header-status-dot" aria-hidden="true" />
-                <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
-                <span data-role="header-status-age">{relativeAge(ticket.statusSince)}</span>
-                {ticket.reason !== null && (
-                  <span data-role="header-status-reason">{ticket.reason}</span>
-                )}
-              </li>
-            ))}
+            {tickets.map((ticket) => {
+              // Narrow on `onSelectTicket` directly (not a derived boolean) so
+              // TypeScript knows it is defined inside the handlers — the lint
+              // gate rejects the optional chain as unnecessary (mirrors
+              // TicketCard's onSelect).
+              const select =
+                onSelectTicket === undefined
+                  ? undefined
+                  : () => {
+                      onSelectTicket(ticket.id);
+                      setOpen(false);
+                    };
+              const interactiveProps: HTMLAttributes<HTMLLIElement> =
+                select === undefined
+                  ? {}
+                  : {
+                      role: 'button',
+                      tabIndex: 0,
+                      'aria-label': `Open ticket: ${ticket.label || 'Untitled ticket'}`,
+                      onClick: select,
+                      onKeyDown: (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          select();
+                        }
+                      },
+                    };
+              return (
+                <li
+                  key={ticket.id}
+                  data-role="header-status-row"
+                  data-status={ticket.status}
+                  data-interactive={select !== undefined ? 'true' : undefined}
+                  {...interactiveProps}
+                >
+                  <span data-role="header-status-dot" aria-hidden="true" />
+                  <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
+                  <span data-role="header-status-age">{relativeAge(ticket.statusSince)}</span>
+                  {ticket.reason !== null && (
+                    <span data-role="header-status-reason">{ticket.reason}</span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

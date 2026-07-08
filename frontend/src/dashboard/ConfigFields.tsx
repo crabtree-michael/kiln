@@ -254,7 +254,12 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
           }}
         />
       </label>
-      <label>
+      {/* The brain model is fixed via the KILN_BRAIN_MODEL environment variable
+          (defaulting to Claude Haiku), so this control is hidden for now (remove
+          `hidden` to restore it). The state + submit wiring are kept intact; with
+          the input blank no `brain_model` is sent and the backend falls back to
+          the env var / default. */}
+      <label hidden>
         Brain model
         <input
           type="text"

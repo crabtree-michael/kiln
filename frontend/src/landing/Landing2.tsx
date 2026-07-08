@@ -1,7 +1,7 @@
-// Marketing landing page variant (`/landing-2`). A standalone, scrolling page
-// that positions Kiln as a coding agent orchestrator you can run from anywhere
-// you are — phone, desk, or on the move, by voice or by tap. Like `/landing`
-// it is NOT part of the app shell: it holds no state, opens no stream/mic, and
+// Marketing landing page (`/landing`, also served at the `/landing-2` alias). A
+// standalone, scrolling page that positions Kiln as a coding agent orchestrator
+// you can run from anywhere you are — phone, desk, or on the move, by voice or
+// by tap. It is NOT part of the app shell: it holds no state, opens no stream/mic, and
 // mounts no provider. It only reuses the Kiln design tokens
 // (src/styles/tokens.css) for its chrome, so light/dark comes for free and the
 // page follows the OS theme via resolveTheme (src/theme.ts), exactly like `/`.
@@ -166,7 +166,7 @@ export function Landing2(): JSX.Element {
     <div className="kiln-landing-2">
       <header className="kiln-nav">
         <div className="kiln-nav__inner">
-          <Link to="/landing-2" className="kiln-nav__brand" aria-label="Kiln home">
+          <Link to="/landing" className="kiln-nav__brand" aria-label="Kiln home">
             <KilnGlyph size={28} />
             <span className="kiln-nav__wordmark">Kiln</span>
           </Link>
@@ -196,10 +196,7 @@ export function Landing2(): JSX.Element {
             </p>
             <div className="kiln-hero__actions">
               <BetaSignupForm cta="Join the beta" />
-              <a
-                href="#anywhere"
-                className="kiln-btn kiln-btn--ghost kiln-btn--lg kiln-hero__secondary"
-              >
+              <a href="#how" className="kiln-btn kiln-btn--ghost kiln-btn--lg kiln-hero__secondary">
                 See it anywhere
               </a>
             </div>

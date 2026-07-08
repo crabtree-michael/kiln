@@ -19,7 +19,6 @@ import {
 import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
-import { Landing } from '@/landing/Landing';
 import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
 import { Dashboard } from '@/dashboard/Dashboard';
@@ -83,8 +82,9 @@ if (root === null) {
 // providers (which immediately open SSE + fetch board/feed). `/dashboard`
 // keeps its own existing gate. `/landing` is the standalone marketing page — a
 // stateless, scrolling page reusing the design system and real presentational
-// components; `/beta/thanks` is the confirmation page the beta-signup form
-// redirects to. Both stay public (no session gate).
+// components; `/landing-2` is kept as an alias for the same page. `/beta/thanks`
+// is the confirmation page the beta-signup form redirects to. All stay public
+// (no session gate).
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
@@ -101,7 +101,7 @@ createRoot(root).render(
               </SessionProvider>
             }
           />
-          <Route path="/landing" element={<Landing />} />
+          <Route path="/landing" element={<Landing2 />} />
           <Route path="/landing-2" element={<Landing2 />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />

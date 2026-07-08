@@ -1,45 +1,51 @@
-// Smoke coverage for the marketing landing page: it renders standalone (no
-// stores/providers), states the product, funnels every CTA to the beta-signup
-// form (nothing links into the app), and embeds the captured app screenshots
-// (frontend/public/shots) as themed <picture>/<img>.
+// Smoke coverage for the marketing landing page (`/landing`): it renders
+// standalone (no stores/providers), states the product, funnels its beta CTAs to
+// the beta-signup form / #beta anchor (nothing links into the app), points the
+// hero "See it anywhere" CTA at the How It Works (#how) section, and embeds the
+// captured app screenshots (frontend/public/shots) as themed <picture>/<img>.
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { Landing } from '@/landing/Landing';
+import { Landing2 } from '@/landing/Landing2';
 
 function renderLanding(): void {
   render(
     <MemoryRouter>
-      <Landing />
+      <Landing2 />
     </MemoryRouter>,
   );
 }
 
-describe('Landing', () => {
+describe('Landing2', () => {
   it('states the product and collects beta emails', () => {
     renderLanding();
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Manage them by voice');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('from anywhere you are');
 
-    // The signup form replaces the old "Open the app" CTA (hero + closing banner).
+    // The signup form (hero + closing banner) is the sole conversion surface.
     expect(screen.getAllByLabelText('Email address').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /notify me/i })).toBeInTheDocument();
   });
 
-  it('funnels every CTA to the signup form and links nowhere into the app', () => {
+  it('funnels beta CTAs to #beta and links nowhere into the app', () => {
     renderLanding();
 
-    // Nav / voice / footer CTAs all point at the #beta anchor, not the app ("/").
+    // Nav / voice / footer "Join the beta" CTAs all point at #beta, not the app ("/").
     const betaLinks = screen.getAllByRole('link', { name: /join the beta/i });
     expect(betaLinks.length).toBeGreaterThan(0);
     for (const link of betaLinks) {
       expect(link).toHaveAttribute('href', '#beta');
     }
-    // No CTA still promises to open the app.
+    // No CTA promises to open the app.
     expect(screen.queryByRole('link', { name: /open the app/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /start talking/i })).not.toBeInTheDocument();
   });
 
-  it('shows the captured app screenshots (feed, board, proposal, dock)', () => {
+  it('routes the hero "See it anywhere" CTA to the How It Works section', () => {
+    renderLanding();
+
+    expect(screen.getByRole('link', { name: /see it anywhere/i })).toHaveAttribute('href', '#how');
+  });
+
+  it('shows the captured app screenshots (feed, board, dock)', () => {
     renderLanding();
 
     // The board shot ships a single dark capture; the rest are theme-swapped via
@@ -51,10 +57,6 @@ describe('Landing', () => {
     expect(feed.length).toBeGreaterThan(0);
     expect(feed[0]).toHaveAttribute('src', '/shots/feed-light.png');
 
-    expect(screen.getByRole('img', { name: /proposal card/i })).toHaveAttribute(
-      'src',
-      '/shots/proposal-light.png',
-    );
     expect(screen.getByRole('img', { name: /microphone button/i })).toHaveAttribute(
       'src',
       '/shots/dock-light.png',

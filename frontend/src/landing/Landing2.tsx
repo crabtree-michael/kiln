@@ -11,9 +11,10 @@
 // and a dark capture are served through <picture> with a prefers-color-scheme
 // source so each screenshot matches the page theme. The board is captured from
 // `/debug`, which the app renders dark-only, so it ships a single dark shot.
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import { BetaSignupForm } from '@/landing/BetaSignupForm';
+import { BetaModal } from '@/landing/BetaModal';
 import '@/landing/Landing2.css';
 
 /** The Kiln bell mark (public/kiln-mark.svg), inlined so it can take the accent
@@ -162,6 +163,10 @@ const FEATURES: {
 ];
 
 export function Landing2(): JSX.Element {
+  const [betaOpen, setBetaOpen] = useState(false);
+  const openBeta = (): void => {
+    setBetaOpen(true);
+  };
   return (
     <div className="kiln-landing-2">
       <header className="kiln-nav">
@@ -175,9 +180,13 @@ export function Landing2(): JSX.Element {
             <a href="#how">How it works</a>
             <a href="#surfaces">The surfaces</a>
           </nav>
-          <a href="#beta" className="kiln-btn kiln-btn--primary kiln-nav__cta">
+          <button
+            type="button"
+            className="kiln-btn kiln-btn--primary kiln-nav__cta"
+            onClick={openBeta}
+          >
             Join the beta
-          </a>
+          </button>
         </div>
       </header>
 
@@ -284,26 +293,18 @@ export function Landing2(): JSX.Element {
                 so a mis-hear never quietly wrecks your work.
               </p>
               <div className="kiln-voice__actions">
-                <a href="#beta" className="kiln-btn kiln-btn--primary kiln-btn--lg">
+                <button
+                  type="button"
+                  className="kiln-btn kiln-btn--primary kiln-btn--lg"
+                  onClick={openBeta}
+                >
                   Join the beta
-                </a>
+                </button>
               </div>
             </div>
             <div className="kiln-voice__art">
               <DockShot />
             </div>
-          </div>
-        </section>
-
-        <section id="beta" className="kiln-cta">
-          <div className="kiln-cta__inner">
-            <KilnGlyph size={44} />
-            <h2>Take your agents anywhere.</h2>
-            <p>
-              Kiln is in private beta. Leave your email and we&rsquo;ll let you know the moment your
-              spot is ready.
-            </p>
-            <BetaSignupForm cta="Notify me" />
           </div>
         </section>
       </main>
@@ -315,7 +316,9 @@ export function Landing2(): JSX.Element {
             <span>Kiln</span>
           </div>
           <nav className="kiln-footer__links" aria-label="Footer">
-            <a href="#beta">Join the beta</a>
+            <button type="button" className="kiln-footer__link-btn" onClick={openBeta}>
+              Join the beta
+            </button>
             <a href="#anywhere">Anywhere</a>
             <a href="#how">How it works</a>
           </nav>
@@ -324,6 +327,15 @@ export function Landing2(): JSX.Element {
           </span>
         </div>
       </footer>
+
+      <BetaModal
+        open={betaOpen}
+        onClose={() => {
+          setBetaOpen(false);
+        }}
+        heading="Take your agents anywhere."
+        blurb="Kiln is in private beta. Leave your email and we’ll let you know the moment your spot is ready."
+      />
     </div>
   );
 }

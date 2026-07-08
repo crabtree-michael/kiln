@@ -1,0 +1,120 @@
+/* ── beta modal ────────────────────────────────────────────────────
+   The "Join the beta" flow lives in a focused, centred dialog now (it used to
+   be a scroll-to section at the foot of the page). The overlay is fixed above
+   everything (the pages themselves top out at the sticky nav's z-index 20); the
+   panel reuses the old closing-CTA lockup — the same accent-faint gradient and
+   rounded border — so it reads as the same moment, just lifted off the page.
+   Defined once here as global classes (Landing.css is always bundled), so both
+   `/landing` and `/landing-2` share it. */
+.kiln-beta-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--page-gutter);
+  background: var(--scrim);
+  animation: kiln-beta-modal-fade var(--duration-fast) ease;
+}
+
+.kiln-beta-modal__panel {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+  background: linear-gradient(180deg, var(--accent-faint), var(--surface-card));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
+  padding: clamp(32px, 5vw, 44px) clamp(24px, 5vw, 40px);
+  animation: kiln-beta-modal-rise var(--duration-base) cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.kiln-beta-modal__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+.kiln-beta-modal__close:hover {
+  color: var(--text-body);
+  background: var(--surface-subtle);
+}
+
+.kiln-beta-modal__title {
+  margin: 4px 0 8px;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+}
+
+.kiln-beta-modal__blurb {
+  margin: 0 auto 24px;
+  max-width: 40ch;
+  font: var(--type-editorial);
+  color: var(--text-secondary);
+}
+
+/* Centre the signup form within the centred panel. */
+.kiln-beta-modal__panel .kiln-beta-form {
+  margin: 0 auto;
+}
+
+@keyframes kiln-beta-modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes kiln-beta-modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kiln-beta-modal,
+  .kiln-beta-modal__panel {
+    animation: none;
+  }
+}
+
+/* The footer "Join the beta" opens the modal but reads as a plain link beside
+   its siblings — strip the native button chrome to match the footer <a>s. */
+.kiln-footer__link-btn {
+  padding: 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.kiln-footer__link-btn:hover {
+  color: var(--accent);
+}

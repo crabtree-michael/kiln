@@ -1,9 +1,9 @@
 // Smoke coverage for the marketing landing page (`/landing`): it renders
 // standalone (no stores/providers), states the product, funnels its beta CTAs to
-// the beta-signup form / #beta anchor (nothing links into the app), points the
-// hero "See it anywhere" CTA at the How It Works (#how) section, and embeds the
-// captured app screenshots (frontend/public/shots) as themed <picture>/<img>.
-import { render, screen } from '@testing-library/react';
+// the beta-signup modal (nothing links into the app), points the hero "See it
+// anywhere" CTA at the How It Works (#how) section, and embeds the captured app
+// screenshots (frontend/public/shots) as themed <picture>/<img>.
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Landing2 } from '@/landing/Landing2';
 
@@ -21,22 +21,41 @@ describe('Landing2', () => {
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('from anywhere you are');
 
-    // The signup form (hero + closing banner) is the sole conversion surface.
+    // The hero embeds the signup form inline; the closing banner is gone, so its
+    // "Notify me" submit now lives in the beta modal and is absent until a CTA
+    // opens it.
     expect(screen.getAllByLabelText('Email address').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /notify me/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /notify me/i })).not.toBeInTheDocument();
+
+    // Opening a CTA reveals the modal dialog with the signup form.
+    fireEvent.click(
+      within(screen.getByRole('banner')).getByRole('button', { name: /join the beta/i }),
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Email address')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /notify me/i })).toBeInTheDocument();
   });
 
-  it('funnels beta CTAs to #beta and links nowhere into the app', () => {
+  it('funnels beta CTAs to the signup modal and links nowhere into the app', () => {
     renderLanding();
 
-    // Nav / voice / footer "Join the beta" CTAs all point at #beta, not the app ("/").
-    const betaLinks = screen.getAllByRole('link', { name: /join the beta/i });
-    expect(betaLinks.length).toBeGreaterThan(0);
-    for (const link of betaLinks) {
-      expect(link).toHaveAttribute('href', '#beta');
-    }
-    // No CTA promises to open the app.
+    // The modal is closed until a CTA opens it — no dialog up front.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    // Nav / voice / footer "Join the beta" CTAs are buttons (they open the
+    // modal), not links into the app ("/").
+    const betaCtas = screen.getAllByRole('button', { name: /join the beta/i });
+    expect(betaCtas.length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: /join the beta/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /open the app/i })).not.toBeInTheDocument();
+
+    // Closing the opened modal returns to the page.
+    fireEvent.click(
+      within(screen.getByRole('banner')).getByRole('button', { name: /join the beta/i }),
+    );
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('routes the hero "See it anywhere" CTA to the How It Works section', () => {
@@ -48,8 +67,6 @@ describe('Landing2', () => {
   it('shows the captured app screenshots (feed, board, dock)', () => {
     renderLanding();
 
-    // The board shot ships a single dark capture; the rest are theme-swapped via
-    // <picture>, so their <img> points at the light capture.
     const board = screen.getByRole('img', { name: /the kiln board/i });
     expect(board).toHaveAttribute('src', '/shots/board-dark.png');
 

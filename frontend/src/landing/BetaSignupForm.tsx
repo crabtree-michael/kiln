@@ -10,7 +10,15 @@ import { postBetaSignup } from '@/transport/transport';
 /** Where a successful signup lands — the reassurance page (no app chrome). */
 const CONFIRMATION_PATH = '/beta/thanks';
 
-export function BetaSignupForm({ cta = 'Join the beta' }: { cta?: string }): JSX.Element {
+export function BetaSignupForm({
+  cta = 'Join the beta',
+  autoFocus = false,
+}: {
+  cta?: string;
+  /** Focus the email field on mount — used when the form opens inside the beta
+   * modal so the user can start typing immediately. */
+  autoFocus?: boolean;
+}): JSX.Element {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [pending, setPending] = useState(false);
@@ -52,6 +60,7 @@ export function BetaSignupForm({ cta = 'Join the beta' }: { cta?: string }): JSX
           autoComplete="email"
           aria-label="Email address"
           disabled={pending}
+          autoFocus={autoFocus}
         />
         <button
           type="submit"

@@ -295,6 +295,15 @@ func (s *Service) ProjectFor(ctx context.Context, userID string) (Project, error
 // RuntimeConfig it decrypts nothing and reads no user_config, so a notification
 // never pays a secret-decrypt (or, at the composition root, a provider build).
 // Returns ErrNotFound (through the wrap) when the project doesn't exist.
+//
+// SERVER-DERIVED projectID ONLY. This is an owner-DISCOVERING resolver
+// (projectID → OwnerUserID): it does NOT and cannot verify ownership, so it
+// returns any tenant's metadata for the id it's handed. Pass only a
+// server-enumerated id (ListProjectIDs, or an event/outbox row's server-assigned
+// project_id) — NEVER a client-supplied one. Request-path lookups must instead
+// go through the owner-scoped ProjectFor (keyed by the authenticated user), which
+// is the only project resolver the api package is given (its ProjectResolver
+// port), so a handler structurally cannot reach this one with a client id.
 func (s *Service) GetProject(ctx context.Context, projectID string) (Project, error) {
 	p, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -338,6 +347,12 @@ type RuntimeConfig struct {
 //
 // The result carries plaintext secrets for in-process use ONLY — never log it
 // or expose it via a wire type (see the RuntimeConfig type doc).
+//
+// SERVER-DERIVED projectID ONLY (see GetProject): like GetProject this discovers
+// the owner from the id and does not verify it against a caller, so it would
+// decrypt any tenant's credentials for the id given. Its sole caller is the
+// tenant registry's resolve closure, driven by server-assigned event project_ids
+// — never wire this behind a handler that takes a client-supplied id.
 func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeConfig, error) {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {

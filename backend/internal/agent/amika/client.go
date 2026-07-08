@@ -136,6 +136,19 @@ func New(cfg Config, hc *http.Client) *Client {
 	return &Client{cfg: cfg, hc: hc}
 }
 
+// Close releases the idle keep-alive connections in this client's HTTP
+// connection pool. It satisfies io.Closer so a per-project tenant.Providers can
+// tear a superseded bundle down on credential rebuild (11 §3). Safe to call more
+// than once and while requests are in flight — CloseIdleConnections only reaps
+// idle connections, and in-use ones are unaffected. A no-op when the client was
+// built over http.DefaultClient (the process-wide pool is left alone).
+func (c *Client) Close() error {
+	if c.hc != nil && c.hc != http.DefaultClient {
+		c.hc.CloseIdleConnections()
+	}
+	return nil
+}
+
 // ListWorkers lists every sandbox and keeps the ones this instance owns
 // (Config.WorkerPrefix — per-environment scope on a shared account). GET
 // /sandboxes accepts no local state — adoption is pure list-and-match

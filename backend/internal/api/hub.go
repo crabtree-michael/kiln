@@ -34,6 +34,11 @@ const (
 	eventActivity = "activity"
 )
 
+// activityKindThinking is the ActivityEvent.Kind that carries the brain-pass
+// spinner bracket (08 §4) — the one activity kind whose On flag the hub records
+// per project for GET /api/activity resync.
+const activityKindThinking = "thinking"
+
 // sseFrame is one named SSE event ready to write: `event: <name>\ndata: <data>\n\n`.
 type sseFrame struct {
 	event string
@@ -63,18 +68,21 @@ type Hub struct {
 	mu      sync.Mutex
 	clients map[*client]struct{}
 
-	// thinking mirrors the last `thinking` bracket that passed through
-	// PushActivity — the authoritative current spinner state, since every on/off
-	// fans out through here and brain passes run serially (04 §4). The activity
-	// event itself is ephemeral (never replayed on reconnect), so this is what
-	// GET /api/activity reads to resync a client on foreground/resume (08 §4).
-	// Guarded by mu, alongside the client set it is written next to.
-	thinking bool
+	// thinking mirrors, per project, the last `thinking` bracket that passed
+	// through PushActivity for that project — the authoritative current spinner
+	// state, since every on/off fans out through here. Keyed by projectID so one
+	// tenant's "brain thinking" state is never visible to another (11 phase 2):
+	// the flag was hub-global before, leaking project A's spinner onto project B.
+	// The activity event itself is ephemeral (never replayed on reconnect), so
+	// this map is what GET /api/activity reads to resync a client on
+	// foreground/resume (08 §4). Guarded by mu, alongside the client set it is
+	// written next to. An absent key reads as false (not thinking).
+	thinking map[string]bool
 }
 
 // NewHub wires fan-out over the board's read path.
 func NewHub(boards BoardReader) *Hub {
-	return &Hub{boards: boards, clients: make(map[*client]struct{})}
+	return &Hub{boards: boards, clients: make(map[*client]struct{}), thinking: make(map[string]bool)}
 }
 
 // SetAgentInspector late-binds the live-worker status source joined into every
@@ -185,28 +193,30 @@ func (h *Hub) PushActivity(_ context.Context, projectID string, ev runtime.Activ
 		return fmt.Errorf("api: marshal activity event: %w", err)
 	}
 	// Record the thinking bracket before fanning it out, so GET /api/activity
-	// reflects the state the instant this push lands. Toasts carry no On and
-	// leave it untouched.
-	if ev.Kind == "thinking" && ev.On != nil {
-		h.setThinking(*ev.On)
+	// reflects the state the instant this push lands. Scoped to this project's
+	// entry (11 phase 2). Toasts carry no On and leave it untouched.
+	if ev.Kind == activityKindThinking && ev.On != nil {
+		h.setThinking(projectID, *ev.On)
 	}
 	h.broadcast(projectID, sseFrame{event: eventActivity, data: data})
 	return nil
 }
 
-// Thinking reports the current spinner state — the last `thinking` bracket
-// pushed (08 §4). Read by GET /api/activity so a client that missed the closing
-// `on:false` (backgrounded mid-pass) can resync on resume.
-func (h *Hub) Thinking() bool {
+// Thinking reports the current spinner state for one project — the last
+// `thinking` bracket pushed for it (08 §4, 11 phase 2). Read by GET /api/activity
+// (scoped to the caller's resolved project) so a client that missed the closing
+// `on:false` (backgrounded mid-pass) can resync on resume without ever observing
+// another tenant's brain state. An unbracketed project reads false.
+func (h *Hub) Thinking(projectID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.thinking
+	return h.thinking[projectID]
 }
 
-func (h *Hub) setThinking(on bool) {
+func (h *Hub) setThinking(projectID string, on bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.thinking = on
+	h.thinking[projectID] = on
 }
 
 // boardWire reads one fresh snapshot and joins the live-worker statuses onto it

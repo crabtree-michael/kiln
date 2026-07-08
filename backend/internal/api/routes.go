@@ -573,10 +573,12 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request, _ identity.
 // closing `on:false` (backgrounded mid-pass) would otherwise leave the spinner
 // stuck. Read off the hub, the single fan-out point every bracket passes through.
 // Wrapped in withProject like the other app routes (11 phase 2) so an
-// unauthenticated caller cannot poll it; the thinking flag itself is hub-global
-// (brain passes run serially), so the resolved project is not consulted here.
-func (s *Server) handleActivityStatus(w http.ResponseWriter, _ *http.Request, _ identity.User, _ identity.Project) {
-	writeJSON(w, http.StatusOK, wire.ActivityStatus{Thinking: s.hub.Thinking()})
+// unauthenticated caller cannot poll it; the thinking flag is read scoped to the
+// caller's resolved project, so one tenant never observes another's brain state.
+func (s *Server) handleActivityStatus(
+	w http.ResponseWriter, _ *http.Request, _ identity.User, project identity.Project,
+) {
+	writeJSON(w, http.StatusOK, wire.ActivityStatus{Thinking: s.hub.Thinking(project.ID)})
 }
 
 // handleMessage decodes {text}, validates its bounds (schema MessageRequest),

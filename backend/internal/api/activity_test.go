@@ -81,4 +81,13 @@ func TestActivityStatusReflectsThinkingBracket(t *testing.T) {
 	if got := getThinking(t, ts.URL); got {
 		t.Fatalf("thinking after off = %v, want false", got)
 	}
+
+	// Isolation (11 phase 2): a brain pass in ANOTHER project must not surface on
+	// this session's pull, which is scoped to the caller's resolved project.
+	if err := hub.PushActivity(context.Background(), "other-project", thinkingEvent(true)); err != nil {
+		t.Fatalf("push thinking on for other project: %v", err)
+	}
+	if got := getThinking(t, ts.URL); got {
+		t.Fatalf("thinking = %v after another project's pass, want false — spinner state must not cross tenants", got)
+	}
 }

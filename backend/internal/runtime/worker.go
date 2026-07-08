@@ -35,6 +35,16 @@ const pollInterval = time.Second
 // many projects have an entry in flight on one queue at any moment. Within a
 // project, entries stay strictly serial in id order — the single-writer-per-
 // project constraint of 04 §4, now per tenant.
+//
+// This is a v1 SCALING CEILING (a global concurrency budget), NOT a tenant
+// isolation boundary. Tenant isolation is the per-project serial claim above
+// (ClaimNextDue skips busy projects), which holds at any value of this const.
+// The ceiling is global and unweighted, so it offers no per-project fairness: a
+// project with a continuous backlog can hold slots ahead of a quieter one
+// (soft-starve it), since ClaimNextDue picks the globally-oldest non-busy entry.
+// That is a throughput/fairness limit to revisit with real multi-tenant load
+// (per-project fair queueing), not a data-isolation gap — no cross-tenant state
+// is ever exposed by raising, lowering, or contending on this budget.
 const maxInFlightProjects = 4
 
 // Worker drains one queue with a per-project dispatcher (04 §3–§4, 11 §3):

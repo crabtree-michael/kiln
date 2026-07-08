@@ -204,3 +204,48 @@ func TestProjectScoping_PassesResolvedProjectToPorts(t *testing.T) {
 		t.Errorf("ProjectFor resolved for %v, want the session user %q", ids, testUserID)
 	}
 }
+
+// TestProjectScoping_IgnoresClientSuppliedProjectID pins the structural
+// isolation boundary (audit §3.2): the api resolves a project ONLY through the
+// owner-scoped ProjectFor (its single ProjectResolver port), so a client cannot
+// steer a request at another tenant by smuggling a project id into the query or
+// body. The owner-DISCOVERING resolvers (identity.GetProject/RuntimeConfig) are
+// never reachable from a handler — this test is the regression guard for that.
+func TestProjectScoping_IgnoresClientSuppliedProjectID(t *testing.T) {
+	const (
+		resolved = "proj-owned-by-session"
+		attacker = "proj-of-another-tenant"
+	)
+	boards := &fakeBoardReader{}
+	poster := &fakeMessagePoster{}
+	srv := api.NewServer(
+		boards, poster, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	srv.EnableIdentity(&fakeAuth{resolveUser: identity.User{ID: testUserID}}, &fakeAccount{})
+	srv.EnableTenancy(&fakeProjects{project: identity.Project{ID: resolved}})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// A crafted project_id in the query string must be ignored: the board reader
+	// still sees only the session-resolved project.
+	resp := doGet(t, ts.URL+"/api/board?project_id="+attacker)
+	closeBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/board status = %d, want 200", resp.StatusCode)
+	}
+	if got := boards.projectID(); got != resolved {
+		t.Errorf("GetBoard scoped to %q, want %q — a client project_id must not cross tenants", got, resolved)
+	}
+
+	// Same for a project_id smuggled into the message body.
+	body := mustJSON(t, map[string]string{"text": "hi", "project_id": attacker})
+	mresp := doPost(t, ts.URL+"/api/message", body)
+	closeBody(t, mresp)
+	if mresp.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /api/message status = %d, want 202", mresp.StatusCode)
+	}
+	if got := poster.projectID(); got != resolved {
+		t.Errorf("PostMessage scoped to %q, want %q — a body project_id must not cross tenants", got, resolved)
+	}
+}

@@ -159,11 +159,12 @@ func bootstrapInputFromConfig(cfg Config) bootstrapInput {
 // graph is the wired, ready-to-run object graph: the HTTP server plus the two
 // serial queue workers (04 §4).
 type graph struct {
-	server  *api.Server
-	events  *runtime.Worker
-	outbox  *runtime.Worker
-	agent   *agent.Service
-	steward *steward.Service
+	server   *api.Server
+	events   *runtime.Worker
+	outbox   *runtime.Worker
+	agent    *agent.Service
+	steward  *steward.Service
+	registry *tenant.Registry // per-project provider cache; closed on drain (11 §3)
 }
 
 // errIdentityNotConfigured is what every tenant resolver returns when the
@@ -257,11 +258,12 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
-		server:  server,
-		events:  events,
-		outbox:  outbox,
-		agent:   agentSvc,
-		steward: newSteward(cfg, db, clock, projects, boardSvc, agentSvc, rtSvc),
+		server:   server,
+		events:   events,
+		outbox:   outbox,
+		agent:    agentSvc,
+		steward:  newSteward(cfg, db, clock, projects, boardSvc, agentSvc, rtSvc),
+		registry: registry,
 	}, nil
 }
 
@@ -314,6 +316,9 @@ func buildTenantProviders(
 	if cfg.AgentMode == "mock" {
 		provider = mock.New()
 	} else {
+		// A per-tenant HTTP client so each project's connection pool is isolated
+		// and tenant.Providers.Close can release it on a credential rebuild
+		// (11 §3) without touching the shared http.DefaultClient.
 		provider = amika.New(amika.Config{
 			BaseURL:      cfg.AmikaBaseURL,
 			APIKey:       rc.AmikaAPIKey,
@@ -321,7 +326,7 @@ func buildTenantProviders(
 			Snapshot:     rc.Project.AmikaSnapshot,
 			ClaudeCredID: rc.AmikaClaudeCredID,
 			WorkerPrefix: prefix,
-		}, nil)
+		}, &http.Client{})
 	}
 
 	// The brain's repo-inspection shell: a maintained clone under a per-project
@@ -627,6 +632,11 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("kiln: http shutdown: %w", err)
+	}
+	// Release every tenant's per-project resources (HTTP connection pools) now
+	// that no new event can build a bundle (11 §3).
+	if g.registry != nil {
+		g.registry.Close()
 	}
 	return nil
 }

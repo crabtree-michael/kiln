@@ -316,7 +316,9 @@ func (s *Service) Feed(ctx context.Context, projectID string) (FeedSnapshot, err
 		})
 	}
 	for _, n := range recent {
-		cards = append(cards, notificationToCard(n, view.TicketTitles))
+		if card, ok := notificationToCard(n, view.TicketTitles); ok {
+			cards = append(cards, card)
+		}
 	}
 
 	summary := FeedSummary{
@@ -355,7 +357,9 @@ func (s *Service) FeedHistory(
 	}
 	cards := make([]FeedCard, 0, len(notes))
 	for _, n := range notes {
-		cards = append(cards, notificationToCard(n, view.TicketTitles))
+		if card, ok := notificationToCard(n, view.TicketTitles); ok {
+			cards = append(cards, card)
+		}
 	}
 	return cards, hasMore, nil
 }
@@ -365,7 +369,17 @@ func (s *Service) FeedHistory(
 // ticket-tagged note renders the linked ticket's current title as its label
 // (titles from the board view); a note with no ticket keeps an empty label,
 // which the client renders headless-but-legible.
-func notificationToCard(n Notification, titles map[string]string) FeedCard {
+//
+// Returns ok=false when the note is tagged to a ticket that is no longer on the
+// board — i.e. the ticket has been archived (deleted). Its title is absent from
+// the board view, so the card would otherwise render title-less (a persistent
+// "done" card as a bare ✅, or an update/preview as a headless row). Instead the
+// card vanishes from the feed entirely, mirroring how board-derived
+// blocker/proposal cards disappear when GetBoard stops returning their ticket
+// (03 §4 — an archived ticket disappears from every read). The comma-ok lookup
+// distinguishes an archived ticket (absent) from a live one whose title is
+// present, so untagged notes (TicketID nil) still render headless as before.
+func notificationToCard(n Notification, titles map[string]string) (FeedCard, bool) {
 	nid := n.ID
 	card := FeedCard{
 		Kind: string(n.Kind), ID: fmt.Sprintf("update:%d", n.ID),
@@ -373,12 +387,16 @@ func notificationToCard(n Notification, titles map[string]string) FeedCard {
 		CreatedAt: n.CreatedAt,
 	}
 	if n.TicketID != nil {
-		card.Label = titles[*n.TicketID]
+		title, live := titles[*n.TicketID]
+		if !live {
+			return FeedCard{}, false
+		}
+		card.Label = title
 	}
 	if n.Kind == KindPreview {
 		card.ImageURL = n.ImageURL
 	}
-	return card
+	return card, true
 }
 
 // PostNotification is the brain-facing port for post_update / preview (08 §3,

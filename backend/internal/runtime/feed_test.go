@@ -232,6 +232,47 @@ func TestService_Feed_TicketTaggedUpdateGetsTicketTitleLabel(t *testing.T) {
 	}
 }
 
+// A note tagged to a ticket that has been archived (deleted) drops out of the
+// feed entirely rather than rendering title-less. The archived ticket is gone
+// from the board view (GetBoard excludes it), so its persistent "done" card
+// would otherwise show as a bare ✅ with an empty title. Untagged notes and
+// notes on still-live tickets are unaffected.
+func TestService_Feed_DropsCardsForArchivedTickets(t *testing.T) {
+	ctx := context.Background()
+	board := &fakeBoardReader{view: runtime.BoardView{
+		TicketTitles: map[string]string{"t-live": "Auth tokens"},
+	}}
+	notes := &fakeNotificationStore{}
+	live, archived := "t-live", "t-gone"
+	// A completion card whose ticket was archived after it was posted — the bug.
+	notes.seed(runtime.Notification{Kind: runtime.KindDone, TicketID: &archived})
+	// An update note tagged to the same archived ticket — same ghost class.
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "orphaned note", TicketID: &archived})
+	// Survivors: a live-ticket note and an untagged note.
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "live note", TicketID: &live})
+	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "headless note"})
+
+	snap, err := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{}).Feed(ctx, defaultTestProject)
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if len(snap.Cards) != 2 {
+		t.Fatalf("Feed returned %d cards, want 2 (archived-ticket cards dropped): %+v", len(snap.Cards), snap.Cards)
+	}
+	for _, c := range snap.Cards {
+		if c.TicketID != nil && *c.TicketID == archived {
+			t.Errorf("archived-ticket card leaked into feed: %+v", c)
+		}
+	}
+	// Newest-first: the headless note, then the live-ticket note.
+	if snap.Cards[0].Body != "headless note" || snap.Cards[0].Label != "" {
+		t.Errorf("card[0] = %+v, want the headless note with an empty label", snap.Cards[0])
+	}
+	if snap.Cards[1].Body != "live note" || snap.Cards[1].Label != "Auth tokens" {
+		t.Errorf("card[1] = %+v, want the live-ticket note labelled with its title", snap.Cards[1])
+	}
+}
+
 func TestService_Feed_EmptyHasNilLastWord(t *testing.T) {
 	snap, err := newFeedService(
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},

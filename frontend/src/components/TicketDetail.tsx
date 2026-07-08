@@ -137,18 +137,24 @@ export function TicketDetail({
           <Drawer.Handle data-role="ticket-detail-grabber" />
 
           <header data-role="ticket-detail-header">
-            <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
-            {/* The lifecycle badge: a dot + word in the top right that names the
-                ticket's state at a glance (In progress / Blocked / Done), each in
-                its own colour. Only the states that carry a signal show one;
-                shaping/ready wear none. Keyed on data-state (not Radix's own
-                data-state, which lives on the panel) for its per-state colour. */}
-            {statusLabel !== undefined && (
-              <span data-role="ticket-detail-status" data-state={ticket.state}>
-                <span data-role="ticket-detail-status-dot" aria-hidden="true" />
-                {statusLabel}
-              </span>
-            )}
+            {/* Title and its lifecycle badge stack in a left-aligned column so the
+                title gets the full header width instead of ceding room to a badge
+                on its right. */}
+            <div data-role="ticket-detail-heading">
+              <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
+              {/* The lifecycle badge: a dot + word directly under the title that
+                  names the ticket's state at a glance (In progress / Blocked /
+                  Done), each in its own colour. Only the states that carry a
+                  signal show one; shaping/ready wear none. Keyed on data-state
+                  (not Radix's own data-state, which lives on the panel) for its
+                  per-state colour. */}
+              {statusLabel !== undefined && (
+                <span data-role="ticket-detail-status" data-state={ticket.state}>
+                  <span data-role="ticket-detail-status-dot" aria-hidden="true" />
+                  {statusLabel}
+                </span>
+              )}
+            </div>
             <button
               type="button"
               data-role="ticket-detail-close"

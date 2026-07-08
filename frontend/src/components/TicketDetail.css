@@ -64,25 +64,34 @@
   gap: 0.5rem;
 }
 
+/* Title + lifecycle badge, stacked and left-aligned. Takes the header's spare
+ * width (the close button is the only sibling) so the title can wrap to its
+ * full extent instead of being clipped by a badge beside it. */
+[data-role='ticket-detail-heading'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
 [data-role='ticket-detail-title'] {
   margin: 0;
-  flex: 1 1 auto;
   min-width: 0;
   font-size: 1.05rem;
 }
 
-/* Lifecycle status badge — a dot + label pinned in the header's top right that
+/* Lifecycle status badge — a dot + label sitting directly under the title that
  * names the ticket's state at a glance. Shared geometry here; the colour (and
  * the working state's pulse) is keyed per data-state below, each on its own
  * semantic token: glaze/calm reads all-clear (done), ember warns (in progress),
  * fire alarms (blocked). Layout is state-agnostic; the default colour is the
  * done skin, overridden for the louder states. */
 [data-role='ticket-detail-status'] {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  align-self: center;
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;

@@ -8,6 +8,18 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
     <div
       data-role="settings"
     >
+      <a
+        data-discover="true"
+        data-role="go-to-app"
+        href="/"
+      >
+        <span
+          aria-hidden="true"
+        >
+          ←
+        </span>
+         Go to app
+      </a>
       <section
         data-role="account-card"
       >

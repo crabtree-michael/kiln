@@ -382,6 +382,34 @@ describe('Dashboard', () => {
     });
   });
 
+  it('settings view offers a "Go to app" link back to the board (a router Link to /)', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: 'snap-1',
+          brain_model: 'claude-sonnet',
+          worker_count: 3,
+          merge_gate_mode: 'main',
+          amika_secrets: [],
+        },
+        settings: {
+          anthropic_api_key: { set: true, tail: 'x4Kd' },
+          amika_api_key: { set: true, tail: 'y7Bc' },
+          github_auth_token: { set: true, tail: 'abcd' },
+          amika_claude_cred_id: 'cred-1',
+        },
+      }),
+    );
+    renderDashboard();
+
+    // A router Link (relative href '/'), not a full-page anchor — client nav back
+    // to the SPA-owned board. The ← glyph is aria-hidden, so the name is "Go to app".
+    const link = await screen.findByRole('link', { name: 'Go to app' });
+    expect(link).toHaveAttribute('href', '/');
+  });
+
   it('matches the DOM-structure snapshot: settings view', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({

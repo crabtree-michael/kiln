@@ -37,6 +37,21 @@
   margin: 0 auto;
 }
 
+/* A quiet link back to the board (the main app) from the account view. Settings
+   is a detour, so it sits at the top, above the profile card, and stays visually
+   subordinate to it — caption weight, muted until hovered. */
+[data-role='go-to-app'] {
+  align-self: flex-start;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+[data-role='go-to-app']:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 [data-role='dashboard'] section,
 [data-role='dashboard'] form {
   display: flex;

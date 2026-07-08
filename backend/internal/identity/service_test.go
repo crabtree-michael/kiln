@@ -581,11 +581,43 @@ func TestUpsertProjectValidates(t *testing.T) {
 		{Name: "", RepoURL: testProjectRepoURL, WorkerCount: 3},
 		{Name: testProjectName, RepoURL: "", WorkerCount: 3},
 		{Name: testProjectName, RepoURL: testProjectRepoURL, WorkerCount: 11},
+		{Name: testProjectName, RepoURL: testProjectRepoURL, WorkerCount: 3, MergeGateMode: "sometimes"},
 	}
 	for _, upd := range cases {
 		if _, err := svc.UpsertProject(context.Background(), u.ID, upd); !errors.Is(err, identity.ErrInvalidProject) {
 			t.Fatalf("UpsertProject(%+v) err = %v, want ErrInvalidProject", upd, err)
 		}
+	}
+}
+
+// TestUpsertProjectMergeGateMode covers the gate-mode knob (06 §7): an omitted
+// mode defaults to "main" (the prior behavior), and "pr" round-trips.
+func TestUpsertProjectMergeGateMode(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "gate-mode-user")
+
+	created, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:    testProjectName,
+		RepoURL: testProjectRepoURL,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject create: %v", err)
+	}
+	if created.MergeGateMode != identity.MergeGateMain {
+		t.Fatalf("MergeGateMode = %q, want defaulted %q", created.MergeGateMode, identity.MergeGateMain)
+	}
+
+	updated, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:          testProjectName,
+		RepoURL:       testProjectRepoURL,
+		MergeGateMode: identity.MergeGatePR,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject update: %v", err)
+	}
+	if updated.MergeGateMode != identity.MergeGatePR {
+		t.Fatalf("MergeGateMode = %q, want %q", updated.MergeGateMode, identity.MergeGatePR)
 	}
 }
 

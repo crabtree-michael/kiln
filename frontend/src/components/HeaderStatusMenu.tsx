@@ -1,7 +1,8 @@
 // The top-right header status, now a clickable dropdown (08 §2). Collapsed it
-// shows the same one-line summary as before (`feedStatus`); expanded it lists
-// every ticket on the board (amended 2026-07-06) — active ones first, then the
-// rest in decreasing-activity order with backlog at the bottom. Presentational:
+// shows a one-line summary counting the same tickets the panel lists — active
+// and queued (`feedStatus`); expanded it lists every ticket on the board
+// (amended 2026-07-06) — active ones first, then the rest in decreasing-activity
+// order with backlog at the bottom. Presentational:
 // the board comes in as a prop (PrimaryScreen bridges the board store),
 // open/close is local UI state. The panel stays mounted so it animates both ways.
 import { useEffect, useRef, useState, type HTMLAttributes, type JSX } from 'react';
@@ -37,6 +38,11 @@ export function HeaderStatusMenu({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const tickets = ticketStatuses(board);
+  // The collapsed badge counts exactly what the dropdown lists — active *and*
+  // queued tickets — so the number matches once opened. Before the first board
+  // snapshot (`board` null) we fall back to the summary's active count so the
+  // badge isn't wrongly "Nothing active" while streams are already live.
+  const ticketCount = board === null ? summary.stream_count : tickets.length;
 
   // While open, a click anywhere outside the menu — or Escape — dismisses it.
   useEffect(() => {
@@ -80,7 +86,7 @@ export function HeaderStatusMenu({
           setOpen((wasOpen) => !wasOpen);
         }}
       >
-        {feedStatus(summary)}
+        {feedStatus(ticketCount)}
         <span data-role="feed-status-caret" aria-hidden="true" />
       </button>
       <div

@@ -62,6 +62,23 @@ describe('NotificationSettingsMenu', () => {
     expect(onEnablePush).toHaveBeenCalledOnce();
   });
 
+  it('offers to disable and calls onDisablePush when already enabled', () => {
+    const onDisablePush = vi.fn();
+    render(
+      <NotificationSettingsMenu
+        mode="blocked"
+        pushStatus="enabled"
+        onDisablePush={onDisablePush}
+        onSelectMode={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Notification settings' }));
+    const perm = screen.getByRole('button', { name: 'Disable notifications' });
+    expect(perm).not.toBeDisabled();
+    fireEvent.click(perm);
+    expect(onDisablePush).toHaveBeenCalledOnce();
+  });
+
   it('renders the permission button as a disabled status line when blocked in the browser', () => {
     render(<NotificationSettingsMenu mode="blocked" pushStatus="denied" onEnablePush={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Notification settings' }));

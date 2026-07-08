@@ -25,8 +25,9 @@ export interface TicketDetailProps {
   /** When provided, the detail is a proposal reached via click-through and shows
    * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
    * the overlay stays strictly read-only (the debug board's inspection use, D5).
-   * Accept is suppressed for done/blocked tickets regardless: a completed ticket
-   * has nothing to accept, and a blocked one needs a conversation, not a nod. */
+   * Accept only appears while the ticket is still shaping: accepting is what
+   * moves a shaped proposal into the pull, so every later state (ready, working,
+   * blocked, done) has already passed that point and shows no button regardless. */
   onAccept?: (ticketId: string) => void;
   /** When provided on a *blocked* ticket, the Accept action is replaced by a Talk
    * button — the blocked work can't be accepted, only discussed. Tapping it hands
@@ -46,6 +47,22 @@ export interface TicketDetailProps {
    * screen passes `'primary'` for the app's first-class card skin (08 §5). */
   surface?: 'debug' | 'primary';
 }
+
+/** The header status badge — a dot + word pinned to the header's top-right that
+ * names the ticket's lifecycle state at a glance, so it's always obvious what's
+ * happening with the work (07 §7). Only the three states carrying a clear signal
+ * get one, each in its own semantic colour:
+ *   • working → "In progress" (ember, pulsing — the eye-drawing live state)
+ *   • blocked → "Blocked" (fire — the loudest surface; the full reason renders
+ *               below the header)
+ *   • done    → "Done" (glaze/all-clear)
+ * shaping/ready are the neutral "awaiting action" states and wear no badge —
+ * shaping instead offers the Accept button. */
+const STATUS_LABELS: Partial<Record<Ticket['state'], string>> = {
+  working: 'In progress',
+  blocked: 'Blocked',
+  done: 'Done',
+};
 
 /** A labelled row in the metadata list, omitted entirely when the value is null. */
 function MetaRow({ label, value }: { label: string; value: string | null }): JSX.Element | null {
@@ -70,16 +87,20 @@ export function TicketDetail({
 }: TicketDetailProps): JSX.Element {
   // Which affordance the sheet's footer carries is decided purely by lifecycle
   // state, so the caller can't wire a nonsensical one:
-  //  • done    → no action at all; the header dot already says "done" and there
-  //              is nothing left to accept or discuss.
+  //  • shaping → Accept (when wired): the proposal click-through (08 §5) —
+  //              accepting is what moves a shaped proposal into the pull, so it
+  //              only makes sense here. Every later state has already been
+  //              accepted, so the button is gone.
   //  • blocked → Talk (when wired): the work can't be accepted, only unblocked
   //              through a conversation with the brain.
-  //  • else    → Accept (when wired): the proposal click-through (08 §5).
+  //  • else    → no action; the header badge already names the state (working →
+  //              "In progress", done → "Done") and there's nothing to act on.
   // The two footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
   // optional chain, which the lint gate rejects (mirrors FeedCardItem).
-  const isDone = ticket.state === 'done';
+  const isShaping = ticket.state === 'shaping';
   const isBlocked = ticket.state === 'blocked';
+  const statusLabel = STATUS_LABELS[ticket.state];
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -116,16 +137,24 @@ export function TicketDetail({
           <Drawer.Handle data-role="ticket-detail-grabber" />
 
           <header data-role="ticket-detail-header">
-            <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
-            {/* A completed ticket wears its status as a dot in the top right — the
-                clear at-a-glance signal that the work is finished, standing in for
-                the Accept the card no longer offers. */}
-            {isDone && (
-              <span data-role="ticket-detail-status" data-state="done">
-                <span data-role="ticket-detail-status-dot" aria-hidden="true" />
-                Done
-              </span>
-            )}
+            {/* Title and its lifecycle badge stack in a left-aligned column so the
+                title gets the full header width instead of ceding room to a badge
+                on its right. */}
+            <div data-role="ticket-detail-heading">
+              <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
+              {/* The lifecycle badge: a dot + word directly under the title that
+                  names the ticket's state at a glance (In progress / Blocked /
+                  Done), each in its own colour. Only the states that carry a
+                  signal show one; shaping/ready wear none. Keyed on data-state
+                  (not Radix's own data-state, which lives on the panel) for its
+                  per-state colour. */}
+              {statusLabel !== undefined && (
+                <span data-role="ticket-detail-status" data-state={ticket.state}>
+                  <span data-role="ticket-detail-status-dot" aria-hidden="true" />
+                  {statusLabel}
+                </span>
+              )}
+            </div>
             <button
               type="button"
               data-role="ticket-detail-close"
@@ -184,7 +213,7 @@ export function TicketDetail({
             </div>
           )}
 
-          {!isDone && !isBlocked && onAccept !== undefined && (
+          {isShaping && onAccept !== undefined && (
             <div data-role="ticket-detail-actions">
               <button
                 type="button"

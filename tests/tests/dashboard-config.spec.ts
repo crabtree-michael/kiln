@@ -18,21 +18,23 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   await page.getByRole('button', { name: 'Save project' }).click();
 
   // Project saved → settings view; credentials auto-save as entered — fill
-  // and blur (no submit button exists anymore).
-  await page.getByLabel('Anthropic API key').fill('sk-ant-e2e-fake-x4Kd');
-  await page.getByLabel('Anthropic API key').press('Tab');
-  const status = page.locator('[data-role="secret-status"][data-name="anthropic_api_key"]');
+  // and blur (no submit button exists anymore). The Anthropic key is now a
+  // global env setting and its per-user field is hidden, so this exercises the
+  // credential path through the Amika key field instead.
+  await page.getByLabel('Amika API key').fill('sk-amika-e2e-fake-x4Kd');
+  await page.getByLabel('Amika API key').press('Tab');
+  const status = page.locator('[data-role="secret-status"][data-name="amika_api_key"]');
   await expect(status).toHaveAttribute('data-set', 'true');
   await expect(status).toContainText('x4Kd');
 
   // Write-only: the raw secret never comes back over the wire.
   const me = await page.request.get('/api/me');
-  expect(await me.text()).not.toContain('sk-ant-e2e-fake');
+  expect(await me.text()).not.toContain('sk-amika-e2e-fake');
 
   // The blur-triggered save automatically chains a live verify run (no
   // manual "Test connections" step anymore) — the fake key must FAIL against
-  // real Anthropic. Generous timeout: this hits the real Anthropic API.
+  // real Amika. Generous timeout: this hits the real Amika API.
   await expect(
-    page.locator('[data-role="credential-status"][data-name="anthropic_api_key"]'),
+    page.locator('[data-role="credential-status"][data-name="amika_api_key"]'),
   ).toHaveAttribute('data-status', 'failed', { timeout: 20_000 });
 });

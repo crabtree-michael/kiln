@@ -64,28 +64,47 @@
   gap: 0.5rem;
 }
 
+/* Title + lifecycle badge, stacked and left-aligned. Takes the header's spare
+ * width (the close button is the only sibling) so the title can wrap to its
+ * full extent instead of being clipped by a badge beside it. */
+[data-role='ticket-detail-heading'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
 [data-role='ticket-detail-title'] {
   margin: 0;
-  flex: 1 1 auto;
   min-width: 0;
   font-size: 1.05rem;
 }
 
-/* Done status pill — a dot + label pinned in the header's top right on a
- * completed ticket, the at-a-glance "this is finished" signal that stands in for
- * the Accept a done ticket no longer offers. The glaze/calm token reads as
- * all-clear, distinct from the fire the blocked state wears. */
+/* Lifecycle status badge — a dot + label sitting directly under the title that
+ * names the ticket's state at a glance. Shared geometry here; the colour (and
+ * the working state's pulse) is keyed per data-state below, each on its own
+ * semantic token: glaze/calm reads all-clear (done), ember warns (in progress),
+ * fire alarms (blocked). Layout is state-agnostic; the default colour is the
+ * done skin, overridden for the louder states. */
 [data-role='ticket-detail-status'] {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  align-self: center;
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--calm-strong);
+}
+
+[data-role='ticket-detail-status'][data-state='working'] {
+  color: var(--warn-strong);
+}
+
+[data-role='ticket-detail-status'][data-state='blocked'] {
+  color: var(--danger);
 }
 
 [data-role='ticket-detail-status-dot'] {
@@ -94,6 +113,39 @@
   border-radius: 50%;
   background: var(--calm);
   box-shadow: var(--shadow-card);
+}
+
+/* In progress — the actively-worked ticket is the one that should draw the eye,
+ * so its dot pulses (the same tell as the streams dropdown's `building` dot),
+ * ember-lit. Its own keyframe rather than PrimaryScreen's `kiln-status-pulse`:
+ * that one pulses a fire ring (clashes with the ember dot) and lives in a
+ * stylesheet the /debug board doesn't load — this keeps the sheet self-contained. */
+[data-role='ticket-detail-status'][data-state='working'] [data-role='ticket-detail-status-dot'] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+  animation: kiln-detail-status-pulse var(--pulse-duration) ease-in-out infinite;
+}
+
+/* Blocked — solid fire, no pulse: stuck, not moving. */
+[data-role='ticket-detail-status'][data-state='blocked'] [data-role='ticket-detail-status-dot'] {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+@keyframes kiln-detail-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px var(--warn-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='ticket-detail-status'][data-state='working'] [data-role='ticket-detail-status-dot'] {
+    animation: none;
+  }
 }
 
 [data-role='ticket-detail-close'] {

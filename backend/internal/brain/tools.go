@@ -664,7 +664,7 @@ func (s *Service) applyUpdate(ctx context.Context, id string, in UpdateTicketInp
 // correct. `applied` names any earlier field/approval steps for the error path.
 func (s *Service) applyStateStep(ctx context.Context, id string, in UpdateTicketInput, applied []string) ToolResult {
 	if *in.State == stateDone {
-		if res, ok := s.verifyDoneOnMain(ctx, id, in); !ok {
+		if res, ok := s.verifyDone(ctx, id, in); !ok {
 			return res
 		}
 	}
@@ -675,14 +675,26 @@ func (s *Service) applyStateStep(ctx context.Context, id string, in UpdateTicket
 	return ticketResult(id, t, nil)
 }
 
-// verifyDoneOnMain gates the done transition on a fresh git check that the named
-// commit is on origin/main. It fails closed: an unavailable repo shell refuses
-// the done rather than silently reverting to trust. A refusal is a precondition
-// failure fed back verbatim (IsError, not malformed) — the prompt tells the
-// model to then message the agent to merge, and block the ticket meanwhile.
-// ok=true means proceed to AcceptToDone.
-func (s *Service) verifyDoneOnMain(ctx context.Context, callID string, in UpdateTicketInput) (ToolResult, bool) {
+// verifyDone gates the done transition on a fresh repository check that the
+// named commit satisfies the project's configured merge gate (06 §7): either it
+// is on origin/main ("main" mode) or it is associated with a pull request ("pr"
+// mode). It dispatches to the mode-specific check; both fail closed and feed a
+// refusal back verbatim for the model to self-correct. ok=true means proceed to
+// AcceptToDone.
+func (s *Service) verifyDone(ctx context.Context, callID string, in UpdateTicketInput) (ToolResult, bool) {
 	sha := strings.TrimSpace(deref(in.DoneCommit))
+	if s.cfg.GateMode == GatePR {
+		return s.verifyDoneInPR(ctx, callID, sha, in.ID)
+	}
+	return s.verifyDoneOnMain(ctx, callID, sha, in.ID)
+}
+
+// verifyDoneOnMain gates the done on a fresh git check that sha is on
+// origin/main. It fails closed: an unavailable repo shell refuses the done
+// rather than silently reverting to trust. A refusal is a precondition failure
+// fed back verbatim (IsError, not malformed) — the prompt tells the model to
+// then message the agent to merge, and block the ticket meanwhile.
+func (s *Service) verifyDoneOnMain(ctx context.Context, callID, sha, ticketID string) (ToolResult, bool) {
 	v, err := s.repo.VerifyOnMain(ctx, sha)
 	if err != nil {
 		return errorResult(callID, err), false
@@ -691,13 +703,36 @@ func (s *Service) verifyDoneOnMain(ctx context.Context, callID string, in Update
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
 			"cannot mark ticket %s done: repository verification is unavailable (%s), so the "+
 				"push to origin/main cannot be confirmed.",
-			in.ID, v.Reason)}, false
+			ticketID, v.Reason)}, false
 	}
 	if !v.OnMain {
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
 			"cannot mark ticket %s done: commit %s is not on origin/main (%s). Have the agent merge the work to main, "+
 				"then accept it once it lands — or set the ticket blocked if it needs a decision.",
-			in.ID, sha, v.Reason)}, false
+			ticketID, sha, v.Reason)}, false
+	}
+	return ToolResult{}, true
+}
+
+// verifyDoneInPR gates the done on a fresh check that sha is associated with a
+// pull request (merged or not). Fails closed exactly like verifyDoneOnMain; the
+// refusal steers the model to have the agent open a PR, or block the ticket.
+func (s *Service) verifyDoneInPR(ctx context.Context, callID, sha, ticketID string) (ToolResult, bool) {
+	v, err := s.repo.VerifyInPR(ctx, sha)
+	if err != nil {
+		return errorResult(callID, err), false
+	}
+	if v.Unavailable {
+		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
+			"cannot mark ticket %s done: repository verification is unavailable (%s), so it "+
+				"cannot be confirmed that the work is in a pull request.",
+			ticketID, v.Reason)}, false
+	}
+	if !v.InPR {
+		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
+			"cannot mark ticket %s done: commit %s is not in any pull request (%s). Have the agent open a "+
+				"pull request for the work, then accept it — or set the ticket blocked if it needs a decision.",
+			ticketID, sha, v.Reason)}, false
 	}
 	return ToolResult{}, true
 }

@@ -80,6 +80,18 @@ type Feed interface {
 	PostPoke(ctx context.Context, projectID, ticketID string) error
 }
 
+// pokeBackoff tracks a ticket whose last poke could not be delivered: how many
+// consecutive deliveries have failed and the earliest instant the next attempt
+// may run. Held in memory rather than in steward_pokes because it smooths a
+// transient failure, not a decision that must survive a restart — a restart
+// simply retries once immediately, then backs off again. A record is dropped as
+// soon as a delivery succeeds or the ticket leaves Working.
+type pokeBackoff struct {
+	projectID   string
+	attempts    int
+	nextRetryAt time.Time
+}
+
 // Service is the mechanical stall watchdog. Constructed at the composition root
 // over the ports above.
 type Service struct {
@@ -90,6 +102,10 @@ type Service struct {
 	store    Store
 	clock    Clock
 	cfg      Config
+
+	// failedPokes keys ticket id → its current delivery-retry backoff. Only ever
+	// touched from the single sweep goroutine, so it needs no lock.
+	failedPokes map[string]pokeBackoff
 }
 
 // NewService assembles the watchdog. cfg's zero fields fall back to defaults.
@@ -98,13 +114,14 @@ func NewService(
 	store Store, clock Clock, cfg Config,
 ) *Service {
 	return &Service{
-		projects: projects,
-		board:    board,
-		agents:   agents,
-		feed:     feed,
-		store:    store,
-		clock:    clock,
-		cfg:      cfg.withDefaults(),
+		projects:    projects,
+		board:       board,
+		agents:      agents,
+		feed:        feed,
+		store:       store,
+		clock:       clock,
+		cfg:         cfg.withDefaults(),
+		failedPokes: map[string]pokeBackoff{},
 	}
 }
 
@@ -212,6 +229,20 @@ func (s *Service) prune(
 			slog.ErrorContext(ctx, "steward: prune poke record", "ticket_id", id, "err", err)
 		}
 	}
+	// Drop retry backoffs the same way: once a ticket is no longer Working its
+	// episode is over, so a future stall starts from a clean slate rather than
+	// inheriting a stale cooldown. Guarded by the same swept/allSwept rule so a
+	// project that failed to sweep (its tickets absent from live) is not misread
+	// as those tickets having left Working.
+	for id, bo := range s.failedPokes {
+		if _, ok := live[id]; ok {
+			continue
+		}
+		if !swept[bo.projectID] && !allSwept {
+			continue
+		}
+		delete(s.failedPokes, id)
+	}
 }
 
 // evaluate applies the deterministic rule to one Working ticket. Exactly one
@@ -266,11 +297,29 @@ func (s *Service) evaluate(
 // there is nothing to announce or remember. A feed-post failure is logged but
 // does not abort — the poke was delivered and must still be recorded so a
 // re-stall escalates rather than re-pokes.
+//
+// A failed delivery arms an exponential backoff: nothing is recorded, so the
+// stall persists and the next eligible sweep would otherwise re-attempt at once.
+// Instead the retry is held off for a geometrically growing cooldown, so a
+// transiently unhealthy agent/board is not hammered every interval. A successful
+// delivery clears the backoff.
 func (s *Service) poke(ctx context.Context, projectID string, t WorkingTicket, now time.Time) {
-	if err := s.board.Poke(ctx, projectID, t.ID); err != nil {
-		slog.ErrorContext(ctx, "steward: poke agent", "project_id", projectID, "ticket_id", t.ID, "err", err)
+	if bo, ok := s.failedPokes[t.ID]; ok && now.Before(bo.nextRetryAt) {
+		// Still cooling down from an earlier delivery failure.
 		return
 	}
+	if err := s.board.Poke(ctx, projectID, t.ID); err != nil {
+		bo := s.failedPokes[t.ID]
+		bo.projectID = projectID
+		bo.attempts++
+		delay := s.backoff(bo.attempts)
+		bo.nextRetryAt = now.Add(delay)
+		s.failedPokes[t.ID] = bo
+		slog.ErrorContext(ctx, "steward: poke agent", "project_id", projectID, "ticket_id", t.ID,
+			"attempt", bo.attempts, "retry_after", delay.String(), "err", err)
+		return
+	}
+	delete(s.failedPokes, t.ID)
 	if err := s.feed.PostPoke(ctx, projectID, t.ID); err != nil {
 		slog.ErrorContext(ctx, "steward: post poke card", "project_id", projectID, "ticket_id", t.ID, "err", err)
 	}
@@ -279,6 +328,24 @@ func (s *Service) poke(ctx context.Context, projectID string, t WorkingTicket, n
 	}
 	slog.InfoContext(ctx, "steward: poked stalled agent",
 		"project_id", projectID, "ticket_id", t.ID, "worker_id", t.WorkerID)
+}
+
+// backoff is the cooldown before retrying a poke after attempts consecutive
+// failed deliveries: min(BackoffBase × 2^(attempts−1), BackoffCap). The first
+// failure (attempts=1) waits BackoffBase; each subsequent failure doubles it up
+// to the cap.
+func (s *Service) backoff(attempts int) time.Duration {
+	shift := max(attempts-1, 0)
+	// Guard against shifting past the width of time.Duration on absurd inputs.
+	const maxShift = 62
+	if shift > maxShift {
+		return s.cfg.BackoffCap
+	}
+	d := s.cfg.BackoffBase << shift
+	if d <= 0 || d > s.cfg.BackoffCap {
+		return s.cfg.BackoffCap
+	}
+	return d
 }
 
 // block escalates the ticket to Blocked and clears its poke record.

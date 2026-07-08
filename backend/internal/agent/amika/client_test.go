@@ -629,6 +629,51 @@ func TestAPIErrorEnvelopeDecoded(t *testing.T) {
 	}
 }
 
+func TestOutOfCreditsMappedToSentinel(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		code   string
+		msg    string
+	}{
+		{"payment required status", http.StatusPaymentRequired, "payment_required", "top up to continue"},
+		{"credit-worded envelope", http.StatusForbidden, "insufficient_credits", "account is out of credits"},
+		{"quota-worded envelope", http.StatusTooManyRequests, "quota_exceeded", "monthly quota reached"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+				{http.MethodGet, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(t, w, tc.status, errEnvelope(tc.code, tc.msg))
+				},
+			})
+
+			_, err := c.ListWorkers(context.Background())
+			if !errors.Is(err, agent.ErrOutOfCredits) {
+				t.Errorf("err = %v, want it to wrap agent.ErrOutOfCredits", err)
+			}
+			// The *APIError is still reachable so logs keep the status/trace.
+			apiErr := new(APIError)
+			if !errors.As(err, &apiErr) || apiErr.Status != tc.status {
+				t.Errorf("err = %v, want an *APIError with status %d beneath the sentinel", err, tc.status)
+			}
+		})
+	}
+}
+
+func TestNonCreditErrorNotMappedToSentinel(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+		{http.MethodGet, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, http.StatusBadGateway, errEnvelope("upstream_unavailable", "provider down"))
+		},
+	})
+
+	_, err := c.ListWorkers(context.Background())
+	if errors.Is(err, agent.ErrOutOfCredits) {
+		t.Errorf("err = %v, must not be treated as out-of-credits", err)
+	}
+}
+
 func TestNewNormalizesConfig(t *testing.T) {
 	c := New(Config{BaseURL: "https://host/api/", APIKey: "k"}, nil)
 	if c.cfg.BaseURL != "https://host/api" {

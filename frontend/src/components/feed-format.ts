@@ -9,12 +9,13 @@ function plural(count: number, word: string): string {
   return count === 1 ? `${count.toString()} ${word}` : `${count.toString()} ${word}s`;
 }
 
-/** The one-line header status derived from the feed summary (08 §2 / §F): the
- * live active-ticket count, then "Nothing active" for an empty feed. Blockers
- * are surfaced in the dropdown list, not in this collapsed label. */
-export function feedStatus(summary: FeedSummary): string {
-  if (summary.stream_count > 0) {
-    return plural(summary.stream_count, 'ticket');
+/** The one-line header status label for the dropdown's ticket count (08 §2 /
+ * §F): the number of tickets listed when the panel opens — active *and* queued
+ * (working + blocked + ready), matching `ticketStatuses` — then "Nothing active"
+ * when there are none. Blockers are surfaced in the dropdown list, not here. */
+export function feedStatus(count: number): string {
+  if (count > 0) {
+    return plural(count, 'ticket');
   }
   return 'Nothing active';
 }

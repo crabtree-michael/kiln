@@ -622,10 +622,29 @@ func (s *Service) stepEmitFailure(ctx context.Context, t Turn) {
 	s.update(ctx, t)
 }
 
+// outOfCreditsMessage is the user-facing failure output a turn carries when the
+// provider rejected it for exhausted API credits (05 §5). It replaces the raw
+// provider error so the brain surfaces plain, actionable feedback rather than a
+// billing envelope. Provider-neutral by design — nothing outside the module names
+// the platform (05 §1).
+const outOfCreditsMessage = "I'm out of API credits, so I can't run the agent right now. " +
+	"Please replenish your credits and try again."
+
 // recordFailure books one retry; exhausting the budget moves the machine to
-// failed (05 §5, 04 §3).
+// failed (05 §5, 04 §3). An out-of-credits rejection is terminal, not transient:
+// no retry succeeds until the user tops up, so it fails the turn now — sparing the
+// retry budget the doomed provider calls — and carries a plain out-of-credits
+// message instead of the raw error (05 §5).
 func (s *Service) recordFailure(ctx context.Context, t Turn, cause error) {
 	t.Attempts++
+	if errors.Is(cause, ErrOutOfCredits) {
+		slog.WarnContext(ctx, "agent: provider out of credits; failing turn without retry",
+			"ticket_id", t.TicketID, "worker_id", t.WorkerID, "err", cause)
+		t.LastError = outOfCreditsMessage
+		t.Phase = PhaseFailed
+		s.update(ctx, t)
+		return
+	}
 	t.LastError = cause.Error()
 	if t.Attempts >= maxAttempts {
 		t.Phase = PhaseFailed

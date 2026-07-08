@@ -41,30 +41,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
         data-role="settings-form"
       >
         <label>
-          Anthropic API key
-          <span
-            data-role="credential-input-row"
-          >
-            <input
-              placeholder="configured · …x4Kd"
-              type="password"
-              value=""
-            />
-            <span
-              data-name="anthropic_api_key"
-              data-role="credential-status"
-              data-status="skipped"
-            />
-          </span>
-        </label>
-        <span
-          data-name="anthropic_api_key"
-          data-role="secret-status"
-          data-set="true"
-        >
-          configured · …x4Kd
-        </span>
-        <label>
           Amika API key
           <span
             data-role="credential-input-row"
@@ -183,6 +159,23 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
             type="number"
             value="3"
           />
+        </label>
+        <label>
+          Merge gate
+          <select
+            data-role="merge-gate-mode"
+          >
+            <option
+              value="main"
+            >
+              Merged to main
+            </option>
+            <option
+              value="pr"
+            >
+              In a pull request
+            </option>
+          </select>
         </label>
         <fieldset
           data-role="amika-secrets"

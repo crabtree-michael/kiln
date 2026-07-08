@@ -24,12 +24,30 @@ type Session struct {
 // *Enc fields hold AES-GCM ciphertext (nil = unset); the two non-secret
 // fields are stored in the clear.
 type UserConfig struct {
-	UserID            string
+	UserID string
+	// AnthropicKeyEnc is DORMANT (global-key change): the brain now drives a
+	// deployment-global ANTHROPIC_API_KEY env setting, so this column/field is
+	// no longer consumed at runtime. Kept (not dropped) so per-user Anthropic
+	// keys can be brought back when user management expands — re-enabling needs
+	// no migration.
 	AnthropicKeyEnc   []byte
 	AmikaKeyEnc       []byte
 	GitHubTokenEnc    []byte
 	AmikaClaudeCredID string
 }
+
+// MergeGateMode names which condition satisfies a ticket's merge gate (06 §7).
+// The zero value ("") is treated as MergeGateMain so existing projects keep the
+// original behavior without a data backfill.
+type MergeGateMode string
+
+const (
+	// MergeGateMain accepts a ticket done only once its commit is on origin/main.
+	MergeGateMain MergeGateMode = "main"
+	// MergeGatePR accepts a ticket done once the work exists in a pull request,
+	// merged or not.
+	MergeGatePR MergeGateMode = "pr"
+)
 
 // Project parameterizes one brain/board (11 §3 D5): the repo it works on and
 // the brain-shaped knobs. One per user in phase 1.
@@ -41,6 +59,7 @@ type Project struct {
 	AmikaSnapshot string
 	BrainModel    string
 	WorkerCount   int
+	MergeGateMode MergeGateMode
 	AmikaSecrets  []AmikaSecret
 	CreatedAt     time.Time
 }
@@ -121,6 +140,7 @@ type ProjectUpdate struct {
 	AmikaSnapshot string
 	BrainModel    string
 	WorkerCount   int
+	MergeGateMode MergeGateMode
 	AmikaSecrets  []AmikaSecretInput
 }
 

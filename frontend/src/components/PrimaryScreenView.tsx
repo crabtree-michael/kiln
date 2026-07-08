@@ -92,6 +92,8 @@ export interface PrimaryScreenViewProps {
   pushStatus?: WebPushStatus | undefined;
   /** Request OS notification permission + register for push (02 §10). Optional. */
   onEnablePush?: (() => void) | undefined;
+  /** Turn push back off (unsubscribe this browser). Optional. */
+  onDisablePush?: (() => void) | undefined;
   /** Injected "now" for deterministic relative-age rendering (defaults to real time). */
   now?: number;
 }
@@ -194,6 +196,7 @@ export function PrimaryScreenView({
   onSelectNotificationMode,
   pushStatus,
   onEnablePush,
+  onDisablePush,
   now = Date.now(),
 }: PrimaryScreenViewProps): JSX.Element {
   const summary = feed?.summary ?? EMPTY_SUMMARY;
@@ -248,6 +251,7 @@ export function PrimaryScreenView({
             onSelectMode={onSelectNotificationMode}
             pushStatus={pushStatus}
             onEnablePush={onEnablePush}
+            onDisablePush={onDisablePush}
           />
           {onDismissAll !== undefined && (
             <button
@@ -401,8 +405,8 @@ export function PrimaryScreenView({
           onClose={() => {
             setOpenTicketId(null);
           }}
-          // Accept is a proposal action; TicketDetail itself suppresses it for
-          // done/blocked, so it's safe to always wire — the sheet decides.
+          // Accept is a proposal action; TicketDetail only surfaces it while the
+          // ticket is still shaping, so it's safe to always wire — the sheet decides.
           onAccept={(ticketId) => {
             onAccept(ticketId);
             setOpenTicketId(null);

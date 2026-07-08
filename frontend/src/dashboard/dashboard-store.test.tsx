@@ -225,6 +225,7 @@ describe('DashboardProvider', () => {
         amika_snapshot: '',
         brain_model: '',
         worker_count: 1,
+        merge_gate_mode: 'main',
         amika_secrets: [],
       },
     });
@@ -349,6 +350,7 @@ describe('DashboardProvider', () => {
         amika_snapshot: '',
         brain_model: '',
         worker_count: 1,
+        merge_gate_mode: 'main',
         amika_secrets: [],
       },
     });

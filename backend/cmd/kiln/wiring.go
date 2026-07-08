@@ -292,8 +292,9 @@ func newRegistry(
 // buildTenantProviders is the tenant registry's per-project build closure body
 // (11 §3): from one project's decrypted RuntimeConfig it seeds the board worker
 // pool, constructs the project's brain (over projectID-injecting adapters and an
-// Anthropic client keyed by the owner's API key + the project's model) and its
-// coding-agent provider, and returns them bundled for the registry to cache.
+// Anthropic client keyed by the deployment-global ANTHROPIC_API_KEY + the
+// project's model) and its coding-agent provider, and returns them bundled for
+// the registry to cache.
 // Extracted from buildGraph's closure to keep both within the complexity budget.
 func buildTenantProviders(
 	ctx context.Context, cfg Config, rc identity.RuntimeConfig,
@@ -343,7 +344,8 @@ func buildTenantProviders(
 	if model == "" {
 		model = brain.DefaultModel
 	}
-	llm := brain.NewAdapterWithClient(brain.Config{Model: model}, option.WithAPIKey(rc.AnthropicAPIKey))
+	gateMode := brain.GateMode(rc.Project.MergeGateMode)
+	llm := newBrainLLM(cfg, model)
 
 	brainSvc := brain.NewService(
 		&boardAPIAdapter{svc: boardSvc, projectID: pid},
@@ -355,7 +357,7 @@ func buildTenantProviders(
 		&agentInspectorAdapter{inner: agentSvc, projectID: pid},
 		&repoShellAdapter{inner: repoShell},
 		llm,
-		brain.Config{Model: model},
+		brain.Config{Model: model, GateMode: gateMode},
 	)
 
 	return &tenant.Providers{
@@ -366,6 +368,19 @@ func buildTenantProviders(
 		Brain:        &brainAdapter{inner: brainSvc},
 		Agent:        provider,
 	}, nil
+}
+
+// newBrainLLM builds the brain's Anthropic adapter for a project's model. The
+// Anthropic key is a deployment-global setting (ANTHROPIC_API_KEY via Config),
+// not per-user config: every project's brain drives the same key rather than
+// rc.AnthropicAPIKey (dormant — kept for a future per-user path). An empty key
+// falls back to the SDK's own env/credential lookup, so the "unconfigured boot"
+// behavior is unchanged.
+func newBrainLLM(cfg Config, model string) *brain.Adapter {
+	if cfg.AnthropicAPIKey != "" {
+		return brain.NewAdapterWithClient(brain.Config{Model: model}, option.WithAPIKey(cfg.AnthropicAPIKey))
+	}
+	return brain.NewAdapter(brain.Config{Model: model})
 }
 
 // amikaSecretRefs maps a project's decrypted secrets (RuntimeConfig, plaintext)

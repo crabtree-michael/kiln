@@ -14,7 +14,7 @@ vi.mock('@/transport/transport', () => ({
 }));
 
 function Probe(): JSX.Element {
-  const { status, error, enable } = useWebPush();
+  const { status, error, enable, disable } = useWebPush();
   return (
     <div>
       <span data-testid="status">{status}</span>
@@ -26,6 +26,14 @@ function Probe(): JSX.Element {
         }}
       >
         enable
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void disable();
+        }}
+      >
+        disable
       </button>
     </div>
   );
@@ -141,6 +149,30 @@ describe('useWebPush', () => {
       endpoint: 'https://push.example/abc',
       keys: { p256dh: 'pub', auth: 'auth' },
     });
+  });
+
+  it('unsubscribes and drops back to default when disabled', async () => {
+    installPushEnv({ existingSubscription: true });
+    const unsubscribe = vi.fn(() => Promise.resolve(true));
+    const subscription = { ...FAKE_SUBSCRIPTION, unsubscribe };
+    const registration = {
+      pushManager: { getSubscription: () => Promise.resolve(subscription) },
+    };
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistration: () => Promise.resolve(registration) },
+      configurable: true,
+    });
+    render(<Probe />);
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('enabled');
+    });
+
+    fireEvent.click(screen.getByText('disable'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('default');
+    });
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it('reports denied when the user blocks the permission prompt', async () => {

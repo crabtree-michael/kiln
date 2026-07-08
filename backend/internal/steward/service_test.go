@@ -29,7 +29,9 @@ func (p *fakeProjects) ProjectIDs(context.Context) ([]string, error) { return p.
 type fakeBoard struct {
 	working    map[string][]WorkingTicket // project_id -> Working set
 	workingErr map[string]error           // project_id -> WorkingTickets error
-	poked      map[string][]string        // project_id -> poked ticket ids, in order
+	poked      map[string][]string        // project_id -> delivered poke ticket ids, in order
+	pokeErr    map[string]error           // ticket_id -> Poke delivery error (nil ⇒ succeeds)
+	pokeCalls  int                        // total Poke calls, including failed deliveries
 	blocked    map[string]string          // ticket_id -> reason
 }
 
@@ -41,6 +43,10 @@ func (b *fakeBoard) WorkingTickets(_ context.Context, projectID string) ([]Worki
 }
 
 func (b *fakeBoard) Poke(_ context.Context, projectID, ticketID string) error {
+	b.pokeCalls++
+	if err := b.pokeErr[ticketID]; err != nil {
+		return err
+	}
 	if b.poked == nil {
 		b.poked = map[string][]string{}
 	}
@@ -120,6 +126,7 @@ type harness struct {
 	board *fakeBoard
 	feed  *fakeFeed
 	store *fakeStore
+	clock *testutil.FakeClock
 	now   time.Time
 }
 
@@ -131,7 +138,7 @@ func newHarness(working []WorkingTicket, states map[string]AgentState, recs ...P
 	store := newFakeStore(recs...)
 	svc := NewService(&fakeProjects{ids: []string{testProject}}, board, agents, feed, store, clock,
 		Config{Stall: stall, Interval: time.Minute})
-	return &harness{svc: svc, board: board, feed: feed, store: store, now: clock.Now()}
+	return &harness{svc: svc, board: board, feed: feed, store: store, clock: clock, now: clock.Now()}
 }
 
 func TestSweep_PokesIdleAgentPastThreshold(t *testing.T) {
@@ -381,6 +388,93 @@ func TestSweep_TwoProjects_BothSwept(t *testing.T) {
 	}
 	if _, ok := store.records["t-gone"]; ok {
 		t.Fatalf("expected stale record t-gone pruned")
+	}
+}
+
+// stalledIdle is a worker that has been idle well past the stall threshold, so
+// every sweep finds it poke-eligible until something changes.
+func stalledIdle() map[string]AgentState {
+	return map[string]AgentState{"w1": {Status: statusIdle, UpdatedAt: fixedNow().Add(-time.Hour)}}
+}
+
+func TestSweep_BacksOffAfterFailedPokeDelivery(t *testing.T) {
+	// Delivery keeps failing: the first sweep attempts, then the ticket is held
+	// off for the backoff window (default base 1m) rather than re-attempted on
+	// every following sweep.
+	h := newHarness([]WorkingTicket{{ID: "t1", WorkerID: "w1"}}, stalledIdle())
+	h.board.pokeErr = map[string]error{"t1": errBoardDown}
+
+	h.svc.sweep(context.Background()) // attempt #1 at T0 → fails, cooldown until T0+1m
+	if h.board.pokeCalls != 1 {
+		t.Fatalf("expected 1 poke attempt, got %d", h.board.pokeCalls)
+	}
+	if len(h.store.records) != 0 {
+		t.Fatalf("failed delivery must record nothing, got %v", h.store.records)
+	}
+
+	// Within the cooldown: no re-attempt.
+	h.clock.Advance(30 * time.Second)
+	h.svc.sweep(context.Background())
+	if h.board.pokeCalls != 1 {
+		t.Fatalf("expected no re-attempt within cooldown, got %d attempts", h.board.pokeCalls)
+	}
+
+	// Past the cooldown: attempt again (fails again → next cooldown doubles to 2m).
+	h.clock.Advance(31 * time.Second) // now T0+61s > T0+1m
+	h.svc.sweep(context.Background())
+	if h.board.pokeCalls != 2 {
+		t.Fatalf("expected a retry past the cooldown, got %d attempts", h.board.pokeCalls)
+	}
+
+	// The window has doubled: still no attempt 90s later (< 2m).
+	h.clock.Advance(90 * time.Second)
+	h.svc.sweep(context.Background())
+	if h.board.pokeCalls != 2 {
+		t.Fatalf("expected the retry window to double, got %d attempts", h.board.pokeCalls)
+	}
+}
+
+func TestSweep_SuccessfulPokeClearsBackoff(t *testing.T) {
+	// One failed delivery arms the backoff; once delivery recovers the poke lands
+	// and the backoff state is dropped.
+	h := newHarness([]WorkingTicket{{ID: "t1", WorkerID: "w1"}}, stalledIdle())
+	h.board.pokeErr = map[string]error{"t1": errBoardDown}
+
+	h.svc.sweep(context.Background()) // fails, arms cooldown
+	if _, armed := h.svc.failedPokes["t1"]; !armed {
+		t.Fatalf("expected backoff armed after failed delivery")
+	}
+
+	h.board.pokeErr = nil             // delivery recovers
+	h.clock.Advance(61 * time.Second) // past the 1m cooldown
+	h.svc.sweep(context.Background())
+
+	if got := h.board.poked[testProject]; len(got) != 1 || got[0] != "t1" {
+		t.Fatalf("expected t1 delivered after recovery, got %v", h.board.poked)
+	}
+	if _, ok := h.store.records["t1"]; !ok {
+		t.Fatalf("expected poke recorded after successful delivery")
+	}
+	if _, armed := h.svc.failedPokes["t1"]; armed {
+		t.Fatalf("expected backoff cleared after successful delivery")
+	}
+}
+
+func TestSweep_PrunesBackoffForTicketThatLeftWorking(t *testing.T) {
+	// A ticket accrues a backoff, then leaves the Working set: its stale cooldown
+	// must be dropped so a future episode starts clean.
+	h := newHarness([]WorkingTicket{{ID: "t1", WorkerID: "w1"}}, stalledIdle())
+	h.board.pokeErr = map[string]error{"t1": errBoardDown}
+	h.svc.sweep(context.Background())
+	if _, armed := h.svc.failedPokes["t1"]; !armed {
+		t.Fatalf("expected backoff armed")
+	}
+
+	// t1 is gone from Working on the next sweep.
+	h.board.working[testProject] = nil
+	h.svc.sweep(context.Background())
+	if _, armed := h.svc.failedPokes["t1"]; armed {
+		t.Fatalf("expected backoff pruned once t1 left Working")
 	}
 }
 

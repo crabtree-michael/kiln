@@ -113,13 +113,37 @@ describe('TicketDetail', () => {
     expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
   });
 
-  it('shows an Accept action when onAccept is provided (proposal click-through, 08 §5)', () => {
+  it('shows an Accept action for a shaping ticket when onAccept is provided (proposal click-through, 08 §5)', () => {
     const onAccept = vi.fn();
-    render(<TicketDetail ticket={working} onClose={vi.fn()} onAccept={onAccept} />);
+    const shaping = makeTicket({
+      id: 't-shape',
+      title: 'A shaped proposal',
+      body: 'body',
+      state: 'shaping',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={shaping} onClose={vi.fn()} onAccept={onAccept} />);
 
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }));
 
-    expect(onAccept).toHaveBeenCalledWith('t-42');
+    expect(onAccept).toHaveBeenCalledWith('t-shape');
+  });
+
+  it('never offers Accept once past shaping — a working ticket has already been accepted', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onAccept={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+  });
+
+  it('shows an "in progress" status indicator for a working ticket', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+    const status = within(screen.getByRole('dialog'))
+      .getByText('In progress')
+      .closest('[data-role="ticket-detail-status"]');
+    expect(status).not.toBeNull();
+    expect(status).toHaveAttribute('data-state', 'working');
+    expect(status?.querySelector('[data-role="ticket-detail-status-dot"]')).not.toBeNull();
   });
 
   describe('done ticket', () => {
@@ -181,9 +205,15 @@ describe('TicketDetail', () => {
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
     });
 
-    it('shows no "done" status indicator', () => {
+    it('shows a "blocked" status indicator (with the reason below), not a "done" one', () => {
       render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} />);
-      expect(document.querySelector('[data-role="ticket-detail-status"]')).toBeNull();
+      const dialog = screen.getByRole('dialog');
+      const status = within(dialog).getByText('Blocked').closest('[data-role="ticket-detail-status"]');
+      expect(status).not.toBeNull();
+      expect(status).toHaveAttribute('data-state', 'blocked');
+      expect(within(dialog).queryByText('Done')).toBeNull();
+      // The at-a-glance badge and the full reason both render.
+      expect(within(dialog).getByText('Needs a decision on the auth scheme.')).toBeInTheDocument();
     });
   });
 });

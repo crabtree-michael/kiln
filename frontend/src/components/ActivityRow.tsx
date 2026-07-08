@@ -199,7 +199,7 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
           one continuous surface. */}
       {thinking && (
         <div data-role="thinking-indicator">
-          <span data-role="thinking-text">Kiln is {word}…</span>
+          <span data-role="thinking-text">{word}…</span>
         </div>
       )}
 

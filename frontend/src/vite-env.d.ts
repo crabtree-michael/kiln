@@ -16,6 +16,14 @@ interface ImportMetaEnv {
    * so errors and traces group per deploy. Omitted → Sentry auto-detects/none.
    */
   readonly VITE_RELEASE?: string;
+  /**
+   * Set to `'1'` to re-expose the per-user Anthropic API key field in the
+   * dashboard. The Anthropic key is a deployment-global `ANTHROPIC_API_KEY`
+   * setting now, so onboarding no longer asks for it and the field is hidden by
+   * default; this flag brings it back (with its still-intact commit/verify
+   * path) without a code change, pending real per-user config support.
+   */
+  readonly VITE_SHOW_ANTHROPIC_KEY_FIELD?: string;
 }
 
 // The W3C Audio Session API (https://www.w3.org/TR/audio-session/). Not in the

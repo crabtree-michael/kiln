@@ -145,7 +145,10 @@ func (s *Service) model() string {
 //
 // See docs/specs/06-orchestrator-brain.md §5 and §8.
 func (s *Service) runPass(ctx context.Context, input PassInput) error {
-	system, err := RenderSystemPrompt(PromptData{Role: orchestratorRole})
+	system, err := RenderSystemPrompt(PromptData{
+		Role:     orchestratorRole,
+		DoneInPR: s.cfg.GateMode == GatePR,
+	})
 	if err != nil {
 		return fmt.Errorf("brain: render system prompt: %w", err)
 	}

@@ -121,6 +121,24 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for MeProjectMergeGateMode.
+const (
+	MeProjectMergeGateModeMain MeProjectMergeGateMode = "main"
+	MeProjectMergeGateModePr   MeProjectMergeGateMode = "pr"
+)
+
+// Valid indicates whether the value is a known member of the MeProjectMergeGateMode enum.
+func (e MeProjectMergeGateMode) Valid() bool {
+	switch e {
+	case MeProjectMergeGateModeMain:
+		return true
+	case MeProjectMergeGateModePr:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageRole.
 const (
 	Kiln MessageRole = "kiln"
@@ -151,6 +169,24 @@ func (e NotificationModeMode) Valid() bool {
 	case All:
 		return true
 	case Blocked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectUpdateRequestMergeGateMode.
+const (
+	ProjectUpdateRequestMergeGateModeMain ProjectUpdateRequestMergeGateMode = "main"
+	ProjectUpdateRequestMergeGateModePr   ProjectUpdateRequestMergeGateMode = "pr"
+)
+
+// Valid indicates whether the value is a known member of the ProjectUpdateRequestMergeGateMode enum.
+func (e ProjectUpdateRequestMergeGateMode) Valid() bool {
+	switch e {
+	case ProjectUpdateRequestMergeGateModeMain:
+		return true
+	case ProjectUpdateRequestMergeGateModePr:
 		return true
 	default:
 		return false
@@ -399,10 +435,16 @@ type MeProject struct {
 	AmikaSecrets  []AmikaSecret `json:"amika_secrets"`
 	AmikaSnapshot string        `json:"amika_snapshot"`
 	BrainModel    string        `json:"brain_model"`
-	Name          string        `json:"name"`
-	RepoUrl       string        `json:"repo_url"`
-	WorkerCount   int           `json:"worker_count"`
+
+	// MergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` accepts a done only once its commit is on origin/main; `pr` accepts it once the work exists in a pull request, merged or not. Defaults to `main`.
+	MergeGateMode MeProjectMergeGateMode `json:"merge_gate_mode"`
+	Name          string                 `json:"name"`
+	RepoUrl       string                 `json:"repo_url"`
+	WorkerCount   int                    `json:"worker_count"`
 }
+
+// MeProjectMergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` accepts a done only once its commit is on origin/main; `pr` accepts it once the work exists in a pull request, merged or not. Defaults to `main`.
+type MeProjectMergeGateMode string
 
 // MeSettings Config status — secrets as presence+fingerprint only (11 §3 D7).
 type MeSettings struct {
@@ -456,10 +498,16 @@ type ProjectUpdateRequest struct {
 	AmikaSecrets  *[]AmikaSecretInput `json:"amika_secrets,omitempty"`
 	AmikaSnapshot *string             `json:"amika_snapshot,omitempty"`
 	BrainModel    *string             `json:"brain_model,omitempty"`
-	Name          string              `json:"name"`
-	RepoUrl       string              `json:"repo_url"`
-	WorkerCount   *int                `json:"worker_count,omitempty"`
+
+	// MergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` (done when the commit is on origin/main) or `pr` (done when the work is in a pull request). Omitted or empty keeps/defaults to `main`.
+	MergeGateMode *ProjectUpdateRequestMergeGateMode `json:"merge_gate_mode,omitempty"`
+	Name          string                             `json:"name"`
+	RepoUrl       string                             `json:"repo_url"`
+	WorkerCount   *int                               `json:"worker_count,omitempty"`
 }
+
+// ProjectUpdateRequestMergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` (done when the commit is on origin/main) or `pr` (done when the work is in a pull request). Omitted or empty keeps/defaults to `main`.
+type ProjectUpdateRequestMergeGateMode string
 
 // PushKey The VAPID public key for pushManager.subscribe (02 §10).
 type PushKey struct {

@@ -139,10 +139,11 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			call: func(t *testing.T) brain.ToolCall {
 				t.Helper()
 				return newToolCall(t, "c6", brain.ToolUpdateTicket, brain.UpdateTicketInput{
-					ID: "t-5", State: new("done"),
+					ID: "t-5", State: new("done"), DoneCommit: new("a1b2c3d"),
 				})
 			},
-			wantMethod: "AcceptToDone",
+			// The shared fakeRepo (below) verifies OnMain, so the done proceeds.
+			wantMethod: methodAcceptToDone,
 			wantArgs:   []any{board.TicketID("t-5")},
 		},
 		{
@@ -197,7 +198,9 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fb := &fakeBoard{}
 			fs := &fakeSay{}
-			fr := &fakeRepo{}
+			// OnMain=true so the state=done case clears the push gate; other cases
+			// never call VerifyOnMain.
+			fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
 			svc := newTestServiceR(fb, fs, &fakeConvo{}, fr, &scriptedLLM{})
 
 			call := tc.call(t)
@@ -578,9 +581,13 @@ func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
 			return board.Ticket{}, board.ErrNotFound
 		},
 	}
-	svc := newTestService(fb, &fakeSay{}, &fakeConvo{}, &scriptedLLM{})
+	// OnMain=true so the done clears the push gate and reaches the board, where the
+	// not-found error is what this test pins.
+	fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+	svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
 
-	call := newToolCall(t, "err-2", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: "missing", State: new("done")})
+	call := newToolCall(t, "err-2", brain.ToolUpdateTicket,
+		brain.UpdateTicketInput{ID: "missing", State: new("done"), DoneCommit: new("abc1234")})
 	result := svc.Dispatch(context.Background(), call)
 
 	if !result.IsError {
@@ -644,4 +651,101 @@ func TestDispatch_MalformedInput(t *testing.T) {
 	if len(fb.recordedCalls()) != 0 {
 		t.Errorf("malformed input must not reach BoardAPI.CreateTicket; recorded %v", fb.recordedCalls())
 	}
+}
+
+// TestUpdateTicketDoneGate covers the push gate on state="done": the brain must
+// supply a done_commit SHA that VerifyOnMain confirms is on origin/main before
+// the board accepts the ticket (06 §7 amended, prompt.go). A missing/invalid
+// SHA is malformed; an unverified SHA (not on main, or repo unavailable) is
+// refused without touching the board.
+func TestUpdateTicketDoneGate(t *testing.T) {
+	const sha = "a1b2c3d4e5f6"
+	done := func(t *testing.T, id string, commit *string) brain.ToolCall {
+		t.Helper()
+		return newToolCall(t, "cd", brain.ToolUpdateTicket,
+			brain.UpdateTicketInput{ID: id, State: new("done"), DoneCommit: commit})
+	}
+	acceptedToDone := func(fb *fakeBoard) bool {
+		for _, c := range fb.recordedCalls() {
+			if c.Method == methodAcceptToDone {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("missing done_commit is malformed, board untouched", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+		res := svc.Dispatch(context.Background(), done(t, "t-1", nil))
+		if !res.IsError {
+			t.Fatalf("expected IsError for missing done_commit; got %+v", res)
+		}
+		if len(fb.recordedCalls()) != 0 {
+			t.Fatalf("board must not be touched; recorded %v", fb.recordedCalls())
+		}
+		if fr.gotSHA != "" {
+			t.Errorf("VerifyOnMain must not run on a malformed call; got sha %q", fr.gotSHA)
+		}
+	})
+
+	t.Run("non-hex done_commit is malformed", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+		res := svc.Dispatch(context.Background(), done(t, "t-1", new("not a sha!")))
+		if !res.IsError {
+			t.Fatalf("expected IsError for non-hex done_commit; got %+v", res)
+		}
+		if len(fb.recordedCalls()) != 0 {
+			t.Fatalf("board must not be touched; recorded %v", fb.recordedCalls())
+		}
+	})
+
+	t.Run("commit not on origin/main is refused, board untouched", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: false, Reason: "not an ancestor of origin/main"}}
+		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+		res := svc.Dispatch(context.Background(), done(t, "t-1", new(sha)))
+		if !res.IsError {
+			t.Fatalf("expected IsError when commit is not on main; got %+v", res)
+		}
+		if fr.gotSHA != sha {
+			t.Errorf("VerifyOnMain sha = %q, want %q", fr.gotSHA, sha)
+		}
+		if acceptedToDone(fb) {
+			t.Fatalf("AcceptToDone must NOT be called when commit is not on main")
+		}
+	})
+
+	t.Run("repo shell unavailable fails closed", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{Unavailable: true, Reason: "repo not configured"}}
+		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+		res := svc.Dispatch(context.Background(), done(t, "t-1", new(sha)))
+		if !res.IsError {
+			t.Fatalf("expected IsError (fail closed) when repo unavailable; got %+v", res)
+		}
+		if acceptedToDone(fb) {
+			t.Fatalf("AcceptToDone must NOT be called when verification is unavailable")
+		}
+	})
+
+	t.Run("verified commit on origin/main accepts to done", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+		res := svc.Dispatch(context.Background(), done(t, "t-9", new(sha)))
+		if res.IsError {
+			t.Fatalf("expected success for a verified on-main commit; got error %q", res.Content)
+		}
+		if fr.gotSHA != sha {
+			t.Errorf("VerifyOnMain sha = %q, want %q", fr.gotSHA, sha)
+		}
+		calls := fb.recordedCalls()
+		if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
+			t.Fatalf("expected a single AcceptToDone; got %v", calls)
+		}
+	})
 }

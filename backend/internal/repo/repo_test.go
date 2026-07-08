@@ -155,6 +155,131 @@ func TestRun_DisabledShell_EmptyRepoURL(t *testing.T) {
 	}
 }
 
+// gitOut runs git in dir with the hermetic test identity and returns trimmed
+// combined output, failing the test on error. Unlike seedRemote's closure it
+// returns the output, so callers can capture SHAs.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	full := append([]string{
+		"-c", "user.name=Test",
+		"-c", "user.email=test@example.com",
+		"-c", "init.defaultBranch=main",
+		"-c", "commit.gpgsign=false",
+	}, args...)
+	//nolint:gosec // G204: test helper running git with fixed, test-controlled args.
+	cmd := exec.CommandContext(context.Background(), "git", full...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// seedRemoteWithBranch builds a bare remote whose main has one commit and whose
+// unmerged "feature" branch has another. Returns (barePath, onMainSHA,
+// offMainSHA). The work tree is left on main.
+func seedRemoteWithBranch(t *testing.T) (string, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	barePath := filepath.Join(root, "remote.git")
+	work := filepath.Join(root, "work")
+
+	gitOut(t, root, "init", "--bare", barePath)
+	gitOut(t, root, "init", work)
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hello kiln\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, work, "add", "README.md")
+	gitOut(t, work, "commit", "-m", "seed: initial commit")
+	gitOut(t, work, "branch", "-M", "main")
+	gitOut(t, work, "remote", "add", "origin", barePath)
+	gitOut(t, work, "push", "-u", "origin", "main")
+	onMain := gitOut(t, work, "rev-parse", "HEAD")
+
+	gitOut(t, work, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(work, "feat.txt"), []byte("wip\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, work, "add", "feat.txt")
+	gitOut(t, work, "commit", "-m", "wip on feature")
+	offMain := gitOut(t, work, "rev-parse", "HEAD")
+	gitOut(t, work, "push", "-u", "origin", "feature")
+	gitOut(t, work, "checkout", "main")
+
+	return barePath, onMain, offMain
+}
+
+func TestVerifyOnMain(t *testing.T) {
+	bare, onMain, offMain := seedRemoteWithBranch(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	s := New(context.Background(), Config{RepoURL: bare, Dir: dir})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	if v := s.VerifyOnMain(context.Background(), onMain); !v.OnMain || v.Unavailable {
+		t.Fatalf("expected OnMain for merged commit %s; got %+v", onMain, v)
+	}
+	if v := s.VerifyOnMain(context.Background(), offMain); v.OnMain {
+		t.Fatalf("expected NOT OnMain for unmerged branch commit %s; got %+v", offMain, v)
+	}
+	if v := s.VerifyOnMain(context.Background(), "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"); v.OnMain {
+		t.Fatalf("expected NOT OnMain for unknown sha; got %+v", v)
+	}
+}
+
+// TestVerifyOnMain_FetchesFreshCommits proves the verify fetches: a commit
+// pushed to origin/main AFTER the clone must still be recognized as on main.
+func TestVerifyOnMain_FetchesFreshCommits(t *testing.T) {
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+	work := filepath.Join(root, "work")
+	gitOut(t, root, "init", "--bare", bare)
+	gitOut(t, root, "init", work)
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, work, "add", "README.md")
+	gitOut(t, work, "commit", "-m", "seed")
+	gitOut(t, work, "branch", "-M", "main")
+	gitOut(t, work, "remote", "add", "origin", bare)
+	gitOut(t, work, "push", "-u", "origin", "main")
+
+	dir := filepath.Join(t.TempDir(), "clone")
+	s := New(context.Background(), Config{RepoURL: bare, Dir: dir})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	// New commit on origin/main, pushed after the clone exists.
+	if err := os.WriteFile(filepath.Join(work, "later.txt"), []byte("later\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, work, "add", "later.txt")
+	gitOut(t, work, "commit", "-m", "landed after clone")
+	later := gitOut(t, work, "rev-parse", "HEAD")
+	gitOut(t, work, "push", "origin", "main")
+
+	if v := s.VerifyOnMain(context.Background(), later); !v.OnMain {
+		t.Fatalf("expected VerifyOnMain to fetch and recognize %s on origin/main; got %+v", later, v)
+	}
+}
+
+func TestVerifyOnMain_DisabledShell(t *testing.T) {
+	s := New(context.Background(), Config{RepoURL: "", Dir: filepath.Join(t.TempDir(), "clone")})
+	if !s.disabled {
+		t.Fatal("expected disabled shell")
+	}
+	v := s.VerifyOnMain(context.Background(), "abc1234")
+	if !v.Unavailable {
+		t.Fatalf("expected Unavailable on disabled shell; got %+v", v)
+	}
+	if v.OnMain {
+		t.Fatal("disabled shell must not report OnMain")
+	}
+}
+
 func TestNew_ExistingCloneReused(t *testing.T) {
 	bare, subject := seedRemote(t)
 	dir := filepath.Join(t.TempDir(), "clone")

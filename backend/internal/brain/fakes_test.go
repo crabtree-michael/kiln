@@ -21,14 +21,15 @@ import (
 // Shared literals hoisted to package-level consts so no single string recurs
 // 3+ times across the brain_test package (goconst).
 const (
-	ticketT1          = "t-1"
-	ticketT7          = "t-7"
-	ticketT99         = "t-99"
-	opMarkReady       = "mark_ready"
-	methodMarkReady   = "MarkReady"
-	methodShapeTicket = "ShapeTicket"
-	workerW1          = "w-1"
-	sayHello          = "hello"
+	ticketT1           = "t-1"
+	ticketT7           = "t-7"
+	ticketT99          = "t-99"
+	opMarkReady        = "mark_ready"
+	methodMarkReady    = "MarkReady"
+	methodShapeTicket  = "ShapeTicket"
+	methodAcceptToDone = "AcceptToDone"
+	workerW1           = "w-1"
+	sayHello           = "hello"
 )
 
 // --- scripted LLM -----------------------------------------------------
@@ -174,7 +175,7 @@ func (f *fakeBoard) MarkBlocked(ctx context.Context, id board.TicketID, reason s
 }
 
 func (f *fakeBoard) AcceptToDone(ctx context.Context, id board.TicketID) (board.Ticket, error) {
-	f.record("AcceptToDone", id)
+	f.record(methodAcceptToDone, id)
 	if f.acceptToDoneFn != nil {
 		return f.acceptToDoneFn(ctx, id)
 	}
@@ -411,11 +412,20 @@ type fakeRepo struct {
 	result     brain.RepoResult
 	err        error
 	gotCommand string
+
+	verify    brain.RepoVerify
+	verifyErr error
+	gotSHA    string
 }
 
 func (f *fakeRepo) Run(_ context.Context, command string) (brain.RepoResult, error) {
 	f.gotCommand = command
 	return f.result, f.err
+}
+
+func (f *fakeRepo) VerifyOnMain(_ context.Context, sha string) (brain.RepoVerify, error) {
+	f.gotSHA = sha
+	return f.verify, f.verifyErr
 }
 
 // --- construction helpers -------------------------------------------------

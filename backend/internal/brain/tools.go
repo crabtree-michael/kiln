@@ -112,6 +112,10 @@ type UpdateTicketInput struct {
 	State             *string `json:"state,omitempty"`
 	BlockedReason     *string `json:"blocked_reason,omitempty"`
 	ApprovalRequested *bool   `json:"approval_requested,omitempty"`
+	// DoneCommit is the origin/main commit SHA carrying the ticket's work.
+	// Required when State="done": the done path verifies it is on origin/main
+	// before accepting the ticket (06 §7 amended, prompt.go). Ignored otherwise.
+	DoneCommit *string `json:"done_commit,omitempty"`
 }
 
 // DeleteTicketInput — delete_ticket → BoardAPI.ArchiveTicket(id) (06 §4
@@ -199,6 +203,7 @@ const (
 	fieldPriority       = "priority"
 	fieldState          = "state"
 	fieldBlockedReason  = "blocked_reason"
+	fieldDoneCommit     = "done_commit"
 	fieldApproval       = "approval_requested"
 	fieldImageURL       = "image_url"
 	fieldNotificationID = "notification_id"
@@ -268,10 +273,13 @@ var Tools = []ToolDef{
 		Description: "Update a ticket. Edit its title/body/priority, and/or move its state: " +
 			"\"ready\" queues a shaping ticket for the pull, \"blocked\" needs a human decision " +
 			"(give blocked_reason), \"done\" accepts the result and recycles the worker " +
-			"(destructive — the workspace is gone). Every shaping ticket is already a proposal " +
-			"card; set approval_requested only to nudge the user's attention to one (mutually " +
-			"exclusive with state). Fields apply before the " +
-			"state change, so one call can revise and queue a ticket.",
+			"(destructive — the workspace is gone). Marking \"done\" requires done_commit: the " +
+			"origin/main commit SHA carrying the ticket's work. The system fetches origin and " +
+			"rejects the done unless that commit is on origin/main — so find it first with the " +
+			"bash tool (git fetch origin, then git log origin/main). Every shaping ticket is " +
+			"already a proposal card; set approval_requested only to nudge the user's attention " +
+			"to one (mutually exclusive with state). Fields apply before the state change, so " +
+			"one call can revise and queue a ticket.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID:      stringSchema("Ticket id."),
 			fieldTitle:         stringSchema("New title, if changing."),
@@ -279,7 +287,9 @@ var Tools = []ToolDef{
 			fieldPriority:      intSchema("New priority; higher pulls first."),
 			fieldState:         stringSchema("New state: \"ready\", \"blocked\", or \"done\"."),
 			fieldBlockedReason: stringSchema("Required when state is \"blocked\": what the user must decide."),
-			fieldApproval:      boolSchema("Optional emphasis; every shaping ticket already shows as a proposal card."),
+			fieldDoneCommit: stringSchema("Required when state is \"done\": the origin/main commit SHA " +
+				"carrying this ticket's work. Verified to be on origin/main before the ticket is accepted."),
+			fieldApproval: boolSchema("Optional emphasis; every shaping ticket already shows as a proposal card."),
 		}),
 	},
 	{
@@ -356,11 +366,12 @@ var Tools = []ToolDef{
 	},
 	{
 		Name: ToolBash,
-		Description: "Run a shell command in a clone of the project repository. A read-oriented " +
-			"window into the real repo: use git/gh to verify an agent has pushed its work " +
-			"(fetch, then confirm its branch and commits are on the remote) before accepting " +
-			"a ticket, and rg/grep/find to search the repository for information. Only an " +
-			"allowlisted set of commands is reachable.",
+		Description: "Run a shell command in a clone of the project repository. Commands already " +
+			"run INSIDE the clone — never cd into a path. The clone is not auto-updated, so run " +
+			"`git fetch origin` before inspecting origin/main. Use git/gh to find the commit that " +
+			"carries a ticket's work on origin/main (its SHA is what update_ticket done_commit " +
+			"needs), and rg/grep/find to search the repository. Only an allowlisted set of " +
+			"commands is reachable.",
 		InputSchema: objectSchema([]string{fieldCommand}, map[string]any{
 			fieldCommand: stringSchema("The shell command to run in the repo clone."),
 		}),
@@ -578,7 +589,33 @@ func validateUpdateState(id string, in UpdateTicketInput) (ToolResult, bool) {
 	if *in.State == stateBlocked && strings.TrimSpace(deref(in.BlockedReason)) == "" {
 		return malformedResultMsg(id, "update_ticket: state=\"blocked\" requires a non-empty blocked_reason"), false
 	}
+	if *in.State == stateDone {
+		sha := strings.TrimSpace(deref(in.DoneCommit))
+		if sha == "" {
+			return malformedResultMsg(id, "update_ticket: state=\"done\" requires done_commit "+
+				"(the origin/main commit SHA carrying this ticket's work)"), false
+		}
+		if !isHexSHA(sha) {
+			return malformedResultMsg(id, "update_ticket: done_commit must be a git commit SHA (7-40 hex chars)"), false
+		}
+	}
 	return ToolResult{}, true
+}
+
+// isHexSHA reports whether s is a 7-40 char hex string — a plausible git commit
+// SHA (abbreviated or full). Validated before the SHA reaches VerifyOnMain; the
+// repo layer runs git via argv so this is defense-in-depth, not the only guard.
+func isHexSHA(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+	for _, c := range s {
+		hex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !hex {
+			return false
+		}
+	}
+	return true
 }
 
 // updateHasWork reports whether a patch actually changes anything — a field
@@ -614,13 +651,55 @@ func (s *Service) applyUpdate(ctx context.Context, id string, in UpdateTicketInp
 		applied = append(applied, "approval_requested")
 	}
 	if in.State != nil {
-		// State is last, so no step reads `applied` after this — it need not be
-		// extended here.
-		if t, err = s.applyState(ctx, tid, *in.State, deref(in.BlockedReason)); err != nil {
-			return updateStepError(id, "state="+*in.State, applied, err)
-		}
+		// State is the final step, so it returns the tool result directly (the
+		// push gate can short-circuit it) rather than falling through.
+		return s.applyStateStep(ctx, id, in, applied)
 	}
 	return ticketResult(id, t, nil)
+}
+
+// applyStateStep runs update_ticket's final step, the state transition. A done
+// is gated: its named commit must be verifiably on origin/main (06 §7 amended)
+// before the board accepts it — the refusal is fed back for the model to self-
+// correct. `applied` names any earlier field/approval steps for the error path.
+func (s *Service) applyStateStep(ctx context.Context, id string, in UpdateTicketInput, applied []string) ToolResult {
+	if *in.State == stateDone {
+		if res, ok := s.verifyDoneOnMain(ctx, id, in); !ok {
+			return res
+		}
+	}
+	t, err := s.applyState(ctx, board.TicketID(in.ID), *in.State, deref(in.BlockedReason))
+	if err != nil {
+		return updateStepError(id, "state="+*in.State, applied, err)
+	}
+	return ticketResult(id, t, nil)
+}
+
+// verifyDoneOnMain gates the done transition on a fresh git check that the named
+// commit is on origin/main. It fails closed: an unavailable repo shell refuses
+// the done rather than silently reverting to trust. A refusal is a precondition
+// failure fed back verbatim (IsError, not malformed) — the prompt tells the
+// model to then message the agent to merge, and block the ticket meanwhile.
+// ok=true means proceed to AcceptToDone.
+func (s *Service) verifyDoneOnMain(ctx context.Context, callID string, in UpdateTicketInput) (ToolResult, bool) {
+	sha := strings.TrimSpace(deref(in.DoneCommit))
+	v, err := s.repo.VerifyOnMain(ctx, sha)
+	if err != nil {
+		return errorResult(callID, err), false
+	}
+	if v.Unavailable {
+		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
+			"cannot mark ticket %s done: repository verification is unavailable (%s), so the "+
+				"push to origin/main cannot be confirmed.",
+			in.ID, v.Reason)}, false
+	}
+	if !v.OnMain {
+		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
+			"cannot mark ticket %s done: commit %s is not on origin/main (%s). Have the agent merge the work to main, "+
+				"then accept it once it lands — or set the ticket blocked if it needs a decision.",
+			in.ID, sha, v.Reason)}, false
+	}
+	return ToolResult{}, true
 }
 
 // applyState routes one state transition to its board operation. The board's

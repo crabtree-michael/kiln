@@ -150,3 +150,14 @@ type RepoResult struct {
 	Unavailable bool
 	Reason      string
 }
+
+// RepoVerify is the neutral outcome of a RepoShell.VerifyOnMain check, mirroring
+// internal/repo's Verify by value (same import rule as RepoResult). OnMain is
+// true only when the commit exists and is an ancestor of origin/main against a
+// freshly fetched remote. Unavailable (with Reason) means the clone could not be
+// used; the done gate fails closed on it. Reason explains a false OnMain.
+type RepoVerify struct {
+	OnMain      bool
+	Unavailable bool
+	Reason      string
+}

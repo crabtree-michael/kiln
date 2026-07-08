@@ -173,7 +173,9 @@ func (a *agentRuntimeAdapter) Send(ctx context.Context, projectID string, idempo
 	return nil
 }
 
-func (a *agentRuntimeAdapter) Release(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+func (a *agentRuntimeAdapter) Release(
+	ctx context.Context, projectID string, idempotencyKey int64, payload []byte,
+) error {
 	payload, err := withProjectID(payload, projectID)
 	if err != nil {
 		return fmt.Errorf("kiln: agent release: %w", err)
@@ -571,6 +573,17 @@ func (a *repoShellAdapter) Run(ctx context.Context, command string) (brain.RepoR
 		Truncated:   r.Truncated,
 		Unavailable: r.Unavailable,
 		Reason:      r.Reason,
+	}, nil
+}
+
+// VerifyOnMain converts repo.Verify → brain.RepoVerify. Like Run it never errors
+// (best-effort), so the error is always nil.
+func (a *repoShellAdapter) VerifyOnMain(ctx context.Context, sha string) (brain.RepoVerify, error) {
+	v := a.inner.VerifyOnMain(ctx, sha)
+	return brain.RepoVerify{
+		OnMain:      v.OnMain,
+		Unavailable: v.Unavailable,
+		Reason:      v.Reason,
 	}, nil
 }
 

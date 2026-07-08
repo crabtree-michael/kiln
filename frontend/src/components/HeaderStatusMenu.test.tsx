@@ -203,9 +203,7 @@ describe('HeaderStatusMenu', () => {
 
   it('makes each row select its ticket (and dismiss the menu) when onSelectTicket is wired', () => {
     const onSelectTicket = vi.fn();
-    render(
-      <HeaderStatusMenu summary={summary} board={board} onSelectTicket={onSelectTicket} />,
-    );
+    render(<HeaderStatusMenu summary={summary} board={board} onSelectTicket={onSelectTicket} />);
     const trigger = screen.getByRole('button', { name: /3 tickets/i });
     fireEvent.click(trigger);
 
@@ -219,9 +217,7 @@ describe('HeaderStatusMenu', () => {
 
   it('selects the ticket on Enter/Space so rows are keyboard-actionable', () => {
     const onSelectTicket = vi.fn();
-    render(
-      <HeaderStatusMenu summary={summary} board={board} onSelectTicket={onSelectTicket} />,
-    );
+    render(<HeaderStatusMenu summary={summary} board={board} onSelectTicket={onSelectTicket} />);
     fireEvent.click(screen.getByRole('button', { name: /3 tickets/i }));
 
     const row = screen.getByRole('button', { name: 'Open ticket: Billing' });

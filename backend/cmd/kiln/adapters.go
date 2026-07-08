@@ -138,20 +138,46 @@ var _ runtime.BoardReader = (*boardViewAdapter)(nil)
 
 // agentRuntimeAdapter satisfies runtime.AgentRuntime over *agent.Service
 // (05 §2.1, 11 §3). The runtime hands the claimed entry's projectID alongside
-// the outbox id; the agent module reads the project from the decoded payload
-// (SendPayload/ReleasePayload carry project_id), so this adapter simply drops
-// the redundant argument through — the seam still exists because the port shape
-// changed and *agent.Service's Send/Release keep their pre-tenancy signatures.
+// the outbox id; board's SendPayload/ReleasePayload (internal/board/outbox.go)
+// carry no project_id — the board module isn't tenancy-aware — so this adapter
+// stamps the runtime-supplied projectID onto the raw payload before handing it
+// to *agent.Service, whose Send/Release decode project_id from the payload
+// itself (11 §3).
 type agentRuntimeAdapter struct{ inner *agent.Service }
 
-func (a *agentRuntimeAdapter) Send(ctx context.Context, _ string, idempotencyKey int64, payload []byte) error {
+func withProjectID(payload []byte, projectID string) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return nil, fmt.Errorf("kiln: decode payload: %w", err)
+	}
+	stamped, err := json.Marshal(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: encode project id: %w", err)
+	}
+	fields["project_id"] = stamped
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: encode payload: %w", err)
+	}
+	return out, nil
+}
+
+func (a *agentRuntimeAdapter) Send(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+	payload, err := withProjectID(payload, projectID)
+	if err != nil {
+		return fmt.Errorf("kiln: agent send: %w", err)
+	}
 	if err := a.inner.Send(ctx, idempotencyKey, payload); err != nil {
 		return fmt.Errorf("kiln: agent send: %w", err)
 	}
 	return nil
 }
 
-func (a *agentRuntimeAdapter) Release(ctx context.Context, _ string, idempotencyKey int64, payload []byte) error {
+func (a *agentRuntimeAdapter) Release(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+	payload, err := withProjectID(payload, projectID)
+	if err != nil {
+		return fmt.Errorf("kiln: agent release: %w", err)
+	}
 	if err := a.inner.Release(ctx, idempotencyKey, payload); err != nil {
 		return fmt.Errorf("kiln: agent release: %w", err)
 	}

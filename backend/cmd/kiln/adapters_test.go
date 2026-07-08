@@ -1,10 +1,38 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
+
+// TestWithProjectID pins the fix for the stuck-agent-turn incident (11 §3):
+// board's SendPayload/ReleasePayload never carry project_id, so
+// agentRuntimeAdapter must stamp the runtime-supplied projectID onto the raw
+// outbox payload before it reaches *agent.Service, or every turn's provider
+// resolution fails on an empty project id.
+func TestWithProjectID(t *testing.T) {
+	raw, err := json.Marshal(board.SendPayload{TicketID: "t-1", WorkerID: "w-1", Message: "go"})
+	if err != nil {
+		t.Fatalf("marshal board payload: %v", err)
+	}
+
+	stamped, err := withProjectID(raw, "proj-123")
+	if err != nil {
+		t.Fatalf("withProjectID: %v", err)
+	}
+
+	var got agent.SendPayload
+	if err := json.Unmarshal(stamped, &got); err != nil {
+		t.Fatalf("unmarshal stamped payload: %v", err)
+	}
+	want := agent.SendPayload{ProjectID: "proj-123", TicketID: "t-1", WorkerID: "w-1", Message: "go"}
+	if got != want {
+		t.Fatalf("withProjectID() = %+v, want %+v", got, want)
+	}
+}
 
 // TestNotifyURL pins the tap-to-open deep link (02 §10): a ticket-bearing
 // notify.send lands on `/?ticket=<id>` so the frontend opens that proposal, and

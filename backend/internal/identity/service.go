@@ -348,9 +348,13 @@ func (s *Service) ListProjectIDs(ctx context.Context) ([]string, error) {
 // serialized into any API/DTO, or logged — in-process use only. (There is
 // deliberately no String()/wire mapping for this type.)
 type RuntimeConfig struct {
-	Project           Project
-	OwnerUserID       string
-	AnthropicAPIKey   string // decrypted; empty = unset
+	Project     Project
+	OwnerUserID string
+	// AnthropicAPIKey is decrypted but DORMANT: the brain now uses the
+	// deployment-global ANTHROPIC_API_KEY env setting, not this per-user value
+	// (see UserConfig.AnthropicKeyEnc). Still resolved so re-enabling a
+	// per-user path is a one-line change at the composition root.
+	AnthropicAPIKey   string
 	AmikaAPIKey       string
 	AmikaClaudeCredID string
 	GitHubAuthToken   string

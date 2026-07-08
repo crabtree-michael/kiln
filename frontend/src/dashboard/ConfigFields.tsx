@@ -341,6 +341,14 @@ export interface CredentialFieldsProps {
  * needs the same re-entrancy guard). */
 type CommitField = CredentialName | 'amika_claude_cred_id';
 
+/** Per-user Anthropic key entry is HIDDEN for now: the deployment supplies the
+ * Anthropic key as a global `ANTHROPIC_API_KEY` env setting, and onboarding no
+ * longer asks each user for one. The field, its state, and its commit/verify
+ * path are RETAINED (not deleted) behind this env flag so per-user Anthropic
+ * keys can be brought back — set `VITE_SHOW_ANTHROPIC_KEY_FIELD=1` — when user
+ * management expands, no code change needed. */
+const SHOW_ANTHROPIC_KEY_FIELD = import.meta.env.VITE_SHOW_ANTHROPIC_KEY_FIELD === '1';
+
 export function CredentialFields({
   settings,
   pendingCredentials,
@@ -440,35 +448,39 @@ export function CredentialFields({
 
   return (
     <form data-role="settings-form">
-      <label>
-        Anthropic API key
-        <span data-role="credential-input-row">
-          <input
-            type="password"
-            value={anthropicApiKey}
-            placeholder={
-              settings.anthropic_api_key.set ? secretStatusText(settings.anthropic_api_key) : ''
-            }
-            disabled={pendingCredentials.has('anthropic_api_key')}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setAnthropicApiKey(event.target.value);
-            }}
-            onBlur={commitAnthropic}
-            onKeyDown={onEnter(commitAnthropic)}
-          />
-          <CredentialStatusIndicator
-            name="anthropic_api_key"
-            status={credentialIndicatorStatus(
-              'anthropic_api_key',
-              pendingCredentials,
-              verifying,
-              checkFor('anthropic_api_key'),
-            )}
-            message={checkFor('anthropic_api_key')?.message}
-          />
-        </span>
-      </label>
-      <SecretStatusRow name="anthropic_api_key" status={settings.anthropic_api_key} />
+      {SHOW_ANTHROPIC_KEY_FIELD && (
+        <>
+          <label>
+            Anthropic API key
+            <span data-role="credential-input-row">
+              <input
+                type="password"
+                value={anthropicApiKey}
+                placeholder={
+                  settings.anthropic_api_key.set ? secretStatusText(settings.anthropic_api_key) : ''
+                }
+                disabled={pendingCredentials.has('anthropic_api_key')}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setAnthropicApiKey(event.target.value);
+                }}
+                onBlur={commitAnthropic}
+                onKeyDown={onEnter(commitAnthropic)}
+              />
+              <CredentialStatusIndicator
+                name="anthropic_api_key"
+                status={credentialIndicatorStatus(
+                  'anthropic_api_key',
+                  pendingCredentials,
+                  verifying,
+                  checkFor('anthropic_api_key'),
+                )}
+                message={checkFor('anthropic_api_key')?.message}
+              />
+            </span>
+          </label>
+          <SecretStatusRow name="anthropic_api_key" status={settings.anthropic_api_key} />
+        </>
+      )}
 
       <label>
         Amika API key

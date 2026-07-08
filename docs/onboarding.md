@@ -142,6 +142,32 @@ there — connect a project to light the kiln,"* your project isn't saved yet �
 
 You're set up. From here on, you drive Kiln by talking to the orchestrator.
 
+### Step 6 — Install Kiln on your iPhone (recommended)
+
+Kiln is a web app, but on iPhone you can add it to your Home Screen so it opens
+full-screen like a native app — no Safari address bar, and it's one tap away.
+Using Kiln installed this way is the intended experience, and it's required for
+push notifications to reach you when the app is closed.
+
+In **Safari** on your iPhone, with Kiln open:
+
+1. Tap the **Share** button — the square-with-an-up-arrow icon in the toolbar
+   (bottom of the screen on iPhone, top on iPad).
+2. In the share sheet, scroll down and tap **Add to Home Screen**.
+3. Tap **Install as Web App** (shown as **Add** on older iOS versions) to confirm.
+   You can edit the name first if you like.
+
+![The iOS Safari Share sheet with the "Add to Home Screen" row highlighted](images/onboarding/05-add-to-home-screen.png)
+*Figure 5 — Installing Kiln on iPhone. Capture: the Safari Share sheet showing the "Add to Home Screen" option, and the confirm screen with "Install as Web App".*
+
+Kiln now appears as an icon on your Home Screen. Open it from there — you'll stay
+signed in, and (once you enabled notifications in Step 4) blockers can reach you
+even when the app isn't open.
+
+> **Note:** This must be done in **Safari** — Chrome and other iOS browsers don't
+> offer "Add to Home Screen." Apple's own walkthrough is here:
+> [Add a website to your Home Screen on iPhone](https://support.apple.com/guide/iphone/bookmark-favorite-webpages-iph42ab2f3a7/ios#iph4f9a47bbc).
+
 ---
 
 ## Part 2 — Using Kiln day to day

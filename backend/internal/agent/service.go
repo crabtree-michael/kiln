@@ -44,8 +44,15 @@ func deliveryTurn(idempotencyKey int64) string {
 // the emitting turn's projectID travels alongside the event so the runtime can
 // stamp events.project_id and resolve the right tenant's brain — the agent
 // records it on the Turn (and agent_turns.project_id) and threads it here.
+//
+// idempotencyKey is the emitting turn's outbox id, threaded so the runtime can
+// dedupe the completion against its events-queue unique index (architecture
+// audit 3.1). A turn's emit and its phase→done write are two statements: a
+// crash between them re-runs stepCheckTurn and re-emits agent.turn_completed,
+// so without a key the brain would run a second pass on the same completion.
+// The key makes the redelivery a no-op — exactly-once completion.
 type EventEnqueuer interface {
-	EnqueueEvent(ctx context.Context, projectID, eventType string, payload []byte) (int64, error)
+	EnqueueEvent(ctx context.Context, projectID, eventType string, idempotencyKey int64, payload []byte) (int64, error)
 }
 
 // Projects is this module's read-only port onto the set of live projects the
@@ -590,15 +597,27 @@ func (s *Service) stepCheckTurn(ctx context.Context, provider Provider, prefix s
 	if st.Running {
 		return
 	}
-	s.emitCompleted(ctx, t, st.IsError, st.Output, st.CostUSD)
+	// Emit first, mark done only if it committed. A failed emit leaves the turn
+	// at turn_started so the next poll re-checks and re-emits — deduped by the
+	// event idempotency key, so the retry is exactly-once, never a double brain
+	// pass (architecture audit 3.1).
+	if err := s.emitCompleted(ctx, t, st.IsError, st.Output, st.CostUSD); err != nil {
+		slog.ErrorContext(ctx, "agent: emit turn_completed; will retry next poll", "err", err)
+		return
+	}
 	t.Phase = PhaseDone
 	s.update(ctx, t)
 }
 
 // stepEmitFailure fires the error-shaped event a failed machine owes, then
-// rests it at done (05 §5: failed → done).
+// rests it at done (05 §5: failed → done). Same emit-then-settle ordering as
+// stepCheckTurn: a failed emit leaves the machine at failed for the next poll to
+// re-emit, deduped by the idempotency key (architecture audit 3.1).
 func (s *Service) stepEmitFailure(ctx context.Context, t Turn) {
-	s.emitCompleted(ctx, t, true, failureOutput(t), 0)
+	if err := s.emitCompleted(ctx, t, true, failureOutput(t), 0); err != nil {
+		slog.ErrorContext(ctx, "agent: emit failure turn_completed; will retry next poll", "err", err)
+		return
+	}
 	t.Phase = PhaseDone
 	s.update(ctx, t)
 }
@@ -615,8 +634,11 @@ func (s *Service) recordFailure(ctx context.Context, t Turn, cause error) {
 }
 
 // emitCompleted enqueues one agent.turn_completed event (05 §2.2). No provider
-// handles leak into the payload.
-func (s *Service) emitCompleted(ctx context.Context, t Turn, isErr bool, output string, cost float64) {
+// handles leak into the payload. The turn's outbox id is threaded as the event
+// idempotency key so a crash-replayed emit (stepCheckTurn re-running before the
+// phase→done write commits) is deduped by the runtime rather than waking the
+// brain twice on the same completion (architecture audit 3.1).
+func (s *Service) emitCompleted(ctx context.Context, t Turn, isErr bool, output string, cost float64) error {
 	// The inbound result, logged before it becomes an event: output fingerprint
 	// + summary keyed to the same delivery turn id and ticket, closing the loop
 	// opened by agent.delivery.recorded / agent.turn.started.
@@ -632,12 +654,12 @@ func (s *Service) emitCompleted(ctx context.Context, t Turn, isErr bool, output 
 		CostUSD:  cost,
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "agent: marshal turn_completed", "err", err)
-		return
+		return fmt.Errorf("agent: marshal turn_completed: %w", err)
 	}
-	if _, err := s.events.EnqueueEvent(ctx, t.ProjectID, EventTurnCompleted, payload); err != nil {
-		slog.ErrorContext(ctx, "agent: enqueue turn_completed", "err", err)
+	if _, err := s.events.EnqueueEvent(ctx, t.ProjectID, EventTurnCompleted, t.IdempotencyKey, payload); err != nil {
+		return fmt.Errorf("agent: enqueue turn_completed: %w", err)
 	}
+	return nil
 }
 
 // update persists one machine step, logging (not returning) store errors — the

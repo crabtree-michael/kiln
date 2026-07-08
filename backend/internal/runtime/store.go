@@ -12,7 +12,14 @@ type Store interface {
 	// InsertEvent appends to the events queue (04 §6 EnqueueEvent), stamped
 	// with the tenant project (11 §3). The outbox is never written here — the
 	// board appends it transactionally (03 §7).
-	InsertEvent(ctx context.Context, projectID string, t EventType, payload []byte) (int64, error)
+	//
+	// idempotencyKey dedupes at-least-once emitters against a partial unique
+	// index (architecture audit 3.1): a non-zero key inserts ON CONFLICT DO
+	// NOTHING, so a redelivered event (e.g. an agent completion re-emitted after
+	// a crash between its emit and its phase→done write) is a silent no-op
+	// reported as id 0. A zero key carries no dedup — the runtime's own
+	// human.message emits, which are already exactly-once at their source.
+	InsertEvent(ctx context.Context, projectID string, t EventType, idempotencyKey int64, payload []byte) (int64, error)
 
 	// ClaimNextDue picks the next entry — status pending, next_attempt_at
 	// due, id order — with FOR UPDATE SKIP LOCKED in a short claim

@@ -130,14 +130,40 @@ func sqlFor(q runtime.QueueName) (queueSQL, error) {
 // InsertEvent appends one row to the events queue (04 §6 EnqueueEvent),
 // stamped with its tenant project (11 §3), and returns its id. The outbox is
 // never written here — the board appends it transactionally (03 §7).
-func (s *Store) InsertEvent(ctx context.Context, projectID string, t runtime.EventType, payload []byte) (int64, error) {
+//
+// A non-zero idempotencyKey is stamped on the row and deduped against the
+// partial unique index (architecture audit 3.1): a redelivery collapses onto
+// the first insert via ON CONFLICT DO NOTHING and returns id 0, so a replayed
+// agent completion never enqueues a second brain pass. A zero key is stored as
+// NULL, which the partial index ignores — the row always inserts.
+func (s *Store) InsertEvent(
+	ctx context.Context, projectID string, t runtime.EventType, idempotencyKey int64, payload []byte,
+) (int64, error) {
 	var id int64
-	if err := s.db.QueryRowContext(ctx,
-		`INSERT INTO events (project_id, type, payload) VALUES ($1, $2, $3) RETURNING id`,
-		nullableUUID(projectID), string(t), payload).Scan(&id); err != nil {
+	err := s.db.QueryRowContext(ctx,
+		`INSERT INTO events (project_id, type, payload, idempotency_key) VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+		 RETURNING id`,
+		nullableUUID(projectID), string(t), payload, nullableKey(idempotencyKey)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Duplicate delivery: the event is already enqueued (architecture audit
+		// 3.1). Report success with no new id so the caller treats it as a no-op.
+		return 0, nil
+	}
+	if err != nil {
 		return 0, fmt.Errorf("runtime/postgres: insert event: %w", err)
 	}
 	return id, nil
+}
+
+// nullableKey renders a zero idempotency key as SQL NULL (no dedup) and any
+// non-zero key as itself — the real outbox ids the events dedup index keys on
+// are bigserial, so never zero.
+func nullableKey(key int64) any {
+	if key == 0 {
+		return nil
+	}
+	return key
 }
 
 // nullPseudoProjectUUID stands in for the empty ProjectID ("" — a legacy row

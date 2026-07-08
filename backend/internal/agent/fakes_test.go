@@ -24,6 +24,12 @@ var errUnknownTurn = errors.New("fakeStore: update of unknown turn")
 // errNoResolverEntry marks a fakeResolver.For with no default and no match.
 var errNoResolverEntry = errors.New("fakeResolver: no provider for project")
 
+// errEnqueueFailed simulates a transient events-DB outage on EnqueueEvent.
+var errEnqueueFailed = errors.New("fakeEvents: enqueue failed")
+
+// errUpdateFailed simulates a crash/failure on the phase→done write.
+var errUpdateFailed = errors.New("fakeStore: update failed")
+
 // runService starts svc.Run in the background against a fake clock that's
 // continuously pumped, and returns a stop func that cancels the context and
 // waits for Run to return (failing the test if it doesn't, promptly).
@@ -61,6 +67,12 @@ type fakeStore struct {
 	// an existing row — this is what proves a duplicate Send/Release never
 	// creates a second turn (it proves Record was asked, not that it acted).
 	recordCalls map[int64]int
+	// failDoneUpdateOnce, when set, makes the first Update that moves a turn to
+	// PhaseDone fail with the row left at its prior phase — simulating a crash
+	// after the completion event is emitted but before the phase→done write
+	// commits (architecture audit 3.1). The poller then re-runs the terminal
+	// turn, which must re-emit idempotently.
+	failDoneUpdateOnce bool
 }
 
 func newFakeStore() *fakeStore {
@@ -100,6 +112,10 @@ func (s *fakeStore) Update(ctx context.Context, t agent.Turn) error {
 	defer s.mu.Unlock()
 	if _, ok := s.rows[t.IdempotencyKey]; !ok {
 		return fmt.Errorf("%w: %d", errUnknownTurn, t.IdempotencyKey)
+	}
+	if s.failDoneUpdateOnce && t.Phase == agent.PhaseDone {
+		s.failDoneUpdateOnce = false
+		return errUpdateFailed // row keeps its prior (non-terminal) phase
 	}
 	t.UpdatedAt = time.Now()
 	s.rows[t.IdempotencyKey] = t
@@ -167,16 +183,38 @@ type capturedEvent struct {
 
 // fakeEvents is an in-memory agent.EventEnqueuer capturing every emission,
 // so tests assert on the exact agent.turn_completed payload shape (05 §2.2)
-// rather than a mocked side effect.
+// rather than a mocked side effect. It models the real events-queue idempotency
+// index (architecture audit 3.1): a non-zero key already seen is a silent no-op
+// returning id 0, so a crash-replayed completion never captures twice. failN
+// injects that many leading EnqueueEvent failures (a transient events-DB
+// outage) before the emit is allowed to land, exercising the emit-then-settle
+// retry path.
 type fakeEvents struct {
 	mu     sync.Mutex
 	events []capturedEvent
 	nextID int64
+	seen   map[int64]struct{} // non-zero idempotency keys already admitted
+	failN  int                // remaining EnqueueEvent calls to fail before admitting
 }
 
-func (e *fakeEvents) EnqueueEvent(ctx context.Context, projectID, eventType string, payload []byte) (int64, error) {
+func (e *fakeEvents) EnqueueEvent(
+	ctx context.Context, projectID, eventType string, idempotencyKey int64, payload []byte,
+) (int64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.failN > 0 {
+		e.failN--
+		return 0, errEnqueueFailed
+	}
+	if idempotencyKey != 0 {
+		if _, ok := e.seen[idempotencyKey]; ok {
+			return 0, nil // duplicate delivery: deduped by the unique index, no-op
+		}
+		if e.seen == nil {
+			e.seen = map[int64]struct{}{}
+		}
+		e.seen[idempotencyKey] = struct{}{}
+	}
 	e.nextID++
 	e.events = append(e.events, capturedEvent{
 		projectID: projectID,

@@ -20,6 +20,7 @@ import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { Landing } from '@/landing/Landing';
+import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
 import { Dashboard } from '@/dashboard/Dashboard';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
@@ -101,6 +102,7 @@ createRoot(root).render(
             }
           />
           <Route path="/landing" element={<Landing />} />
+          <Route path="/landing-2" element={<Landing2 />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
           <Route

@@ -105,8 +105,8 @@ describe('Dashboard', () => {
           amika_secrets: [],
         },
         settings: {
-          anthropic_api_key: { set: true, tail: 'x4Kd' },
-          amika_api_key: { set: false, tail: '' },
+          anthropic_api_key: { set: false, tail: '' },
+          amika_api_key: { set: true, tail: 'x4Kd' },
           github_auth_token: { set: true, tail: 'abcd' },
           amika_claude_cred_id: 'cred-1',
         },
@@ -116,8 +116,32 @@ describe('Dashboard', () => {
 
     const status = await screen.findByText('configured · …x4Kd');
     expect(status).toHaveAttribute('data-role', 'secret-status');
-    expect(status).toHaveAttribute('data-name', 'anthropic_api_key');
+    expect(status).toHaveAttribute('data-name', 'amika_api_key');
     expect(status).toHaveAttribute('data-set', 'true');
+  });
+
+  it('per-user Anthropic key entry is hidden (now a global env setting)', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+          amika_secrets: [],
+        },
+      }),
+    );
+    renderDashboard();
+
+    // The Amika field still renders — the settings form is mounted — but the
+    // Anthropic key input and its status row are gone (SHOW_ANTHROPIC_KEY_FIELD).
+    await screen.findByLabelText('Amika API key');
+    expect(screen.queryByLabelText('Anthropic API key')).toBeNull();
+    expect(
+      document.querySelector('[data-role="secret-status"][data-name="anthropic_api_key"]'),
+    ).toBeNull();
   });
 
   it('blurring a filled credential field auto-saves only that field, then auto-verifies', async () => {
@@ -149,20 +173,19 @@ describe('Dashboard', () => {
     );
     const response: VerifyResponse = {
       checks: [
-        { name: 'anthropic', status: 'ok', message: 'reachable' },
-        { name: 'amika', status: 'skipped', message: 'not configured' },
+        { name: 'amika', status: 'ok', message: 'reachable' },
         { name: 'repo', status: 'skipped', message: 'not configured' },
       ],
     };
     vi.mocked(transport.postVerify).mockResolvedValue(response);
     renderDashboard();
 
-    const input = await screen.findByLabelText('Anthropic API key');
+    const input = await screen.findByLabelText('Amika API key');
     fireEvent.change(input, { target: { value: 'sk-new-ab' } });
     fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-new-ab' });
+      expect(transport.putSettings).toHaveBeenCalledWith({ amika_api_key: 'sk-new-ab' });
     });
     // Only the one filled field made it into the request — the untouched
     // secret/text fields (empty by default here) are left out entirely.
@@ -176,7 +199,7 @@ describe('Dashboard', () => {
 
     const indicator = await screen.findByText('✓');
     expect(indicator).toHaveAttribute('data-role', 'credential-status');
-    expect(indicator).toHaveAttribute('data-name', 'anthropic_api_key');
+    expect(indicator).toHaveAttribute('data-name', 'amika_api_key');
     expect(indicator).toHaveAttribute('data-status', 'ok');
   });
 
@@ -195,7 +218,7 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    const input = await screen.findByLabelText('Anthropic API key');
+    const input = await screen.findByLabelText('Amika API key');
     fireEvent.focus(input);
     fireEvent.blur(input);
 
@@ -234,7 +257,7 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
     renderDashboard();
 
-    const input = await screen.findByLabelText('Anthropic API key');
+    const input = await screen.findByLabelText('Amika API key');
     const form = document.querySelector('[data-role="settings-form"]');
     const submitSpy = vi.fn();
     form?.addEventListener('submit', submitSpy);
@@ -243,7 +266,7 @@ describe('Dashboard', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => {
-      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-enter' });
+      expect(transport.putSettings).toHaveBeenCalledWith({ amika_api_key: 'sk-enter' });
     });
     // Let the chained verify settle so a late duplicate would have surfaced.
     await waitFor(() => {
@@ -283,7 +306,7 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
     renderDashboard();
 
-    const input = await screen.findByLabelText('Anthropic API key');
+    const input = await screen.findByLabelText('Amika API key');
     fireEvent.change(input, { target: { value: 'sk-once' } });
     // The classic double-fire: committing with Enter also moves focus away
     // (or the user tabs out immediately) — the blur lands while the Enter
@@ -292,7 +315,7 @@ describe('Dashboard', () => {
     fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(transport.putSettings).toHaveBeenCalledWith({ anthropic_api_key: 'sk-once' });
+      expect(transport.putSettings).toHaveBeenCalledWith({ amika_api_key: 'sk-once' });
     });
     await waitFor(() => {
       expect(transport.postVerify).toHaveBeenCalledTimes(1);
@@ -327,21 +350,20 @@ describe('Dashboard', () => {
     );
     const response: VerifyResponse = {
       checks: [
-        { name: 'anthropic', status: 'failed', message: 'invalid key' },
-        { name: 'amika', status: 'skipped', message: 'not configured' },
+        { name: 'amika', status: 'failed', message: 'invalid key' },
         { name: 'repo', status: 'skipped', message: 'not configured' },
       ],
     };
     vi.mocked(transport.postVerify).mockResolvedValue(response);
     renderDashboard();
 
-    const input = await screen.findByLabelText('Anthropic API key');
+    const input = await screen.findByLabelText('Amika API key');
     fireEvent.change(input, { target: { value: 'sk-bad' } });
     fireEvent.blur(input);
 
     await waitFor(() => {
       const indicator = document.querySelector(
-        '[data-role="credential-status"][data-name="anthropic_api_key"]',
+        '[data-role="credential-status"][data-name="amika_api_key"]',
       );
       expect(indicator).toHaveAttribute('data-status', 'failed');
       expect(indicator).toHaveAttribute('title', 'invalid key');

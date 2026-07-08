@@ -24,7 +24,12 @@ type Session struct {
 // *Enc fields hold AES-GCM ciphertext (nil = unset); the two non-secret
 // fields are stored in the clear.
 type UserConfig struct {
-	UserID            string
+	UserID string
+	// AnthropicKeyEnc is DORMANT (global-key change): the brain now drives a
+	// deployment-global ANTHROPIC_API_KEY env setting, so this column/field is
+	// no longer consumed at runtime. Kept (not dropped) so per-user Anthropic
+	// keys can be brought back when user management expands — re-enabling needs
+	// no migration.
 	AnthropicKeyEnc   []byte
 	AmikaKeyEnc       []byte
 	GitHubTokenEnc    []byte

@@ -63,7 +63,8 @@
   color: var(--text-secondary);
 }
 
-[data-role='dashboard'] input {
+[data-role='dashboard'] input,
+[data-role='dashboard'] select {
   font: var(--type-body);
   color: var(--text-body);
   background: var(--surface-page);
@@ -72,7 +73,8 @@
   padding: var(--space-2) var(--space-3);
 }
 
-[data-role='dashboard'] input:focus-visible {
+[data-role='dashboard'] input:focus-visible,
+[data-role='dashboard'] select:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }

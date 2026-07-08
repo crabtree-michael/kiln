@@ -224,6 +224,14 @@ export function PrimaryScreenView({
   // service worker. The id resolves against the board below like any other open.
   useDeepLinkTicket(setOpenTicketId);
   const openTicket = findTicket(board, openTicketId);
+  // The open ticket's bound agent, looked up in the board snapshot's `agents`
+  // join (keyed by ticket_id). Its session status gates the Poke button: a
+  // *working* ticket only offers "Poke to continue" once the agent is `idle`
+  // (alive, between turns, waiting) — never while a turn is streaming
+  // (`building`), so the user isn't invited to nudge an agent already moving.
+  const openAgentIdle =
+    openTicket !== null &&
+    board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status === 'idle';
   // The mic control, shared with the dock. A blocked ticket's detail hands off
   // to it: tapping Talk closes the sheet (so the single dock voice surface is no
   // longer covered) and turns the mic on, dropping the user straight into a
@@ -408,6 +416,9 @@ export function PrimaryScreenView({
         <TicketDetail
           ticket={openTicket}
           surface="primary"
+          // Only a working ticket whose agent has gone idle offers Poke; while the
+          // agent is mid-turn (progress streaming) the button stays hidden.
+          agentIdle={openAgentIdle}
           onClose={() => {
             setOpenTicketId(null);
           }}

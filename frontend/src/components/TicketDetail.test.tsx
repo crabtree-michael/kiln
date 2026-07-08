@@ -152,15 +152,22 @@ describe('TicketDetail', () => {
       expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
     });
 
-    it('offers Poke on a working ticket when onPoke is wired, and fires it with the id', () => {
+    it('offers Poke on a working ticket with an idle agent, and fires it with the id', () => {
       const onPoke = vi.fn();
-      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} />);
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} agentIdle />);
 
       fireEvent.click(
         within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke to continue' }),
       );
 
       expect(onPoke).toHaveBeenCalledWith('t-42');
+    });
+
+    it('hides Poke on a working ticket while the agent is mid-turn (not idle)', () => {
+      // agentIdle defaults false — the agent is `building`, streaming progress, so
+      // there is nothing to nudge and the button must not appear.
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
     });
 
     it('offers Poke alongside Talk on a blocked ticket (both actions coexist)', () => {

@@ -40,11 +40,18 @@ export interface TicketDetailProps {
    * mechanical poke. Tapping it expresses the user's "continue" intent for this
    * ticket; the caller routes that through the brain (which decides to
    * send_to_agent(id, "continue")) — the client never commands an agent directly
-   * (D5). Gated on working|blocked because those are the only board states where an
-   * agent exists and can be stalled; there is no per-ticket idle signal on the wire,
-   * so working stands in for "agent alive but possibly idle". Omitted → no Poke
+   * (D5). On a *working* ticket the nudge only makes sense once the agent has gone
+   * quiet, so it's further gated on `agentIdle` (below); on a *blocked* ticket the
+   * work is stalled by definition, so Poke shows whenever wired. Omitted → no Poke
    * affordance (the debug board's read-only inspection). */
   onPoke?: ((ticketId: string) => void) | undefined;
+  /** The live session status of this ticket's bound agent, from the board
+   * snapshot's `agents` join (`AgentStatus.status === 'idle'`). A *working* ticket
+   * only offers Poke when this is true — the agent is alive but between turns and
+   * waiting for input. While it's mid-turn (`building`, progress streaming) Poke is
+   * hidden, so the user isn't invited to nudge an agent that's already moving.
+   * Defaults false (unknown / no bound agent → treat as not-idle, so no Poke). */
+  agentIdle?: boolean;
   /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
    * default: the main app view shows only the title and description. The /debug
    * board opts in to inspect a ticket's full record (D5). */
@@ -93,6 +100,7 @@ export function TicketDetail({
   onAccept,
   onTalk,
   onPoke,
+  agentIdle = false,
   showInternalMeta = false,
   surface = 'debug',
 }: TicketDetailProps): JSX.Element {
@@ -106,7 +114,9 @@ export function TicketDetail({
   //                      unblocked through a conversation with the brain.
   //  • working|blocked → Poke (when wired): a manual nudge to continue for a
   //                      stalled agent, routed through the brain (never a direct
-  //                      agent command, D5). Coexists with Talk on a blocked ticket.
+  //                      agent command, D5). On a working ticket it only shows once
+  //                      the agent is idle (`agentIdle`) — never mid-turn; on a
+  //                      blocked ticket it always shows and coexists with Talk.
   //  • done            → no action; the header badge already says "Done".
   // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
@@ -120,7 +130,7 @@ export function TicketDetail({
   // renders at all — each button below re-checks its own callback directly so
   // TypeScript narrows it to defined (a derived boolean wouldn't narrow, and the
   // lint gate rejects the optional chain the alternative would need).
-  const canPoke = (isWorking || isBlocked) && onPoke !== undefined;
+  const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
   const canTalk = isBlocked && onTalk !== undefined;
   const canAccept = isShaping && onAccept !== undefined;
   return (
@@ -221,7 +231,7 @@ export function TicketDetail({
               it's defined in the handler — no optional chain (the lint gate). */}
           {(canPoke || canTalk || canAccept) && (
             <div data-role="ticket-detail-actions">
-              {(isWorking || isBlocked) && onPoke !== undefined && (
+              {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
                 <button
                   type="button"
                   data-role="detail-poke"

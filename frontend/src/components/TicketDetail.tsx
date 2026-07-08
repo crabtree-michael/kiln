@@ -35,6 +35,16 @@ export interface TicketDetailProps {
    * caller closes the sheet and turns the mic on). Omitted → no Talk affordance
    * (the debug board's read-only inspection, and non-blocked states). */
   onTalk?: () => void;
+  /** When provided on a *working* or *blocked* ticket, a "Poke to continue" button
+   * appears — a manual nudge for a stalled agent, mirroring the steward's own
+   * mechanical poke. Tapping it expresses the user's "continue" intent for this
+   * ticket; the caller routes that through the brain (which decides to
+   * send_to_agent(id, "continue")) — the client never commands an agent directly
+   * (D5). Gated on working|blocked because those are the only board states where an
+   * agent exists and can be stalled; there is no per-ticket idle signal on the wire,
+   * so working stands in for "agent alive but possibly idle". Omitted → no Poke
+   * affordance (the debug board's read-only inspection). */
+  onPoke?: ((ticketId: string) => void) | undefined;
   /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
    * default: the main app view shows only the title and description. The /debug
    * board opts in to inspect a ticket's full record (D5). */
@@ -82,25 +92,37 @@ export function TicketDetail({
   onClose,
   onAccept,
   onTalk,
+  onPoke,
   showInternalMeta = false,
   surface = 'debug',
 }: TicketDetailProps): JSX.Element {
-  // Which affordance the sheet's footer carries is decided purely by lifecycle
+  // Which affordances the sheet's footer carries is decided purely by lifecycle
   // state, so the caller can't wire a nonsensical one:
-  //  • shaping → Accept (when wired): the proposal click-through (08 §5) —
-  //              accepting is what moves a shaped proposal into the pull, so it
-  //              only makes sense here. Every later state has already been
-  //              accepted, so the button is gone.
-  //  • blocked → Talk (when wired): the work can't be accepted, only unblocked
-  //              through a conversation with the brain.
-  //  • else    → no action; the header badge already names the state (working →
-  //              "In progress", done → "Done") and there's nothing to act on.
-  // The two footer branches below narrow on the callbacks directly (not derived
+  //  • shaping         → Accept (when wired): the proposal click-through (08 §5) —
+  //                      accepting is what moves a shaped proposal into the pull,
+  //                      so it only makes sense here. Every later state has already
+  //                      been accepted, so the button is gone.
+  //  • blocked         → Talk (when wired): the work can't be accepted, only
+  //                      unblocked through a conversation with the brain.
+  //  • working|blocked → Poke (when wired): a manual nudge to continue for a
+  //                      stalled agent, routed through the brain (never a direct
+  //                      agent command, D5). Coexists with Talk on a blocked ticket.
+  //  • done            → no action; the header badge already says "Done".
+  // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
   // optional chain, which the lint gate rejects (mirrors FeedCardItem).
   const isShaping = ticket.state === 'shaping';
   const isBlocked = ticket.state === 'blocked';
+  const isWorking = ticket.state === 'working';
   const statusLabel = STATUS_LABELS[ticket.state];
+  // Whether each footer action can appear: the ticket's lifecycle state plus
+  // whether the caller wired the callback. These decide only if the actions row
+  // renders at all — each button below re-checks its own callback directly so
+  // TypeScript narrows it to defined (a derived boolean wouldn't narrow, and the
+  // lint gate rejects the optional chain the alternative would need).
+  const canPoke = (isWorking || isBlocked) && onPoke !== undefined;
+  const canTalk = isBlocked && onTalk !== undefined;
+  const canAccept = isShaping && onAccept !== undefined;
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -184,46 +206,83 @@ export function TicketDetail({
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{ticket.body}</ReactMarkdown>
           </div>
 
-          {isBlocked && onTalk !== undefined && (
+          {/* Footer actions. Which affordances appear is decided purely by the
+              ticket's lifecycle state and which callbacks the caller wired, so a
+              nonsensical action can't be shown:
+               • Poke   → working|blocked: nudge a stalled agent to continue. Only
+                          expresses intent — the caller routes it through the brain
+                          (D5), never a direct agent command.
+               • Talk   → blocked: hand off to voice to discuss the unblock.
+               • Accept → the proposal click-through (08 §5), shaping-only (every
+                          later state has already been accepted).
+              Poke sits first (left); the state's primary action (Talk/Accept) stays
+              rightmost, where flex-end makes it the most prominent. Each button
+              narrows on its callback directly inside the guard so TypeScript knows
+              it's defined in the handler — no optional chain (the lint gate). */}
+          {(canPoke || canTalk || canAccept) && (
             <div data-role="ticket-detail-actions">
-              <button
-                type="button"
-                data-role="detail-talk"
-                onClick={() => {
-                  onTalk();
-                }}
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  aria-hidden="true"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              {(isWorking || isBlocked) && onPoke !== undefined && (
+                <button
+                  type="button"
+                  data-role="detail-poke"
+                  onClick={() => {
+                    onPoke(ticket.id);
+                  }}
                 >
-                  <rect x="9" y="3" width="6" height="11" rx="3" />
-                  <path d="M5 11a7 7 0 0 0 14 0" />
-                  <path d="M12 18v3" />
-                </svg>
-                Talk to unblock
-              </button>
-            </div>
-          )}
-
-          {isShaping && onAccept !== undefined && (
-            <div data-role="ticket-detail-actions">
-              <button
-                type="button"
-                data-role="detail-accept"
-                onClick={() => {
-                  onAccept(ticket.id);
-                }}
-              >
-                Accept
-              </button>
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    aria-hidden="true"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M6 5l10 7-10 7z" />
+                    <path d="M20 5v14" />
+                  </svg>
+                  Poke to continue
+                </button>
+              )}
+              {isBlocked && onTalk !== undefined && (
+                <button
+                  type="button"
+                  data-role="detail-talk"
+                  onClick={() => {
+                    onTalk();
+                  }}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    aria-hidden="true"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="3" width="6" height="11" rx="3" />
+                    <path d="M5 11a7 7 0 0 0 14 0" />
+                    <path d="M12 18v3" />
+                  </svg>
+                  Talk to unblock
+                </button>
+              )}
+              {isShaping && onAccept !== undefined && (
+                <button
+                  type="button"
+                  data-role="detail-accept"
+                  onClick={() => {
+                    onAccept(ticket.id);
+                  }}
+                >
+                  Accept
+                </button>
+              )}
             </div>
           )}
         </Drawer.Content>

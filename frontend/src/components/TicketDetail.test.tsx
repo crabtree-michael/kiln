@@ -146,6 +146,73 @@ describe('TicketDetail', () => {
     expect(status?.querySelector('[data-role="ticket-detail-status-dot"]')).not.toBeNull();
   });
 
+  describe('Poke action', () => {
+    it('is absent by default — read-only inspection has no Poke button', () => {
+      render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+    });
+
+    it('offers Poke on a working ticket when onPoke is wired, and fires it with the id', () => {
+      const onPoke = vi.fn();
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} />);
+
+      fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke to continue' }),
+      );
+
+      expect(onPoke).toHaveBeenCalledWith('t-42');
+    });
+
+    it('offers Poke alongside Talk on a blocked ticket (both actions coexist)', () => {
+      const blocked = makeTicket({
+        id: 't-b',
+        title: 'Stuck',
+        body: 'body',
+        state: 'blocked',
+        priority: 1,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-01T00:00:00Z',
+        blockedReason: 'Needs a decision.',
+      });
+      const onPoke = vi.fn();
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} onPoke={onPoke} />);
+      const dialog = screen.getByRole('dialog');
+
+      expect(within(dialog).getByRole('button', { name: 'Talk to unblock' })).toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Poke to continue' }));
+
+      expect(onPoke).toHaveBeenCalledWith('t-b');
+    });
+
+    it('never offers Poke on a done ticket, even when onPoke is wired', () => {
+      const done = makeTicket({
+        id: 't-d',
+        title: 'Shipped',
+        body: 'body',
+        state: 'done',
+        priority: 1,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-02T00:00:00Z',
+      });
+      render(<TicketDetail ticket={done} onClose={vi.fn()} onPoke={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+    });
+
+    it('never offers Poke on a shaping/ready ticket — no agent to nudge yet', () => {
+      const shaping = makeTicket({
+        id: 't-s',
+        title: 'Idea',
+        body: 'body',
+        state: 'shaping',
+        priority: 1,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-01T00:00:00Z',
+      });
+      render(<TicketDetail ticket={shaping} onClose={vi.fn()} onPoke={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+    });
+  });
+
   describe('done ticket', () => {
     const done = makeTicket({
       id: 't-done',
@@ -208,7 +275,9 @@ describe('TicketDetail', () => {
     it('shows a "blocked" status indicator (with the reason below), not a "done" one', () => {
       render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} />);
       const dialog = screen.getByRole('dialog');
-      const status = within(dialog).getByText('Blocked').closest('[data-role="ticket-detail-status"]');
+      const status = within(dialog)
+        .getByText('Blocked')
+        .closest('[data-role="ticket-detail-status"]');
       expect(status).not.toBeNull();
       expect(status).toHaveAttribute('data-state', 'blocked');
       expect(within(dialog).queryByText('Done')).toBeNull();

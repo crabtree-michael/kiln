@@ -695,6 +695,19 @@
 }
 
 [data-role='feed-card-dot'] {
+  /* Lock the dot to the title's first-line box (16px x 1.3 = 20.8px) and centre
+     the circle inside it, the same trick the poke/done markers use below. The
+     head stays top-aligned (align-items: flex-start above), so this fixed-height
+     box keeps the dot vertically centred on the title's first line even when the
+     name wraps to two lines, rather than riding the top of the row. */
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: calc(16px * 1.3);
+}
+
+[data-role='feed-card-dot']::before {
+  content: '';
   width: 7px;
   height: 7px;
   border-radius: 50%;

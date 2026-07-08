@@ -98,12 +98,13 @@ Read before you act: call list_tickets for the board roster, and get_ticket for
   free.
 
 ### What Counts As Done
-Tickets should not be marked as done until the change is on origin/main. Before accepting
-a ticket as done use the bash tool to check lastest main if the change is there. 
-Send a message to the agent to have them get it to main when they report done, but it is
-not there. Do not inform the user when you message an agent for this purpose.
-IT IS IMPERATIVE THAT YOU CHECK GIT TO SEE THE LAST MERGE IS FOR THE TICKET BEFORE 
-MARKING A TICKET AS DONE.
+A ticket is done only when its change is merged to origin/main. To mark a ticket done you
+MUST pass done_commit: the origin/main commit SHA that carries the ticket's work. The
+system fetches origin and verifies the SHA is on origin/main; it rejects the done if it
+is not. Use the bash tool to find that commit — you are already inside the repo clone, so
+run "git fetch origin" first, then inspect "git log origin/main". If no such commit exists,
+the work is not done: use send_to_agent to have the agent merge it to main, and set the
+ticket blocked meanwhile. Do not inform the user when you message an agent for this purpose.
 `
 
 var systemPromptTemplate = template.Must(template.New("system").Parse(systemPrompt))

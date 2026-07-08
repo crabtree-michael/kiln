@@ -576,6 +576,17 @@ func (a *repoShellAdapter) Run(ctx context.Context, command string) (brain.RepoR
 	}, nil
 }
 
+// VerifyOnMain converts repo.Verify → brain.RepoVerify. Like Run it never errors
+// (best-effort), so the error is always nil.
+func (a *repoShellAdapter) VerifyOnMain(ctx context.Context, sha string) (brain.RepoVerify, error) {
+	v := a.inner.VerifyOnMain(ctx, sha)
+	return brain.RepoVerify{
+		OnMain:      v.OnMain,
+		Unavailable: v.Unavailable,
+		Reason:      v.Reason,
+	}, nil
+}
+
 var _ brain.RepoShell = (*repoShellAdapter)(nil)
 
 // workerLister is the concrete board capacity-slot read the composition root

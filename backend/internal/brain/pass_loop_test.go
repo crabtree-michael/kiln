@@ -177,19 +177,22 @@ func TestHandleEvent_ConfirmBeforeDestructive_UnambiguousExecutesImmediately(t *
 	fb := &fakeBoard{}
 	fs := &fakeSay{}
 	llm := &scriptedLLM{responses: []brain.LLMResponse{
-		toolUse(newToolCall(t, "accept", brain.ToolUpdateTicket, brain.UpdateTicketInput{ID: "t-3", State: new("done")})),
+		toolUse(newToolCall(t, "accept", brain.ToolUpdateTicket,
+			brain.UpdateTicketInput{ID: "t-3", State: new("done"), DoneCommit: new("abc1234")})),
 		toolUse(newToolCall(t, "say", brain.ToolSay, brain.SayInput{Text: "Accepted t-3."})),
 		endTurn(""),
 	}}
 
-	svc := newTestService(fb, fs, &fakeConvo{}, llm)
+	// OnMain=true so the accepted commit clears the push gate.
+	fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+	svc := newTestServiceR(fb, fs, &fakeConvo{}, fr, llm)
 	err := svc.HandleEvent(context.Background(), humanMessageEvent(5, "accept ticket t-3"))
 	if err != nil {
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
 
 	calls := fb.recordedCalls()
-	if len(calls) != 1 || calls[0].Method != "AcceptToDone" {
+	if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
 		t.Fatalf("expected exactly one AcceptToDone call, got %v", calls)
 	}
 	if len(calls[0].Args) != 1 || calls[0].Args[0] != board.TicketID("t-3") {

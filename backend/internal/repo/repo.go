@@ -40,6 +40,15 @@ type Config struct {
 	Dir       string // absolute path to the clone directory
 }
 
+// Verify is the outcome of a VerifyOnMain check. OnMain is true only when the
+// commit exists and is an ancestor of origin/main. Unavailable marks a disabled
+// shell (no repo / clone failed); Reason explains a false OnMain or Unavailable.
+type Verify struct {
+	OnMain      bool
+	Unavailable bool
+	Reason      string
+}
+
 // Result is the outcome of one Run. A non-zero ExitCode is a normal Result, not
 // an error. Unavailable marks a disabled shell (no repo / clone failed).
 type Result struct {
@@ -148,6 +157,65 @@ func (s *Shell) Run(ctx context.Context, command string) Result {
 		"output_bytes", len(res.Output),
 	)
 	return res
+}
+
+// VerifyOnMain fetches origin and reports whether sha is a real commit that is
+// an ancestor of origin/main (i.e. merged to main). Best-effort like Run: an
+// infra failure yields OnMain=false with a Reason, never an error.
+//
+// git is invoked via argv (not sh -c), so sha is never shell-interpreted — a
+// belt-and-suspenders pairing with the caller's hex validation. Each step runs
+// with the same restricted PATH/env and per-run timeout as Run.
+func (s *Shell) VerifyOnMain(ctx context.Context, sha string) Verify {
+	if s.disabled {
+		return Verify{Unavailable: true, Reason: s.reason}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	gitBin := filepath.Join(s.allowedBinDir, "git")
+	run := func(args ...string) (int, string) {
+		//nolint:gosec // G204: fixed git subcommand; argv (no shell), restricted PATH/env.
+		cmd := exec.CommandContext(ctx, gitBin, args...)
+		cmd.Dir = s.cfg.Dir
+		cmd.Env = s.runEnv()
+		out, err := cmd.CombinedOutput()
+		var exitErr *exec.ExitError
+		switch {
+		case err == nil:
+			return 0, strings.TrimSpace(string(out))
+		case errors.As(err, &exitErr):
+			return exitErr.ExitCode(), strings.TrimSpace(string(out))
+		default:
+			return -1, strings.TrimSpace(string(out) + "\n" + err.Error())
+		}
+	}
+
+	v := s.verifyOnMain(sha, run)
+	slog.InfoContext(ctx, "repo.shell.verify", "sha", sha, "on_main", v.OnMain, "reason", v.Reason)
+	return v
+}
+
+// verifyOnMain is VerifyOnMain's pure decision over an injected git runner:
+// fetch origin, require the commit to exist, then require it to be an ancestor
+// of origin/main. Split out so the sequencing is testable and VerifyOnMain owns
+// only the exec/log wiring.
+func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string)) Verify {
+	if code, out := run("fetch", "origin"); code != 0 {
+		return Verify{Reason: fmt.Sprintf("git fetch origin failed (exit %d): %s", code, out)}
+	}
+	if code, out := run("rev-parse", "--verify", "--quiet", sha+"^{commit}"); code != 0 {
+		return Verify{Reason: fmt.Sprintf("commit %s not found in repo: %s", sha, out)}
+	}
+	switch code, out := run("merge-base", "--is-ancestor", sha, "origin/main"); code {
+	case 0:
+		return Verify{OnMain: true}
+	case 1:
+		return Verify{Reason: fmt.Sprintf("commit %s is not an ancestor of origin/main", sha)}
+	default:
+		return Verify{Reason: fmt.Sprintf("git merge-base failed (exit %d): %s", code, out)}
+	}
 }
 
 // disable records the reason and returns the shell in a disabled state.

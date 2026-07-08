@@ -107,6 +107,41 @@
   }
 }
 
+/* Pull-to-refresh indicator (this change). An in-flow strip at the very top of the
+   feed whose height is driven inline by the gesture hook: 0 at rest, tracking the
+   finger while pulling, and held open while a refresh is in flight. As it grows it
+   pushes the backlog down under the finger, reading like a native rubber-band, and
+   its overflow hides the spinner until there's room to reveal it. The height eases
+   on spring-back / settle but tracks 1:1 while dragging (transition suppressed). */
+[data-role='feed-pull'] {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  transition: height var(--duration-base, 240ms) ease;
+}
+
+[data-role='feed-pull'][data-dragging='true'] {
+  transition: none;
+}
+
+/* Same border-ring idiom as the header status spinner: a static ring while the
+   user is still pulling, spun up only once the refresh actually fires. */
+[data-role='feed-pull-spinner'] {
+  width: 18px;
+  height: 18px;
+  margin-bottom: 10px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+}
+
+[data-role='feed-pull-spinner'][data-spinning='true'] {
+  animation: kiln-spin 0.7s linear infinite;
+}
+
 [data-role='feed-header'] {
   /* Pinned nav bar: a flex sibling ABOVE the feed scroll region (not inside it),
      so an overscroll/rubber-band at the top of the feed can never drag it down —

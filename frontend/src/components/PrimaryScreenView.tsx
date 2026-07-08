@@ -3,7 +3,7 @@
 // fixture data and never touch the live stores. `PrimaryScreen` (the composing
 // wrapper) bridges the feed + activity stores into these props, mirroring how
 // `App` bridges its stores into `Board`/`ChatPanel`.
-import { useState, type JSX } from 'react';
+import { useRef, useState, type JSX } from 'react';
 import type {
   Board,
   ConnectionState,
@@ -24,6 +24,7 @@ import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { streamDetail } from '@/components/feed-format';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { usePullToRefresh } from '@/components/use-pull-to-refresh';
 import { useVoice } from '@/voice/voice-context';
 import '@/components/PrimaryScreen.css';
 
@@ -74,6 +75,12 @@ export interface PrimaryScreenViewProps {
   loadingMoreHistory?: boolean;
   /** Fetch and append the next older page of update history (08 D2′). */
   onLoadMoreHistory?: (() => void) | undefined;
+  /** Re-fetch the whole feed — the pull-to-refresh gesture. When provided, a
+   * downward pull from the top of the feed spins up a refresh indicator and
+   * re-fetches; the returned promise keeps the indicator up until the fetch
+   * settles. Omitted (presentational tests) leaves the gesture and its indicator
+   * DOM absent, mirroring how `onDismissCard` gates the swipe wrapper. */
+  onRefreshFeed?: (() => Promise<void>) | undefined;
   /** The current push-notification frequency, shown selected in the bell menu
    * (02 §10). Defaults to `blocked` (the current behavior) when omitted. */
   notificationMode?: NotificationModeValue;
@@ -182,6 +189,7 @@ export function PrimaryScreenView({
   hasMoreHistory = false,
   loadingMoreHistory = false,
   onLoadMoreHistory,
+  onRefreshFeed,
   notificationMode = 'blocked',
   onSelectNotificationMode,
   pushStatus,
@@ -212,6 +220,13 @@ export function PrimaryScreenView({
   // longer covered) and turns the mic on, dropping the user straight into a
   // spoken exchange with the brain about how to unblock the work.
   const { resume } = useVoice();
+
+  // Pull-to-refresh: the feed section is the scroll container, so the gesture
+  // reads its scrollTop off this ref. Only wired when `onRefreshFeed` is provided
+  // (the composing screen passes it; presentational tests omit it, leaving the
+  // indicator DOM absent so snapshots are unchanged).
+  const feedRef = useRef<HTMLElement>(null);
+  const { pull, refreshing, dragging } = usePullToRefresh(feedRef, onRefreshFeed);
 
   return (
     <div data-role="primary-screen" data-connection-state={connectionState}>
@@ -273,11 +288,28 @@ export function PrimaryScreenView({
         </div>
       </header>
       <section
+        ref={feedRef}
         role="region"
         aria-label="Feed"
         data-role="feed"
         data-connection-state={connectionState}
       >
+        {/* Pull-to-refresh indicator: an in-flow strip above the backlog whose
+            height follows the pull (and rests open while the refresh is in
+            flight), so growing it pushes the feed down under the finger like a
+            native rubber-band. Rendered only when the gesture is wired, so the
+            presentational DOM/snapshots are unchanged when it isn't. */}
+        {onRefreshFeed !== undefined && (
+          <div
+            data-role="feed-pull"
+            data-refreshing={refreshing ? 'true' : undefined}
+            data-dragging={dragging ? 'true' : undefined}
+            aria-hidden={pull > 0 || refreshing ? undefined : true}
+            style={{ height: `${String(pull)}px` }}
+          >
+            <span data-role="feed-pull-spinner" data-spinning={refreshing ? 'true' : undefined} />
+          </div>
+        )}
         {/* Single sizing wrapper for everything that scrolls (the backlog). It is
             held a hair taller than the feed scrollport (see [data-role='feed-scroll']
             in PrimaryScreen.css) so the feed is always scrollable and the native

@@ -32,6 +32,14 @@ export interface FeedStoreValue {
    * `hasMoreHistory` is false or a fetch is already in flight. */
   loadMoreHistory: () => void;
   /**
+   * Re-fetch the current feed snapshot on demand — the pull-to-refresh gesture
+   * (this change). Mirrors the reconnect refetch: applies the fresh snapshot on
+   * success and leaves the existing (stale-but-visible) feed in place on failure.
+   * Returns a promise that resolves once the fetch has settled, so the caller can
+   * hold its loading indicator up for the whole round-trip.
+   */
+  refreshFeed: () => Promise<void>;
+  /**
    * Optimistically hide an accepted proposal card by ticket id: the card drops
    * from the feed immediately, ahead of the server confirming the move. The hide
    * is in-memory and time-boxed (~5 min, or until app reopen) — if the accept

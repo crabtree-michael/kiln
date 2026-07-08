@@ -29,6 +29,7 @@ function PrimaryScreenBody(): JSX.Element {
     hasMoreHistory,
     loadingMoreHistory,
     loadMoreHistory,
+    refreshFeed,
     acceptProposal,
     dismissCard,
     dismissAll,
@@ -67,6 +68,7 @@ function PrimaryScreenBody(): JSX.Element {
       hasMoreHistory={hasMoreHistory}
       loadingMoreHistory={loadingMoreHistory}
       onLoadMoreHistory={loadMoreHistory}
+      onRefreshFeed={refreshFeed}
       notificationMode={notificationMode}
       onSelectNotificationMode={setNotificationMode}
       pushStatus={pushStatus}

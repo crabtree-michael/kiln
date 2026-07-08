@@ -289,6 +289,18 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     });
   }, [liveAccepted]);
 
+  // Re-fetch the current snapshot on demand — the pull-to-refresh gesture (this
+  // change). Same shape as the reconnect refetch below: apply a fresh snapshot on
+  // success, keep the stale-but-visible feed on failure. Returns the promise so
+  // the gesture can keep its spinner up until the round-trip settles.
+  const refreshFeed = useCallback(async (): Promise<void> => {
+    try {
+      applySnapshot(await fetchFeed());
+    } catch {
+      // Leave the existing (stale-but-visible) feed in place.
+    }
+  }, [applySnapshot]);
+
   // Optimistically drop an accepted proposal card ahead of the server confirming
   // the move (08 tap-accept, this change): mark the ticket, re-merge to hide it
   // now, and arm a timer to restore it once the TTL lapses if the accept never
@@ -502,6 +514,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       hasMoreHistory,
       loadingMoreHistory,
       loadMoreHistory,
+      refreshFeed,
       acceptProposal,
       dismissCard,
       dismissAll,
@@ -513,6 +526,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       hasMoreHistory,
       loadingMoreHistory,
       loadMoreHistory,
+      refreshFeed,
       acceptProposal,
       dismissCard,
       dismissAll,

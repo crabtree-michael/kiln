@@ -173,7 +173,9 @@ func (a *agentRuntimeAdapter) Send(ctx context.Context, projectID string, idempo
 	return nil
 }
 
-func (a *agentRuntimeAdapter) Release(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+func (a *agentRuntimeAdapter) Release(
+	ctx context.Context, projectID string, idempotencyKey int64, payload []byte,
+) error {
 	payload, err := withProjectID(payload, projectID)
 	if err != nil {
 		return fmt.Errorf("kiln: agent release: %w", err)

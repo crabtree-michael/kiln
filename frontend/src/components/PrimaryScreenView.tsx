@@ -47,6 +47,11 @@ export interface PrimaryScreenViewProps {
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
   onAccept: (ticketId: string) => void;
+  /** Nudge a stalled agent to continue — the ticket detail's "Poke to continue"
+   * action, shown on working/blocked tickets. The composing screen routes this
+   * through the brain (D5); omitted (presentational tests) leaves the sheet without
+   * a Poke button. */
+  onPoke?: ((ticketId: string) => void) | undefined;
   /** Clear a single update/preview card by its notification id — the swipe-left
    * gesture (08 §3). When provided, notification-backed cards become swipeable;
    * omitted (presentational tests) leaves every card static, so the swipe wrapper
@@ -183,6 +188,7 @@ export function PrimaryScreenView({
   toasts,
   onDismiss,
   onAccept,
+  onPoke,
   onDismissCard,
   onDismissAll,
   onOpenTickets,
@@ -417,6 +423,18 @@ export function PrimaryScreenView({
             setOpenTicketId(null);
             resume();
           }}
+          // Poke surfaces on working/blocked tickets (TicketDetail gates it):
+          // route the "continue" intent through the brain, then close the sheet
+          // like Accept — the resulting agent activity comes back over the stream.
+          // Omitted when the composing screen didn't wire it, so no button shows.
+          onPoke={
+            onPoke === undefined
+              ? undefined
+              : (ticketId) => {
+                  onPoke(ticketId);
+                  setOpenTicketId(null);
+                }
+          }
         />
       )}
     </div>

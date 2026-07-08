@@ -13,7 +13,7 @@ import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
 import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
-import { acceptTicket } from '@/transport/transport';
+import { acceptTicket, postMessage } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
 
@@ -51,6 +51,17 @@ function PrimaryScreenBody(): JSX.Element {
     [acceptProposal],
   );
 
+  const onPoke = useCallback((ticketId: string): void => {
+    // A manual poke nudges a stalled agent to continue. The client can't (and by
+    // D5 mustn't) command the agent directly — send_to_agent is a brain tool — so
+    // the poke is expressed as a human message naming the ticket. The brain, which
+    // loads full board state per event, resolves the ticket and decides to
+    // send_to_agent(id, "continue"); the resulting activity returns over the
+    // stream. Fire-and-forget like accept: a dropped poke just means the nudge
+    // didn't land, and the user can tap again.
+    void postMessage(`Poke the agent on ticket ${ticketId} to continue.`);
+  }, []);
+
   return (
     <PrimaryScreenView
       feed={feed}
@@ -60,6 +71,7 @@ function PrimaryScreenBody(): JSX.Element {
       toasts={toasts}
       onDismiss={dismiss}
       onAccept={onAccept}
+      onPoke={onPoke}
       onDismissCard={dismissCard}
       onDismissAll={dismissAll}
       onOpenTickets={refreshBoard}

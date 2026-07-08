@@ -296,6 +296,7 @@
   margin-top: 0.9rem;
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 [data-role='detail-accept'] {
@@ -335,6 +336,30 @@
 }
 
 [data-role='detail-talk']:active {
+  transform: translateY(1px);
+}
+
+/* Poke action — a secondary nudge for a stalled agent, shown alongside the
+ * state's primary action (Talk on blocked, Accept on working). Deliberately
+ * quieter than those accent-filled pills: an outlined/ghost pill so "continue"
+ * reads as the softer, optional prod it is, not a headline decision. */
+[data-role='detail-poke'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-body);
+  background: transparent;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+[data-role='detail-poke']:active {
   transform: translateY(1px);
 }
 
@@ -458,5 +483,27 @@
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk']:active {
   background: var(--accent-press);
+  transform: translateY(1px);
+}
+
+/* Poke keeps its quiet outlined register on the primary surface too — a card-
+ * colored ghost pill that recedes behind the accent Talk/Accept beside it, and
+ * warms to the accent on hover to show it's live. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke'] {
+  font-size: 13px;
+  color: var(--text-body);
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 9px 16px;
+  box-shadow: none;
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke']:hover {
+  border-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke']:active {
   transform: translateY(1px);
 }

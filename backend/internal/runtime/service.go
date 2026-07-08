@@ -192,11 +192,20 @@ func NewService(
 // Callers: the agent-runtime inbound handler (agent.turn_completed) and the
 // message route (human.message). Payloads are opaque snapshots; shape
 // contracts are the emitting surface's spec.
-func (s *Service) EnqueueEvent(ctx context.Context, projectID string, t EventType, payload []byte) (int64, error) {
-	id, err := s.store.InsertEvent(ctx, projectID, t, payload)
+//
+// idempotencyKey dedupes an at-least-once emitter (architecture audit 3.1): a
+// non-zero key makes a redelivered event a no-op (returns id 0), which is how a
+// crash-replayed agent completion avoids a duplicate brain pass. human.message
+// passes 0 — its at-most-once emit needs no dedup.
+func (s *Service) EnqueueEvent(
+	ctx context.Context, projectID string, t EventType, idempotencyKey int64, payload []byte,
+) (int64, error) {
+	id, err := s.store.InsertEvent(ctx, projectID, t, idempotencyKey, payload)
 	if err != nil {
 		return 0, fmt.Errorf("runtime: enqueue event: %w", err)
 	}
+	// A deduped redelivery (id 0) still nudges — harmless, and it keeps the
+	// wakeup path uniform; the events worker just finds nothing new to claim.
 	s.nudgeEvents()
 	return id, nil
 }

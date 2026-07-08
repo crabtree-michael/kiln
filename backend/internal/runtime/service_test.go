@@ -44,7 +44,7 @@ func TestService_EnqueueEvent_InsertsIntoStore(t *testing.T) {
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
 
 	payload := []byte(`{"text":"hello"}`)
-	id, err := svc.EnqueueEvent(context.Background(), defaultTestProject, runtime.EventHumanMessage, payload)
+	id, err := svc.EnqueueEvent(context.Background(), defaultTestProject, runtime.EventHumanMessage, 0, payload)
 	if err != nil {
 		t.Fatalf("EnqueueEvent: unexpected error: %v", err)
 	}

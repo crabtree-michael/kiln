@@ -195,9 +195,9 @@ var _ runtime.AgentRuntime = (*agentRuntimeAdapter)(nil)
 type agentEventAdapter struct{ rt *runtime.Service }
 
 func (a *agentEventAdapter) EnqueueEvent(
-	ctx context.Context, projectID, eventType string, payload []byte,
+	ctx context.Context, projectID, eventType string, idempotencyKey int64, payload []byte,
 ) (int64, error) {
-	id, err := a.rt.EnqueueEvent(ctx, projectID, runtime.EventType(eventType), payload)
+	id, err := a.rt.EnqueueEvent(ctx, projectID, runtime.EventType(eventType), idempotencyKey, payload)
 	if err != nil {
 		return 0, fmt.Errorf("kiln: enqueue event: %w", err)
 	}

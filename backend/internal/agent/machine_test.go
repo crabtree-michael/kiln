@@ -434,3 +434,66 @@ func TestRun_RecoversNonTerminalRowsOnStartWithoutSend(t *testing.T) {
 			" Send call (05 §7 recovery), got %+v", tcs)
 	}
 }
+
+// TestRun_CrashBetweenEmitAndPhaseDoneEmitsExactlyOnce is the direct regression
+// for the completion-transactionality gap (architecture audit 3.1). The
+// completion emit and the phase→done write are separate steps; a crash after
+// the emit but before the write re-runs stepCheckTurn on the still-terminal
+// turn and re-emits agent.turn_completed. With the emitting turn's outbox id as
+// the events idempotency key, the redelivery is a no-op — so the machine still
+// settles at done AND the brain sees exactly one completion.
+func TestRun_CrashBetweenEmitAndPhaseDoneEmitsExactlyOnce(t *testing.T) {
+	store, events, slots, clock := newHarness(testWorkerID)
+	store.failDoneUpdateOnce = true // drop the first phase→done write, after the emit
+	provider := &recordingProvider{Provider: mock.New()}
+	svc := newService(store, provider, events, slots, clock, nil)
+
+	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "ship it")); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	// The turn must still reach done despite the dropped write — the poller
+	// re-runs the terminal turn and the retried phase→done commits.
+	testutil.Eventually(t, func() bool {
+		row, ok := store.get(1)
+		return ok && row.Phase == agent.PhaseDone
+	})
+
+	if tcs := events.turnCompletedEvents(t); len(tcs) != 1 {
+		t.Fatalf("a crash between the completion emit and the phase→done write must still"+
+			" yield exactly one agent.turn_completed event (architecture audit 3.1), got %d: %+v",
+			len(tcs), tcs)
+	}
+}
+
+// TestRun_TransientEmitFailureRetriesThenCompletesOnce covers the other half of
+// transactional completion: a failed emit must NOT settle the turn at done (or
+// the completion would be lost), and the eventual retry must not double-admit.
+// The turn stays at turn_started across the failing emits, then completes with
+// exactly one event once the events queue accepts it.
+func TestRun_TransientEmitFailureRetriesThenCompletesOnce(t *testing.T) {
+	store, events, slots, clock := newHarness(testWorkerID)
+	events.failN = 2 // two transient events-DB outages before the emit lands
+	provider := &recordingProvider{Provider: mock.New()}
+	svc := newService(store, provider, events, slots, clock, nil)
+
+	if err := svc.Send(context.Background(), 1, sendPayload(t, testTicketID, testWorkerID, "ship it")); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	testutil.Eventually(t, func() bool {
+		row, ok := store.get(1)
+		return ok && row.Phase == agent.PhaseDone
+	})
+
+	if tcs := events.turnCompletedEvents(t); len(tcs) != 1 {
+		t.Fatalf("a transient emit failure must neither drop nor double the completion;"+
+			" want exactly 1 agent.turn_completed event, got %d: %+v", len(tcs), tcs)
+	}
+}

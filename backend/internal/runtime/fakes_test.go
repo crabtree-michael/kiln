@@ -116,6 +116,7 @@ type fakeStore struct {
 	retryCalls []retryCall
 	deadCalls  []deadCall
 	claimCalls []claimCall
+	seenKeys   map[int64]struct{} // non-zero event idempotency keys already admitted
 }
 
 func newFakeStore(clock runtime.Clock) *fakeStore {
@@ -130,10 +131,21 @@ func newFakeStore(clock runtime.Clock) *fakeStore {
 }
 
 func (s *fakeStore) InsertEvent(
-	_ context.Context, projectID string, t runtime.EventType, payload []byte,
+	_ context.Context, projectID string, t runtime.EventType, idempotencyKey int64, payload []byte,
 ) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Model the events-queue partial unique index (architecture audit 3.1): a
+	// non-zero key already admitted is a no-op returning id 0.
+	if idempotencyKey != 0 {
+		if _, ok := s.seenKeys[idempotencyKey]; ok {
+			return 0, nil
+		}
+		if s.seenKeys == nil {
+			s.seenKeys = map[int64]struct{}{}
+		}
+		s.seenKeys[idempotencyKey] = struct{}{}
+	}
 	return s.insertLocked(runtime.QueueEvents, projectID, string(t), payload, 0, "pending"), nil
 }
 

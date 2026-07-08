@@ -80,6 +80,11 @@ func ensureTenantColumns(ctx context.Context, t *testing.T, db *sql.DB) {
 		`ALTER TABLE messages      ADD COLUMN IF NOT EXISTS project_id uuid`,
 		`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS project_id uuid`,
 		`ALTER TABLE IF EXISTS outbox ADD COLUMN IF NOT EXISTS project_id uuid`,
+		// events idempotency (0008): the events-queue dedup key + partial unique
+		// index (architecture audit 3.1), added idempotently for a stale shared DB.
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS idempotency_key bigint`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS events_idempotency_key
+			ON events (idempotency_key) WHERE idempotency_key IS NOT NULL`,
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			t.Fatalf("ensure tenant column (%s): %v", stmt, err)
@@ -567,7 +572,7 @@ func TestIntegration_ClaimNextDue_OrdersByIDAndIncrementsAttempts(t *testing.T) 
 
 	ids := make([]int64, 0, 3)
 	for i := range 3 {
-		id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, fmt.Appendf(nil, `{"text":"m%d"}`, i))
+		id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, fmt.Appendf(nil, `{"text":"m%d"}`, i))
 		if err != nil {
 			t.Fatalf("InsertEvent %d: %v", i, err)
 		}
@@ -600,12 +605,64 @@ func TestIntegration_ClaimNextDue_OrdersByIDAndIncrementsAttempts(t *testing.T) 
 	}
 }
 
+// TestIntegration_InsertEvent_DedupesByIdempotencyKey pins the fix for the
+// events-queue duplicate-delivery gap (architecture audit 3.1): a redelivered
+// agent completion (same idempotency key) must NOT enqueue a second event, so
+// the brain never runs a duplicate pass. A zero key carries no dedup and always
+// inserts.
+func TestIntegration_InsertEvent_DedupesByIdempotencyKey(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	const key = int64(4242)
+	first, err := store.InsertEvent(ctx, projA, runtime.EventAgentTurnCompleted, key, []byte(`{"ticket_id":"t1"}`))
+	if err != nil {
+		t.Fatalf("InsertEvent first: %v", err)
+	}
+	if first == 0 {
+		t.Fatalf("first keyed insert returned id 0, want a real id")
+	}
+
+	// The crash-replayed emit: same key, must be a no-op reported as id 0.
+	dup, err := store.InsertEvent(ctx, projA, runtime.EventAgentTurnCompleted, key, []byte(`{"ticket_id":"t1"}`))
+	if err != nil {
+		t.Fatalf("InsertEvent duplicate: %v", err)
+	}
+	if dup != 0 {
+		t.Errorf("a redelivered completion (same idempotency key) returned id %d, want 0 (deduped no-op)", dup)
+	}
+
+	var keyed int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM events WHERE idempotency_key = $1`, key).Scan(&keyed); err != nil {
+		t.Fatalf("count keyed events: %v", err)
+	}
+	if keyed != 1 {
+		t.Fatalf("want exactly 1 events row for the deduped key, got %d", keyed)
+	}
+
+	// Two zero-key (unkeyed) inserts both land — NULL keys are exempt from the
+	// partial unique index (the runtime's own human.message path).
+	u1, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"a"}`))
+	if err != nil {
+		t.Fatalf("InsertEvent unkeyed #1: %v", err)
+	}
+	u2, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"b"}`))
+	if err != nil {
+		t.Fatalf("InsertEvent unkeyed #2: %v", err)
+	}
+	if u1 == 0 || u2 == 0 || u1 == u2 {
+		t.Errorf("unkeyed inserts must each get a distinct real id, got %d and %d", u1, u2)
+	}
+}
+
 func TestIntegration_MarkDone_SetsStatusDoneAndProcessedAt(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
+	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
@@ -635,7 +692,7 @@ func TestIntegration_MarkRetry_SetsBackoffAndKeepsRowPending(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
+	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
@@ -679,7 +736,7 @@ func TestIntegration_MarkDead_SetsStatusDead(t *testing.T) {
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"hi"}`))
+	id, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
@@ -851,14 +908,14 @@ func TestIntegration_ClaimNextDue_RoundTripsProjectIDAndHonorsBusyExclusion(t *t
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	a1, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"a1"}`))
+	a1, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"a1"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent a1: %v", err)
 	}
-	if _, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, []byte(`{"text":"a2"}`)); err != nil {
+	if _, err := store.InsertEvent(ctx, projA, runtime.EventHumanMessage, 0, []byte(`{"text":"a2"}`)); err != nil {
 		t.Fatalf("InsertEvent a2: %v", err)
 	}
-	b1, err := store.InsertEvent(ctx, projB, runtime.EventHumanMessage, []byte(`{"text":"b1"}`))
+	b1, err := store.InsertEvent(ctx, projB, runtime.EventHumanMessage, 0, []byte(`{"text":"b1"}`))
 	if err != nil {
 		t.Fatalf("InsertEvent b1: %v", err)
 	}

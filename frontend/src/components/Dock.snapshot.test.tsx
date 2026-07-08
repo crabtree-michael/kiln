@@ -17,6 +17,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
   const noop = (): void => undefined;
   return {
     micState: 'listening',
+    connecting: false,
     settledText: '',
     tailText: '',
     pause: noop,

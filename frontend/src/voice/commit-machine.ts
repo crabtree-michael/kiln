@@ -33,6 +33,13 @@ export type VoiceAction =
 
 export interface VoiceState {
   micState: MicState;
+  /** True from the mic tap (`resume`) until the provider's `open` confirms the
+   *  socket is live and recording (09 §3). During this brief setup window the mic
+   *  is already `listening` but is not yet capturing audio — the dock shows a
+   *  spinner around the mic so the user waits to speak instead of getting cut off.
+   *  Cleared by `open` (connected), and by anything that stops the mic
+   *  (pause/denied/background/providerFailed). */
+  connecting: boolean;
   settledText: string; // committed/finalized text, in ink
   tailText: string; // still-forming partial, ghosted
   /** An end-of-turn final that is armed to POST but held through the post-turn-end
@@ -51,7 +58,7 @@ export function initialVoiceState(): VoiceState {
   // Mic off until an explicit tap: the app opens Paused ("Tap to talk"), never
   // listening on its own. The mic only turns on when the user taps the mic
   // control (→ `resume`); nothing here or in the store starts it automatically.
-  return { micState: 'paused', settledText: '', tailText: '' };
+  return { micState: 'paused', connecting: false, settledText: '', tailText: '' };
 }
 
 /** Promote an armed end-of-turn final (`pending`) to the one-tick `commit` the
@@ -95,6 +102,7 @@ function fireDisplayedSend(state: VoiceState): VoiceState {
     pending: undefined,
     commit: text,
     micState: 'paused',
+    connecting: false,
   };
 }
 
@@ -103,8 +111,15 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
     case 'provider':
       return onProviderEvent(state, action.event);
     case 'providerFailed':
-      // Preserve any un-committed transcript on screen (09 §5); drop the armed send.
-      return { ...state, micState: 'retry', pending: undefined, commit: undefined };
+      // Preserve any un-committed transcript on screen (09 §5); drop the armed send
+      // and the connecting flag (the setup window ended in failure, not a live mic).
+      return {
+        ...state,
+        micState: 'retry',
+        connecting: false,
+        pending: undefined,
+        commit: undefined,
+      };
     case 'pause':
       // The mic/stop-listening button only stops listening — it does NOT
       // auto-send (that linkage was reverted). Keep any transcript on screen so
@@ -112,9 +127,25 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       // closed, so a frozen interim can no longer finalize, but the user can
       // still send it (the send button) or clear it (the X). Drop the armed
       // grace-window send so its timer can't fire a stray commit while paused.
-      return { ...state, micState: 'paused', pending: undefined, commit: undefined };
+      return {
+        ...state,
+        micState: 'paused',
+        connecting: false,
+        pending: undefined,
+        commit: undefined,
+      };
     case 'resume':
-      return { ...state, micState: 'listening', pending: undefined, commit: undefined };
+      // The mic tap flips to listening immediately, but the socket/getUserMedia
+      // setup is still in flight — mark `connecting` so the dock shows a spinner
+      // (not the live glow) until the provider's `open` lands (09 §3). Cleared
+      // there, or on any stop below.
+      return {
+        ...state,
+        micState: 'listening',
+        connecting: true,
+        pending: undefined,
+        commit: undefined,
+      };
     case 'cancel':
       // The X clears the whole shown transcript — settled ink and the
       // still-forming tail alike — and disarms any pending send; nothing was
@@ -122,14 +153,21 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       // the "stuck" case, not just an in-progress tail.
       return { ...state, settledText: '', tailText: '', pending: undefined, commit: undefined };
     case 'denied':
-      return { ...state, micState: 'denied', tailText: '', pending: undefined, commit: undefined };
+      return {
+        ...state,
+        micState: 'denied',
+        connecting: false,
+        tailText: '',
+        pending: undefined,
+        commit: undefined,
+      };
     case 'background':
       // Leaving the app stops the mic for good: the store closes the socket and
       // the machine drops any live listen to Paused. Returning never re-opens the
       // mic on its own — the user taps to talk again (denied/retry are left as-is
       // so backgrounding doesn't paper over a permission/connection problem).
       return state.micState === 'listening'
-        ? { ...state, micState: 'paused', pending: undefined, commit: undefined }
+        ? { ...state, micState: 'paused', connecting: false, pending: undefined, commit: undefined }
         : state;
     case 'commitConsumed':
       // A sent utterance clears back to the idle transcript so stale text can't
@@ -165,11 +203,21 @@ function onProviderEvent(state: VoiceState, event: VoiceProviderEvent): VoiceSta
   }
   switch (event.kind) {
     case 'open':
-      return { ...state, micState: 'listening' };
+      // The socket is live: recording has actually started, so clear the setup
+      // spinner (09 §3). This is what the connecting window waits for.
+      return { ...state, micState: 'listening', connecting: false };
     case 'partial':
       // Resumed speech within the grace window cancels the armed send (a pause
-      // that read as end-of-turn was a false alarm): drop `pending`, keep listening.
-      return { ...state, micState: 'listening', tailText: event.text, pending: undefined };
+      // that read as end-of-turn was a false alarm): drop `pending`, keep
+      // listening. Transcript flowing means we're connected — clear any lingering
+      // setup spinner (open normally clears it first; this is belt-and-braces).
+      return {
+        ...state,
+        micState: 'listening',
+        connecting: false,
+        tailText: event.text,
+        pending: undefined,
+      };
     case 'final': {
       const text = event.text.trim();
       if (text === '') {
@@ -183,7 +231,7 @@ function onProviderEvent(state: VoiceState, event: VoiceProviderEvent): VoiceSta
       // — grow the transcript by appending this final rather than overwriting it,
       // so the whole utterance sends as one (09 §4).
       const settledText = state.settledText === '' ? text : `${state.settledText} ${text}`;
-      return { ...state, settledText, tailText: '', pending: settledText };
+      return { ...state, connecting: false, settledText, tailText: '', pending: settledText };
     }
     case 'error':
       return state; // the store decides reconnect-then-retry; no state change here

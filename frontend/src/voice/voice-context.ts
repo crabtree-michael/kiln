@@ -8,6 +8,11 @@ import type { MicState } from '@/voice/commit-machine';
 export interface VoiceStoreValue {
   /** The mic lifecycle state (09 §3) — drives the dock's `data-dock-state`. */
   micState: MicState;
+  /** True during the mic setup window: the mic has been tapped on (`micState` is
+   *  already `listening`) but the socket isn't recording yet (09 §3). The dock
+   *  shows a spinner around the mic while this is true so the user waits to speak
+   *  instead of being cut off. Clears the instant the provider connects. */
+  connecting: boolean;
   /** Committed/finalized transcript, rendered in ink (09 §4). */
   settledText: string;
   /** Still-forming partial, rendered ghosted with a caret (09 §4). */

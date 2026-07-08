@@ -18,6 +18,7 @@ vi.mock('@/voice/voice-context', () => ({
 function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
   return {
     micState: 'listening',
+    connecting: false,
     settledText: '',
     tailText: '',
     pause: vi.fn(),
@@ -47,6 +48,28 @@ describe('Dock', () => {
     );
     expect(screen.getByText('Listening…')).toHaveAttribute('data-role', 'dock-label');
     expect(screen.getByRole('button', { name: 'Talk' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Connecting: shows a spinner around the mic and "Connecting…" copy', () => {
+    // The mic is tapped on (listening) but the socket isn't recording yet: the
+    // dock flags the setup window and swaps the live glow for a spinner so the
+    // user waits to speak (09 §3).
+    mockVoiceValue = stubVoice({ micState: 'listening', connecting: true });
+    const { container } = render(<Dock />);
+    const talk = screen.getByRole('button', { name: 'Talk' });
+    expect(talk).toHaveAttribute('data-dock-connecting', 'true');
+    expect(container.querySelector('[data-role="dock-mic-spinner"]')).not.toBeNull();
+    expect(screen.getByText('Connecting…')).toHaveAttribute('data-role', 'dock-label');
+  });
+
+  it('not connecting: no spinner and the resting mic copy', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', connecting: false });
+    const { container } = render(<Dock />);
+    expect(screen.getByRole('button', { name: 'Talk' })).not.toHaveAttribute(
+      'data-dock-connecting',
+    );
+    expect(container.querySelector('[data-role="dock-mic-spinner"]')).toBeNull();
+    expect(screen.getByText('Listening…')).toHaveAttribute('data-role', 'dock-label');
   });
 
   it('tapping the mic while listening calls pause', () => {

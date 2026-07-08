@@ -105,6 +105,23 @@ describe('VoiceProvider mic activation', () => {
     expect(startVoiceStream).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes connecting during the setup window and clears it once the socket opens', () => {
+    const { result } = renderHook(() => useVoice(), { wrapper });
+    // Off the resting state there is nothing connecting.
+    expect(result.current.connecting).toBe(false);
+    // Tapping on starts the stream but the socket isn't live yet: connecting is
+    // true so the dock shows a spinner around the mic (09 §3).
+    act(() => {
+      result.current.resume();
+    });
+    expect(result.current.connecting).toBe(true);
+    // The provider's open confirms recording started -> spinner clears.
+    act(() => {
+      fireProviderEvent({ kind: 'open' });
+    });
+    expect(result.current.connecting).toBe(false);
+  });
+
   it('sending tears the mic down — it does not keep listening after a send', async () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -584,6 +585,138 @@ func TestUpsertProjectValidates(t *testing.T) {
 	for _, upd := range cases {
 		if _, err := svc.UpsertProject(context.Background(), u.ID, upd); !errors.Is(err, identity.ErrInvalidProject) {
 			t.Fatalf("UpsertProject(%+v) err = %v, want ErrInvalidProject", upd, err)
+		}
+	}
+}
+
+// Fixed secret names/values reused across the round-trip assertions.
+const (
+	amikaSecretName1  = "STRIPE_KEY"
+	amikaSecretName2  = "OPENAI_KEY"
+	amikaSecretValue1 = "stripe-secret-value"
+	amikaSecretValue2 = "openai-secret-value"
+)
+
+// A project's Amika secrets (02 §8) are stored encrypted (name and value),
+// trimmed, decrypted into Me's fingerprint view and RuntimeConfig's plaintext,
+// carry forward on an empty-value re-upsert, and clear on an empty list.
+func TestUpsertProjectAmikaSecretsRoundTrip(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "secrets-user")
+
+	p, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:    testProjectName,
+		RepoURL: testProjectRepoURL,
+		AmikaSecrets: []identity.AmikaSecretInput{
+			{Name: " STRIPE_KEY ", Value: amikaSecretValue1},
+			{Name: amikaSecretName2, Value: amikaSecretValue2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
+	// At rest: ciphertext only, never the plaintext name or value.
+	if len(p.AmikaSecrets) != 2 {
+		t.Fatalf("stored AmikaSecrets = %+v, want 2", p.AmikaSecrets)
+	}
+	for i, sec := range p.AmikaSecrets {
+		if len(sec.NameEnc) == 0 || len(sec.ValueEnc) == 0 {
+			t.Fatalf("AmikaSecrets[%d] not encrypted: %+v", i, sec)
+		}
+		if string(sec.NameEnc) == amikaSecretName1 || string(sec.ValueEnc) == amikaSecretValue1 {
+			t.Fatalf("AmikaSecrets[%d] stored in the clear: %+v", i, sec)
+		}
+	}
+
+	// Me: decrypted, trimmed names + value fingerprints — never the value.
+	me, err := svc.Me(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	wantStatus := []identity.AmikaSecretStatus{
+		{Name: amikaSecretName1, Value: identity.SecretStatus{Set: true, Tail: identity.Tail(amikaSecretValue1)}},
+		{Name: amikaSecretName2, Value: identity.SecretStatus{Set: true, Tail: identity.Tail(amikaSecretValue2)}},
+	}
+	if len(me.ProjectSecrets) != len(wantStatus) {
+		t.Fatalf("Me().ProjectSecrets = %+v, want %+v", me.ProjectSecrets, wantStatus)
+	}
+	for i, w := range wantStatus {
+		if me.ProjectSecrets[i] != w {
+			t.Errorf("ProjectSecrets[%d] = %+v, want %+v", i, me.ProjectSecrets[i], w)
+		}
+	}
+
+	// RuntimeConfig: plaintext name/value for in-process sandbox injection.
+	wantValues := []identity.AmikaSecretValue{
+		{Name: amikaSecretName1, Value: amikaSecretValue1},
+		{Name: amikaSecretName2, Value: amikaSecretValue2},
+	}
+	assertRuntimeSecrets := func(when string) {
+		t.Helper()
+		rc, rerr := svc.RuntimeConfig(context.Background(), p.ID)
+		if rerr != nil {
+			t.Fatalf("RuntimeConfig (%s): %v", when, rerr)
+		}
+		if len(rc.AmikaSecrets) != len(wantValues) {
+			t.Fatalf("RuntimeConfig.AmikaSecrets (%s) = %+v, want %+v", when, rc.AmikaSecrets, wantValues)
+		}
+		for i, w := range wantValues {
+			if rc.AmikaSecrets[i] != w {
+				t.Errorf("RuntimeConfig.AmikaSecrets[%d] (%s) = %+v, want %+v", i, when, rc.AmikaSecrets[i], w)
+			}
+		}
+	}
+	assertRuntimeSecrets("initial")
+
+	// Re-upsert keeping the same names with EMPTY values carries the stored
+	// (encrypted) values forward (the write-only merge).
+	if _, keepErr := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:    testProjectName,
+		RepoURL: testProjectRepoURL,
+		AmikaSecrets: []identity.AmikaSecretInput{
+			{Name: amikaSecretName1},
+			{Name: amikaSecretName2},
+		},
+	}); keepErr != nil {
+		t.Fatalf("UpsertProject keep: %v", keepErr)
+	}
+	assertRuntimeSecrets("after empty-value re-upsert")
+
+	// Re-upsert with no secrets clears them (wholesale upsert).
+	cleared, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name:    testProjectName,
+		RepoURL: testProjectRepoURL,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject clear: %v", err)
+	}
+	if len(cleared.AmikaSecrets) != 0 {
+		t.Fatalf("AmikaSecrets after clear = %+v, want empty", cleared.AmikaSecrets)
+	}
+}
+
+// Invalid secret lists are the client's fault (ErrInvalidProject): a blank name,
+// duplicate env-var names, a brand-new secret with no value, or over the cap.
+func TestUpsertProjectAmikaSecretsValidates(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	u := mustDevSignIn(t, svc, "bad-secrets-user")
+
+	tooMany := make([]identity.AmikaSecretInput, 51)
+	for i := range tooMany {
+		tooMany[i] = identity.AmikaSecretInput{Name: fmt.Sprintf("NAME_%d", i), Value: "v"}
+	}
+	cases := map[string][]identity.AmikaSecretInput{
+		"blank name":          {{Name: "  ", Value: "v"}},
+		"duplicate name":      {{Name: "DUP", Value: "a"}, {Name: "DUP", Value: "b"}},
+		"new secret no value": {{Name: "NAME", Value: ""}},
+		"over cap":            tooMany,
+	}
+	for label, secrets := range cases {
+		upd := identity.ProjectUpdate{Name: testProjectName, RepoURL: testProjectRepoURL, AmikaSecrets: secrets}
+		if _, err := svc.UpsertProject(context.Background(), u.ID, upd); !errors.Is(err, identity.ErrInvalidProject) {
+			t.Fatalf("UpsertProject(%s) err = %v, want ErrInvalidProject", label, err)
 		}
 	}
 }

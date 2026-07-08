@@ -263,6 +263,18 @@ type AgentStatus struct {
 // AgentStatusStatus building = alive with a turn in flight; idle = alive, no turn; stopped = session auto-stopped/not running; errored = terminal session failure; starting = session provisioning, not reachable yet.
 type AgentStatusStatus string
 
+// AmikaSecret One Amika secret injected into every sandbox this project starts (02 §8): `name` is the environment-variable name it lands under inside the sandbox (the user-facing label), and `value` is the presence+fingerprint of the secret value — never the value itself (11 §3 D7). The value is encrypted at rest and write-only, so reads only ever carry its status.
+type AmikaSecret struct {
+	Name  string       `json:"name"`
+	Value SecretStatus `json:"value"`
+}
+
+// AmikaSecretInput One Amika secret on a project upsert (02 §8). `name` is the environment variable it is injected as; `value` is write-only — a non-empty value sets/replaces the stored (encrypted) secret, and an omitted or empty value keeps the value already stored for that name (the credential-merge convention, 11 §3 D7). A name dropped from the list clears that secret.
+type AmikaSecretInput struct {
+	Name  string  `json:"name"`
+	Value *string `json:"value,omitempty"`
+}
+
 // BetaSignupRequest POST /api/beta-signup body — the visitor's email for the beta list.
 type BetaSignupRequest struct {
 	// Email The visitor's email. Kept a plain string on the wire (no format:email, which would pull an openapi_types dependency into the generated Go); the server validates it parses as a real address (net/mail).
@@ -383,11 +395,13 @@ type Me struct {
 
 // MeProject defines model for MeProject.
 type MeProject struct {
-	AmikaSnapshot string `json:"amika_snapshot"`
-	BrainModel    string `json:"brain_model"`
-	Name          string `json:"name"`
-	RepoUrl       string `json:"repo_url"`
-	WorkerCount   int    `json:"worker_count"`
+	// AmikaSecrets Amika secrets injected into every sandbox this project starts (02 §8).
+	AmikaSecrets  []AmikaSecret `json:"amika_secrets"`
+	AmikaSnapshot string        `json:"amika_snapshot"`
+	BrainModel    string        `json:"brain_model"`
+	Name          string        `json:"name"`
+	RepoUrl       string        `json:"repo_url"`
+	WorkerCount   int           `json:"worker_count"`
 }
 
 // MeSettings Config status — secrets as presence+fingerprint only (11 §3 D7).
@@ -438,11 +452,13 @@ type NotificationModeMode string
 
 // ProjectUpdateRequest defines model for ProjectUpdateRequest.
 type ProjectUpdateRequest struct {
-	AmikaSnapshot *string `json:"amika_snapshot,omitempty"`
-	BrainModel    *string `json:"brain_model,omitempty"`
-	Name          string  `json:"name"`
-	RepoUrl       string  `json:"repo_url"`
-	WorkerCount   *int    `json:"worker_count,omitempty"`
+	// AmikaSecrets The project's full Amika secret list. Like the other optional project fields on this wholesale upsert, omitted or [] clears it; a name kept with an empty value keeps its stored (encrypted) value (02 §8).
+	AmikaSecrets  *[]AmikaSecretInput `json:"amika_secrets,omitempty"`
+	AmikaSnapshot *string             `json:"amika_snapshot,omitempty"`
+	BrainModel    *string             `json:"brain_model,omitempty"`
+	Name          string              `json:"name"`
+	RepoUrl       string              `json:"repo_url"`
+	WorkerCount   *int                `json:"worker_count,omitempty"`
 }
 
 // PushKey The VAPID public key for pushManager.subscribe (02 §10).

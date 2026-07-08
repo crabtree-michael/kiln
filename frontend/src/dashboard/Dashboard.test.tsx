@@ -102,6 +102,7 @@ describe('Dashboard', () => {
           amika_snapshot: 'snap-1',
           brain_model: 'claude-sonnet',
           worker_count: 3,
+          amika_secrets: [],
         },
         settings: {
           anthropic_api_key: { set: true, tail: 'x4Kd' },
@@ -128,6 +129,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -141,6 +143,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -186,6 +189,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -211,6 +215,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -222,6 +227,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -258,6 +264,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -269,6 +276,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -301,6 +309,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -312,6 +321,7 @@ describe('Dashboard', () => {
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
+          amika_secrets: [],
         },
       }),
     );
@@ -348,6 +358,7 @@ describe('Dashboard', () => {
           amika_snapshot: 'snap-1',
           brain_model: 'claude-sonnet',
           worker_count: 3,
+          amika_secrets: [],
         },
         settings: {
           anthropic_api_key: { set: true, tail: 'x4Kd' },

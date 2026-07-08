@@ -13,7 +13,18 @@ package amika
 // omitted when unset so the environment stays optional. agent_credentials
 // attaches the org's coding-agent credential — REQUIRED for API-key-created
 // sandboxes to run the agent (without it the agent command fails); omitted when
-// unset.
+// unset. secret_env_vars injects the project's dashboard-configured secrets
+// (02 §8): a map of env-var name → the literal secret value, which Amika sets as
+// a secret env var in the sandbox at startup. Omitted when none are configured.
+//
+// VERIFY ON FIRST LIVE RUN (05 §11, §10 smoke checklist): v0beta1's llms.txt
+// documents secret_env_vars only as an untyped object with no description. The
+// inline-value semantics above is the reading implied by the env_vars vs
+// secret_env_vars naming pair (plain vs sensitive env vars), but is not
+// documented — confirm against a live sandbox that the value lands in the env.
+// If Amika instead wants a name/id reference into its own secret store (see the
+// sandbox response's secret_names), only this struct and CreateWorker's mapping
+// change.
 type createSandboxRequest struct {
 	Name               string            `json:"name"`
 	RepoURL            string            `json:"repo_url,omitempty"`
@@ -22,6 +33,7 @@ type createSandboxRequest struct {
 	AutoStopInterval   int               `json:"auto_stop_interval"`
 	AutoDeleteInterval int               `json:"auto_delete_interval"`
 	AgentCredentials   []agentCredential `json:"agent_credentials,omitempty"`
+	SecretEnvVars      map[string]string `json:"secret_env_vars,omitempty"`
 }
 
 // agentCredential references an org agent credential to attach to a sandbox so

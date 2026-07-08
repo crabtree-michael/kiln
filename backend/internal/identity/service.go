@@ -196,6 +196,7 @@ func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
 	switch {
 	case err == nil:
 		me.Project = &proj
+		me.ProjectSecrets = s.amikaSecretStatuses(proj.AmikaSecrets)
 	case errors.Is(err, ErrNotFound): // onboarding not done yet
 	default:
 		return Me{}, fmt.Errorf("identity: me: %w", err)
@@ -247,6 +248,10 @@ const (
 	defaultWorkerCount = 3
 )
 
+// maxAmikaSecrets bounds the per-project secret list so a single project can't
+// bloat the sandbox-create request (02 §8). Generous headroom over any real use.
+const maxAmikaSecrets = 50
+
 // UpsertProject creates or updates the caller's project (one per owner in
 // phase 1), validating required fields and the worker-count range.
 func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectUpdate) (Project, error) {
@@ -256,6 +261,16 @@ func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectU
 	if upd.Name == "" || upd.RepoURL == "" || upd.WorkerCount < minWorkerCount || upd.WorkerCount > maxWorkerCount {
 		return Project{}, ErrInvalidProject
 	}
+	// Load the current secrets so write-only values the client didn't re-enter
+	// (empty value for a kept name) carry forward (11 §3 D7).
+	existing, err := s.ownerAmikaSecrets(ctx, userID)
+	if err != nil {
+		return Project{}, err
+	}
+	secrets, err := s.mergeAmikaSecrets(upd.AmikaSecrets, existing)
+	if err != nil {
+		return Project{}, err
+	}
 	p, err := s.store.UpsertProject(ctx, Project{
 		OwnerUserID:   userID,
 		Name:          upd.Name,
@@ -263,6 +278,7 @@ func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectU
 		AmikaSnapshot: upd.AmikaSnapshot,
 		BrainModel:    upd.BrainModel,
 		WorkerCount:   upd.WorkerCount,
+		AmikaSecrets:  secrets,
 	})
 	if err != nil {
 		return Project{}, fmt.Errorf("identity: upsert project: %w", err)
@@ -338,6 +354,9 @@ type RuntimeConfig struct {
 	AmikaAPIKey       string
 	AmikaClaudeCredID string
 	GitHubAuthToken   string
+	// AmikaSecrets is the project's decrypted secrets (name + value) to inject
+	// into every sandbox at startup (02 §8). Plaintext — in-process use only.
+	AmikaSecrets []AmikaSecretValue
 }
 
 // RuntimeConfig resolves a project to its owner's decrypted credentials:
@@ -373,6 +392,7 @@ func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeC
 		AmikaAPIKey:       s.decrypt(cfg.AmikaKeyEnc),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 		GitHubAuthToken:   s.decrypt(cfg.GitHubTokenEnc),
+		AmikaSecrets:      s.resolveAmikaSecrets(proj.AmikaSecrets),
 	}, nil
 }
 
@@ -484,4 +504,114 @@ func (s *Service) mergeSecret(dst *[]byte, plaintext string) error {
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// ownerAmikaSecrets returns the owner's currently-stored (encrypted) secrets, or
+// nil before onboarding — the carry-forward source for the write-only merge.
+func (s *Service) ownerAmikaSecrets(ctx context.Context, userID string) ([]AmikaSecret, error) {
+	switch cur, err := s.store.GetProjectByOwner(ctx, userID); {
+	case err == nil:
+		return cur.AmikaSecrets, nil
+	case errors.Is(err, ErrNotFound): // first project — nothing to carry forward
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("identity: owner amika secrets: %w", err)
+	}
+}
+
+// mergeAmikaSecrets validates and encrypts the inbound secret list against the
+// currently-stored secrets. Names are required, trimmed, and unique (each is a
+// distinct env var). The value is write-only (11 §3 D7): a non-empty value is
+// encrypted fresh; an empty value carries the stored ciphertext forward (keyed
+// by name); an empty value with nothing stored for that name is rejected (a
+// secret must have a value). BOTH name and value are stored encrypted. A
+// nil/empty input clears the list. A rejected list is the client's fault
+// (ErrInvalidProject).
+func (s *Service) mergeAmikaSecrets(in []AmikaSecretInput, existing []AmikaSecret) ([]AmikaSecret, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	if len(in) > maxAmikaSecrets {
+		return nil, ErrInvalidProject
+	}
+	// Stored ciphertext values, keyed by decrypted name, for carry-forward of
+	// unchanged (empty-value) entries.
+	prior := make(map[string][]byte, len(existing))
+	for _, sec := range existing {
+		prior[s.decrypt(sec.NameEnc)] = sec.ValueEnc
+	}
+	out := make([]AmikaSecret, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, sec := range in {
+		name := strings.TrimSpace(sec.Name)
+		if name == "" {
+			return nil, ErrInvalidProject
+		}
+		if _, dup := seen[name]; dup {
+			return nil, ErrInvalidProject
+		}
+		seen[name] = struct{}{}
+		nameEnc, err := s.cipher.Encrypt(name)
+		if err != nil {
+			return nil, fmt.Errorf("identity: encrypt amika secret name: %w", err)
+		}
+		valueEnc, err := s.amikaSecretValueEnc(sec, name, prior)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, AmikaSecret{NameEnc: nameEnc, ValueEnc: valueEnc})
+	}
+	return out, nil
+}
+
+// amikaSecretValueEnc resolves one entry's value ciphertext: a freshly typed
+// value is encrypted; an empty value carries the stored ciphertext forward
+// (keyed by name); an empty value with nothing stored is a client error.
+func (s *Service) amikaSecretValueEnc(in AmikaSecretInput, name string, prior map[string][]byte) ([]byte, error) {
+	if in.Value != "" {
+		enc, err := s.cipher.Encrypt(in.Value)
+		if err != nil {
+			return nil, fmt.Errorf("identity: encrypt amika secret value: %w", err)
+		}
+		return enc, nil
+	}
+	if prev, ok := prior[name]; ok && len(prev) > 0 {
+		return prev, nil
+	}
+	return nil, ErrInvalidProject // new secret carries no value
+}
+
+// amikaSecretStatuses is the fingerprint-only read view of stored secrets: the
+// decrypted name (a label, safe to show) plus the value's presence+tail.
+func (s *Service) amikaSecretStatuses(secrets []AmikaSecret) []AmikaSecretStatus {
+	if len(secrets) == 0 {
+		return nil
+	}
+	out := make([]AmikaSecretStatus, 0, len(secrets))
+	for _, sec := range secrets {
+		out = append(out, AmikaSecretStatus{
+			Name:  s.decrypt(sec.NameEnc),
+			Value: s.secretStatus(sec.ValueEnc),
+		})
+	}
+	return out
+}
+
+// resolveAmikaSecrets decrypts a project's stored secrets into plaintext
+// name/value pairs for in-process sandbox injection (02 §8). A secret whose
+// name fails to decrypt is dropped (it could not be injected under a usable
+// env var anyway); mirrors decrypt's swallow-and-continue posture.
+func (s *Service) resolveAmikaSecrets(secrets []AmikaSecret) []AmikaSecretValue {
+	if len(secrets) == 0 {
+		return nil
+	}
+	out := make([]AmikaSecretValue, 0, len(secrets))
+	for _, sec := range secrets {
+		name := s.decrypt(sec.NameEnc)
+		if name == "" {
+			continue
+		}
+		out = append(out, AmikaSecretValue{Name: name, Value: s.decrypt(sec.ValueEnc)})
+	}
+	return out
 }

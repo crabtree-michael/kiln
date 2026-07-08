@@ -88,6 +88,19 @@ type Config struct {
 	// isolation on a shared Amika account (05 §4, amended 2026-07-05). Must match
 	// the prefix the Service builds names with (agent.WithWorkerPrefix).
 	WorkerPrefix string
+	// Secrets are the project's secrets to inject into every sandbox this client
+	// creates (02 §8, dashboard-configured per project). Each becomes one entry
+	// in the create-sandbox secret_env_vars map (env-var name → value). Empty =
+	// none. Values are plaintext here (decrypted upstream) and in-process only.
+	Secrets []SecretRef
+}
+
+// SecretRef is one secret to inject at sandbox startup: Name is the
+// environment-variable name it lands under inside the sandbox; Value is the
+// literal secret value Amika sets that variable to.
+type SecretRef struct {
+	Name  string
+	Value string
 }
 
 // APIError is v0beta1's uniform error envelope over
@@ -184,6 +197,12 @@ func (c *Client) CreateWorker(ctx context.Context, name string) (agent.ProviderW
 	}
 	if c.cfg.ClaudeCredID != "" {
 		req.AgentCredentials = []agentCredential{{Kind: c.cfg.Agent, ID: c.cfg.ClaudeCredID}}
+	}
+	if len(c.cfg.Secrets) > 0 {
+		req.SecretEnvVars = make(map[string]string, len(c.cfg.Secrets))
+		for _, sec := range c.cfg.Secrets {
+			req.SecretEnvVars[sec.Name] = sec.Value
+		}
 	}
 	var s sandbox
 	if err := c.do(ctx, http.MethodPost, "/sandboxes", req, &s); err != nil {

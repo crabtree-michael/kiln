@@ -7,6 +7,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -20,7 +21,8 @@ import (
 const userColumns = `id, github_id, github_login, display_name, avatar_url, created_at`
 
 // projectColumns is the canonical projection for a project row.
-const projectColumns = `id, owner_user_id, name, repo_url, amika_snapshot, brain_model, worker_count, created_at`
+const projectColumns = `id, owner_user_id, name, repo_url, amika_snapshot, ` +
+	`brain_model, worker_count, amika_secrets, created_at`
 
 // Store implements identity.Store over Postgres.
 type Store struct {
@@ -288,15 +290,20 @@ func (s *Store) ListProjects(ctx context.Context) (_ []identity.Project, err err
 // UpsertProject creates or updates the owner's project in place (one project
 // per owner in phase 1).
 func (s *Store) UpsertProject(ctx context.Context, p identity.Project) (identity.Project, error) {
+	secrets, err := marshalAmikaSecrets(p.AmikaSecrets)
+	if err != nil {
+		return identity.Project{}, err
+	}
 	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO projects (owner_user_id, name, repo_url, amika_snapshot, brain_model, worker_count)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO projects (owner_user_id, name, repo_url, amika_snapshot, brain_model, worker_count, amika_secrets)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (owner_user_id) DO UPDATE
 		  SET name = EXCLUDED.name, repo_url = EXCLUDED.repo_url,
 		      amika_snapshot = EXCLUDED.amika_snapshot,
-		      brain_model = EXCLUDED.brain_model, worker_count = EXCLUDED.worker_count
+		      brain_model = EXCLUDED.brain_model, worker_count = EXCLUDED.worker_count,
+		      amika_secrets = EXCLUDED.amika_secrets
 		RETURNING `+projectColumns,
-		p.OwnerUserID, p.Name, p.RepoURL, p.AmikaSnapshot, p.BrainModel, p.WorkerCount)
+		p.OwnerUserID, p.Name, p.RepoURL, p.AmikaSnapshot, p.BrainModel, p.WorkerCount, secrets)
 	out, err := scanProject(row)
 	if err != nil {
 		return identity.Project{}, fmt.Errorf("identity/postgres: upsert project: %w", err)
@@ -334,9 +341,58 @@ func scanUser(r rowScanner) (identity.User, error) {
 // callers can still detect it with errors.Is while satisfying wrapcheck.
 func scanProject(r rowScanner) (identity.Project, error) {
 	var p identity.Project
+	var secrets []byte
 	if err := r.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.RepoURL, &p.AmikaSnapshot,
-		&p.BrainModel, &p.WorkerCount, &p.CreatedAt); err != nil {
+		&p.BrainModel, &p.WorkerCount, &secrets, &p.CreatedAt); err != nil {
 		return identity.Project{}, fmt.Errorf("identity/postgres: scan project: %w", err)
 	}
+	parsed, err := unmarshalAmikaSecrets(secrets)
+	if err != nil {
+		return identity.Project{}, err
+	}
+	p.AmikaSecrets = parsed
 	return p, nil
+}
+
+// amikaSecretRow is the jsonb element shape for projects.amika_secrets. Name and
+// value are BOTH stored as AES-GCM ciphertext (encoding/json renders the []byte
+// as base64), so nothing readable lands on disk (02 §8, 11 §3 D7). The JSON keys
+// are pinned here, never coupled to the domain type's field names.
+type amikaSecretRow struct {
+	NameEnc  []byte `json:"name_enc"`
+	ValueEnc []byte `json:"value_enc"`
+}
+
+// marshalAmikaSecrets encodes the list for the jsonb column; a nil/empty list
+// becomes "[]" so the NOT NULL DEFAULT invariant holds on every write.
+func marshalAmikaSecrets(secrets []identity.AmikaSecret) ([]byte, error) {
+	rows := make([]amikaSecretRow, len(secrets))
+	for i, s := range secrets {
+		rows[i] = amikaSecretRow{NameEnc: s.NameEnc, ValueEnc: s.ValueEnc}
+	}
+	b, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fmt.Errorf("identity/postgres: marshal amika secrets: %w", err)
+	}
+	return b, nil
+}
+
+// unmarshalAmikaSecrets decodes the jsonb column; an empty "[]" yields a nil
+// slice (the zero value callers treat as "no secrets").
+func unmarshalAmikaSecrets(b []byte) ([]identity.AmikaSecret, error) {
+	if len(b) == 0 {
+		return nil, nil
+	}
+	var rows []amikaSecretRow
+	if err := json.Unmarshal(b, &rows); err != nil {
+		return nil, fmt.Errorf("identity/postgres: unmarshal amika secrets: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	out := make([]identity.AmikaSecret, len(rows))
+	for i, r := range rows {
+		out[i] = identity.AmikaSecret{NameEnc: r.NameEnc, ValueEnc: r.ValueEnc}
+	}
+	return out, nil
 }

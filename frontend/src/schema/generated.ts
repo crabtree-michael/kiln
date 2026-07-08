@@ -628,6 +628,18 @@ export interface components {
             amika_snapshot: string;
             brain_model: string;
             worker_count: number;
+            /** @description Amika secrets injected into every sandbox this project starts (02 §8). */
+            amika_secrets: components["schemas"]["AmikaSecret"][];
+        };
+        /** @description One Amika secret injected into every sandbox this project starts (02 §8): `name` is the environment-variable name it lands under inside the sandbox (the user-facing label), and `value` is the presence+fingerprint of the secret value — never the value itself (11 §3 D7). The value is encrypted at rest and write-only, so reads only ever carry its status. */
+        AmikaSecret: {
+            name: string;
+            value: components["schemas"]["SecretStatus"];
+        };
+        /** @description One Amika secret on a project upsert (02 §8). `name` is the environment variable it is injected as; `value` is write-only — a non-empty value sets/replaces the stored (encrypted) secret, and an omitted or empty value keeps the value already stored for that name (the credential-merge convention, 11 §3 D7). A name dropped from the list clears that secret. */
+        AmikaSecretInput: {
+            name: string;
+            value?: string;
         };
         /** @description Config status — secrets as presence+fingerprint only (11 §3 D7). */
         MeSettings: {
@@ -654,6 +666,8 @@ export interface components {
             amika_snapshot?: string;
             brain_model?: string;
             worker_count?: number;
+            /** @description The project's full Amika secret list. Like the other optional project fields on this wholesale upsert, omitted or [] clears it; a name kept with an empty value keeps its stored (encrypted) value (02 §8). */
+            amika_secrets?: components["schemas"]["AmikaSecretInput"][];
         };
         VerifyCheck: {
             /** @enum {string} */

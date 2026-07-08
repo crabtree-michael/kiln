@@ -326,6 +326,7 @@ func buildTenantProviders(
 			Snapshot:     rc.Project.AmikaSnapshot,
 			ClaudeCredID: rc.AmikaClaudeCredID,
 			WorkerPrefix: prefix,
+			Secrets:      amikaSecretRefs(rc.AmikaSecrets),
 		}, &http.Client{})
 	}
 
@@ -365,6 +366,21 @@ func buildTenantProviders(
 		Brain:        &brainAdapter{inner: brainSvc},
 		Agent:        provider,
 	}, nil
+}
+
+// amikaSecretRefs maps a project's decrypted secrets (RuntimeConfig, plaintext)
+// onto the amika adapter's config type (02 §8) — the one place the identity
+// domain type meets the provider adapter, keeping the amika package free of an
+// identity import. Plaintext name+value crosses here for in-process injection.
+func amikaSecretRefs(secrets []identity.AmikaSecretValue) []amika.SecretRef {
+	if len(secrets) == 0 {
+		return nil
+	}
+	out := make([]amika.SecretRef, 0, len(secrets))
+	for _, s := range secrets {
+		out = append(out, amika.SecretRef{Name: s.Name, Value: s.Value})
+	}
+	return out
 }
 
 // workerPrefixScopeLen is how many leading project-uuid characters seed the

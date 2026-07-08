@@ -376,6 +376,10 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		AmikaSnapshot: "snap-1",
 		BrainModel:    "claude-x",
 		WorkerCount:   3,
+		AmikaSecrets: []identity.AmikaSecret{
+			{NameEnc: []byte("enc-name-1"), ValueEnc: []byte("enc-val-1")},
+			{NameEnc: []byte("enc-name-2"), ValueEnc: []byte("enc-val-2")},
+		},
 	})
 	if err != nil {
 		t.Fatalf("UpsertProject create: %v", err)
@@ -390,6 +394,22 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 	}
 	if got.ID != created.ID || got.Name != "my-project" || got.WorkerCount != 3 {
 		t.Fatalf("GetProjectByOwner after create = %+v, want %+v", got, created)
+	}
+	// The jsonb amika_secrets column round-trips the encrypted bytes through
+	// GetProjectByOwner (the store persists ciphertext verbatim; encryption is
+	// the service's job).
+	wantSecrets := []identity.AmikaSecret{
+		{NameEnc: []byte("enc-name-1"), ValueEnc: []byte("enc-val-1")},
+		{NameEnc: []byte("enc-name-2"), ValueEnc: []byte("enc-val-2")},
+	}
+	if len(got.AmikaSecrets) != len(wantSecrets) {
+		t.Fatalf("AmikaSecrets = %+v, want %+v", got.AmikaSecrets, wantSecrets)
+	}
+	for i, w := range wantSecrets {
+		if !bytes.Equal(got.AmikaSecrets[i].NameEnc, w.NameEnc) ||
+			!bytes.Equal(got.AmikaSecrets[i].ValueEnc, w.ValueEnc) {
+			t.Errorf("AmikaSecrets[%d] = %+v, want %+v", i, got.AmikaSecrets[i], w)
+		}
 	}
 
 	updated, err := store.UpsertProject(ctx, identity.Project{
@@ -408,6 +428,10 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 	}
 	if updated.Name != "renamed-project" || updated.WorkerCount != 5 {
 		t.Fatalf("UpsertProject update did not persist changes: %+v", updated)
+	}
+	// An update with no secrets clears the column back to empty.
+	if len(updated.AmikaSecrets) != 0 {
+		t.Fatalf("AmikaSecrets after secretless update = %+v, want empty", updated.AmikaSecrets)
 	}
 
 	var count int

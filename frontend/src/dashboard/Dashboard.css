@@ -287,6 +287,48 @@
   font-weight: 400;
 }
 
+/* -------------------------------------------------------- sandbox secrets */
+/* The project form's zero-or-more Amika secret rows (02 §8). Each row is an
+   Amika-secret-id + env-var-name pair with a Remove button; "Add secret"
+   appends a blank row. Bordered fieldset so the variable-length list reads as
+   one grouped section within the project form. */
+
+[data-role='amika-secrets'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+}
+
+[data-role='amika-secrets'] legend {
+  padding: 0 var(--space-2);
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='amika-secrets-hint'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-faint);
+}
+
+[data-role='amika-secret-row'] {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+[data-role='amika-secret-row'] label {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-role='amika-secret-row'] button[data-role='remove-secret'] {
+  flex-shrink: 0;
+}
+
 /* ----------------------------------------------------------------- misc */
 
 [data-role='dashboard-error'] {

@@ -39,6 +39,7 @@ function makeProject(): NonNullable<Me['project']> {
     amika_snapshot: 'snap',
     brain_model: 'model',
     worker_count: 1,
+    amika_secrets: [],
   };
 }
 

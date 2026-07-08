@@ -61,6 +61,7 @@ func (s *Server) handlePutProject(w http.ResponseWriter, r *http.Request, user i
 		AmikaSnapshot: derefOr(req.AmikaSnapshot, ""),
 		BrainModel:    derefOr(req.BrainModel, ""),
 		WorkerCount:   derefOr(req.WorkerCount, 0),
+		AmikaSecrets:  amikaSecretsToDomain(req.AmikaSecrets),
 	}
 	if _, err := s.account.UpsertProject(r.Context(), user.ID, upd); err != nil {
 		if errors.Is(err, identity.ErrInvalidProject) {
@@ -164,7 +165,35 @@ func meToWire(me identity.Me) wire.Me {
 			AmikaSnapshot: p.AmikaSnapshot,
 			BrainModel:    p.BrainModel,
 			WorkerCount:   p.WorkerCount,
+			AmikaSecrets:  amikaSecretsToWire(me.ProjectSecrets),
 		}
+	}
+	return out
+}
+
+// amikaSecretsToWire maps the project's secret statuses to the wire read type.
+// Always non-nil (the wire field is a required array) so it marshals to [] not
+// null. The name is a label (safe to expose); the value is presence+fingerprint
+// only — never the secret itself (02 §8, 11 §3 D7).
+func amikaSecretsToWire(secrets []identity.AmikaSecretStatus) []wire.AmikaSecret {
+	out := make([]wire.AmikaSecret, 0, len(secrets))
+	for _, s := range secrets {
+		out = append(out, wire.AmikaSecret{Name: s.Name, Value: secretToWire(s.Value)})
+	}
+	return out
+}
+
+// amikaSecretsToDomain maps an optional inbound secret list to the domain type;
+// an omitted field (nil) becomes a nil slice — zero secrets. Trimming, the
+// write-only value merge, and validation are the service's job
+// (identity.mergeAmikaSecrets).
+func amikaSecretsToDomain(secrets *[]wire.AmikaSecretInput) []identity.AmikaSecretInput {
+	if secrets == nil {
+		return nil
+	}
+	out := make([]identity.AmikaSecretInput, 0, len(*secrets))
+	for _, s := range *secrets {
+		out = append(out, identity.AmikaSecretInput{Name: s.Name, Value: derefOr(s.Value, "")})
 	}
 	return out
 }

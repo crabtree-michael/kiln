@@ -225,6 +225,7 @@ describe('DashboardProvider', () => {
         amika_snapshot: '',
         brain_model: '',
         worker_count: 1,
+        amika_secrets: [],
       },
     });
     vi.mocked(transport.putProject).mockResolvedValue(updated);
@@ -348,6 +349,7 @@ describe('DashboardProvider', () => {
         amika_snapshot: '',
         brain_model: '',
         worker_count: 1,
+        amika_secrets: [],
       },
     });
     vi.mocked(transport.putProject).mockResolvedValue(updated);

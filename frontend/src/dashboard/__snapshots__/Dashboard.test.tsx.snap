@@ -184,6 +184,24 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
             value="3"
           />
         </label>
+        <fieldset
+          data-role="amika-secrets"
+        >
+          <legend>
+            Sandbox secrets
+          </legend>
+          <p
+            data-role="amika-secrets-hint"
+          >
+            Secrets injected into every sandbox this project starts. The name is the environment variable it lands under; the value is stored encrypted and never shown again.
+          </p>
+          <button
+            data-role="add-secret"
+            type="button"
+          >
+            Add secret
+          </button>
+        </fieldset>
         <button
           type="submit"
         >

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ const (
 	testProjectName = "kiln"
 	testRepoURL     = "https://github.com/x/y"
 	testDevToken1   = "dev-tok-1"
+	testSecretName  = "STRIPE_KEY"
 )
 
 // sessionCookieFor builds the kiln_session cookie carrying testSessionValue,
@@ -222,6 +224,59 @@ func TestMeWithProjectAndSecrets(t *testing.T) {
 	}
 }
 
+// meToWire serializes a project's Amika secrets as name + value fingerprint
+// only — the array shape the dashboard reads, never a raw value (02 §8, D7).
+func TestMeSerializesAmikaSecretStatuses(t *testing.T) {
+	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
+	account := &fakeAccount{me: identity.Me{
+		User:    identity.User{GitHubLogin: testGHLogin},
+		Project: &identity.Project{Name: testProjectName, RepoURL: testRepoURL, WorkerCount: 3},
+		ProjectSecrets: []identity.AmikaSecretStatus{
+			{Name: testSecretName, Value: identity.SecretStatus{Set: true, Tail: "3xyz"}},
+		},
+	}}
+	srv := newIdentityServer(auth, account)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/api/me", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.AddCookie(sessionCookieFor())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/me: %v", err)
+	}
+	defer closeBody(t, resp)
+
+	var body map[string]any
+	if err := json.Unmarshal([]byte(readBody(t, resp)), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	project := asObj(t, body, "project")
+	secrets, ok := project["amika_secrets"].([]any)
+	if !ok || len(secrets) != 1 {
+		t.Fatalf("project.amika_secrets = %v, want exactly one secret", project["amika_secrets"])
+	}
+	sec, ok := secrets[0].(map[string]any)
+	if !ok {
+		t.Fatalf("amika_secrets[0] = %v (%T), want an object", secrets[0], secrets[0])
+	}
+	if sec["name"] != testSecretName {
+		t.Errorf("amika_secrets[0].name = %v, want STRIPE_KEY", sec["name"])
+	}
+	value := asObj(t, sec, "value")
+	if value["set"] != true || value["tail"] != "3xyz" {
+		t.Errorf("amika_secrets[0].value = %+v, want {set:true tail:3xyz}", value)
+	}
+	// Presence+fingerprint ONLY: the element is exactly {name, value} and value
+	// is exactly {set, tail} — structurally no field can carry the plaintext.
+	if len(sec) != 2 || len(value) != 2 {
+		t.Errorf("amika_secrets[0] = %+v, want exactly {name, value:{set,tail}}", sec)
+	}
+}
+
 func TestPutSettings(t *testing.T) {
 	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
 	account := &fakeAccount{me: identity.Me{User: identity.User{GitHubLogin: testGHLogin}}}
@@ -282,8 +337,36 @@ func TestPutProject(t *testing.T) {
 	}
 	got := account.lastProjectUpdate()
 	want := identity.ProjectUpdate{Name: testProjectName, RepoURL: testRepoURL, WorkerCount: 5}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ProjectUpdate = %+v, want %+v", got, want)
+	}
+}
+
+// handlePutProject maps the inbound amika_secrets array onto the domain input:
+// a typed value passes through, an omitted value becomes "" (the keep-existing
+// signal the service merge honours), 02 §8.
+func TestPutProjectMapsAmikaSecrets(t *testing.T) {
+	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
+	account := &fakeAccount{me: identity.Me{User: identity.User{GitHubLogin: testGHLogin}}}
+	srv := newIdentityServer(auth, account)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := []byte(`{"name":"kiln","repo_url":"https://github.com/x/y","worker_count":5,` +
+		`"amika_secrets":[{"name":"STRIPE_KEY","value":"stripe-secret-1"},{"name":"KEEP_ME"}]}`)
+	resp := doPut(t, ts.URL+"/api/project", body, sessionCookieFor())
+	defer closeBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", resp.StatusCode, readBody(t, resp))
+	}
+	got := account.lastProjectUpdate().AmikaSecrets
+	want := []identity.AmikaSecretInput{
+		{Name: testSecretName, Value: "stripe-secret-1"},
+		{Name: "KEEP_ME", Value: ""}, // value omitted → keep-existing signal
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ProjectUpdate.AmikaSecrets = %+v, want %+v", got, want)
 	}
 }
 

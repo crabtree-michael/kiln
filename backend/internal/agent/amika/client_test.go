@@ -227,6 +227,55 @@ func TestCreateWorkerOmitsSnapshotWhenUnset(t *testing.T) {
 	}
 }
 
+// Dashboard-configured project secrets (02 §8) become secret_env_vars entries
+// on every created sandbox, keyed by env-var name → the literal secret value.
+func TestCreateWorkerInjectsSecretEnvVars(t *testing.T) {
+	c := newClient(t, Config{
+		APIKey: "k",
+		Agent:  DefaultAgent,
+		Secrets: []SecretRef{
+			{Name: "STRIPE_KEY", Value: "sk_live_stripe"},
+			{Name: "OPENAI_KEY", Value: "sk_openai"},
+		},
+	}, map[route]http.HandlerFunc{
+		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			var body createSandboxRequest
+			decodeBody(t, r, &body)
+			want := map[string]string{"STRIPE_KEY": "sk_live_stripe", "OPENAI_KEY": "sk_openai"}
+			if len(body.SecretEnvVars) != len(want) {
+				t.Fatalf("secret_env_vars = %+v, want %+v", body.SecretEnvVars, want)
+			}
+			for k, v := range want {
+				if body.SecretEnvVars[k] != v {
+					t.Errorf("secret_env_vars[%q] = %q, want %q", k, body.SecretEnvVars[k], v)
+				}
+			}
+			writeJSON(t, w, http.StatusAccepted, sandbox{ID: sbID9, Name: body.Name})
+		},
+	})
+	if _, err := c.CreateWorker(context.Background(), agent.WorkerName("w1")); err != nil {
+		t.Fatalf("CreateWorker: %v", err)
+	}
+}
+
+// No configured secrets → the secret_env_vars key is omitted entirely (omitempty),
+// not sent as an empty object.
+func TestCreateWorkerOmitsSecretEnvVarsWhenNone(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k", Agent: DefaultAgent}, map[route]http.HandlerFunc{
+		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			var raw map[string]json.RawMessage
+			decodeBody(t, r, &raw)
+			if _, present := raw["secret_env_vars"]; present {
+				t.Errorf("secret_env_vars key present when no secrets configured: %v", raw)
+			}
+			writeJSON(t, w, http.StatusAccepted, sandbox{ID: sbID9, Name: agent.WorkerName("w1")})
+		},
+	})
+	if _, err := c.CreateWorker(context.Background(), agent.WorkerName("w1")); err != nil {
+		t.Fatalf("CreateWorker: %v", err)
+	}
+}
+
 func TestWorkerReadyStates(t *testing.T) {
 	worker := agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID}
 

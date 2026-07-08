@@ -10,6 +10,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -140,7 +141,7 @@ func TestWithProject_ValidSession_CallsNextWithUserAndProject(t *testing.T) {
 	if gotUser != wantUser {
 		t.Errorf("user = %+v, want %+v", gotUser, wantUser)
 	}
-	if gotProject != wantProject {
+	if !reflect.DeepEqual(gotProject, wantProject) {
 		t.Errorf("project = %+v, want %+v", gotProject, wantProject)
 	}
 }

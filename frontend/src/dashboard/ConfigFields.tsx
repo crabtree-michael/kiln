@@ -1,5 +1,6 @@
 // Controlled forms for the dashboard's two config surfaces (11 §5): project
-// (name/repo/snapshot/model/workers) and credentials (secrets + Amika config).
+// (name/repo/snapshot/model/workers + the Amika sandbox secrets, 02 §8) and
+// credentials (secrets + Amika config).
 // Both are seeded from the current `Me`. Project still submits explicitly via
 // its "Save project" button; credentials auto-save per field instead (
 // dashboard UX update): each secret input commits on blur AND Enter, only
@@ -32,6 +33,20 @@ import type { CredentialName } from '@/dashboard/dashboard-context';
 // its own local aliases, straight off the generated wire schema.
 type MeSettings = components['schemas']['MeSettings'];
 type SecretStatus = components['schemas']['SecretStatus'];
+type AmikaSecretInput = components['schemas']['AmikaSecretInput'];
+
+// SecretDraft is one editable row in the Amika-secrets list (02 §8). `uid` is a
+// stable client-only key so add/remove never reuses a React key across rows.
+// `value` is a write-only draft, exactly like the credential inputs: it starts
+// blank and, left blank on save, keeps the stored value for this name; `status`
+// carries the stored value's presence+tail so the input can show the
+// "configured · …<tail>" placeholder without ever holding the value itself.
+interface SecretDraft {
+  uid: number;
+  name: string;
+  value: string;
+  status: SecretStatus;
+}
 
 /** The exact contract string (task-13 e2e binds to it): "configured · …<tail>". */
 function secretStatusText(status: SecretStatus): string {
@@ -134,6 +149,34 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
   const [workerCount, setWorkerCount] = useState(
     project?.worker_count === undefined ? '' : String(project.worker_count),
   );
+  // The Amika sandbox secrets (02 §8): a zero-or-more list saved with the rest
+  // of the project on "Save project". Each draft carries a stable `uid` (React
+  // list identity across add/remove) that never leaves the component. Values are
+  // write-only (11 §3 D7): a row seeds with a blank value draft and the stored
+  // value's status (for the placeholder), and only the name plus any freshly
+  // typed value are sent.
+  const nextSecretUid = useRef(0);
+  const [secrets, setSecrets] = useState<SecretDraft[]>(() =>
+    (project?.amika_secrets ?? []).map((secret) => ({
+      uid: nextSecretUid.current++,
+      name: secret.name,
+      value: '',
+      status: secret.value,
+    })),
+  );
+
+  const addSecret = (): void => {
+    setSecrets((rows) => [
+      ...rows,
+      { uid: nextSecretUid.current++, name: '', value: '', status: { set: false, tail: '' } },
+    ]);
+  };
+  const removeSecret = (uid: number): void => {
+    setSecrets((rows) => rows.filter((row) => row.uid !== uid));
+  };
+  const patchSecret = (uid: number, patch: Partial<Pick<SecretDraft, 'name' | 'value'>>): void => {
+    setSecrets((rows) => rows.map((row) => (row.uid === uid ? { ...row, ...patch } : row)));
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -153,6 +196,17 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
         body.worker_count = parsed;
       }
     }
+    // Always send the list (even []) so clearing every secret persists — this
+    // is a wholesale upsert (11 §4). Rows with a blank name are dropped (an
+    // "Add secret" the user never filled). A blank value keeps the stored value
+    // for that name (write-only merge, 11 §3 D7), so the value key is omitted
+    // when the draft is empty; a typed value sets/replaces it.
+    body.amika_secrets = secrets
+      .map((row) => ({ name: row.name.trim(), value: row.value.trim() }))
+      .filter((row) => row.name !== '')
+      .map<AmikaSecretInput>((row) =>
+        row.value === '' ? { name: row.name } : { name: row.name, value: row.value },
+      );
     void onSave(body);
   };
 
@@ -210,6 +264,58 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
           }}
         />
       </label>
+      <fieldset data-role="amika-secrets">
+        <legend>Sandbox secrets</legend>
+        <p data-role="amika-secrets-hint">
+          Secrets injected into every sandbox this project starts. The name is the environment
+          variable it lands under; the value is stored encrypted and never shown again.
+        </p>
+        {secrets.map((row) => (
+          <div data-role="amika-secret-row" key={row.uid}>
+            <label>
+              Env var name
+              <input
+                type="text"
+                data-field="name"
+                value={row.name}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  patchSecret(row.uid, { name: event.target.value });
+                }}
+              />
+            </label>
+            <label>
+              Value
+              <input
+                type="password"
+                data-field="value"
+                value={row.value}
+                placeholder={row.status.set ? secretStatusText(row.status) : ''}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  patchSecret(row.uid, { value: event.target.value });
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              data-role="remove-secret"
+              onClick={() => {
+                removeSecret(row.uid);
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          data-role="add-secret"
+          onClick={() => {
+            addSecret();
+          }}
+        >
+          Add secret
+        </button>
+      </fieldset>
       <button type="submit" disabled={saving}>
         Save project
       </button>

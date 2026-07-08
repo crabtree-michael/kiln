@@ -916,13 +916,41 @@ components:
         avatar_url: { type: string }
     MeProject:
       type: object
-      required: [name, repo_url, amika_snapshot, brain_model, worker_count]
+      required: [name, repo_url, amika_snapshot, brain_model, worker_count, amika_secrets]
       properties:
         name: { type: string }
         repo_url: { type: string }
         amika_snapshot: { type: string }
         brain_model: { type: string }
         worker_count: { type: integer }
+        amika_secrets:
+          type: array
+          description: Amika secrets injected into every sandbox this project starts (02 §8).
+          items: { $ref: '#/components/schemas/AmikaSecret' }
+    AmikaSecret:
+      type: object
+      description: >
+        One Amika secret injected into every sandbox this project starts (02 §8):
+        `name` is the environment-variable name it lands under inside the sandbox
+        (the user-facing label), and `value` is the presence+fingerprint of the
+        secret value — never the value itself (11 §3 D7). The value is encrypted
+        at rest and write-only, so reads only ever carry its status.
+      required: [name, value]
+      properties:
+        name: { type: string }
+        value: { $ref: '#/components/schemas/SecretStatus' }
+    AmikaSecretInput:
+      type: object
+      description: >
+        One Amika secret on a project upsert (02 §8). `name` is the environment
+        variable it is injected as; `value` is write-only — a non-empty value
+        sets/replaces the stored (encrypted) secret, and an omitted or empty
+        value keeps the value already stored for that name (the credential-merge
+        convention, 11 §3 D7). A name dropped from the list clears that secret.
+      required: [name]
+      properties:
+        name: { type: string }
+        value: { type: string }
     MeSettings:
       type: object
       description: Config status — secrets as presence+fingerprint only (11 §3 D7).
@@ -957,6 +985,13 @@ components:
         amika_snapshot: { type: string }
         brain_model: { type: string }
         worker_count: { type: integer }
+        amika_secrets:
+          type: array
+          description: >
+            The project's full Amika secret list. Like the other optional project
+            fields on this wholesale upsert, omitted or [] clears it; a name kept
+            with an empty value keeps its stored (encrypted) value (02 §8).
+          items: { $ref: '#/components/schemas/AmikaSecretInput' }
     VerifyCheck:
       type: object
       required: [name, status, message]

@@ -313,6 +313,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const value = useMemo<VoiceStoreValue>(
     () => ({
       micState: state.micState,
+      connecting: state.connecting,
       settledText: state.settledText,
       tailText: state.tailText,
       pause,
@@ -327,6 +328,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     }),
     [
       state.micState,
+      state.connecting,
       state.settledText,
       state.tailText,
       pause,

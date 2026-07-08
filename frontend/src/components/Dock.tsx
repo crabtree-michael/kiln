@@ -25,6 +25,7 @@ const LABELS: Record<MicState, string> = {
 export function Dock(): JSX.Element {
   const {
     micState,
+    connecting,
     settledText,
     tailText,
     pause,
@@ -340,17 +341,23 @@ export function Dock(): JSX.Element {
               type="button"
               data-role="dock-talk"
               data-dock-state={micState}
+              // The setup window (tapped on, socket not yet recording): the mic is
+              // already `listening` but not capturing, so flag it so the CSS swaps
+              // the live glow for a spinner ring — the user waits to speak instead
+              // of getting cut off (09 §3).
+              data-dock-connecting={connecting ? 'true' : undefined}
               aria-label="Talk"
               aria-pressed={micState === 'listening'}
               onClick={onMicTap}
             >
               <span data-role="dock-mic" aria-hidden="true">
                 <span data-role="dock-mic-orb" ref={orbRef} />
+                {connecting && <span data-role="dock-mic-spinner" />}
                 <span data-role="dock-mic-capsule" />
                 <span data-role="dock-mic-arc" />
                 <span data-role="dock-mic-stem" />
               </span>
-              <span data-role="dock-label">{LABELS[micState]}</span>
+              <span data-role="dock-label">{connecting ? 'Connecting…' : LABELS[micState]}</span>
             </button>
 
             {showCancel && (

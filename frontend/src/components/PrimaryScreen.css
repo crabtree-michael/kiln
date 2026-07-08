@@ -1655,6 +1655,31 @@
       0 0 calc(20px + var(--mic-level) * 8px) 5px var(--mic-glow-weak);
   }
 }
+/* Mic setup spinner (09 §3): after the mic is tapped on, there is a brief window
+   while getUserMedia + the AudioContext + the AssemblyAI socket come up before
+   recording actually starts. During it the dock flags `data-dock-connecting`; we
+   swap the listening glow for a spinning ring hugging the mic button so the user
+   waits to speak instead of being cut off. Same border-ring + `kiln-spin` idiom as
+   the header status spinner, sized to the 54px button. Only rendered while
+   connecting, so it costs nothing otherwise. */
+[data-role='dock-mic-spinner'] {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+  animation: kiln-spin 0.7s linear infinite;
+  pointer-events: none;
+}
+
+/* While connecting, the mic is `listening` in state but not yet recording, so
+   suppress the volume glow ring — the spinner above stands in for it until the
+   socket opens. */
+[data-role='dock-talk'][data-dock-connecting='true'] [data-role='dock-mic-orb'] {
+  animation: none;
+  box-shadow: none;
+}
+
 [data-role='dock-mic-capsule'] {
   width: 9px;
   height: 13px;
@@ -1759,6 +1784,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   [data-role='dock-caret'] {
+    animation: none;
+  }
+
+  /* Reduced motion: drop the spin but keep a static ring so the mic still reads
+     as "connecting, not yet ready" — mirroring how the listening glow degrades. */
+  [data-role='dock-mic-spinner'] {
     animation: none;
   }
 

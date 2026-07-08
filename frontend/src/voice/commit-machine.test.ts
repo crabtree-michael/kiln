@@ -24,6 +24,29 @@ describe('commit machine', () => {
     expect(afterTap.micState).toBe('listening');
   });
 
+  it('resume marks connecting until the socket opens, then clears it', () => {
+    let s = initialVoiceState();
+    expect(s.connecting).toBe(false);
+    // The mic tap flips to listening immediately, but the socket is still coming
+    // up: `connecting` is set so the dock shows a spinner, not the live glow.
+    s = voiceReducer(s, { type: 'resume' });
+    expect(s.micState).toBe('listening');
+    expect(s.connecting).toBe(true);
+    // The socket opens -> recording is actually live -> spinner clears.
+    s = voiceReducer(s, { type: 'provider', event: { kind: 'open' } });
+    expect(s.connecting).toBe(false);
+  });
+
+  it('stopping the mic during the setup window clears connecting', () => {
+    // pause, denied, background, and providerFailed all end the setup window
+    // without ever reaching a live socket — none should leave the spinner armed.
+    const resumed = (): VoiceState => voiceReducer(initialVoiceState(), { type: 'resume' });
+    expect(voiceReducer(resumed(), { type: 'pause' }).connecting).toBe(false);
+    expect(voiceReducer(resumed(), { type: 'denied' }).connecting).toBe(false);
+    expect(voiceReducer(resumed(), { type: 'background' }).connecting).toBe(false);
+    expect(voiceReducer(resumed(), { type: 'providerFailed' }).connecting).toBe(false);
+  });
+
   it('partials then formatted final -> armed pending, commit only after the grace window', () => {
     let s = listening();
     s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'hello wor' } });

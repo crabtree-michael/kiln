@@ -181,23 +181,24 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
 
   return (
     <div data-role="activity-row" ref={rowRef}>
-      {/* Toasts sit above the thinking indicator, both as children of the one
-          activity row (a single stacking context, z-index 6). The row is a flex
-          column, so the toast stack renders first (higher on screen) and the
-          thinking indicator sits directly below it, nearest the dock — a
-          predictable vertical order on a shared layer, not a toast floating on a
-          separate plane above the "Kiln is thinking…" text. */}
+      {/* The "Kiln is thinking…" pill renders FIRST — at the top of the flex
+          column, farthest from the dock — so it floats clear above any toasts.
+          It carries its own opaque background and ember glow (PrimaryScreen.css),
+          so unlike the toast stack it does not sit on the dock's page-tone band;
+          it reads as an elevated chip hovering over the page. The toast stack
+          follows below, nearest the dock, where its band merges with the dock as
+          one continuous surface. */}
+      {thinking && (
+        <div data-role="thinking-indicator">
+          <span data-role="thinking-text">Kiln is thinking…</span>
+        </div>
+      )}
+
       {!empty && (
         <div data-role="toast-stack">
           {toasts.map((toast) => (
             <ActivityToastPill key={toast.id} toast={toast} onDismiss={onDismiss} />
           ))}
-        </div>
-      )}
-
-      {thinking && (
-        <div data-role="thinking-indicator">
-          <span data-role="thinking-text">Kiln is thinking…</span>
         </div>
       )}
     </div>

@@ -39,7 +39,7 @@ describe('ActivityRow', () => {
     expect(indicator).not.toBeNull();
   });
 
-  it('renders the thinking indicator below the toast stack when both are present (08 §4)', () => {
+  it('renders the thinking indicator above the toast stack when both are present (08 §4)', () => {
     const toasts = [toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign' })];
     render(<ActivityRow thinking={true} toasts={toasts} onDismiss={noop} />);
     const row = document.querySelector('[data-role="activity-row"]');
@@ -48,9 +48,10 @@ describe('ActivityRow', () => {
     // Both share the one activity row (a single stacking layer)...
     expect(stack).not.toBeNull();
     expect(indicator).not.toBeNull();
-    // ...with the toast stack ordered before (visually above) the thinking indicator.
-    expect(row?.children[0]).toBe(stack);
-    expect(row?.children[1]).toBe(indicator);
+    // ...with the thinking indicator ordered first (floating above), the toast
+    // stack below it, nearest the dock.
+    expect(row?.children[0]).toBe(indicator);
+    expect(row?.children[1]).toBe(stack);
   });
 
   it('renders the toast pill with its verb (6b)', () => {

@@ -1080,14 +1080,19 @@
      renders in front of, never behind, the transcript box. */
   z-index: 6;
   display: flex;
-  /* Column so the toast stack and the thinking indicator stack vertically on the
-     one layer (toast rendered first → above; thinking below, nearest the dock)
-     rather than sharing a single centered row slot. */
+  /* Column so the thinking indicator and the toast stack stack vertically on the
+     one layer: the thinking pill renders first → floating at the top, clear of
+     the dock; the toast stack sits below it, nearest the dock, where its band
+     merges with the dock surface. */
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 26px;
+  /* No horizontal padding on the row itself: the toast band (below) carries its
+     own side inset so its opaque page-tone fill can span edge-to-edge and read as
+     one continuous surface with the dock, while the floating thinking pill stays
+     centred and narrow, clear of any band. */
+  padding: 0;
   /* Let taps fall through the empty margins to the feed; the pills re-enable
      pointer events for their own dismiss button. */
   pointer-events: none;
@@ -1097,32 +1102,25 @@
   pointer-events: auto;
 }
 
-[data-role='activity-row']:not(:empty) {
-  padding: 6px 26px 12px;
-  /* Share the dock's opaque page tone so the thinking indicator and toasts read
-     as part of the app's own surface — a continuous band with the transcript/dock
-     below — rather than bare text floating over the feed scrolling underneath.
-     Scoped to the non-empty state: an empty row stays 0-height and paints nothing
-     over the feed. Only the fill is added here — the row's geometry (absolute,
-     grown upward via --dock-overlay-height as the transcript grows) is untouched,
-     so the existing push/layout behavior is unchanged. */
-  background: var(--surface-page);
+/* Thinking-only (no toast band): lift the floating pill off the dock's top edge
+   with a gap so it reads as hovering above the page rather than resting on the
+   dock. When a toast band is present the band itself sits flush on the dock, so
+   this gap is suppressed. */
+[data-role='activity-row']:not(:has([data-role='toast-stack'])) {
+  padding-bottom: 12px;
 }
 
-/* When the band (thinking/toast) rests directly on the dock — no transcript
-   between them — the two must read as ONE continuous surface, exactly as the
-   transcript+dock do. The band already shares the dock's page tone (above), so
-   the only thing between the "Kiln is thinking…" band and the mic controls is
-   the dock's own top hairline: page tone above it, page tone below it, so the
-   line reads as a seam/gap under the indicator. Move the single separator line
-   to the TOP of the band (its edge against the feed) and drop the dock's own
-   hairline (below), so the band and dock sit flush as one surface topped by one
-   line — mirroring the transcript treatment. Scoped to the no-transcript case:
-   with a transcript up, the transcript already carries the line and merges the
-   dock, and the band floats above it, so this rule stays off to avoid a second
-   line. */
-[data-role='dock-region']:not(:has([data-role='dock-transcript']))
-  [data-role='activity-row']:not(:empty) {
+/* When the toast band rests directly on the dock — no transcript between them —
+   the two must read as ONE continuous surface, exactly as the transcript+dock do.
+   The band shares the dock's page tone (see toast-stack), so the only thing
+   between them is the dock's own top hairline: page tone above it, page tone
+   below it, reading as a seam. Move the single separator line to the TOP of the
+   band (its edge against the feed) and drop the dock's own hairline (below), so
+   band and dock sit flush as one surface topped by one line — mirroring the
+   transcript treatment. Scoped to the no-transcript case: with a transcript up,
+   the transcript already carries the line and merges the dock, and the band
+   floats above it, so this rule stays off to avoid a second line. */
+[data-role='dock-region']:not(:has([data-role='dock-transcript'])) [data-role='toast-stack'] {
   border-top: 1px solid var(--border-default);
 }
 
@@ -1135,6 +1133,14 @@
   align-items: center;
   gap: 8px;
   width: 100%;
+  /* The band's own geometry: side inset is the mobile safe margin (moved off the
+     activity row so the fill can span edge-to-edge); top/bottom give it height. */
+  padding: 6px 26px 12px;
+  /* The opaque page tone lives on the toast band ALONE now — not the whole
+     activity row — so the toasts read as part of the app's own surface, a
+     continuous band with the dock below. The thinking pill is deliberately
+     excluded: it floats above with its own background and glow. */
+  background: var(--surface-page);
 }
 
 [data-role='toast-stack'] > * {
@@ -1160,10 +1166,17 @@
      and let the outline ring hug a pill, echoing the listening mic orb. */
   padding: 5px 13px;
   border-radius: var(--radius-pill);
-  /* The warm ember lives on the container now — a soft, wide-blur box-shadow halo
-     plus a thin outline ring — rather than hugging the text. Mirrors the listening
-     mic ring's motion language; the large blur keeps it a diffuse glow, not a flash. */
-  animation: kiln-thinking-glow 2.2s ease-in-out infinite;
+  /* Its own opaque background: the pill no longer borrows the dock's page-tone
+     band (that fill now lives on the toast stack alone). Standing on --surface-card
+     it reads as a self-contained, elevated chip that floats above the feed. */
+  background: var(--surface-card);
+  /* Two loops run at once: a slow vertical float so the chip lightly hovers above
+     the page, and the warm ember glow breathing on the container — a soft, wide-blur
+     box-shadow halo plus a reddened outline ring, echoing the listening mic ring's
+     motion language. Their coprime-ish durations keep the beat from repeating. */
+  animation:
+    kiln-thinking-float 3.4s ease-in-out infinite,
+    kiln-thinking-glow 2.2s ease-in-out infinite;
 }
 
 /* The "Kiln is thinking" tell reads as a live ember rather than a mechanical
@@ -1333,12 +1346,12 @@
   border-top-color: transparent;
 }
 
-/* Same merge when the activity band (thinking/toast) rests on a transcript-less
-   dock: the band carries the single separator line at its top (above), so the
-   dock drops its own hairline that would otherwise seam the two apart. */
-[data-role='dock-region']:not(:has([data-role='dock-transcript'])):has(
-    [data-role='activity-row']:not(:empty)
-  )
+/* Same merge when the toast band rests on a transcript-less dock: the band carries
+   the single separator line at its top (above), so the dock drops its own hairline
+   that would otherwise seam the two apart. Keyed on the toast band specifically —
+   a thinking-only row floats clear of the dock with a gap, so the dock keeps its
+   hairline in that case. */
+[data-role='dock-region']:not(:has([data-role='dock-transcript'])):has([data-role='toast-stack'])
   [data-role='dock'] {
   border-top-color: transparent;
 }
@@ -1741,20 +1754,37 @@
    text-shadow, so the words themselves pulse rather than a separate orb. */
 /* Container glow: a thin outline ring plus a soft, wide-blur halo that breathes,
    echoing the listening mic ring (kiln-mic-glow) so the two states share one motion
-   language. The ring stays constant (a steady outline); only the halo's blur breathes,
-   and its radii are far larger than the old on-text shadow so the light stays diffuse
-   and soft rather than a harsh flash. */
+   language. The ring is now the full fire accent (redder and crisper than the old
+   soft tone), and the halo is intensified — wider blur and spread, breathing harder
+   — so the ember reads stronger now that the chip floats free of the dock band. A
+   soft downward drop shadow rides along, deepening as the halo swells, so the pill
+   feels lifted off the page. */
 @keyframes kiln-thinking-glow {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px var(--accent-soft),
-      0 0 16px 3px var(--accent-soft);
+      0 0 0 1px var(--accent),
+      0 5px 12px rgba(0, 0, 0, 0.18),
+      0 0 20px 4px var(--accent-soft);
   }
   50% {
     box-shadow:
-      0 0 0 1px var(--accent-soft),
-      0 0 26px 6px var(--accent-soft);
+      0 0 0 1px var(--accent),
+      0 9px 20px rgba(0, 0, 0, 0.26),
+      0 0 34px 9px var(--accent-soft);
+  }
+}
+
+/* Container float: a slow, small vertical drift so the thinking chip lightly
+   hovers above the page. Paired with the glow's deepening drop shadow, the lift
+   reads as the pill floating rather than sliding. */
+@keyframes kiln-thinking-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
   }
 }
 
@@ -1815,9 +1845,11 @@
 
   [data-role='thinking-indicator'] {
     animation: none;
+    transform: none;
     box-shadow:
-      0 0 0 1px var(--accent-soft),
-      0 0 16px 3px var(--accent-soft);
+      0 0 0 1px var(--accent),
+      0 5px 12px rgba(0, 0, 0, 0.18),
+      0 0 20px 4px var(--accent-soft);
   }
 
   /* Reduced motion: drop the breathing pulse for motion-sensitive users, but keep

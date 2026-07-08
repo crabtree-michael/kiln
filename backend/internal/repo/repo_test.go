@@ -266,6 +266,61 @@ func TestVerifyOnMain_FetchesFreshCommits(t *testing.T) {
 	}
 }
 
+// TestVerifyInPR drives the pure decision over a fake gh runner: the outcome
+// hinges only on gh's exit code and the --jq length it prints, so a stubbed
+// runner exercises every branch without a real GitHub API.
+func TestVerifyInPR(t *testing.T) {
+	var s Shell
+	const sha = "abc1234"
+
+	cases := []struct {
+		name     string
+		code     int
+		out      string
+		wantInPR bool
+	}{
+		{"associated with a PR", 0, "2", true},
+		{"associated with exactly one PR", 0, "1", true},
+		{"no associated PR", 0, "0", false},
+		{"empty output", 0, "", false},
+		{"gh error (unknown commit / auth)", 1, "HTTP 422: No commit found for SHA", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotArgs []string
+			run := func(args ...string) (int, string) {
+				gotArgs = args
+				return tc.code, tc.out
+			}
+			v := s.verifyInPR(sha, run)
+			if v.InPR != tc.wantInPR {
+				t.Fatalf("InPR = %v, want %v (%+v)", v.InPR, tc.wantInPR, v)
+			}
+			if !tc.wantInPR && v.Reason == "" {
+				t.Fatal("expected a Reason on a negative result")
+			}
+			want := []string{"api", "repos/{owner}/{repo}/commits/" + sha + "/pulls", "--jq", "length"}
+			if strings.Join(gotArgs, " ") != strings.Join(want, " ") {
+				t.Fatalf("gh args = %v, want %v", gotArgs, want)
+			}
+		})
+	}
+}
+
+func TestVerifyInPR_DisabledShell(t *testing.T) {
+	s := New(context.Background(), Config{RepoURL: "", Dir: filepath.Join(t.TempDir(), "clone")})
+	if !s.disabled {
+		t.Fatal("expected disabled shell")
+	}
+	v := s.VerifyInPR(context.Background(), "abc1234")
+	if !v.Unavailable {
+		t.Fatalf("expected Unavailable on disabled shell; got %+v", v)
+	}
+	if v.InPR {
+		t.Fatal("disabled shell must not report InPR")
+	}
+}
+
 func TestVerifyOnMain_DisabledShell(t *testing.T) {
 	s := New(context.Background(), Config{RepoURL: "", Dir: filepath.Join(t.TempDir(), "clone")})
 	if !s.disabled {

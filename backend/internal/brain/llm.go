@@ -27,12 +27,25 @@ const ModelEnvVar = "KILN_BRAIN_MODEL"
 // keeps latency down (06 §5's cost/latency envelope).
 const maxOutputTokens = 4096
 
-// Config is the brain's model configuration (06 §2), read at the
-// composition root (04 §8) from KILN_BRAIN_MODEL (default DefaultModel).
-// This module only declares the default and the shape; env parsing happens
-// in backend/cmd/kiln.
+// GateMode names which condition satisfies a ticket's merge gate (06 §7). The
+// zero value ("") is treated as GateMain, so a project that never set the knob
+// keeps the original merged-to-main behavior.
+type GateMode string
+
+const (
+	// GateMain accepts a done only once its commit is on origin/main.
+	GateMain GateMode = "main"
+	// GatePR accepts a done once the work exists in a pull request.
+	GatePR GateMode = "pr"
+)
+
+// Config is the brain's per-project configuration (06 §2), resolved at the
+// composition root (04 §8) from the project's stored settings. This module only
+// declares the defaults and the shape; the wiring lives in backend/cmd/kiln.
 type Config struct {
 	Model string
+	// GateMode selects the done gate (06 §7); empty means GateMain.
+	GateMode GateMode
 }
 
 // ToolCall is one tool_use block the model returned in a round (06 §5).

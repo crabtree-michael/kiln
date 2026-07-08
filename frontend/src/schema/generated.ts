@@ -628,6 +628,11 @@ export interface components {
             amika_snapshot: string;
             brain_model: string;
             worker_count: number;
+            /**
+             * @description Which condition satisfies a ticket's merge gate (06 §7): `main` accepts a done only once its commit is on origin/main; `pr` accepts it once the work exists in a pull request, merged or not. Defaults to `main`.
+             * @enum {string}
+             */
+            merge_gate_mode: "main" | "pr";
             /** @description Amika secrets injected into every sandbox this project starts (02 §8). */
             amika_secrets: components["schemas"]["AmikaSecret"][];
         };
@@ -666,6 +671,11 @@ export interface components {
             amika_snapshot?: string;
             brain_model?: string;
             worker_count?: number;
+            /**
+             * @description Which condition satisfies a ticket's merge gate (06 §7): `main` (done when the commit is on origin/main) or `pr` (done when the work is in a pull request). Omitted or empty keeps/defaults to `main`.
+             * @enum {string}
+             */
+            merge_gate_mode?: "main" | "pr";
             /** @description The project's full Amika secret list. Like the other optional project fields on this wholesale upsert, omitted or [] clears it; a name kept with an empty value keeps its stored (encrypted) value (02 §8). */
             amika_secrets?: components["schemas"]["AmikaSecretInput"][];
         };

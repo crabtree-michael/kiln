@@ -748,4 +748,34 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 			t.Fatalf("expected a single AcceptToDone; got %v", calls)
 		}
 	})
+
+	t.Run("pr gate: work not in a PR is refused, board untouched", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{InPR: false, Reason: "not associated with any pull request"}}
+		svc := newTestServiceRGate(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{}, brain.GatePR)
+		res := svc.Dispatch(context.Background(), done(t, "t-1", new(sha)))
+		if !res.IsError {
+			t.Fatalf("expected IsError when work is not in a PR; got %+v", res)
+		}
+		if fr.gotSHA != sha {
+			t.Errorf("VerifyInPR sha = %q, want %q", fr.gotSHA, sha)
+		}
+		if acceptedToDone(fb) {
+			t.Fatalf("AcceptToDone must NOT be called when work is not in a PR")
+		}
+	})
+
+	t.Run("pr gate: work in a PR accepts to done", func(t *testing.T) {
+		fb := &fakeBoard{}
+		fr := &fakeRepo{verify: brain.RepoVerify{InPR: true}}
+		svc := newTestServiceRGate(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{}, brain.GatePR)
+		res := svc.Dispatch(context.Background(), done(t, "t-9", new(sha)))
+		if res.IsError {
+			t.Fatalf("expected success for work in a PR; got error %q", res.Content)
+		}
+		calls := fb.recordedCalls()
+		if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
+			t.Fatalf("expected a single AcceptToDone; got %v", calls)
+		}
+	})
 }

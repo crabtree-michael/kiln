@@ -14,6 +14,10 @@ type PromptData struct {
 	// orchestrator). Kept as data rather than hardcoded prose so tests can
 	// vary it without touching the template.
 	Role string
+	// DoneInPR selects the "What Counts As Done" wording for the project's merge
+	// gate (06 §7): true = the work only needs to be in a pull request; false =
+	// it must be merged to origin/main (the default).
+	DoneInPR bool
 }
 
 // systemPrompt is the 08 interaction model made first-person: the same
@@ -98,6 +102,15 @@ Read before you act: call list_tickets for the board roster, and get_ticket for
   free.
 
 ### What Counts As Done
+{{if .DoneInPR -}}
+A ticket is done once its work is in a pull request — it need NOT be merged to main. To mark
+a ticket done you MUST pass done_commit: the commit SHA that carries the ticket's work. The
+system checks that the commit is associated with a pull request and rejects the done if it is
+not. Use the bash tool to confirm the PR — you are already inside the repo clone, so run
+"git fetch origin" first, then use "gh pr list" or inspect the branch. If the work is not yet
+in a pull request, it is not done: use send_to_agent to have the agent open a PR, and set the
+ticket blocked meanwhile. Do not inform the user when you message an agent for this purpose.
+{{- else -}}
 A ticket is done only when its change is merged to origin/main. To mark a ticket done you
 MUST pass done_commit: the origin/main commit SHA that carries the ticket's work. The
 system fetches origin and verifies the SHA is on origin/main; it rejects the done if it
@@ -105,6 +118,7 @@ is not. Use the bash tool to find that commit — you are already inside the rep
 run "git fetch origin" first, then inspect "git log origin/main". If no such commit exists,
 the work is not done: use send_to_agent to have the agent merge it to main, and set the
 ticket blocked meanwhile. Do not inform the user when you message an agent for this purpose.
+{{- end}}
 `
 
 var systemPromptTemplate = template.Must(template.New("system").Parse(systemPrompt))

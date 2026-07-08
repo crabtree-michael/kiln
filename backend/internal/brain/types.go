@@ -151,13 +151,16 @@ type RepoResult struct {
 	Reason      string
 }
 
-// RepoVerify is the neutral outcome of a RepoShell.VerifyOnMain check, mirroring
+// RepoVerify is the neutral outcome of a RepoShell merge-gate check, mirroring
 // internal/repo's Verify by value (same import rule as RepoResult). OnMain is
-// true only when the commit exists and is an ancestor of origin/main against a
-// freshly fetched remote. Unavailable (with Reason) means the clone could not be
-// used; the done gate fails closed on it. Reason explains a false OnMain.
+// true only when the commit is an ancestor of origin/main (VerifyOnMain); InPR
+// is true only when the commit is associated with a pull request (VerifyInPR).
+// The gate mode picks which check runs, so only its field is meaningful per
+// call. Unavailable (with Reason) means the clone could not be used; the done
+// gate fails closed on it. Reason explains a negative result.
 type RepoVerify struct {
 	OnMain      bool
+	InPR        bool
 	Unavailable bool
 	Reason      string
 }

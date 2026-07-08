@@ -160,6 +160,23 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
             value="3"
           />
         </label>
+        <label>
+          Merge gate
+          <select
+            data-role="merge-gate-mode"
+          >
+            <option
+              value="main"
+            >
+              Merged to main
+            </option>
+            <option
+              value="pr"
+            >
+              In a pull request
+            </option>
+          </select>
+        </label>
         <fieldset
           data-role="amika-secrets"
         >

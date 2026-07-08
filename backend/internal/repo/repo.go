@@ -40,11 +40,15 @@ type Config struct {
 	Dir       string // absolute path to the clone directory
 }
 
-// Verify is the outcome of a VerifyOnMain check. OnMain is true only when the
-// commit exists and is an ancestor of origin/main. Unavailable marks a disabled
-// shell (no repo / clone failed); Reason explains a false OnMain or Unavailable.
+// Verify is the outcome of a merge-gate check (VerifyOnMain or VerifyInPR).
+// OnMain is true only when the commit exists and is an ancestor of origin/main;
+// InPR is true only when the commit is associated with a pull request. Exactly
+// one of the two is meaningful per call — the gate mode picks which check runs.
+// Unavailable marks a disabled shell (no repo / clone failed); Reason explains a
+// negative result or Unavailable.
 type Verify struct {
 	OnMain      bool
+	InPR        bool
 	Unavailable bool
 	Reason      string
 }
@@ -174,10 +178,42 @@ func (s *Shell) VerifyOnMain(ctx context.Context, sha string) Verify {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	gitBin := filepath.Join(s.allowedBinDir, "git")
-	run := func(args ...string) (int, string) {
-		//nolint:gosec // G204: fixed git subcommand; argv (no shell), restricted PATH/env.
-		cmd := exec.CommandContext(ctx, gitBin, args...)
+	v := s.verifyOnMain(sha, s.argvRunner(ctx, "git"))
+	slog.InfoContext(ctx, "repo.shell.verify", "sha", sha, "on_main", v.OnMain, "reason", v.Reason)
+	return v
+}
+
+// VerifyInPR reports whether sha is associated with a pull request (open or
+// merged) on the project's GitHub remote. It gates update_ticket state="done"
+// under the "pr" merge-gate mode (06 §7). Best-effort like VerifyOnMain: an
+// infra/auth failure yields InPR=false with a Reason, never an error, and a
+// disabled shell yields Unavailable — the gate fails closed on both.
+//
+// Unlike VerifyOnMain this asks the GitHub API (via gh), not local git, so it
+// recognizes work on an unmerged branch that was never fetched into the clone.
+// gh resolves the {owner}/{repo} from the clone's origin remote and reads the
+// token from GH_TOKEN (runEnv); sha reaches gh via argv, never shell-interpreted.
+func (s *Shell) VerifyInPR(ctx context.Context, sha string) Verify {
+	if s.disabled {
+		return Verify{Unavailable: true, Reason: s.reason}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	v := s.verifyInPR(sha, s.argvRunner(ctx, "gh"))
+	slog.InfoContext(ctx, "repo.shell.verify_pr", "sha", sha, "in_pr", v.InPR, "reason", v.Reason)
+	return v
+}
+
+// argvRunner returns a runner that execs the named allowlisted binary by argv
+// (no shell, so arguments are never interpreted) in the clone, with the same
+// restricted PATH/env and shared ctx timeout as Run. Shared by the verify calls.
+func (s *Shell) argvRunner(ctx context.Context, bin string) func(args ...string) (int, string) {
+	binPath := filepath.Join(s.allowedBinDir, bin)
+	return func(args ...string) (int, string) {
+		//nolint:gosec // G204: fixed subcommand of an allowlisted bin; argv (no shell), restricted PATH/env.
+		cmd := exec.CommandContext(ctx, binPath, args...)
 		cmd.Dir = s.cfg.Dir
 		cmd.Env = s.runEnv()
 		out, err := cmd.CombinedOutput()
@@ -191,10 +227,6 @@ func (s *Shell) VerifyOnMain(ctx context.Context, sha string) Verify {
 			return -1, strings.TrimSpace(string(out) + "\n" + err.Error())
 		}
 	}
-
-	v := s.verifyOnMain(sha, run)
-	slog.InfoContext(ctx, "repo.shell.verify", "sha", sha, "on_main", v.OnMain, "reason", v.Reason)
-	return v
 }
 
 // verifyOnMain is VerifyOnMain's pure decision over an injected git runner:
@@ -216,6 +248,24 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 	default:
 		return Verify{Reason: fmt.Sprintf("git merge-base failed (exit %d): %s", code, out)}
 	}
+}
+
+// verifyInPR is VerifyInPR's pure decision over an injected gh runner: ask the
+// GitHub API for the pull requests associated with the commit and count them.
+// A non-zero exit (unknown commit, auth failure, no network) fails closed with a
+// Reason; a zero/empty count means the commit is in no PR. Split out so the
+// decision is testable and VerifyInPR owns only the exec/log wiring.
+func (s *Shell) verifyInPR(sha string, run func(args ...string) (int, string)) Verify {
+	// {owner}/{repo} are resolved by gh from the clone's origin remote; --jq
+	// length collapses the associated-PR array to its count (gh has jq built in).
+	code, out := run("api", "repos/{owner}/{repo}/commits/"+sha+"/pulls", "--jq", "length")
+	if code != 0 {
+		return Verify{Reason: fmt.Sprintf("gh could not list pull requests for %s (exit %d): %s", sha, code, out)}
+	}
+	if out == "" || out == "0" {
+		return Verify{Reason: fmt.Sprintf("commit %s is not associated with any pull request", sha)}
+	}
+	return Verify{InPR: true}
 }
 
 // disable records the reason and returns the shell in a disabled state.

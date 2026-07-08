@@ -36,6 +36,19 @@ type UserConfig struct {
 	AmikaClaudeCredID string
 }
 
+// MergeGateMode names which condition satisfies a ticket's merge gate (06 §7).
+// The zero value ("") is treated as MergeGateMain so existing projects keep the
+// original behavior without a data backfill.
+type MergeGateMode string
+
+const (
+	// MergeGateMain accepts a ticket done only once its commit is on origin/main.
+	MergeGateMain MergeGateMode = "main"
+	// MergeGatePR accepts a ticket done once the work exists in a pull request,
+	// merged or not.
+	MergeGatePR MergeGateMode = "pr"
+)
+
 // Project parameterizes one brain/board (11 §3 D5): the repo it works on and
 // the brain-shaped knobs. One per user in phase 1.
 type Project struct {
@@ -46,6 +59,7 @@ type Project struct {
 	AmikaSnapshot string
 	BrainModel    string
 	WorkerCount   int
+	MergeGateMode MergeGateMode
 	AmikaSecrets  []AmikaSecret
 	CreatedAt     time.Time
 }
@@ -126,6 +140,7 @@ type ProjectUpdate struct {
 	AmikaSnapshot string
 	BrainModel    string
 	WorkerCount   int
+	MergeGateMode MergeGateMode
 	AmikaSecrets  []AmikaSecretInput
 }
 

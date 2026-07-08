@@ -136,9 +136,14 @@ type RepoShell interface {
 	// Run → tool bash: run command in the clone, return its combined output.
 	Run(ctx context.Context, command string) (RepoResult, error)
 	// VerifyOnMain fetches origin and reports whether sha is a real commit on
-	// origin/main. Gates update_ticket state="done" (06 §7 amended): a ticket
-	// cannot be accepted unless its named commit is verifiably merged to main.
+	// origin/main. Gates update_ticket state="done" (06 §7 amended) under the
+	// "main" merge-gate mode: a ticket cannot be accepted unless its named commit
+	// is verifiably merged to main.
 	VerifyOnMain(ctx context.Context, sha string) (RepoVerify, error)
+	// VerifyInPR reports whether sha is associated with a pull request (open or
+	// merged). Gates update_ticket state="done" under the "pr" merge-gate mode:
+	// the work only needs to exist in a PR, not to have landed on main.
+	VerifyInPR(ctx context.Context, sha string) (RepoVerify, error)
 }
 
 // Under multi-tenancy (11 §3) *board.Service's methods take a leading

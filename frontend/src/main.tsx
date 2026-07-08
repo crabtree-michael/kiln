@@ -21,6 +21,7 @@ import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
+import { Guide } from '@/guide/Guide';
 import { Dashboard } from '@/dashboard/Dashboard';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { SessionGate } from '@/components/SessionGate';
@@ -82,9 +83,10 @@ if (root === null) {
 // providers (which immediately open SSE + fetch board/feed). `/dashboard`
 // keeps its own existing gate. `/landing` is the standalone marketing page — a
 // stateless, scrolling page reusing the design system and real presentational
-// components; `/landing-2` is kept as an alias for the same page. `/beta/thanks`
-// is the confirmation page the beta-signup form redirects to. All stay public
-// (no session gate).
+// components; `/landing-2` is kept as an alias for the same page. `/onboarding`
+// is the onboarding guide (docs/onboarding.md) as a standalone, stateless styled page in
+// the same design-system chrome. `/beta/thanks` is the confirmation page the
+// beta-signup form redirects to. All stay public (no session gate).
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
@@ -103,6 +105,7 @@ createRoot(root).render(
           />
           <Route path="/landing" element={<Landing2 />} />
           <Route path="/landing-2" element={<Landing2 />} />
+          <Route path="/onboarding" element={<Guide />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
           <Route

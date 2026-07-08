@@ -916,13 +916,20 @@ components:
         avatar_url: { type: string }
     MeProject:
       type: object
-      required: [name, repo_url, amika_snapshot, brain_model, worker_count, amika_secrets]
+      required: [name, repo_url, amika_snapshot, brain_model, worker_count, merge_gate_mode, amika_secrets]
       properties:
         name: { type: string }
         repo_url: { type: string }
         amika_snapshot: { type: string }
         brain_model: { type: string }
         worker_count: { type: integer }
+        merge_gate_mode:
+          type: string
+          enum: [main, pr]
+          description: >
+            Which condition satisfies a ticket's merge gate (06 §7): `main` accepts
+            a done only once its commit is on origin/main; `pr` accepts it once the
+            work exists in a pull request, merged or not. Defaults to `main`.
         amika_secrets:
           type: array
           description: Amika secrets injected into every sandbox this project starts (02 §8).
@@ -985,6 +992,13 @@ components:
         amika_snapshot: { type: string }
         brain_model: { type: string }
         worker_count: { type: integer }
+        merge_gate_mode:
+          type: string
+          enum: [main, pr]
+          description: >
+            Which condition satisfies a ticket's merge gate (06 §7): `main` (done
+            when the commit is on origin/main) or `pr` (done when the work is in a
+            pull request). Omitted or empty keeps/defaults to `main`.
         amika_secrets:
           type: array
           description: >

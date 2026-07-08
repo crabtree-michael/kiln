@@ -34,6 +34,10 @@ import type { CredentialName } from '@/dashboard/dashboard-context';
 type MeSettings = components['schemas']['MeSettings'];
 type SecretStatus = components['schemas']['SecretStatus'];
 type AmikaSecretInput = components['schemas']['AmikaSecretInput'];
+// The merge-gate knob (06 §7): which condition marks a ticket done — its work
+// merged to main, or merely in a pull request. Non-optional here (the form
+// always carries a concrete choice) even though the request field is optional.
+type MergeGateMode = NonNullable<ProjectUpdateRequest['merge_gate_mode']>;
 
 // SecretDraft is one editable row in the Amika-secrets list (02 §8). `uid` is a
 // stable client-only key so add/remove never reuses a React key across rows.
@@ -149,6 +153,9 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
   const [workerCount, setWorkerCount] = useState(
     project?.worker_count === undefined ? '' : String(project.worker_count),
   );
+  const [mergeGateMode, setMergeGateMode] = useState<MergeGateMode>(
+    project?.merge_gate_mode ?? 'main',
+  );
   // The Amika sandbox secrets (02 §8): a zero-or-more list saved with the rest
   // of the project on "Save project". Each draft carries a stable `uid` (React
   // list identity across add/remove) that never leaves the component. Values are
@@ -196,6 +203,9 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
         body.worker_count = parsed;
       }
     }
+    // Always sent: the select carries a concrete choice ('main' by default), so
+    // the server records the user's gate explicitly rather than inferring it.
+    body.merge_gate_mode = mergeGateMode;
     // Always send the list (even []) so clearing every secret persists — this
     // is a wholesale upsert (11 §4). Rows with a blank name are dropped (an
     // "Add secret" the user never filled). A blank value keeps the stored value
@@ -263,6 +273,21 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
             setWorkerCount(event.target.value);
           }}
         />
+      </label>
+      <label>
+        Merge gate
+        <select
+          data-role="merge-gate-mode"
+          value={mergeGateMode}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+            // Narrow the raw option value to the union without an assertion; the
+            // select only ever offers these two, so anything else means 'main'.
+            setMergeGateMode(event.target.value === 'pr' ? 'pr' : 'main');
+          }}
+        >
+          <option value="main">Merged to main</option>
+          <option value="pr">In a pull request</option>
+        </select>
       </label>
       <fieldset data-role="amika-secrets">
         <legend>Sandbox secrets</legend>

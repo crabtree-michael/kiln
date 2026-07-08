@@ -61,6 +61,7 @@ func (s *Server) handlePutProject(w http.ResponseWriter, r *http.Request, user i
 		AmikaSnapshot: derefOr(req.AmikaSnapshot, ""),
 		BrainModel:    derefOr(req.BrainModel, ""),
 		WorkerCount:   derefOr(req.WorkerCount, 0),
+		MergeGateMode: mergeGateModeToDomain(req.MergeGateMode),
 		AmikaSecrets:  amikaSecretsToDomain(req.AmikaSecrets),
 	}
 	if _, err := s.account.UpsertProject(r.Context(), user.ID, upd); err != nil {
@@ -165,6 +166,7 @@ func meToWire(me identity.Me) wire.Me {
 			AmikaSnapshot: p.AmikaSnapshot,
 			BrainModel:    p.BrainModel,
 			WorkerCount:   p.WorkerCount,
+			MergeGateMode: mergeGateModeToWire(p.MergeGateMode),
 			AmikaSecrets:  amikaSecretsToWire(me.ProjectSecrets),
 		}
 	}
@@ -201,6 +203,25 @@ func amikaSecretsToDomain(secrets *[]wire.AmikaSecretInput) []identity.AmikaSecr
 // secretToWire maps one stored secret's presence+fingerprint (11 §3 D7).
 func secretToWire(s identity.SecretStatus) wire.SecretStatus {
 	return wire.SecretStatus{Set: s.Set, Tail: s.Tail}
+}
+
+// mergeGateModeToDomain maps the optional inbound gate mode to the domain type;
+// an omitted field (nil) becomes "" so the service defaults it to MergeGateMain.
+// An unknown value passes through for the service to reject (ErrInvalidProject).
+func mergeGateModeToDomain(m *wire.ProjectUpdateRequestMergeGateMode) identity.MergeGateMode {
+	if m == nil {
+		return ""
+	}
+	return identity.MergeGateMode(*m)
+}
+
+// mergeGateModeToWire maps the stored gate mode to the wire read type, defaulting
+// an unset value (legacy rows) to "main" so the field is always a valid enum.
+func mergeGateModeToWire(m identity.MergeGateMode) wire.MeProjectMergeGateMode {
+	if m == "" {
+		return wire.MeProjectMergeGateModeMain
+	}
+	return wire.MeProjectMergeGateMode(m)
 }
 
 // derefOr dereferences an optional oapi-codegen pointer field, falling back

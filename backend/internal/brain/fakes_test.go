@@ -428,6 +428,13 @@ func (f *fakeRepo) VerifyOnMain(_ context.Context, sha string) (brain.RepoVerify
 	return f.verify, f.verifyErr
 }
 
+// VerifyInPR shares the scripted verify/verifyErr with VerifyOnMain: a service
+// runs exactly one of the two per gate mode, so one script suffices per test.
+func (f *fakeRepo) VerifyInPR(_ context.Context, sha string) (brain.RepoVerify, error) {
+	f.gotSHA = sha
+	return f.verify, f.verifyErr
+}
+
 // --- construction helpers -------------------------------------------------
 
 func newTestService(board *fakeBoard, say *fakeSay, convo *fakeConvo, llm *scriptedLLM) *brain.Service {
@@ -476,6 +483,18 @@ func newTestServiceR(
 	return brain.NewService(
 		board, board, say, &fakeNotifications{}, &fakeFeed{}, convo, &fakeInspector{}, repo, llm,
 		brain.Config{Model: brain.DefaultModel},
+	)
+}
+
+// newTestServiceRGate is newTestServiceR with an explicit merge-gate mode, for
+// the done-gate tests that exercise the "pr" gate (06 §7).
+func newTestServiceRGate(
+	board *fakeBoard, say *fakeSay, convo *fakeConvo, repo brain.RepoShell, llm *scriptedLLM,
+	gate brain.GateMode,
+) *brain.Service {
+	return brain.NewService(
+		board, board, say, &fakeNotifications{}, &fakeFeed{}, convo, &fakeInspector{}, repo, llm,
+		brain.Config{Model: brain.DefaultModel, GateMode: gate},
 	)
 }
 

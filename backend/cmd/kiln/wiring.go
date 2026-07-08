@@ -343,6 +343,7 @@ func buildTenantProviders(
 	if model == "" {
 		model = brain.DefaultModel
 	}
+	gateMode := brain.GateMode(rc.Project.MergeGateMode)
 	llm := brain.NewAdapterWithClient(brain.Config{Model: model}, option.WithAPIKey(rc.AnthropicAPIKey))
 
 	brainSvc := brain.NewService(
@@ -355,7 +356,7 @@ func buildTenantProviders(
 		&agentInspectorAdapter{inner: agentSvc, projectID: pid},
 		&repoShellAdapter{inner: repoShell},
 		llm,
-		brain.Config{Model: model},
+		brain.Config{Model: model, GateMode: gateMode},
 	)
 
 	return &tenant.Providers{

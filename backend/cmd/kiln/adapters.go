@@ -587,6 +587,17 @@ func (a *repoShellAdapter) VerifyOnMain(ctx context.Context, sha string) (brain.
 	}, nil
 }
 
+// VerifyInPR converts repo.Verify → brain.RepoVerify for the pull-request gate
+// mode. Best-effort like VerifyOnMain, so the error is always nil.
+func (a *repoShellAdapter) VerifyInPR(ctx context.Context, sha string) (brain.RepoVerify, error) {
+	v := a.inner.VerifyInPR(ctx, sha)
+	return brain.RepoVerify{
+		InPR:        v.InPR,
+		Unavailable: v.Unavailable,
+		Reason:      v.Reason,
+	}, nil
+}
+
 var _ brain.RepoShell = (*repoShellAdapter)(nil)
 
 // workerLister is the concrete board capacity-slot read the composition root

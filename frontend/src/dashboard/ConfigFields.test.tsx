@@ -21,6 +21,7 @@ function baseProject(overrides: Partial<MeProject> = {}): MeProject {
     amika_snapshot: '',
     brain_model: '',
     worker_count: 3,
+    merge_gate_mode: 'main',
     amika_secrets: [],
     ...overrides,
   };
@@ -139,5 +140,39 @@ describe('ProjectFields — Amika secrets', () => {
     fireEvent.click(within(secretRow(0)).getByRole('button', { name: 'Remove' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
     expect(lastBody(onSave).amika_secrets).toEqual([]);
+  });
+});
+
+describe('ProjectFields — merge gate (06 §7)', () => {
+  it('seeds the select from the project and defaults to main', () => {
+    render(
+      <ProjectFields
+        project={baseProject()}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: /merge gate/i })).toHaveValue('main');
+  });
+
+  it('seeds the select from a project set to the pr gate', () => {
+    render(
+      <ProjectFields
+        project={baseProject({ merge_gate_mode: 'pr' })}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: /merge gate/i })).toHaveValue('pr');
+  });
+
+  it('submits the chosen gate mode', () => {
+    const onSave: SaveMock = vi.fn(() => Promise.resolve());
+    render(<ProjectFields project={baseProject()} saving={false} onSave={onSave} />);
+    fireEvent.change(screen.getByRole('combobox', { name: /merge gate/i }), {
+      target: { value: 'pr' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(lastBody(onSave).merge_gate_mode).toBe('pr');
   });
 });

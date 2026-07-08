@@ -252,15 +252,30 @@ const (
 // bloat the sandbox-create request (02 §8). Generous headroom over any real use.
 const maxAmikaSecrets = 50
 
+// normalizeMergeGateMode defaults an empty gate mode to MergeGateMain (so a
+// project that never set the knob keeps the original behavior) and reports
+// whether the result is a known mode (06 §7).
+func normalizeMergeGateMode(m MergeGateMode) (MergeGateMode, bool) {
+	if m == "" {
+		m = MergeGateMain
+	}
+	return m, m == MergeGateMain || m == MergeGatePR
+}
+
 // UpsertProject creates or updates the caller's project (one per owner in
 // phase 1), validating required fields and the worker-count range.
 func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectUpdate) (Project, error) {
 	if upd.WorkerCount == 0 {
 		upd.WorkerCount = defaultWorkerCount
 	}
+	gateMode, gateOK := normalizeMergeGateMode(upd.MergeGateMode)
 	if upd.Name == "" || upd.RepoURL == "" || upd.WorkerCount < minWorkerCount || upd.WorkerCount > maxWorkerCount {
 		return Project{}, ErrInvalidProject
 	}
+	if !gateOK {
+		return Project{}, ErrInvalidProject
+	}
+	upd.MergeGateMode = gateMode
 	// Load the current secrets so write-only values the client didn't re-enter
 	// (empty value for a kept name) carry forward (11 §3 D7).
 	existing, err := s.ownerAmikaSecrets(ctx, userID)
@@ -278,6 +293,7 @@ func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectU
 		AmikaSnapshot: upd.AmikaSnapshot,
 		BrainModel:    upd.BrainModel,
 		WorkerCount:   upd.WorkerCount,
+		MergeGateMode: upd.MergeGateMode,
 		AmikaSecrets:  secrets,
 	})
 	if err != nil {

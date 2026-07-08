@@ -4,10 +4,11 @@
 // the E2E asserts: `thinking-indicator`, `toast-pill` (+ `data-verb`), `say-pill`.
 // Multiple live toasts stack into a list; the spinner shows only when the stack
 // is empty.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import type { ActivityToast } from '@/stores/activity-context';
 import { verbEmoji, verbLabel } from '@/components/feed-format';
+import { pickKilnWord } from '@/components/kiln-words';
 
 /**
  * The clamped text inside a toast/say pill. Mobile caps the message at 2 lines
@@ -144,6 +145,14 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
   const empty = toasts.length === 0;
   const rowRef = useRef<HTMLDivElement>(null);
 
+  // Swap the static "thinking" for a random clay-work verb (sculpting, molding,
+  // firing…) so the pill stays on-brand. Re-rolled each time the pill appears
+  // (`thinking` flips true) and held steady while it stays up, so the word
+  // doesn't flicker on unrelated re-renders. `thinking` is the intended re-roll
+  // trigger even though the callback doesn't read it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const word = useMemo(() => pickKilnWord(), [thinking]);
+
   // Keep the feed's last card clear of this band. The activity row is an
   // out-of-flow overlay anchored above the dock (PrimaryScreen.css): when it
   // holds a "Kiln is thinking…" spinner or a toast stack it floats UP over the
@@ -190,7 +199,7 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
           one continuous surface. */}
       {thinking && (
         <div data-role="thinking-indicator">
-          <span data-role="thinking-text">Kiln is thinking…</span>
+          <span data-role="thinking-text">Kiln is {word}…</span>
         </div>
       )}
 

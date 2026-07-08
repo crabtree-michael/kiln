@@ -81,7 +81,9 @@ exports[`ActivityRow > matches the DOM-structure snapshot: thinking indicator (6
       <span
         data-role="thinking-text"
       >
-        Kiln is thinking…
+        Kiln is 
+        sculpting
+        …
       </span>
     </div>
   </div>

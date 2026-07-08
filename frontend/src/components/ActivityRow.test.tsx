@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ActivityRow } from '@/components/ActivityRow';
+import { KILN_WORDS } from '@/components/kiln-words';
 import type { ActivityToast } from '@/stores/activity-context';
 
 const noop = (): void => {
@@ -33,8 +34,12 @@ afterEach(() => {
 
 describe('ActivityRow', () => {
   it('renders the thinking indicator when thinking with an empty stack (6a)', () => {
+    // The pill shows a random clay-work verb (kiln-words) in place of a static
+    // "thinking"; pin the RNG to the first word so the exact text is stable.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const firstWord = KILN_WORDS[0] ?? '';
     render(<ActivityRow thinking={true} toasts={[]} onDismiss={noop} />);
-    expect(screen.getByText('Kiln is thinking…')).toBeInTheDocument();
+    expect(screen.getByText(`Kiln is ${firstWord}…`)).toBeInTheDocument();
     const indicator = document.querySelector('[data-role="thinking-indicator"]');
     expect(indicator).not.toBeNull();
   });
@@ -154,6 +159,8 @@ describe('ActivityRow', () => {
   });
 
   it('matches the DOM-structure snapshot: thinking indicator (6a)', () => {
+    // Pin the RNG so the random clay-work verb (kiln-words) is deterministic.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     const { container } = render(<ActivityRow thinking={true} toasts={[]} onDismiss={noop} />);
     expect(container).toMatchSnapshot();
   });

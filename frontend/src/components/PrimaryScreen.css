@@ -283,15 +283,21 @@
  * edge pinned to the bell's right edge) so it opens leftward, into the screen.
  * The bell sits in the right-hand header-actions cluster, so a left-anchored
  * panel opened rightward and ran off the right edge of the viewport; right-
- * anchoring keeps all 264px on-screen. `max-width` clamps it to the viewport
- * (minus a small margin) as a hard backstop on very narrow screens. */
+ * anchoring keeps all 264px on-screen. `max-width` clamps it as a hard backstop
+ * on narrow screens. The clamp must account for the panel's right edge being
+ * inset from the viewport's right edge — the bell is NOT flush to that edge: the
+ * header carries 26px of right padding and the stream-status control (~110px)
+ * sits to the bell's right with a 12px gap. Subtracting that chrome (~148px)
+ * plus a 12px left gutter (160px total) keeps the panel's left edge on-screen
+ * on every viewport; a bare `100vw - 24px` assumed a 12px right inset and let
+ * the panel run off the left on phones. */
 [data-role='notify-settings-panel'] {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
   width: 264px;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - 160px);
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);

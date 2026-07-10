@@ -71,15 +71,45 @@ Playwright's `baseURL` is the frontend under test:
    KILN_BRAIN_MODEL=claude-haiku-4-5-20251001 make up
    ```
 
-   Wait until the frontend answers on http://localhost:5173 and the board renders.
+   Wait until the frontend answers on http://localhost:5173.
 
-2. **Install deps + the browser** (first time only):
+2. **Onboard a project for the test user** (once per fresh DB). Since spec 11 (multi-user)
+   every `/api/*` route is project-scoped: these specs mint a dev session for `e2e-user` (or
+   `KILN_BOOTSTRAP_GITHUB_USER`), but that user has **no project on a fresh stack**, so the app
+   shows the "connect a project" onboarding screen and the `Board` region never renders — the
+   specs fail at `expect(board).toBeVisible()`. Seed a project the way the dashboard would,
+   against the **same login the specs mint** (default `e2e-user`; needs `KILN_DEV_ENDPOINTS=1`,
+   which docker-compose defaults on):
+
+   ```sh
+   # Mint a session cookie, then set per-user creds + the project. Read the key
+   # values from the repo-root .env into shell vars — do NOT paste secrets inline.
+   ANTHROPIC=$(grep -E '^ANTHROPIC_API_KEY=' ../.env | cut -d= -f2-)
+   AMIKA=$(grep -E '^AMIKA_API_KEY=' ../.env | cut -d= -f2-)
+   CRED=$(grep -E '^AMIKA_CLAUDE_CRED_ID=' ../.env | cut -d= -f2-)
+   REPO=$(grep -E '^AMIKA_REPO_URL=' ../.env | cut -d= -f2-)
+   jar=$(mktemp)
+   curl -sS -c $jar -X POST http://localhost:8080/api/dev/session \
+     -H 'Content-Type: application/json' -d '{"github_login":"e2e-user"}' -o /dev/null
+   curl -sS -b $jar -X PUT http://localhost:8080/api/settings -H 'Content-Type: application/json' \
+     --data-binary "$(printf '{"anthropic_api_key":"%s","amika_api_key":"%s","amika_claude_cred_id":"%s"}' "$ANTHROPIC" "$AMIKA" "$CRED")" -o /dev/null
+   curl -sS -b $jar -X PUT http://localhost:8080/api/project -H 'Content-Type: application/json' \
+     --data-binary "$(printf '{"name":"kiln","repo_url":"%s","worker_count":3}' "$REPO")" -o /dev/null
+   # Confirm: 200 (not 404) means the project exists and the board will render.
+   curl -sS -b $jar http://localhost:8080/api/board -o /dev/null -w '%{http_code}\n'
+   ```
+
+   `make down` deletes the DB volume (`-v`), so re-run this after a teardown. (Only
+   `say-creates-ticket` needs just the brain; the Developing-reaching specs also use the
+   `amika_*` creds you set here.)
+
+3. **Install deps + the browser** (first time only):
 
    ```sh
    cd tests && pnpm install && pnpm run install-browser
    ```
 
-3. **Run:**
+4. **Run:**
 
    ```sh
    cd tests && pnpm test

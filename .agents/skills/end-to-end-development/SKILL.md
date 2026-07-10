@@ -57,7 +57,18 @@ run offline against fakes; **e2e is separate** and needs a live stack.
   1. Bring the stack up on the cheap model with a real key:
      `KILN_BRAIN_MODEL=claude-haiku-4-5-20251001 make up` (real runs bill money — use Haiku).
   2. First time: `cd tests && pnpm install && pnpm run install-browser`.
-  3. `make e2e` (i.e. `cd tests && pnpm test`). It targets the docker-compose frontend
+  3. **Onboard the test user (spec 11 multi-user — the specs don't do this themselves).**
+     Every `/api/*` route is now project-scoped: the specs mint a dev session for `e2e-user`
+     (or `KILN_BOOTSTRAP_GITHUB_USER`), but that user has **no project**, so the app renders
+     the "connect a project" onboarding screen and the `Board` region never appears — a fresh
+     stack fails `say → ticket` at `expect(board).toBeVisible()`. Seed a project **once per fresh
+     DB**, as a real user would, against the same login the specs mint:
+     `POST /api/dev/session {github_login:"e2e-user"}` (mint a cookie), then
+     `PUT /api/settings {anthropic_api_key, amika_api_key, amika_claude_cred_id}` (values from
+     `.env` — never echo them) and `PUT /api/project {name, repo_url, worker_count:1-10}`.
+     `GET /api/board` returning 200 (not 404) confirms the project exists. `make down` wipes the
+     DB (`-v`), so re-seed after a teardown.
+  4. `make e2e` (i.e. `cd tests && pnpm test`). It targets the docker-compose frontend
      (`http://localhost:5173`) by default; override with `KILN_E2E_BASE_URL`.
   Any e2e that reaches Developing must destroy the Amika sandboxes it creates (`auto_delete` is
   off — 05 D6). `say → ticket in Backlog` stops before the pull, so no cleanup;

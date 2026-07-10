@@ -41,10 +41,21 @@ agent brings the whole system up with a single `docker compose up`.
   probe — it returns the empty board snapshot once migrations have run.
 - **End-to-end test:** the live-stack suite lives in `/tests` (Playwright, drives the real
   web client). Bring the stack up on the cheap model (`KILN_BRAIN_MODEL=claude-haiku-4-5-20251001 make up`),
-  then `make e2e`. See the `end-to-end-development` skill and `/tests/README.md`.
+  **onboard a project for the test user once** (see the footgun below), then `make e2e`. See the
+  `end-to-end-development` skill and `/tests/README.md`.
 
 ## Common footguns
 
+- **A fresh stack has no project, so `/api/*` and the board are empty until you onboard one**
+  (spec 11 multi-user). Every route is project-scoped; a signed-in user with no project gets a
+  404 from `GET /api/board` and the client shows "connect a project to light the kiln" instead
+  of the board. The e2e specs mint a dev session but do **not** create a project, so a fresh DB
+  fails them at `expect(board).toBeVisible()`. Seed one **once per fresh DB** as a real user
+  would — mint a cookie via `POST /api/dev/session {github_login:"e2e-user"}` (needs
+  `KILN_DEV_ENDPOINTS=1`, which compose defaults on), then
+  `PUT /api/settings {anthropic_api_key, amika_api_key, amika_claude_cred_id}` (read the values
+  from `.env`; never print them) and `PUT /api/project {name, repo_url, worker_count:1-10}`.
+  `GET /api/board` → 200 confirms it. `make down` deletes the DB volume, so re-seed after.
 - Assuming a cloud/production target — v1 is local-only (§1); hosting is future work.
 - Storing authoritative state anywhere but Postgres.
 - The backend Dockerfile's `golang:X-alpine` build image must satisfy the `go` directive in

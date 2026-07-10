@@ -67,6 +67,9 @@ describe('commit machine', () => {
     expect(s.pending).toBeUndefined();
     expect(s.commit).toBe('Hello, world.');
     expect(s.micState).toBe('listening');
+    // An auto-send never flags `restart`: the turn already ended, so the store
+    // keeps the SAME socket open (only the send button reopens a fresh one).
+    expect(s.restart).toBeUndefined();
     // next tick: a successful POST clears the transcript back to idle so stale
     // text can't linger (09 §4); the mic stays listening, ready for the next turn.
     s = voiceReducer(s, { type: 'commitConsumed' });
@@ -145,11 +148,13 @@ describe('commit machine', () => {
     expect(s.pending).toBe('Ship it.');
     expect(s.commit).toBeUndefined();
     // The user taps send before the window elapses -> commit right away, and the
-    // mic stops (Paused) rather than listening on.
+    // mic stays LIVE (listening) with `restart` flagged so the store reopens a
+    // fresh socket and the user can keep speaking.
     s = voiceReducer(s, { type: 'sendNow' });
     expect(s.pending).toBeUndefined();
     expect(s.commit).toBe('Ship it.');
-    expect(s.micState).toBe('paused');
+    expect(s.micState).toBe('listening');
+    expect(s.restart).toBe(true);
   });
 
   it('sendNow commits the interim tail without waiting for a final', () => {
@@ -164,7 +169,10 @@ describe('commit machine', () => {
     expect(s.commit).toBe('buy milk and eggs');
     expect(s.settledText).toBe('buy milk and eggs');
     expect(s.tailText).toBe('');
-    expect(s.micState).toBe('paused');
+    // Mic stays live for the words to come; the store reopens a fresh socket.
+    expect(s.micState).toBe('listening');
+    expect(s.restart).toBe(true);
+    expect(s.connecting).toBe(true);
   });
 
   it('sendNow commits settled ink + a resumed tail as one utterance', () => {
@@ -181,8 +189,9 @@ describe('commit machine', () => {
     s = voiceReducer(s, { type: 'sendNow' });
     expect(s.commit).toBeUndefined();
     expect(s.pending).toBeUndefined();
-    // Nothing was sent, so the mic keeps listening.
+    // Nothing was sent, so the mic keeps listening and there's no socket to reopen.
     expect(s.micState).toBe('listening');
+    expect(s.restart).toBeUndefined();
   });
 
   it('stopping the mic (pause) only stops — it does not auto-send', () => {

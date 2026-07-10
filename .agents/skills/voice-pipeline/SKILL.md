@@ -96,14 +96,20 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
 - **Mic is OFF until an explicit tap** (reverses the old 09 D3 "on by default"). The app opens
   *Paused* ("Tap to talk") and the mic starts ONLY when the user taps the mic control (→ `resume`
   → `startStream`). Nothing else starts it from rest: no start on mount, no foreground resume
-  (backgrounding drops a live listen to Paused and returning never reopens it), and no restart
-  after a send. **Sending stops the mic**: an end-of-turn auto-commit *or* the send button drops
-  the machine to Paused and the store tears the socket down — the user taps again to speak the
-  next message. The only `startStream` callers besides `resume` are the token-refresh timer and
-  the one-shot reconnect, and both run *only inside an already-tapped live session* (cleared by
-  `stopStream` the instant the mic stops), so they never activate the mic from rest. Commit is
-  still **automatic** on end-of-turn (09 D4); the **X cancels** the un-committed utterance
-  client-side (nothing was sent). Empty/whitespace finals never POST.
+  (backgrounding drops a live listen to Paused and returning never reopens it). **Sending KEEPS
+  the mic live** so the user can keep speaking without re-tapping: both the send button and an
+  end-of-turn auto-commit leave the machine `listening`. They differ only in the socket. The
+  auto-commit fires *at* turn end, so the same socket safely stays open (`fireArmedSend` leaves
+  `restart` unset). The **send button fires mid-turn interim text**, so leaving that socket open
+  would let the just-sent words return in the turn's trailing final and *double-post*; instead
+  `fireDisplayedSend` keeps `listening` but flags a one-tick `restart`, and the commit effect
+  tears the socket down and **immediately reopens a fresh one** (a clean turn boundary) — a brief
+  reconnect the dock shows via `connecting`. So `startStream` callers besides `resume` are: the
+  token-refresh timer, the one-shot reconnect, and this post-send restart — all *only inside an
+  already-tapped live session*, so none activates the mic from rest. Only an explicit stop (mic
+  button / keyboard mode), background, or unmount stops the mic. Commit is still **automatic** on
+  end-of-turn (09 D4); the **X cancels** the un-committed utterance client-side (nothing was
+  sent). Empty/whitespace finals never POST (and never restart).
 - Keep decision logic in `commit-machine` (pure, testable); keep all I/O in `voice-store` /
   `assemblyai-client`. The machine returns a `commit` intent; the store performs the POST.
 - Escape-hatch ban (02 §4b): no `any`/`as` — narrow `unknown` with guards. The strict

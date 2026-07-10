@@ -3,9 +3,10 @@
 // `startVoiceStream` whose `stop` spy stands in for tearing the mic down, and
 // whose captured `onEvent` lets a test push provider events through the seam.
 // These pin the core rules: the mic never STARTS on its own — no start on mount,
-// none on foreground, none after a send — it opens ONLY on an explicit tap
-// (`resume`). The send button tears the socket back down, but an auto-send
-// (end-of-turn) leaves it open so the hands-free session keeps listening.
+// none on foreground — it opens ONLY on an explicit tap (`resume`). The send
+// button keeps the mic live: it reopens a fresh socket (a clean turn boundary) so
+// the user can keep speaking, while an auto-send (end-of-turn) leaves the existing
+// socket open — either way the hands-free session keeps listening after a send.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -122,7 +123,7 @@ describe('VoiceProvider mic activation', () => {
     expect(result.current.connecting).toBe(false);
   });
 
-  it('sending tears the mic down — it does not keep listening after a send', async () => {
+  it('sending keeps the mic live — it reopens a fresh socket rather than stopping', async () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {
       result.current.resume();
@@ -133,15 +134,19 @@ describe('VoiceProvider mic activation', () => {
       fireProviderEvent({ kind: 'partial', text: 'ship it' });
     });
     expect(result.current.tailText).toBe('ship it');
-    // ...then the user taps send: the commit effect POSTs and stops the stream,
-    // and the machine drops to Paused rather than opening a fresh socket.
+    // ...then the user taps send: the commit effect POSTs and, because the send
+    // fired mid-turn interim text, tears the CURRENT socket down and immediately
+    // reopens a fresh one (a clean turn boundary) — the mic stays listening so the
+    // user can keep speaking without a re-tap.
     act(() => {
       result.current.sendNow();
     });
     expect(live.stop).toHaveBeenCalled();
-    expect(result.current.micState).toBe('paused');
-    // No replacement stream was started — only the one from the initial tap.
-    expect(startVoiceStream).toHaveBeenCalledTimes(1);
+    expect(result.current.micState).toBe('listening');
+    // A replacement stream was started: the initial tap plus the post-send reopen.
+    expect(startVoiceStream).toHaveBeenCalledTimes(2);
+    // The fresh socket is a different handle than the one that was stopped.
+    expect(liveStream()).not.toBe(live);
     // Flush the pending POST so its follow-up dispatch settles inside act.
     await act(async () => {
       await Promise.resolve();

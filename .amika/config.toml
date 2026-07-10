@@ -1,9 +1,24 @@
 # Amika per-repository sandbox configuration (docs.amika.dev/reference/repository-configuration).
 # Amika reads this from the cloned repo when it provisions a sandbox for kiln.
 
-# No [lifecycle] scripts: the dev toolchain and the repo-root .env are baked
-# directly into the base snapshot, so nothing needs to run on boot.
+[lifecycle]
+# Both boot paths point at the same idempotent script because Kiln's
+# pool-and-recreate worker lifecycle (docs/specs/05 §4) exercises both:
+#   * initial sandbox create -> setup_script (once, on a fresh repo clone)
+#   * resume from auto-stop   -> start_script (each resume, persisted workspace)
+# The script installs the project's dependencies (frontend pnpm deps, backend Go
+# modules, and the golangci-lint / oapi-codegen dev tools) so an agent lands in a
+# ready-to-work tree with no manual `make setup`. The base snapshot bakes the
+# toolchain + a warm dependency cache, so on a resume this is a fast no-op; on a
+# fresh clone whose lockfiles have drifted it re-syncs them. Paths are
+# repo-relative; the file is executable and exits 0 on success.
 #
+# Secrets are NOT injected here: the repo-root .env is baked into the base
+# snapshot (see the .env-inject script removed in 899fa37), so this script only
+# installs dependencies and touches no credentials.
+setup_script = "scripts/amika/setup.sh"
+start_script = "scripts/amika/setup.sh"
+
 # Note: the base snapshot is selected by Kiln's AMIKA_SNAPSHOT env var at
 # sandbox-create time (backend/internal/agent/amika), so no [sandbox].snapshot
 # label is pinned here.

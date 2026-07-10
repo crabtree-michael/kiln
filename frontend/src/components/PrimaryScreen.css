@@ -1101,6 +1101,41 @@
   transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
 }
 
+/* The permanent error band (SystemAlertBand). Unlike the toast overlay it sits
+   IN FLOW at the top of the dock region, so a persistent failure (e.g. the
+   sandbox pool is down) reserves its own height above the dock instead of
+   floating over and hiding the feed like a transient toast. Danger-toned and
+   full-bleed so it reads as a system-level state, not a per-ticket notice; one
+   row per alert. Absent entirely when there are no alerts (the component
+   returns null), so the healthy layout is byte-for-byte unchanged. */
+[data-role='system-alert-band'] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 26px;
+  background: var(--danger-soft);
+  border-top: 1px solid var(--danger);
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+[data-role='system-alert'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+[data-role='system-alert-icon'] {
+  flex-shrink: 0;
+}
+
+[data-role='system-alert-detail'] {
+  flex: 1;
+}
+
 /* The toast stack floats above the dock as an overlay rather than sitting in
    flow, so a multi-line toast grows UPWARD over the feed instead of pushing the
    empty-state count or the backlog list up.

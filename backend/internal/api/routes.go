@@ -901,11 +901,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-// boardToWire maps a board.Snapshot plus the joined live-worker statuses onto
-// the generated wire.Board (04 D7): the identical shape backs GET /api/board
-// and the board SSE event. agents is the Streams view's real session status,
-// joined server-side (amended 2026-07-05).
-func boardToWire(s board.Snapshot, agents []wire.AgentStatus) wire.Board {
+// alertKindSandboxHealth is the machine category (SystemAlert.kind) for a
+// worker-pool liveness problem — the one alert this server raises today. It is
+// opaque to the client (which renders any alert's detail regardless of kind);
+// the constant just keeps the wording of that category in one place.
+const alertKindSandboxHealth = "sandbox_health"
+
+// boardToWire maps a board.Snapshot plus the joined live-worker statuses and
+// any persistent health alerts onto the generated wire.Board (04 D7): the
+// identical shape backs GET /api/board and the board SSE event. agents is the
+// Streams view's real session status, joined server-side (amended 2026-07-05);
+// alerts is the permanent error band (empty when healthy). Both derive from the
+// same live-worker read.
+func boardToWire(s board.Snapshot, agents []wire.AgentStatus, alerts []wire.SystemAlert) wire.Board {
 	return wire.Board{
 		Shaping:     ticketsToWire(s.Shaping),
 		Ready:       ticketsToWire(s.Ready),
@@ -915,31 +923,59 @@ func boardToWire(s board.Snapshot, agents []wire.AgentStatus) wire.Board {
 		WorkerTotal: s.WorkerTotal,
 		WorkerFree:  s.WorkerFree,
 		Agents:      agents,
+		Alerts:      alerts,
 	}
 }
 
-// agentStatuses reads the live-worker statuses and maps them to the wire shape,
-// always returning a non-nil slice so the JSON is an array (never null). It is
-// best-effort: a nil inspector or a read failure yields an empty array — the
-// board still renders, Streams just shows nothing new (amended 2026-07-05).
-func agentStatuses(ctx context.Context, projectID string, inspector AgentInspector) []wire.AgentStatus {
+// agentJoin reads the live-worker statuses once and derives both the Streams
+// agents array and the persistent health alerts from that single read, so the
+// two never disagree and the board join costs one ListAgents call. It is
+// best-effort: a nil inspector or a read failure yields empty non-nil slices —
+// the board still renders, Streams shows nothing new, and no alert is raised
+// (a transient read failure must not flash a scary permanent-error band). Both
+// results are always non-nil so the JSON encodes arrays, never null.
+func agentJoin(
+	ctx context.Context, projectID string, inspector AgentInspector,
+) ([]wire.AgentStatus, []wire.SystemAlert) {
 	if inspector == nil {
-		return []wire.AgentStatus{}
+		return []wire.AgentStatus{}, []wire.SystemAlert{}
 	}
 	infos, err := inspector.ListAgents(ctx, projectID)
 	if err != nil {
 		slog.WarnContext(ctx, "api: list agents for board", "err", err)
-		return []wire.AgentStatus{}
+		return []wire.AgentStatus{}, []wire.SystemAlert{}
 	}
-	out := make([]wire.AgentStatus, 0, len(infos))
+	statuses := make([]wire.AgentStatus, 0, len(infos))
+	failing := 0
 	for _, a := range infos {
-		out = append(out, wire.AgentStatus{
+		statuses = append(statuses, wire.AgentStatus{
 			WorkerId: a.WorkerID,
 			TicketId: a.TicketID,
 			Status:   wire.AgentStatusStatus(a.Status),
 		})
+		// A terminal provisioning/session failure is the only unhealthy state:
+		// stopped is a normal auto-stop (woken on demand) and starting is
+		// transient provisioning, so neither counts against health. Reading the
+		// neutral AgentStatus keeps this provider-agnostic — any adapter that
+		// reports RunErrored surfaces here, no MECA/Amika specifics.
+		if a.Status == string(wire.Errored) {
+			failing++
+		}
 	}
-	return out
+	return statuses, sandboxHealthAlerts(failing, len(infos))
+}
+
+// sandboxHealthAlerts raises the persistent worker-pool health alert when any
+// worker is in a failing state, else an empty (non-nil) slice. The detail is
+// the human sentence the band shows verbatim; the client stays error-agnostic.
+func sandboxHealthAlerts(failing, total int) []wire.SystemAlert {
+	if failing == 0 {
+		return []wire.SystemAlert{}
+	}
+	return []wire.SystemAlert{{
+		Kind:   alertKindSandboxHealth,
+		Detail: fmt.Sprintf("%d of %d sandboxes failing", failing, total),
+	}}
 }
 
 // ticketsToWire maps a ticket group, always returning a non-nil slice so the

@@ -221,6 +221,80 @@ func TestHandleBoard_AgentInspectorError_BoardStillRenders(t *testing.T) {
 	}
 }
 
+// Errored workers raise a persistent sandbox-health alert on the board snapshot
+// (the permanent error band), counting only errored — never stopped/starting —
+// against health, and phrasing it "N of M sandboxes failing".
+func TestHandleBoard_ErroredWorkers_RaiseSandboxHealthAlert(t *testing.T) {
+	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 3}}
+	hub := api.NewHub(boards)
+	hub.SetAgentInspector(&fakeAgentInspector{infos: []api.AgentInfo{
+		{WorkerID: "wa-1", Status: "errored"},
+		{WorkerID: "wa-2", Status: "idle"},
+		{WorkerID: "wa-3", Status: "stopped"}, // auto-stopped is healthy, not failing
+	}})
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
+	ts := httptest.NewServer(enableSession(srv).Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/board")
+	defer closeBody(t, resp)
+	var got wire.Board
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Alerts) != 1 {
+		t.Fatalf("Alerts = %+v, want exactly one sandbox-health alert", got.Alerts)
+	}
+	if got.Alerts[0].Kind != "sandbox_health" {
+		t.Errorf("Alerts[0].Kind = %q, want sandbox_health", got.Alerts[0].Kind)
+	}
+	if got.Alerts[0].Detail != "1 of 3 sandboxes failing" {
+		t.Errorf("Alerts[0].Detail = %q, want %q", got.Alerts[0].Detail, "1 of 3 sandboxes failing")
+	}
+}
+
+// A healthy pool (or a failed status read) raises no alert: the permanent band
+// must stay clear, and a transient read failure must never flash a scary error.
+func TestHandleBoard_HealthyOrUnreadable_NoAlert(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		inspector *fakeAgentInspector
+	}{
+		{"all healthy", &fakeAgentInspector{infos: []api.AgentInfo{
+			{WorkerID: "wb-1", Status: "idle"},
+			{WorkerID: "wb-2", Status: "building"},
+		}}},
+		{"inspector error", &fakeAgentInspector{err: errFakeBoardFailed}},
+		{"no inspector", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 2}}
+			hub := api.NewHub(boards)
+			if tc.inspector != nil {
+				hub.SetAgentInspector(tc.inspector)
+			}
+			srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+				&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
+			ts := httptest.NewServer(enableSession(srv).Handler())
+			defer ts.Close()
+
+			resp := doGet(t, ts.URL+"/api/board")
+			defer closeBody(t, resp)
+			var got wire.Board
+			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if len(got.Alerts) != 0 {
+				t.Errorf("Alerts = %+v, want none", got.Alerts)
+			}
+			if got.Alerts == nil {
+				t.Error("Alerts is nil, want a non-nil empty array (JSON [])")
+			}
+		})
+	}
+}
+
 func TestHandleBoard_StoreError_Returns5xx(t *testing.T) {
 	boards := &fakeBoardReader{err: errFakeBoardFailed}
 	ts := newTestServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{})

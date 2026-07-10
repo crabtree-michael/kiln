@@ -447,6 +447,47 @@ func TestDispatch_ListAgents_RoutesToInspector(t *testing.T) {
 	}
 }
 
+// TestDispatch_ListAgents_ErroredWorkers_WarnsHealth pins the aggregate health
+// warning list_agents leads with when any worker is errored, so the brain knows
+// the failure is infrastructure and stops marking tickets ready. A healthy pool
+// carries no such warning.
+func TestDispatch_ListAgents_ErroredWorkers_WarnsHealth(t *testing.T) {
+	fi := &fakeInspector{list: []brain.AgentInfo{
+		{WorkerID: workerW1, Status: brain.AgentErrored},
+		{WorkerID: workerW2, Status: brain.AgentIdle},
+		{WorkerID: "w-3", Status: brain.AgentErrored},
+	}}
+	svc := newTestServiceI(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fi, &scriptedLLM{})
+
+	call := newToolCall(t, "la-2", brain.ToolListAgents, brain.ListAgentsInput{})
+	result := svc.Dispatch(context.Background(), call)
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want false (%q)", result.Content)
+	}
+	if !strings.Contains(result.Content, "SANDBOX HEALTH: 2 of 3 workers errored") {
+		t.Errorf("Content = %q, want a leading health warning naming the errored count", result.Content)
+	}
+	if !strings.Contains(result.Content, "Do not mark tickets ready") {
+		t.Errorf("Content = %q, want the do-not-proceed guidance", result.Content)
+	}
+}
+
+func TestDispatch_ListAgents_Healthy_NoHealthWarning(t *testing.T) {
+	fi := &fakeInspector{list: []brain.AgentInfo{
+		{WorkerID: workerW1, Status: brain.AgentIdle},
+		{WorkerID: workerW2, Status: brain.AgentBuilding},
+	}}
+	svc := newTestServiceI(&fakeBoard{}, &fakeSay{}, &fakeConvo{}, fi, &scriptedLLM{})
+
+	call := newToolCall(t, "la-3", brain.ToolListAgents, brain.ListAgentsInput{})
+	result := svc.Dispatch(context.Background(), call)
+
+	if strings.Contains(result.Content, "SANDBOX HEALTH") {
+		t.Errorf("Content = %q, want no health warning for a healthy pool", result.Content)
+	}
+}
+
 // TestDispatch_GetAgentUpdates_RoutesToInspector pins get_agent_updates'
 // mapping to AgentInspector.GetAgentUpdates(worker_id) (06 §4 amended).
 func TestDispatch_GetAgentUpdates_RoutesToInspector(t *testing.T) {

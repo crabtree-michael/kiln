@@ -227,7 +227,8 @@ func (h *Hub) boardWire(ctx context.Context, projectID string) (wire.Board, erro
 	if err != nil {
 		return wire.Board{}, fmt.Errorf("api: get board: %w", err)
 	}
-	return boardToWire(snap, agentStatuses(ctx, projectID, h.agents)), nil
+	agents, alerts := agentJoin(ctx, projectID, h.agents)
+	return boardToWire(snap, agents, alerts), nil
 }
 
 // writeInitialSnapshot sends the connect-time board event (04 §7). It returns

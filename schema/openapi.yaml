@@ -560,6 +560,33 @@ components:
           enum: [building, idle, stopped, errored, starting]
       additionalProperties: false
 
+    SystemAlert:
+      type: object
+      description: >
+        A persistent system-health problem surfaced to the user as a permanent
+        error band above the dock — distinct from an auto-dismissing activity
+        toast (08 §4): it stays until the condition clears. Deliberately
+        generic: the client renders any alert without knowing its cause, so the
+        section works for any persistent failure, not just sandboxes. `kind` is
+        an opaque machine category the client may theme off but must not depend
+        on; `detail` is the human-readable sentence shown verbatim. Rides the
+        board snapshot's `alerts` array, which is absolute like the rest of the
+        snapshot — an alert simply drops out of the next snapshot once its
+        underlying condition recovers.
+      required: [kind, detail]
+      properties:
+        kind:
+          type: string
+          description: >
+            Opaque machine category of the failure (e.g. `sandbox_health`).
+            For theming/analytics only — the UI must render any kind.
+        detail:
+          type: string
+          description: >
+            Human-readable description shown verbatim (e.g.
+            "2 of 5 sandboxes failing").
+      additionalProperties: false
+
     Board:
       type: object
       description: >
@@ -569,7 +596,7 @@ components:
         resync is just "render the next board event" (07 §7–§8). `ready` is
         in exact pull order, top-to-bottom, so the user sees what gets
         pulled next (03 §5, 07 §7).
-      required: [shaping, ready, blocked, working, done, worker_total, worker_free, agents]
+      required: [shaping, ready, blocked, working, done, worker_total, worker_free, agents, alerts]
       properties:
         shaping:
           type: array
@@ -606,6 +633,15 @@ components:
             ticket_id.
           items:
             $ref: '#/components/schemas/AgentStatus'
+        alerts:
+          type: array
+          description: >
+            Persistent system-health problems to surface as a permanent error
+            band above the dock. Absolute like the rest of the snapshot: an
+            alert stays present across snapshots until its condition clears,
+            then drops out. Empty in the healthy steady state.
+          items:
+            $ref: '#/components/schemas/SystemAlert'
       additionalProperties: false
 
     Message:

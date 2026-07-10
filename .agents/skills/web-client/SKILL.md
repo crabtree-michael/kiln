@@ -70,6 +70,22 @@ hub, a banner): decide its place in this upward stack and anchor it to the *dyna
 height of the layers below it (via the same var / a measured offset), never to a fixed
 collapsed height that only happens to look right until the dock expands.
 
+**Permanent error band vs. toasts (`SystemAlertBand`).** The dock region hosts one
+*persistent* surface that is the deliberate opposite of the toast overlay: a permanent
+error band (`[data-role='system-alert-band']`, `role="alert"`) rendered **in flow** at
+the top of `[data-role='dock-region']`, above the dock. It is driven by the board
+snapshot's `alerts: SystemAlert[]` (wholesale-replaced like the rest of the board), so it
+persists across snapshots until the condition clears and then vanishes. Two rules make it
+behave: (1) it is **in flow**, not an upward-growing overlay — a permanent problem should
+*reserve* its own height, not float over and hide the feed the way an auto-dismissing
+toast does; (2) `SystemAlertBand` returns `null` for an empty `alerts` array, so the
+healthy layout (and every snapshot test) is byte-for-byte unchanged. Keep it
+**error-agnostic**: it renders each alert's `detail` verbatim and never switches on `kind`
+(server-composed copy, e.g. "2 of 5 sandboxes failing"), so the same band serves any
+future persistent failure, not just sandbox health. The server side lives in the api board
+join (`agentJoin`/`sandboxHealthAlerts` in `internal/api/routes.go`), derived from the
+neutral per-worker `AgentStatus` (`errored`), so it stays provider-agnostic.
+
 ## Dashboard (spec 11 phase 1)
 
 A second, separate surface at `/dashboard` — the signed-in account view (GitHub sign-in →

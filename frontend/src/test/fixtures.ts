@@ -8,6 +8,7 @@ import type {
   FeedCard,
   FeedSnapshot,
   FeedSummary,
+  SystemAlert,
 } from '@/transport/transport';
 import type { Ticket } from '@/components/TicketCard';
 
@@ -59,6 +60,7 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
     worker_total: 4,
     worker_free: 4,
     agents: [],
+    alerts: [],
     ...overrides,
   };
 }
@@ -71,6 +73,12 @@ export function makeAgentStatus(
   workerId = `w-${ticketId}`,
 ): AgentStatus {
   return { worker_id: workerId, ticket_id: ticketId, status };
+}
+
+/** Builds one persistent `SystemAlert` (the permanent error band) from the wire
+ * schema — `kind` defaults to the sandbox-health category the server raises. */
+export function makeSystemAlert(detail: string, kind = 'sandbox_health'): SystemAlert {
+  return { kind, detail };
 }
 
 export interface FeedCardFixtureInput {

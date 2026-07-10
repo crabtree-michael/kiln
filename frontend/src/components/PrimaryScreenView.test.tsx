@@ -5,7 +5,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
-import { makeBoard, makeFeedCard, makeFeedSnapshot, makeTicket } from '@/test/fixtures';
+import {
+  makeBoard,
+  makeFeedCard,
+  makeFeedSnapshot,
+  makeSystemAlert,
+  makeTicket,
+} from '@/test/fixtures';
 import { acceptTicket } from '@/transport/transport';
 
 /**
@@ -696,6 +702,22 @@ describe('PrimaryScreenView', () => {
       makeFeedSnapshot({ summary: { update_count: 3, stream_count: 5 }, cards: updateCards }),
     );
     expect(container).toMatchSnapshot();
+  });
+
+  it('shows the permanent error band in the dock region when the board carries alerts', () => {
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
+      board: makeBoard({ alerts: [makeSystemAlert('2 of 5 sandboxes failing')] }),
+    });
+    const band = screen.getByRole('alert');
+    expect(band).toHaveTextContent('2 of 5 sandboxes failing');
+    expect(band.closest('[data-role="dock-region"]')).not.toBeNull();
+  });
+
+  it('renders no error band when the board has no alerts', () => {
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
+      board: makeBoard(),
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('matches the DOM-structure snapshot: preview (4c)', () => {

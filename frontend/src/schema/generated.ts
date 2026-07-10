@@ -466,6 +466,13 @@ export interface components {
              */
             status: "building" | "idle" | "stopped" | "errored" | "starting";
         };
+        /** @description A persistent system-health problem surfaced to the user as a permanent error band above the dock — distinct from an auto-dismissing activity toast (08 §4): it stays until the condition clears. Deliberately generic: the client renders any alert without knowing its cause, so the section works for any persistent failure, not just sandboxes. `kind` is an opaque machine category the client may theme off but must not depend on; `detail` is the human-readable sentence shown verbatim. Rides the board snapshot's `alerts` array, which is absolute like the rest of the snapshot — an alert simply drops out of the next snapshot once its underlying condition recovers. */
+        SystemAlert: {
+            /** @description Opaque machine category of the failure (e.g. `sandbox_health`). For theming/analytics only — the UI must render any kind. */
+            kind: string;
+            /** @description Human-readable description shown verbatim (e.g. "2 of 5 sandboxes failing"). */
+            detail: string;
+        };
         /** @description GetBoard's full snapshot (03 §4), grouped in render order — the `board` SSE event payload and GET /api/board's response body are the identical shape (04 D7): absolute, never a delta, so a reconnect's resync is just "render the next board event" (07 §7–§8). `ready` is in exact pull order, top-to-bottom, so the user sees what gets pulled next (03 §5, 07 §7). */
         Board: {
             shaping: components["schemas"]["Ticket"][];
@@ -479,6 +486,8 @@ export interface components {
             worker_free: number;
             /** @description Live workers with their real session status, joined server-side for the Streams view (amended 2026-07-05). Absolute like the rest of the snapshot; empty before the first worker is live. Keyed to tickets by ticket_id. */
             agents: components["schemas"]["AgentStatus"][];
+            /** @description Persistent system-health problems to surface as a permanent error band above the dock. Absolute like the rest of the snapshot: an alert stays present across snapshots until its condition clears, then drops out. Empty in the healthy steady state. */
+            alerts: components["schemas"]["SystemAlert"][];
         };
         /** @description One persisted transcript row (07 §3), as returned oldest-first by GET /api/messages. */
         Message: {

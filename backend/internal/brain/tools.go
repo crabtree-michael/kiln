@@ -1014,12 +1014,33 @@ func formatRepoResult(res RepoResult) string {
 	return head + "\n" + res.Output
 }
 
-// formatAgents renders list_agents' result as one line per worker for the model.
+// sandboxHealthWarning is the leading line list_agents emits when any worker is
+// errored — it names the count and tells the brain the failure is
+// infrastructure, so it stops marking tickets ready (formatAgents).
+const sandboxHealthWarning = "SANDBOX HEALTH: %d of %d workers errored — this is an infrastructure " +
+	"failure, not the ticket. Do not mark tickets ready or expect new agent work to run until the sandboxes recover."
+
+// formatAgents renders list_agents' result as one line per worker for the
+// model, led by a health-warning line when any worker is in a terminal errored
+// state. The warning tells the brain the failure is infrastructure, not the
+// ticket — so it does not keep marking tickets ready and burning the retry
+// budget on work the sandboxes cannot run (the user sees the same failure as a
+// permanent error band on the dock). Provider-agnostic: keyed off the neutral
+// AgentErrored status, no MECA/Amika specifics.
 func formatAgents(agents []AgentInfo) string {
 	if len(agents) == 0 {
 		return "no running agents"
 	}
+	failing := 0
+	for _, a := range agents {
+		if a.Status == AgentErrored {
+			failing++
+		}
+	}
 	var b strings.Builder
+	if failing > 0 {
+		fmt.Fprintf(&b, sandboxHealthWarning+"\n", failing, len(agents))
+	}
 	for i, a := range agents {
 		if i > 0 {
 			b.WriteByte('\n')

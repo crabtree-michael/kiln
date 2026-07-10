@@ -29,6 +29,7 @@ const (
 	methodShapeTicket  = "ShapeTicket"
 	methodAcceptToDone = "AcceptToDone"
 	workerW1           = "w-1"
+	workerW2           = "w-2"
 	sayHello           = "hello"
 )
 

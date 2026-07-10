@@ -19,6 +19,7 @@ import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import { TicketDetail } from '@/components/TicketDetail';
 import { ActivityRow } from '@/components/ActivityRow';
+import { SystemAlertBand } from '@/components/SystemAlertBand';
 import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
@@ -409,6 +410,11 @@ export function PrimaryScreenView({
           from shrinking the flex:1 feed and reflowing the empty state / backlog. */}
       <div data-role="dock-region">
         <ActivityRow thinking={thinking} toasts={toasts} onDismiss={onDismiss} />
+        {/* The permanent error band sits at the TOP of the dock region, in flow,
+            so a persistent failure (e.g. sandboxes down) reserves its own space
+            above the dock rather than floating over the feed like a toast. Empty
+            alerts render nothing, leaving the idle layout untouched. */}
+        <SystemAlertBand alerts={board?.alerts ?? []} />
         <Dock />
       </div>
 

@@ -1,16 +1,9 @@
 # Amika per-repository sandbox configuration (docs.amika.dev/reference/repository-configuration).
 # Amika reads this from the cloned repo when it provisions a sandbox for kiln.
 
-[lifecycle]
-# Both point at the same idempotent script because Kiln exercises both boot paths:
-# it recreates a sandbox on ticket release (-> setup_script, runs once at init) and
-# lets idle sandboxes auto-stop then resume (-> start_script, re-read each resume).
-# The script copies the snapshot-baked .env (kept one level up, outside the repo)
-# into the repo root so docker-compose / the app find it. Paths are repo-relative;
-# the file must be executable and exit 0.
-setup_script = "scripts/amika/inject-env.sh"
-start_script = "scripts/amika/inject-env.sh"
-
+# No [lifecycle] scripts: the dev toolchain and the repo-root .env are baked
+# directly into the base snapshot, so nothing needs to run on boot.
+#
 # Note: the base snapshot is selected by Kiln's AMIKA_SNAPSHOT env var at
 # sandbox-create time (backend/internal/agent/amika), so no [sandbox].snapshot
 # label is pinned here.

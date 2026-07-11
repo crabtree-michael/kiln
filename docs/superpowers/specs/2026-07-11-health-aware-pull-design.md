@@ -1,7 +1,14 @@
 # Health-aware pull — design
 
 **Date:** 2026-07-11
+<<<<<<< HEAD
 **Status:** Implemented (commits `bd08969`, `fab4bd2`)
+=======
+**Status:** Implemented (migration `0009_worker_health.sql`; sync via
+`agent.reconcileWorkerHealth` → `board.Service.SetWorkerHealth`; pull enforcement
+in `FreeWorker` / `Snapshot.WorkerFree`). Store, agent-unit, and board-service
+tests all cover §5.
+>>>>>>> 0829f73 (docs: mark health-aware pull design as implemented)
 
 ## Problem
 

@@ -112,6 +112,12 @@ type recordedCall struct {
 	Args   []any
 }
 
+// acceptToDoneFunc matches BoardAPI.AcceptToDone; named so the fake's override
+// field stays on one line under the line-length limit.
+type acceptToDoneFunc func(
+	ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string,
+) (board.Ticket, error)
+
 // fakeBoard is a single recording double for both BoardAPI (the six
 // mutation ops, 06 §4) and BoardReader (GetBoard, 06 §3.1/D3) — pass the same
 // instance for both NewService parameters. Every method records its call
@@ -128,7 +134,7 @@ type fakeBoard struct {
 	markReadyFn       func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	sendToAgentFn     func(ctx context.Context, id board.TicketID, instruction string) (board.Ticket, error)
 	markBlockedFn     func(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
-	acceptToDoneFn    func(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error)
+	acceptToDoneFn    acceptToDoneFunc
 	requestApprovalFn func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	archiveTicketFn   func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	getBoardFn        func(ctx context.Context) (board.Snapshot, error)

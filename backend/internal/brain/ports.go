@@ -40,7 +40,9 @@ type BoardAPI interface {
 	// verified SHA the work landed under; the board records it and refuses
 	// (ErrCommitAlreadyUsed, fed back verbatim) a SHA already linked to another
 	// ticket.
-	AcceptToDone(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error)
+	AcceptToDone(
+		ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string,
+	) (board.Ticket, error)
 	// ArchiveTicket → tool delete_ticket (06 §4 amended). Soft-deletes a
 	// non-active ticket; an active (working/blocked) ticket is refused with a
 	// typed board error, fed back verbatim (06 §6, §8).

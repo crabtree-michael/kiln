@@ -154,12 +154,7 @@ describe('ActivityRow', () => {
       toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-1' }),
     ];
     render(
-      <ActivityRow
-        thinking={false}
-        toasts={toasts}
-        onDismiss={noop}
-        onOpenTicket={onOpenTicket}
-      />,
+      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} onOpenTicket={onOpenTicket} />,
     );
     // The whole icon+title region is one button labelled by the ticket, and the
     // title never becomes an expand toggle — the tap opens the ticket instead.
@@ -204,14 +199,11 @@ describe('ActivityRow', () => {
 
   it('leaves a toast with no linked ticket id inert even when an open handler is wired', () => {
     const onOpenTicket = vi.fn();
-    const toasts = [toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Orphan', ticketId: '' })];
+    const toasts = [
+      toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Orphan', ticketId: '' }),
+    ];
     render(
-      <ActivityRow
-        thinking={false}
-        toasts={toasts}
-        onDismiss={noop}
-        onOpenTicket={onOpenTicket}
-      />,
+      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} onOpenTicket={onOpenTicket} />,
     );
     expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
   });

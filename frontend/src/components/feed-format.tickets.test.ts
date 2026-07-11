@@ -118,7 +118,15 @@ describe('ticketStatuses', () => {
 
   it('orders same-state active tickets newest-ticket first (by created_at)', () => {
     const at = (id: string, createdAt: string) =>
-      makeTicket({ ...baseFields, id, title: id, body: '', state: 'working', priority: 0, createdAt });
+      makeTicket({
+        ...baseFields,
+        id,
+        title: id,
+        body: '',
+        state: 'working',
+        priority: 0,
+        createdAt,
+      });
     const board = makeBoard({
       working: [
         at('old', '2026-07-01T00:00:00Z'),

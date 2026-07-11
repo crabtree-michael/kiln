@@ -625,7 +625,9 @@ func TestDispatch_BoardErrorFedBackVerbatim(t *testing.T) {
 // error (06 §8: "a typed Board API error ... fed back into the loop").
 func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
 	fb := &fakeBoard{
-		acceptToDoneFn: func(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error) {
+		acceptToDoneFn: func(
+			ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string,
+		) (board.Ticket, error) {
 			return board.Ticket{}, board.ErrNotFound
 		},
 	}
@@ -653,7 +655,9 @@ func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
 func TestDispatch_CommitAlreadyUsedFedBackVerbatim(t *testing.T) {
 	wantErr := &board.ErrCommitAlreadyUsed{SHA: "abc1234", OtherID: "t-9"}
 	fb := &fakeBoard{
-		acceptToDoneFn: func(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error) {
+		acceptToDoneFn: func(
+			ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string,
+		) (board.Ticket, error) {
 			return board.Ticket{}, wantErr
 		},
 	}

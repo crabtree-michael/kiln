@@ -178,7 +178,9 @@ describe('useWebPush', () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
     // The server row is dropped immediately (not left for send-time pruning),
     // keyed by the endpoint captured before unsubscribe() invalidated it.
-    expect(vi.mocked(transport.deletePushSubscription)).toHaveBeenCalledWith('https://push.example/abc');
+    expect(vi.mocked(transport.deletePushSubscription)).toHaveBeenCalledWith(
+      'https://push.example/abc',
+    );
   });
 
   it('still disables locally when the server-side delete fails', async () => {

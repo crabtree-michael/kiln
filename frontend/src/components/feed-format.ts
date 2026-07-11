@@ -85,8 +85,9 @@ export interface TicketStatus {
 /** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
  * (working then blocked) first, then the ready backlog at the bottom. Done and
  * shaping tickets are excluded from the dropdown entirely (see `ticketStatuses`),
- * so their ranks are only placeholders. Within a rank rows sort newest-ticket
- * first (by `created_at`), oldest last. */
+ * so their ranks are only placeholders. Within a rank active rows sort
+ * newest-ticket first (by `created_at`); the ready backlog sorts oldest first so
+ * the next item to pick up is at the top. */
 const STATE_RANK: Record<Ticket['state'], number> = {
   working: 0,
   blocked: 1,
@@ -115,9 +116,10 @@ function ticketRowStatus(ticket: Ticket, byTicket: Map<string, StreamState>): Ti
 }
 
 /** Break out the header dropdown's per-ticket list: only the working, blocked,
- * and ready tickets, active first then the ready backlog, each newest-ticket
- * first (08 §2, amended 2026-07-06). Done and shaping tickets are excluded
- * entirely, not just sorted last. Returns [] before the first board snapshot. */
+ * and ready tickets, active first (newest-ticket first) then the ready backlog
+ * (oldest first) (08 §2, amended 2026-07-11). Done and shaping tickets are
+ * excluded entirely, not just sorted last. Returns [] before the first board
+ * snapshot. */
 export function ticketStatuses(board: Board | null): TicketStatus[] {
   if (board === null) {
     return [];
@@ -132,7 +134,12 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       if (rank !== 0) {
         return rank;
       }
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      // Within a rank the two tickets share a state. Active tickets (working,
+      // blocked) stay newest-first; the ready backlog runs oldest-first so the
+      // next item to pick up sits at the top.
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+      return a.state === 'ready' ? aTime - bTime : bTime - aTime;
     })
     .map((ticket) => ({
       id: ticket.id,

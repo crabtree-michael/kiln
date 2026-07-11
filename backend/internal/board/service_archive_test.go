@@ -90,24 +90,80 @@ func TestArchiveTicket_AllowedFromReadyAndDone(t *testing.T) {
 	}
 }
 
-// Archiving an active (worker-bound) ticket is refused — a working/blocked
-// ticket must be resolved before it can be removed, so archive never has to
-// strand or silently release a worker.
-func TestArchiveTicket_ActiveIsRefused(t *testing.T) {
-	for _, st := range []board.State{board.StateWorking, board.StateBlocked} {
-		store := newFakeStore()
-		store.seedWorker(projA, "w1")
-		wid := board.WorkerID("w1")
-		reason := "why"
-		tk := board.Ticket{ID: "t1", Title: "x", State: st, WorkerID: &wid}
-		if st == board.StateBlocked {
-			tk.BlockedReason = &reason
-		}
-		store.seedTicket(projA, tk)
-		svc := board.NewService(store)
+// Archiving a *working* ticket is refused — it has a live agent mid-turn, so it
+// must be resolved before it can be removed rather than have archive kill
+// in-flight work. (A blocked ticket, by contrast, is deletable — see below.)
+func TestArchiveTicket_WorkingIsRefused(t *testing.T) {
+	store := newFakeStore()
+	store.seedWorker(projA, "w1")
+	wid := board.WorkerID("w1")
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "x", State: board.StateWorking, WorkerID: &wid})
+	svc := board.NewService(store)
 
-		_, err := svc.ArchiveTicket(context.Background(), projA, "t1")
-		requireInvalidTransition(t, err, st, "ArchiveTicket")
+	_, err := svc.ArchiveTicket(context.Background(), projA, "t1")
+	requireInvalidTransition(t, err, board.StateWorking, "ArchiveTicket")
+}
+
+// Archiving a *blocked* ticket is allowed and releases the worker it holds: the
+// ticket vanishes from reads, its WorkerID is cleared, and it emits agent.release
+// (tear the sandbox down) + pull.evaluate (backfill the freed slot) on top of the
+// usual board.updated + feed.updated. This is the delete-a-stuck-duplicate path
+// (2026-07-11-delete-blocked-ticket-design.md).
+func TestArchiveTicket_BlockedReleasesWorker(t *testing.T) {
+	store := newFakeStore()
+	store.seedWorker(projA, "w1")
+	wid := board.WorkerID("w1")
+	reason := "duplicate of t0"
+	store.seedTicket(projA, board.Ticket{
+		ID: "t1", Title: "dupe", State: board.StateBlocked, WorkerID: &wid, BlockedReason: &reason,
+	})
+	svc := board.NewService(store)
+
+	got, err := svc.ArchiveTicket(context.Background(), projA, "t1")
+	if err != nil {
+		t.Fatalf("ArchiveTicket(blocked): unexpected error: %v", err)
+	}
+	if got.ArchivedAt == nil {
+		t.Fatalf("archived ticket has nil ArchivedAt: %+v", got)
+	}
+	if got.WorkerID != nil {
+		t.Fatalf("archived blocked ticket still bound to worker %v, want nil", *got.WorkerID)
+	}
+
+	// Vanishes from targeted reads and the snapshot.
+	if _, getErr := svc.GetTicket(context.Background(), projA, "t1"); !errors.Is(getErr, board.ErrNotFound) {
+		t.Fatalf("after archive, GetTicket error = %v, want ErrNotFound", getErr)
+	}
+	snap, err := svc.GetBoard(context.Background(), projA)
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(snap.Blocked) != 0 {
+		t.Fatalf("after archive, snapshot Blocked = %d tickets, want 0", len(snap.Blocked))
+	}
+
+	// Emits the worker release (with the freed worker id) + a pull re-evaluation,
+	// alongside the universal board.updated and the card-retracting feed.updated.
+	ems := store.outboxSnapshot()
+	releases := emissionsWithTopic(ems, board.TopicAgentRelease)
+	if len(releases) != 1 {
+		t.Fatalf("agent.release emissions = %d, want 1", len(releases))
+	}
+	payload, ok := releases[0].Payload.(board.ReleasePayload)
+	if !ok {
+		t.Fatalf("agent.release payload type = %T, want board.ReleasePayload", releases[0].Payload)
+	}
+	if payload.WorkerID != wid {
+		t.Fatalf("agent.release worker = %q, want %q", payload.WorkerID, wid)
+	}
+	if got := len(emissionsWithTopic(ems, board.TopicPullEvaluate)); got != 1 {
+		t.Errorf("pull.evaluate emissions = %d, want 1", got)
+	}
+	if got := len(emissionsWithTopic(ems, board.TopicBoardUpdated)); got != 1 {
+		t.Errorf("board.updated emissions = %d, want 1", got)
+	}
+	if got := len(emissionsWithTopic(ems, board.TopicFeedUpdated)); got != 1 {
+		t.Errorf("feed.updated emissions = %d, want 1", got)
 	}
 }
 

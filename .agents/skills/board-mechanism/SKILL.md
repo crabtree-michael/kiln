@@ -30,7 +30,10 @@ Reprioritize), `RequestApproval` (surface a shaping ticket as an 08 §5 proposal
 `MarkBlocked` (called by the brain, or by the runtime on mechanical failure),
 `AcceptToDone(ctx, projectID, id, link CompletionLink, doneCommit)` (records the landed
 commit + emits the done card), `ArchiveTicket` (soft delete — the brain's `delete_ticket`,
-06 §4 amended, superseding the strict D10 "no delete"), `GetTicket`, `GetBoard`,
+06 §4 amended, superseding the strict D10 "no delete"; deletable from shaping/ready/**blocked**/
+done — only *working* is refused, and a **blocked** delete releases the worker it held via
+`agent.release` + `pull.evaluate`, mirroring AcceptToDone, keeping state=blocked as history —
+2026-07-11-delete-blocked-ticket-design.md), `GetTicket`, `GetBoard`,
 `SetWorkerHealth` (driven by the agent-liveness reconciler), plus internal `RunPull`.
 Preconditions are strict: invalid or repeated transitions are typed errors (`ErrNotFound`,
 `ErrInvalidTransition`), never no-ops (D8). Every mutation returns the updated Ticket and
@@ -81,7 +84,11 @@ invokes the agent-runtime module (D5, superseding 02 §5's topology sketch). The
 only infrastructure dependency is Postgres.
 
 **Persistence (03 §8).** `text + CHECK` for `state`, not a native enum (D6). CHECK
-constraints enforce I1/I3/I4; the partial unique index enforces I2. Changing capacity =
+constraints enforce I1/I3/I4; the partial unique index enforces I2. **I3 binds only
+LIVE rows** (`archived_at IS NULL`, migration 0011): an archived row may be blocked with
+a NULL `worker_id` — the delete-a-blocked-ticket path releases the worker while keeping
+state=blocked as history. I4 still binds every row (a deleted blocked ticket keeps its
+reason). Changing capacity =
 inserting or deleting worker rows; `ReconcileWorkers` at startup **grows or shrinks** the pool
 to match the configured count (a shrink deletes only free slots, via `FOR UPDATE … SKIP
 LOCKED`).
@@ -108,8 +115,10 @@ backend/internal/board/
   service.go    Service — the Board API: all 03 §4 operations incl. RunPull
   postgres/     store adapter (implements board.Store / board.Tx)
     migrations/ 0001_board.sql (03 §8 DDL), 0002_outbox.sql (04 §2, shared with runtime),
-                0003–0010 (approval, outbox topics, archived_at, completion topic,
-                state_changed_at, project_id, worker_health, done_commit)
+                0003–0011 (approval, outbox topics, archived_at, completion topic,
+                state_changed_at, project_id, worker_health, done_commit,
+                worker_binding_live: I3 scoped to live rows so a deleted blocked
+                ticket can be archived worker-less)
 ```
 
 - Build/check from `/backend`: `gofmt -l . && go vet ./... && go build ./...` (module

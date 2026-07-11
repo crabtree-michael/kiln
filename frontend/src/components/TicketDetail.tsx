@@ -29,14 +29,14 @@ export interface TicketDetailProps {
    * moves a shaped proposal into the pull, so every later state (ready, working,
    * blocked, done) has already passed that point and shows no button regardless. */
   onAccept?: (ticketId: string) => void;
-  /** When provided, a shaping proposal also shows a Delete action — the user can
-   * discard a proposal that is no longer relevant without leaving the detail
-   * sheet. Like Accept it only appears while the ticket is still shaping (a
-   * proposal); every later state (ready, working, blocked, done) is past the
-   * point where discarding a proposal makes sense and shows no button. The caller
-   * routes the deletion through the brain (D5), which archives the ticket via
-   * delete_ticket. Omitted → no Delete affordance (the debug board's read-only
-   * inspection, and non-shaping states). */
+  /** When provided, the sheet shows a Delete action in the bottom-left for the
+   * states in DELETABLE_STATES — a shaping proposal the user wants to discard, or
+   * a blocked ticket stuck in development (a duplicate the pull already picked up).
+   * The other states show no button: working has a live agent mid-turn, and
+   * ready/done are out of this first pass. The caller routes the deletion through
+   * the brain (D5), which archives the ticket via delete_ticket — and for a
+   * blocked ticket the board also releases the worker it held. Omitted → no Delete
+   * affordance (the debug board's read-only inspection). */
   onDelete?: ((ticketId: string) => void) | undefined;
   /** When provided on a *blocked* ticket, the Accept action is replaced by a Talk
    * button — the blocked work can't be accepted, only discussed. Tapping it hands
@@ -102,6 +102,23 @@ const STATUS_LABELS: Partial<Record<Ticket['state'], string>> = {
   done: 'Done',
 };
 
+/** The lifecycle states whose detail sheet offers a Delete button, when the
+ * caller wires `onDelete`. Shaping (discard a proposal) and blocked (delete a
+ * ticket stuck in development — a duplicate the pull already picked up, whose
+ * worker the board releases on archive) are deletable directly; every other
+ * state is not (working has a live agent mid-turn; done/ready are left out of
+ * this first pass — 2026-07-11-delete-blocked-ticket-design.md D3). This set is
+ * the single seam for widening the affordance to another state later. */
+const DELETABLE_STATES = new Set<Ticket['state']>(['shaping', 'blocked']);
+
+/** Confirm copy for deleting a *blocked* ticket. Unlike discarding a shaping
+ * proposal (cheap, re-proposable, so it deletes immediately), deleting a blocked
+ * ticket tears down its worker and discards the in-progress development work, and
+ * there is no un-archive in the product — so it is gated behind a confirm that
+ * names the consequence (D4). */
+const DELETE_BLOCKED_CONFIRM =
+  "Delete this blocked ticket? Its in-progress work will be discarded and can't be recovered here.";
+
 /** A labelled row in the metadata list, omitted entirely when the value is null. */
 function MetaRow({ label, value }: { label: string; value: string | null }): JSX.Element | null {
   if (value === null) {
@@ -156,13 +173,15 @@ export function TicketDetail({
   const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
   const canTalk = isBlocked && onTalk !== undefined;
   const canAccept = isShaping && onAccept !== undefined;
-  // The bottom-left lead cluster holds the proposal's secondary affordances — the
-  // voice mic and the Delete button. Both ride the same shaping-only gate as
-  // Accept (a proposal is only ever a shaping ticket) and are wired only on the
-  // primary screen (the /debug board leaves both undefined). They sit left of the
-  // trailing Accept/Talk/Poke — the bottom-left pair 08 §5 calls for.
+  // The bottom-left lead cluster holds the sheet's secondary affordances — the
+  // voice mic and the Delete button — wired only on the primary screen (the
+  // /debug board leaves both undefined). They sit left of the trailing
+  // Accept/Talk/Poke — the bottom-left pair 08 §5 calls for. The mic stays
+  // shaping-only (a proposal is the only place voice-shaping applies); Delete now
+  // shows in any DELETABLE_STATES state (shaping or blocked), so on a blocked
+  // sheet the cluster renders holding just Delete, left of the trailing Talk/Poke.
   const showVoice = isShaping && voiceControl !== undefined;
-  const canDelete = isShaping && onDelete !== undefined;
+  const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -267,21 +286,28 @@ export function TicketDetail({
             <div data-role="ticket-detail-actions">
               {/* Bottom-left cluster: the mic and the Delete button — the pair
                   08 §5 calls for. `margin-right: auto` on it pushes the trailing
-                  state action (Accept/Talk/Poke) to the right; absent (every
-                  non-proposal sheet) the row is byte-identical to the old flex-end
-                  footer. */}
+                  state action (Accept/Talk/Poke) to the right; absent (a sheet with
+                  neither voice nor delete) the row is byte-identical to the old
+                  flex-end footer. */}
               {(showVoice || canDelete) && (
                 <div data-role="ticket-detail-lead-actions">
                   {showVoice && voiceControl}
-                  {/* isShaping is already guaranteed here (the cluster only renders
-                      when showVoice||canDelete, both shaping-only), so this narrows
-                      on the callback alone — TypeScript needs the direct !== check
-                      to know it's defined in onClick (a derived boolean wouldn't). */}
-                  {onDelete !== undefined && (
+                  {/* Delete shows for a DELETABLE_STATES ticket with onDelete
+                      wired. Inline the state + callback check (not the derived
+                      canDelete) so TypeScript narrows onDelete to defined inside
+                      onClick — mirroring the Poke/Talk buttons below. */}
+                  {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
                     <button
                       type="button"
                       data-role="detail-delete"
                       onClick={() => {
+                        // A blocked delete discards in-progress work and releases
+                        // a worker, with no un-archive — so confirm it (D4). A
+                        // shaping proposal is cheap and re-proposable: delete it
+                        // immediately, no confirm.
+                        if (ticket.state === 'blocked' && !window.confirm(DELETE_BLOCKED_CONFIRM)) {
+                          return;
+                        }
                         onDelete(ticket.id);
                       }}
                     >

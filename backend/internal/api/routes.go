@@ -383,7 +383,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/feed/dismiss-all", s.withProject(s.handleFeedDismissAll))
 	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.withProject(s.handleFeedDismiss))
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.withProject(s.handleAccept))
-	mux.HandleFunc("POST /api/tickets/{id}/delete", s.withProject(s.handleDeleteProposal))
+	mux.HandleFunc("POST /api/tickets/{id}/delete", s.withProject(s.handleDeleteTicket))
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
@@ -753,35 +753,57 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request, _ identity
 	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
 }
 
-// handleDeleteProposal routes a tap-Delete on a proposal through the brain,
-// mirroring handleAccept: a proposal is a shaping ticket, so removing one means
-// the brain's delete_ticket (BoardAPI.ArchiveTicket) — but the client never
-// mutates the board directly (D5). Look up the ticket's title, synthesize an
+// handleDeleteTicket routes a tap-Delete in the ticket-detail sheet through the
+// brain, mirroring handleAccept: removing a ticket means the brain's
+// delete_ticket (BoardAPI.ArchiveTicket) — but the client never mutates the
+// board directly (D5). Look up the ticket's title and state, synthesize an
 // explicit deletion instruction, and post it exactly like POST /api/message so
-// the brain archives the ticket. Returns 202 {event_id, message_id} — the same
-// reconcile ids as a normal send.
-func (s *Server) handleDeleteProposal(
+// the brain archives the ticket. Naming the state lets the brain and its
+// prompt reason correctly about a blocked delete (which also releases the
+// ticket's worker) versus a plain backlog/done delete. Returns 202
+// {event_id, message_id} — the same reconcile ids as a normal send.
+func (s *Server) handleDeleteTicket(
 	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
 ) {
 	id := r.PathValue("id")
 	title := id // fall back to the id if the title lookup fails or misses.
+	// noun defaults to a plain "ticket"; a resolved lookup upgrades it to the
+	// user-facing label for the ticket's state so the instruction reads right
+	// ("the blocked ticket …", "the proposal …").
+	noun := "ticket"
 	if snap, err := s.boards.GetBoard(r.Context(), project.ID); err == nil {
 		if t, ok := findTicket(snap, id); ok {
 			title = t.Title
+			noun = deleteNounForState(t.State)
 		}
 	}
 	text := fmt.Sprintf(
-		"The user tapped Delete on the proposal %q (ticket %s). "+
+		"The user tapped Delete on the %s %q (ticket %s). "+
 			"Delete that ticket now; do not ask for confirmation.",
-		title, id,
+		noun, title, id,
 	)
 	messageID, eventID, err := s.poster.PostMessage(r.Context(), project.ID, text)
 	if err != nil {
-		slog.Error("api: delete proposal", "err", err)
-		http.Error(w, "delete proposal", http.StatusInternalServerError)
+		slog.Error("api: delete ticket", "err", err)
+		http.Error(w, "delete ticket", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
+}
+
+// deleteNounForState names the ticket in the synthesized delete instruction the
+// way the user sees it on the sheet: a shaping ticket is a "proposal" (08 §5), a
+// blocked ticket is a "blocked ticket" (so the brain knows the delete releases a
+// worker), everything else a plain "ticket".
+func deleteNounForState(state board.State) string {
+	switch state {
+	case board.StateShaping:
+		return "proposal"
+	case board.StateBlocked:
+		return "blocked ticket"
+	default:
+		return "ticket"
+	}
 }
 
 // handleVoiceToken mints a short-lived AssemblyAI streaming token (09 §6) and

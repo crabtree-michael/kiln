@@ -159,9 +159,74 @@ describe('TicketDetail', () => {
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   });
 
-  it('never offers Delete once past shaping — only a proposal can be discarded', () => {
+  it('never offers Delete on a working ticket — a live agent is mid-turn', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} onDelete={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
+  it('shows Delete on a blocked ticket and calls onDelete once the confirm is accepted', () => {
+    const onDelete = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const blocked = makeTicket({
+      id: 't-blocked',
+      title: 'A duplicate stuck in dev',
+      body: 'body',
+      state: 'blocked',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+      blockedReason: 'Duplicate of t-1.',
+    });
+    render(<TicketDetail ticket={blocked} onClose={vi.fn()} onDelete={onDelete} />);
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onDelete).toHaveBeenCalledWith('t-blocked');
+    confirm.mockRestore();
+  });
+
+  it('does not delete a blocked ticket when the confirm is dismissed', () => {
+    const onDelete = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const blocked = makeTicket({
+      id: 't-blocked',
+      title: 'A duplicate stuck in dev',
+      body: 'body',
+      state: 'blocked',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+      blockedReason: 'Duplicate of t-1.',
+    });
+    render(<TicketDetail ticket={blocked} onClose={vi.fn()} onDelete={onDelete} />);
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onDelete).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('deletes a shaping proposal without a confirm — cheap and re-proposable', () => {
+    const onDelete = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm');
+    const shaping = makeTicket({
+      id: 't-shape2',
+      title: 'A shaped proposal',
+      body: 'body',
+      state: 'shaping',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={shaping} onClose={vi.fn()} onDelete={onDelete} />);
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(onDelete).toHaveBeenCalledWith('t-shape2');
+    confirm.mockRestore();
   });
 
   it('shows an "in progress" status indicator for a working ticket', () => {

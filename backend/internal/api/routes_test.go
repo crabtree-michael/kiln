@@ -915,6 +915,34 @@ func TestHandleDeleteProposal_PostsSynthesizedMessageAndReturns202(t *testing.T)
 	}
 }
 
+// Deleting a *blocked* ticket names it "the blocked ticket" so the brain knows
+// the delete releases a worker (delete-a-stuck-duplicate path).
+func TestHandleDeleteTicket_BlockedNamesTheBlockedTicket(t *testing.T) {
+	reason := "duplicate of t-1"
+	wid := board.WorkerID("w1")
+	boards := &fakeBoardReader{snapshot: board.Snapshot{
+		Blocked: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateBlocked, WorkerID: &wid, BlockedReason: &reason}},
+	}}
+	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
+	srv := api.NewServer(
+		boards, poster, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(enableSession(srv).Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/tickets/t-42/delete", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	want := `The user tapped Delete on the blocked ticket "Payment retries" (ticket t-42). ` +
+		`Delete that ticket now; do not ask for confirmation.`
+	if got := poster.lastText(); got != want {
+		t.Errorf("posted text =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
 func TestHandleDeleteProposal_UnknownTicketFallsBackToID(t *testing.T) {
 	boards := &fakeBoardReader{} // empty snapshot: no ticket matches.
 	poster := &fakeMessagePoster{}

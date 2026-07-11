@@ -163,6 +163,21 @@ func TestCheckConstraint_WorkerIDForbiddenWhenInactive(t *testing.T) {
 	}
 }
 
+// I3 binds only LIVE rows (migration 0011): an ARCHIVED blocked row may hold a
+// NULL worker_id — deleting a blocked ticket archives it and releases its worker,
+// so the off-board row is blocked with no worker. The same shape without
+// archived_at still violates I3 (asserted above).
+func TestCheckConstraint_ArchivedBlockedRowMayHoldNoWorker(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO tickets (id, title, state, worker_id, blocked_reason, archived_at)
+		VALUES (gen_random_uuid(), 'x', 'blocked', NULL, 'why', now())`)
+	if err != nil {
+		t.Fatalf("archived blocked row with NULL worker_id must satisfy the live-scoped I3: %v", err)
+	}
+}
+
 // ---- I4: blocked_reason non-null iff state = blocked ---------------------
 
 func TestCheckConstraint_BlockedReasonRequiredWhenBlocked(t *testing.T) {

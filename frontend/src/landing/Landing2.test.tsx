@@ -21,7 +21,7 @@ describe('Landing2', () => {
     renderLanding();
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      /shipped a whole Pac-Man with a team of agents/i,
+      /Orchestrate a team of coding agents from anywhere you are/i,
     );
 
     // The hero embeds the signup form inline; the closing banner is gone, so its

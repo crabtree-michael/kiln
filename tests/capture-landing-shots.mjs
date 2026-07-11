@@ -154,18 +154,18 @@ async function primary(theme) {
 // posted in this order so the "win screen" completion lands last and therefore
 // sits at the TOP of the newest-first feed — the triumphant final green check.
 const PACMAN = [
-  { title: 'game-loop', body: 'Fixed-step loop, tile grid, and the READY! intro.' },
-  { title: 'maze-render', body: 'Draw the maze walls, gates, and the pellet grid.' },
-  { title: 'pac-movement', body: 'Grid-locked movement with tile-snapping turns.' },
-  { title: 'ghost-ai-blinky', body: "Blinky's relentless direct-chase targeting." },
-  { title: 'ghost-ai-pinky', body: 'Pinky ambushes four tiles ahead of Pac-Man.' },
-  { title: 'ghost-ai-inky', body: "Inky's vector off Blinky and Pac-Man." },
-  { title: 'ghost-ai-clyde', body: 'Clyde chases, then scatters when close.' },
-  { title: 'power-pellets', body: 'Frightened mode: ghosts flee and turn blue.' },
-  { title: 'fruit-bonus', body: 'Spawn the cherry and strawberry bonuses.' },
-  { title: 'score-and-lives', body: 'HUD for score, high score, and lives.' },
-  { title: 'sound-waka', body: 'Waka-waka chomp, siren, and the death jingle.' },
-  { title: 'win-screen', body: 'Clear the maze → the level-complete flash and next board.' },
+  { title: 'Game loop and grid', body: 'Fixed-step loop, tile grid, and the READY! intro.' },
+  { title: 'Maze rendering', body: 'Draw the maze walls, gates, and the pellet grid.' },
+  { title: 'Pac-Man movement', body: 'Grid-locked movement with tile-snapping turns.' },
+  { title: "Blinky's chase AI", body: "Blinky's relentless direct-chase targeting." },
+  { title: "Pinky's ambush AI", body: 'Pinky ambushes four tiles ahead of Pac-Man.' },
+  { title: "Inky's flank AI", body: "Inky's vector off Blinky and Pac-Man." },
+  { title: "Clyde's scatter AI", body: 'Clyde chases, then scatters when close.' },
+  { title: 'Power pellets', body: 'Frightened mode: ghosts flee and turn blue.' },
+  { title: 'Fruit bonuses', body: 'Spawn the cherry and strawberry bonuses.' },
+  { title: 'Score and lives', body: 'HUD for score, high score, and lives.' },
+  { title: 'Waka-waka sound', body: 'Waka-waka chomp, siren, and the death jingle.' },
+  { title: 'Win screen', body: 'Clear the maze → the level-complete flash and next board.' },
 ];
 
 async function pacman(theme) {

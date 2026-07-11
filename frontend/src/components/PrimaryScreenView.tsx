@@ -19,7 +19,6 @@ import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import { TicketDetail } from '@/components/TicketDetail';
 import { ActivityRow } from '@/components/ActivityRow';
-import { SystemAlertBand } from '@/components/SystemAlertBand';
 import { Dock } from '@/components/Dock';
 import { MicButton } from '@/components/MicButton';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
@@ -427,12 +426,12 @@ export function PrimaryScreenView({
           onToastExpandedChange={onToastExpandedChange}
           onOpenTicket={setOpenTicketId}
         />
-        {/* The permanent error band sits at the TOP of the dock region, in flow,
-            so a persistent failure (e.g. sandboxes down) reserves its own space
-            above the dock rather than floating over the feed like a toast. Empty
-            alerts render nothing, leaving the idle layout untouched. */}
-        <SystemAlertBand alerts={board?.alerts ?? []} />
-        <Dock />
+        {/* The permanent error band is rendered INSIDE the dock (as its first
+            child), not here — so the live-transcript overlay grows above it rather
+            than painting over it. It still reserves its own space above the dock's
+            controls; empty alerts render nothing, leaving the idle layout
+            untouched. */}
+        <Dock alerts={board?.alerts ?? []} />
       </div>
 
       {openTicket !== null && (

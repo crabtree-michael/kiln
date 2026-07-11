@@ -11,8 +11,20 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { useVoice } from '@/voice/voice-context';
 import { MicButton } from '@/components/MicButton';
+import { SystemAlertBand } from '@/components/SystemAlertBand';
+import type { SystemAlert } from '@/transport/transport';
 
-export function Dock(): JSX.Element {
+export interface DockProps {
+  /** Persistent system-health alerts, surfaced as the permanent error band at the
+   * very top of the dock (above the controls). Rendered HERE rather than as a
+   * dock-region sibling so the live-transcript overlay — anchored to the dock's
+   * top edge (`bottom: 100%`) — grows ABOVE the band instead of painting over it
+   * (the transcript is opaque and out-ranks an in-flow sibling). Defaults to none
+   * so presentational tests can mount the dock without board state. */
+  alerts?: SystemAlert[];
+}
+
+export function Dock({ alerts = [] }: DockProps): JSX.Element {
   const {
     micState,
     settledText,
@@ -173,6 +185,12 @@ export function Dock(): JSX.Element {
 
   return (
     <div data-role="dock" data-dock-state={keyboardMode ? 'keyboard' : micState}>
+      {/* The permanent error band sits at the TOP of the dock, in flow above the
+          controls. It must be a child of the dock (not a dock-region sibling) so
+          the transcript's `bottom: 100%` anchor lands at the band's top and the
+          overlay grows above it — see SystemAlertBand / PrimaryScreen.css. Renders
+          nothing when there are no alerts, leaving the idle dock untouched. */}
+      <SystemAlertBand alerts={alerts} />
       {showField && (
         <div
           data-role="dock-transcript"

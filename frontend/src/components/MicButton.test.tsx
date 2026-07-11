@@ -96,4 +96,47 @@ describe('MicButton', () => {
     render(<MicButton showLabel />);
     expect(screen.getByText('Connecting…')).toHaveAttribute('data-role', 'dock-label');
   });
+
+  it('stays a mic orb when send-aware but no transcript is on screen', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
+    const { container } = render(<MicButton sendable />);
+    expect(container.querySelector('[data-role="dock-mic-orb"]')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+  });
+
+  it('swaps the orb for send + clear once a transcript is on screen (send-aware)', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'hello', tailText: '' });
+    const { container } = render(<MicButton sendable />);
+    expect(container.querySelector('[data-role="dock-mic-orb"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute('data-role', 'dock-send');
+    expect(screen.getByRole('button', { name: 'Clear' })).toHaveAttribute(
+      'data-role',
+      'dock-cancel',
+    );
+  });
+
+  it('shows send + clear on a still-forming tail alone (send-aware)', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: 'typing' });
+    render(<MicButton sendable />);
+    expect(screen.getByRole('button', { name: 'Send' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Clear' })).not.toBeNull();
+  });
+
+  it('send commits the shown transcript, clear discards it (send-aware)', () => {
+    const sendNow = vi.fn();
+    const cancel = vi.fn();
+    mockVoiceValue = stubVoice({ settledText: 'hello', sendNow, cancel });
+    render(<MicButton sendable />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendNow).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a transcript when not send-aware (the dock owns its own send/cancel)', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'hello' });
+    const { container } = render(<MicButton />);
+    expect(container.querySelector('[data-role="dock-mic-orb"]')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+  });
 });

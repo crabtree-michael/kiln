@@ -443,9 +443,12 @@ export function PrimaryScreenView({
           agentIdle={openAgentIdle}
           // The bottom-left mic on a proposal sheet (TicketDetail gates it to
           // shaping): the same dock orb, tapped to start a voice session about the
-          // proposal without leaving the sheet. Safe to always pass — it only
-          // mounts (and touches the voice store) when the sheet renders it.
-          voiceControl={<MicButton />}
+          // proposal without leaving the sheet. `sendable` makes it transform into
+          // a send button + clear (×) the moment a transcript is on screen, so the
+          // user can commit or reset the utterance without reaching for the dock
+          // behind the sheet. Safe to always pass — it only mounts (and touches the
+          // voice store) when the sheet renders it.
+          voiceControl={<MicButton sendable />}
           onClose={() => {
             setOpenTicketId(null);
           }}

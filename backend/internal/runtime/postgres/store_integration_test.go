@@ -233,7 +233,8 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 	tid := "tk-done"
 
 	const wantURL, wantLabel = "https://github.com/o/r/commit/abcdef1234567", "abcdef1"
-	posted, err := store.PostCompletionCard(ctx, projA, key, tid, "", wantURL, wantLabel)
+	const wantSummary = "Refactored the widget pipeline and added tests."
+	posted, err := store.PostCompletionCard(ctx, projA, key, tid, "", wantURL, wantLabel, wantSummary)
 	if err != nil {
 		t.Fatalf("PostCompletionCard (first): %v", err)
 	}
@@ -241,7 +242,7 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 		t.Fatal("first PostCompletionCard reported posted=false, want true")
 	}
 
-	posted, err = store.PostCompletionCard(ctx, projA, key, tid, "", wantURL, wantLabel)
+	posted, err = store.PostCompletionCard(ctx, projA, key, tid, "", wantURL, wantLabel, wantSummary)
 	if err != nil {
 		t.Fatalf("PostCompletionCard (redelivery): %v", err)
 	}
@@ -265,16 +266,20 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 		t.Errorf("completion card kind = %q, want done", kind)
 	}
 
-	// The GitHub link (08 §7) round-trips onto the persisted row: the feed reads
-	// these columns back to render the done card's clickable second line.
-	var gotURL, gotLabel string
+	// The GitHub link and work summary (08 §7) round-trip onto the persisted row:
+	// the feed reads these columns back to render the done card's clickable second
+	// line and its commit/PR summary.
+	var gotURL, gotLabel, gotSummary string
 	if err := db.QueryRowContext(ctx,
-		`SELECT github_url, github_label FROM notifications WHERE idempotency_key = $1`, key).
-		Scan(&gotURL, &gotLabel); err != nil {
+		`SELECT github_url, github_label, work_summary FROM notifications WHERE idempotency_key = $1`, key).
+		Scan(&gotURL, &gotLabel, &gotSummary); err != nil {
 		t.Fatalf("read completion github link: %v", err)
 	}
 	if gotURL != wantURL || gotLabel != wantLabel {
 		t.Errorf("completion github link = %q/%q, want %q/%q", gotURL, gotLabel, wantURL, wantLabel)
+	}
+	if gotSummary != wantSummary {
+		t.Errorf("completion work summary = %q, want %q", gotSummary, wantSummary)
 	}
 
 	// Only the accepted insert fans out; the duplicate must not enqueue a second.

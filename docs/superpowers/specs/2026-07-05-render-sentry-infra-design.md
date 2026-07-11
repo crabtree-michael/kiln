@@ -88,9 +88,10 @@ the `kiln-backend` project was created during setup and `.env` updated to its re
 
 ## Status (2026-07-05) — deployed
 
-Live at **https://kiln-iubn.onrender.com** (Render Virginia). Resources:
-`srv-d953nmcvikkc73d8aq60` (web) + `dpg-d953mf8js32c73fc5ogg-a` (Postgres 16,
-basic_256mb). Provisioned via the Render API (headless), not a Blueprint apply.
+Live at the production URL (Render Virginia). Resources: the web service +
+managed Postgres 16 (basic_256mb). Provisioned via the Render API (headless),
+not a Blueprint apply. (Concrete URL and resource IDs kept in the Render
+dashboard, not committed.)
 Verified in prod: `/healthz` 200, embedded SPA, `/debug` fallback, `/api/stream`
 SSE. Backend Sentry ingestion confirmed end-to-end (`kiln-backend`). App honors
 Render's `PORT`.

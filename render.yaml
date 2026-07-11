@@ -57,8 +57,11 @@ services:
         sync: false
       # BARE email, no mailto: prefix — webpush-go prepends mailto: itself, and a
       # doubled prefix makes Apple reject every JWT with 403 BadJwtToken.
+      # NOTE: set out-of-band in the Render dashboard to a real reachable
+      # contact (bare email, no mailto:). Left blank here to avoid committing a
+      # personal address; a blank sub is fine for the topology record.
       - key: VAPID_SUBJECT               # VAPID "sub" claim contact
-        value: accounts@macmail.app
+        sync: false
       # --- build-time (available to the Docker build; frontend bundle + source maps) ---
       - key: VITE_SENTRY_DSN           # public client DSN, baked into the bundle
         sync: false

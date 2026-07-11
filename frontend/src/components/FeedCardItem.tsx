@@ -15,14 +15,16 @@
 // (right-aligned, with a tiny chevron) so the truncation reads as more, not as
 // text that just stops. The cue is decoration inside the body, not its own tap
 // target, and only appears while the body is actually clamped.
-// The *action* behind the tap differs by kind: update/blocker/preview cards make
-// the whole clamped body the tap target that expands it in place (tap again to
-// collapse). Proposal cards instead make the clamped body a click-through button
-// (`feed-card-open`) that opens the full ticket detail overlay (08 §5) — the
-// whole shaped ticket (title, full body, actions) is one tap away rather than
-// dumped in the feed. Either way the cue is the same; only where the tap lands
-// changes. The inline Accept stays a *sibling* of that button — never nested —
-// so tapping Accept accepts without also opening the detail.
+// The *action* behind the tap differs by kind: blocker/preview cards — and
+// updates with no linked ticket — make the whole clamped body the tap target
+// that expands it in place (tap again to collapse). Proposal cards and
+// ticket-linked update cards instead make the clamped body a click-through
+// button (`feed-card-open`) that opens the full ticket detail overlay (08 §5) —
+// the whole ticket (title, full body, actions) is one tap away rather than
+// dumped in the feed, so a feed update is a shortcut into its ticket's context.
+// Either way the cue is the same; only where the tap lands changes. The inline
+// Accept stays a *sibling* of that button — never nested — so tapping Accept
+// accepts without also opening the detail.
 //
 // Already-seen cards (below the last-seen divider, 08 D2′) render de-emphasized
 // via `seen`: an unbolded ticket name and a body collapsed tighter than the
@@ -150,21 +152,24 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
 }
 
 /**
- * The proposal card body: a click-through button (`feed-card-open`) that opens
- * the full ticket detail overlay (08 §5) instead of expanding in place. The body
- * stays permanently clamped to three lines — the full record lives in the
- * overlay, not the feed — so it wears the same "tap to see more" cue as every
- * other kind whenever it overflows (measured here, `active` always true since it
- * never expands). The Accept button is a sibling of this one, never nested (see
- * FeedCardItem), so accepting doesn't also open the detail.
+ * The click-through card body for kinds that open the full ticket detail overlay
+ * (08 §5) instead of expanding in place — proposals and ticket-linked updates. A
+ * button (`feed-card-open`) whose body stays permanently clamped to three lines
+ * (two when `seen`) — the full record lives in the overlay, not the feed — so it
+ * wears the same "tap to see more" cue as every other kind whenever it overflows
+ * (measured here, `active` always true since it never expands). For a proposal
+ * the Accept button is a sibling of this one, never nested (see FeedCardItem), so
+ * accepting doesn't also open the detail.
  */
-function ProposalCardBody({
+function OpenDetailCardBody({
   body,
   label,
+  seen,
   onOpen,
 }: {
   body: string;
   label: string;
+  seen: boolean;
   onOpen: () => void;
 }): JSX.Element {
   const { ref, truncated } = useClampOverflow<HTMLSpanElement>(body, true);
@@ -175,7 +180,7 @@ function ProposalCardBody({
       aria-label={`Open ticket: ${label}`}
       onClick={onOpen}
     >
-      <span ref={ref} data-role="feed-card-body">
+      <span ref={ref} data-role="feed-card-body" data-seen={seen ? 'true' : undefined}>
         {body}
         {truncated && <SeeMoreCue />}
       </span>
@@ -193,10 +198,11 @@ export interface FeedCardItemProps {
    * the card de-emphasized — unbolded title, body collapsed tighter by default.
    * Defaults to false (the unseen/new treatment). */
   seen?: boolean;
-  /** Called with the proposal's ticket id when the card body is tapped to open
-   * the full ticket detail (08 §5). Omitted → the body renders inline/collapsible
-   * with no click-through (non-proposal kinds, or presentational tests with no
-   * board to resolve the ticket against). */
+  /** Called with the card's linked ticket id when the body is tapped to open the
+   * full ticket detail (08 §5) — for proposals and for activity updates that
+   * carry a ticket_id. Omitted → the body renders inline/collapsible with no
+   * click-through (updates with no linked ticket, other kinds, or presentational
+   * tests with no board to resolve the ticket against). */
   onOpenDetail?: (ticketId: string) => void;
 }
 
@@ -222,12 +228,16 @@ export function FeedCardItem({
   const showTag = card.kind === 'preview';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
-  // A proposal card is a digest that opens the full ticket detail on tap (08 §5).
-  // Narrow on the callback and id directly (not a derived boolean) so TypeScript
-  // knows both are defined inside the handler — no optional chain, which the lint
-  // gate rejects as unnecessary (mirrors TicketCard's onSelect).
+  // A proposal card, and any activity update carrying a linked ticket, is a
+  // digest that opens the full ticket detail on tap (08 §5): the feed update is a
+  // shortcut into its ticket's context rather than a dead-end note. Updates with
+  // no linked ticket fall through to the expand-in-place body below. Narrow on the
+  // callback and id directly (not a derived boolean) so TypeScript knows both are
+  // defined inside the handler — no optional chain, which the lint gate rejects as
+  // unnecessary (mirrors TicketCard's onSelect).
+  const linksToTicket = card.kind === 'proposal' || card.kind === 'update';
   const openDetail =
-    card.kind === 'proposal' && ticketId != null && onOpenDetail !== undefined
+    linksToTicket && ticketId != null && onOpenDetail !== undefined
       ? () => {
           onOpenDetail(ticketId);
         }
@@ -254,7 +264,7 @@ export function FeedCardItem({
       {!isPoke &&
         !isDone &&
         (openDetail !== null ? (
-          <ProposalCardBody body={card.body} label={card.label} onOpen={openDetail} />
+          <OpenDetailCardBody body={card.body} label={card.label} seen={seen} onOpen={openDetail} />
         ) : (
           <FeedCardBody body={card.body} seen={seen} />
         ))}

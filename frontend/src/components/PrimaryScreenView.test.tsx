@@ -540,6 +540,83 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('opens the linked ticket detail when a ticket-linked update card is tapped', () => {
+    // An activity update carrying a ticket_id is a shortcut into that ticket's
+    // context: tapping the body opens the same detail overlay as a proposal.
+    const update = makeFeedCard({
+      kind: 'update',
+      id: 'update:77',
+      label: 'Auth',
+      body: 'Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.',
+      ticketId: 't-auth',
+      notificationId: 77,
+      createdAt: minutesAgo(2),
+    });
+    const ticket = makeTicket({
+      id: 't-auth',
+      title: 'Auth',
+      body: `${'Rate limiting and the auth handshake, spelled out in full. '.repeat(6)}Acceptance criteria follow.`,
+      state: 'working',
+      priority: 1,
+      createdAt: minutesAgo(30),
+      updatedAt: minutesAgo(2),
+    });
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] })}
+        board={makeBoard({ working: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={noop}
+        now={NOW}
+      />,
+    );
+    // Nothing open until the card is tapped.
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // The update body is a click-through button (`feed-card-open`), not an
+    // expand-in-place paragraph — the same affordance a proposal card wears.
+    const open = screen.getByRole('button', { name: 'Open ticket: Auth' });
+    expect(open).toHaveAttribute('data-role', 'feed-card-open');
+
+    fireEvent.click(open);
+
+    // The full ticket detail sheet opens, showing the whole ticket body the feed
+    // digest clamps away. The dialog is named by its visible title.
+    const dialog = screen.getByRole('dialog', { name: 'Auth' });
+    expect(
+      within(dialog).getByText(ticket.body).closest('[data-role="ticket-detail-body"]'),
+    ).not.toBeNull();
+  });
+
+  it('keeps a ticket-less update card expandable in place (no click-through)', () => {
+    // An authored note with no linked ticket has nowhere to open — it stays the
+    // expand-in-place body, never the click-through button, even with a board.
+    fakeClampedOverflow();
+    const update = makeFeedCard({
+      kind: 'update',
+      id: 'update:88',
+      label: 'General',
+      body: 'A standalone status note the brain posted with no ticket behind it, long enough to clamp.',
+      notificationId: 88,
+      createdAt: minutesAgo(2),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }), {
+      board: makeBoard({}),
+    });
+    // No click-through affordance; the body itself is the in-place toggle.
+    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
+    const body = document.querySelector('[data-role="feed-card-body"]');
+    if (!(body instanceof HTMLElement)) {
+      throw new Error('expected the update feed card body');
+    }
+    expect(body).toHaveAttribute('data-clickable', 'true');
+    fireEvent.click(body);
+    expect(body).toHaveAttribute('data-expanded', 'true');
+  });
+
   describe('ticket detail affordances by state (deep-linked open)', () => {
     // A push-notification tap deep-links a ticket open by id (02 §10). Unlike a
     // proposal click-through (always Shaping), this opens whatever state the

@@ -370,6 +370,9 @@ type FeedCard struct {
 
 	// TicketId Set for blocker/proposal (the derived ticket); optional for authored notes.
 	TicketId *string `json:"ticket_id,omitempty"`
+
+	// WorkSummary Set for done cards — the one-line description of the landed work: the commit subject under the main merge gate, or the pull-request title under the PR gate. Rendered as the card body (08 §7). Null when unavailable.
+	WorkSummary *string `json:"work_summary,omitempty"`
 }
 
 // FeedCardKind blocker -> ticket in the Blocked zone (body is blocked_reason); proposal -> Shaping ticket with approval_requested (body is the shaped summary, Accept affordance shown); update -> brain-authored note; preview -> brain-authored note with an image; poke -> mechanical stall nudge (body empty; the ticket title carries a 👉); done -> mechanical completion card (body empty; the ticket title carries a ✅).

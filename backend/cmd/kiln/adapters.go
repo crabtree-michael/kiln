@@ -604,6 +604,7 @@ func (a *repoShellAdapter) VerifyOnMain(ctx context.Context, sha string) (brain.
 		OnMain:      v.OnMain,
 		URL:         v.URL,
 		Ref:         v.Ref,
+		Summary:     v.Summary,
 		Unavailable: v.Unavailable,
 		Reason:      v.Reason,
 	}, nil
@@ -617,6 +618,7 @@ func (a *repoShellAdapter) VerifyInPR(ctx context.Context, sha string) (brain.Re
 		InPR:        v.InPR,
 		URL:         v.URL,
 		Ref:         v.Ref,
+		Summary:     v.Summary,
 		Unavailable: v.Unavailable,
 		Reason:      v.Reason,
 	}, nil

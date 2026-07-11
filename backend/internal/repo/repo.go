@@ -53,10 +53,15 @@ type Config struct {
 // request page and Ref its "#<number>". Both are empty on a negative or
 // unavailable result.
 type Verify struct {
-	OnMain      bool
-	InPR        bool
-	URL         string
-	Ref         string
+	OnMain bool
+	InPR   bool
+	URL    string
+	Ref    string
+	// Summary is the one-line description of the landed work read gate-aligned
+	// from the verified artifact: the commit subject under merge-on-main, or the
+	// pull-request title under the PR gate. Surfaced as the done feed card's body
+	// (08 §7). Empty when it could not be read — a fail-soft body-less card.
+	Summary     string
 	Unavailable bool
 	Reason      string
 }
@@ -250,7 +255,10 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 	}
 	switch code, out := run("merge-base", "--is-ancestor", sha, "origin/main"); code {
 	case 0:
-		return Verify{OnMain: true, URL: commitURL(s.cfg.RepoURL, sha), Ref: shortSHA(sha)}
+		return Verify{
+			OnMain: true, URL: commitURL(s.cfg.RepoURL, sha), Ref: shortSHA(sha),
+			Summary: commitSubject(sha, run),
+		}
 	case 1:
 		return Verify{Reason: fmt.Sprintf("commit %s is not an ancestor of origin/main", sha)}
 	default:
@@ -266,10 +274,11 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 // exec/log wiring.
 func (s *Shell) verifyInPR(sha string, run func(args ...string) (int, string)) Verify {
 	// {owner}/{repo} are resolved by gh from the clone's origin remote; the --jq
-	// program (gh has jq built in) emits "<number>\t<html_url>" for the first
-	// associated PR, or nothing when the array is empty. A tab separates the two
-	// so a URL containing spaces (it won't, but be safe) still parses cleanly.
-	const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)" end`
+	// program (gh has jq built in) emits "<number>\t<html_url>\t<title>" for the
+	// first associated PR, or nothing when the array is empty. Tabs separate the
+	// fields so a value containing spaces (they won't, but be safe) still parses
+	// cleanly; the title is the card body under the PR gate (08 §7).
+	const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)\t\(.[0].title)" end`
 	code, out := run("api", "repos/{owner}/{repo}/commits/"+sha+"/pulls", "--jq", jq)
 	if code != 0 {
 		return Verify{Reason: fmt.Sprintf("gh could not list pull requests for %s (exit %d): %s", sha, code, out)}
@@ -277,8 +286,25 @@ func (s *Shell) verifyInPR(sha string, run func(args ...string) (int, string)) V
 	if out == "" {
 		return Verify{Reason: fmt.Sprintf("commit %s is not associated with any pull request", sha)}
 	}
-	number, url, _ := strings.Cut(out, "\t")
-	return Verify{InPR: true, URL: url, Ref: "#" + number}
+	// Fields are number, html_url, title in that order. The title is taken as the
+	// remainder after the second tab (so a title containing a tab — it won't, but
+	// be safe — still parses); an empty title leaves Summary "" → body-less card.
+	number, rest, _ := strings.Cut(out, "\t")
+	url, title, _ := strings.Cut(rest, "\t")
+	return Verify{InPR: true, URL: url, Ref: "#" + number, Summary: title}
+}
+
+// commitSubject reads the one-line subject of sha via `git show -s --format=%s`
+// on the already-fetched, ancestor-verified local commit — no network. %s yields
+// only the subject, so trailers (Co-Authored-By: …) never reach the card. Returns
+// "" on any non-zero exit so an unreadable subject just leaves the done card
+// body-less (fail-soft), never blocking the verified done.
+func commitSubject(sha string, run func(args ...string) (int, string)) string {
+	code, out := run("show", "-s", "--format=%s", sha)
+	if code != 0 {
+		return ""
+	}
+	return out
 }
 
 // disable records the reason and returns the shell in a disabled state.

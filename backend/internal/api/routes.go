@@ -1110,6 +1110,7 @@ func feedCardsToWire(in []runtime.FeedCard) []wire.FeedCard {
 			NotificationId: c.NotificationID,
 			GithubUrl:      c.GitHubURL,
 			GithubLabel:    c.GitHubLabel,
+			WorkSummary:    c.WorkSummary,
 			CreatedAt:      c.CreatedAt,
 		})
 	}

@@ -252,12 +252,15 @@ func (s *Service) MarkBlocked(ctx context.Context, projectID string, id TicketID
 // CompletionLink names the completed work on GitHub for the persistent "done"
 // feed card (08 §7): URL is the web page (a commit under merge-on-main, a pull
 // request under the PR gate) and Label the clickable text (abbreviated SHA or
-// "#<number>"). The brain fills it from the merge-gate verify it just ran; both
-// fields empty means no link is shown (e.g. repository verification was
-// unavailable — though the done gate refuses that case upstream).
+// "#<number>"). Summary is the landed work's one-line description — the commit
+// subject or PR title — rendered as the card body. The brain fills it from the
+// merge-gate verify it just ran; both link fields empty means no link is shown
+// (e.g. repository verification was unavailable — though the done gate refuses
+// that case upstream), and an empty Summary means a body-less card.
 type CompletionLink struct {
-	URL   string
-	Label string
+	URL     string
+	Label   string
+	Summary string
 }
 
 // AcceptToDone moves working|blocked → done, clearing the worker binding
@@ -303,7 +306,8 @@ func (s *Service) AcceptToDone(
 				Verb: "finished", TicketID: updated.ID, TicketTitle: updated.Title,
 			}},
 			{Topic: TopicFeedCompletion, Payload: CompletionPayload{
-				TicketID: updated.ID, TicketTitle: updated.Title, GitHubURL: link.URL, GitHubLabel: link.Label,
+				TicketID: updated.ID, TicketTitle: updated.Title,
+				GitHubURL: link.URL, GitHubLabel: link.Label, Summary: link.Summary,
 			}},
 			{Topic: TopicNotifySend, Payload: NotifyPayload{
 				TicketID: updated.ID, Title: updated.Title, Reason: notifyReasonDone,

@@ -284,7 +284,11 @@ func TestService_Feed_DoneCardCarriesGitHubLink(t *testing.T) {
 	}}
 	notes := &fakeNotificationStore{}
 	url, label := "https://github.com/o/r/commit/a1b2c3d", "a1b2c3d"
-	notes.seed(runtime.Notification{Kind: runtime.KindDone, TicketID: &tid, GitHubURL: &url, GitHubLabel: &label})
+	summary := "feat(web): ship the widget"
+	notes.seed(runtime.Notification{
+		Kind: runtime.KindDone, TicketID: &tid,
+		GitHubURL: &url, GitHubLabel: &label, WorkSummary: &summary,
+	})
 
 	snap, err := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{}).Feed(ctx, defaultTestProject)
 	if err != nil {
@@ -299,6 +303,9 @@ func TestService_Feed_DoneCardCarriesGitHubLink(t *testing.T) {
 	}
 	if c.GitHubURL == nil || *c.GitHubURL != url || c.GitHubLabel == nil || *c.GitHubLabel != label {
 		t.Errorf("done card github link = %v/%v, want %q/%q", c.GitHubURL, c.GitHubLabel, url, label)
+	}
+	if c.WorkSummary == nil || *c.WorkSummary != summary {
+		t.Errorf("done card work summary = %v, want %q", c.WorkSummary, summary)
 	}
 }
 
@@ -675,7 +682,8 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	_, outboxWorker := svc.Workers(clock)
 	store.seed(runtime.QueueOutbox, "feed.completion",
 		[]byte(`{"ticket_id":"t1","ticket_title":"Build the widget",`+
-			`"github_url":"https://github.com/o/r/pull/7","github_label":"#7"}`), 0)
+			`"github_url":"https://github.com/o/r/pull/7","github_label":"#7",`+
+			`"summary":"feat(web): build the widget"}`), 0)
 
 	stop := runWorker(t, outboxWorker)
 	defer stop()
@@ -701,6 +709,11 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	if posts[0].GitHubURL != "https://github.com/o/r/pull/7" || posts[0].GitHubLabel != "#7" {
 		t.Errorf("completion github link = %q/%q, want the payload's pull-request URL + #7",
 			posts[0].GitHubURL, posts[0].GitHubLabel)
+	}
+	// The work summary on the payload threads through to the completion card so the
+	// feed can render the done card's body (08 §7).
+	if posts[0].WorkSummary != "feat(web): build the widget" {
+		t.Errorf("completion work summary = %q, want the payload's summary", posts[0].WorkSummary)
 	}
 	if posts[0].ProjectID != defaultTestProject {
 		t.Errorf("completion card posted for project %q, want the outbox entry's %q (11 §3)",

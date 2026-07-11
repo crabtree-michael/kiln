@@ -65,6 +65,10 @@ type FeedCard struct {
 	// "#<number>"), rendered as the card's second line. Nil otherwise.
 	GitHubURL   *string
 	GitHubLabel *string
+	// WorkSummary is set on kind=done cards (08 §7): the landed work's one-line
+	// description (commit subject or PR title), rendered as the card body. Nil
+	// otherwise, and on a done card whose summary was unavailable.
+	WorkSummary *string
 	CreatedAt   time.Time
 }
 

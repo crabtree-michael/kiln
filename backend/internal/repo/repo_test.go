@@ -222,6 +222,8 @@ func TestVerifyOnMain(t *testing.T) {
 		t.Fatalf("expected OnMain for merged commit %s; got %+v", onMain, v)
 	} else if v.Ref != onMain[:7] || !strings.HasSuffix(v.URL, "/commit/"+onMain) {
 		t.Fatalf("expected commit link (ref %s, .../commit/%s); got ref %q url %q", onMain[:7], onMain, v.Ref, v.URL)
+	} else if v.Summary != "seed: initial commit" {
+		t.Fatalf("expected commit subject as Summary; got %q", v.Summary)
 	}
 	if v := s.VerifyOnMain(context.Background(), offMain); v.OnMain {
 		t.Fatalf("expected NOT OnMain for unmerged branch commit %s; got %+v", offMain, v)
@@ -269,24 +271,35 @@ func TestVerifyOnMain_FetchesFreshCommits(t *testing.T) {
 }
 
 // TestVerifyInPR drives the pure decision over a fake gh runner: the outcome
-// hinges only on gh's exit code and the "<number>\t<html_url>" line the --jq
-// program prints, so a stubbed runner exercises every branch (including the URL
-// and Ref it lifts for the feed link) without a real GitHub API.
+// hinges only on gh's exit code and the "<number>\t<html_url>\t<title>" line the
+// --jq program prints, so a stubbed runner exercises every branch (including the
+// URL, Ref and Summary it lifts for the feed link and card body) without a real
+// GitHub API.
 func TestVerifyInPR(t *testing.T) {
 	var s Shell
 	const sha = "abc1234"
 
 	cases := []struct {
-		name     string
-		code     int
-		out      string
-		wantInPR bool
-		wantURL  string
-		wantRef  string
+		name        string
+		code        int
+		out         string
+		wantInPR    bool
+		wantURL     string
+		wantRef     string
+		wantSummary string
 	}{
-		{"associated with a PR", 0, "42\thttps://github.com/o/r/pull/42", true, "https://github.com/o/r/pull/42", "#42"},
-		{"no associated PR (empty output)", 0, "", false, "", ""},
-		{"gh error (unknown commit / auth)", 1, "HTTP 422: No commit found for SHA", false, "", ""},
+		{
+			"associated with a PR", 0,
+			"42\thttps://github.com/o/r/pull/42\tfix(web): show a 404 page",
+			true, "https://github.com/o/r/pull/42", "#42", "fix(web): show a 404 page",
+		},
+		{
+			"associated with a PR, empty title", 0,
+			"42\thttps://github.com/o/r/pull/42\t",
+			true, "https://github.com/o/r/pull/42", "#42", "",
+		},
+		{"no associated PR (empty output)", 0, "", false, "", "", ""},
+		{"gh error (unknown commit / auth)", 1, "HTTP 422: No commit found for SHA", false, "", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -302,10 +315,13 @@ func TestVerifyInPR(t *testing.T) {
 			if v.URL != tc.wantURL || v.Ref != tc.wantRef {
 				t.Fatalf("URL/Ref = %q/%q, want %q/%q", v.URL, v.Ref, tc.wantURL, tc.wantRef)
 			}
+			if v.Summary != tc.wantSummary {
+				t.Fatalf("Summary = %q, want %q", v.Summary, tc.wantSummary)
+			}
 			if !tc.wantInPR && v.Reason == "" {
 				t.Fatal("expected a Reason on a negative result")
 			}
-			const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)" end`
+			const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)\t\(.[0].title)" end`
 			want := []string{"api", "repos/{owner}/{repo}/commits/" + sha + "/pulls", "--jq", jq}
 			if strings.Join(gotArgs, " ") != strings.Join(want, " ") {
 				t.Fatalf("gh args = %v, want %v", gotArgs, want)

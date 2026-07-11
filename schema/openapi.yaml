@@ -821,6 +821,14 @@ components:
           description: >
             Set for done cards alongside github_url — the clickable link text:
             the abbreviated commit SHA, or "#<number>" for a pull request.
+        work_summary:
+          type: string
+          nullable: true
+          description: >
+            Set for done cards — the one-line description of the landed work: the
+            commit subject under the main merge gate, or the pull-request title
+            under the PR gate. Rendered as the card body (08 §7). Null when
+            unavailable.
         created_at:
           type: string
           format: date-time

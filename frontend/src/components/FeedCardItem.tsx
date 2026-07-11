@@ -274,12 +274,14 @@ export function FeedCardItem({
           onOpenDetail(ticketId);
         }
       : null;
-  // Done and poke cards are body-less notices — just the ✅/👉 + ticket title
-  // (08 §7/§3) — so there is no body to turn into a click-through. When one is
-  // tagged to a ticket, its *head* (the only surface it has) becomes the link into
-  // the same ticket detail overlay a proposal/update body opens (08 §5), so a
-  // completion or a stall nudge is a shortcut into its ticket rather than a
-  // dead-end note. Narrow on the id + callback directly, same as openDetail above.
+  // Poke cards, and done cards without a work summary, are body-less notices —
+  // just the ✅/👉 + ticket title (08 §7/§3). A done card's optional work-summary
+  // body is an expand-in-place note, never a click-through, so it too leaves the
+  // head as the ticket tap target. When one is tagged to a ticket, its *head*
+  // becomes the link into the same ticket detail overlay a proposal/update body
+  // opens (08 §5), so a completion or a stall nudge is a shortcut into its ticket
+  // rather than a dead-end note. Narrow on the id + callback directly, same as
+  // openDetail above.
   const openHeadDetail =
     (isDone || isPoke) && ticketId != null && onOpenDetail !== undefined
       ? () => {
@@ -322,6 +324,9 @@ export function FeedCardItem({
         </button>
       ) : (
         <div data-role="feed-card-head">{head}</div>
+      )}
+      {isDone && card.work_summary != null && card.work_summary !== '' && (
+        <FeedCardBody body={card.work_summary} seen={seen} />
       )}
       {isDone && card.github_url != null && card.github_label != null && (
         <a

@@ -724,7 +724,7 @@ func (s *Service) verifyDoneOnMain(
 				"If it needs a human decision instead, set the ticket blocked.",
 			ticketID, sha, v.Reason)}, false, board.CompletionLink{}
 	}
-	return ToolResult{}, true, board.CompletionLink{URL: v.URL, Label: v.Ref}
+	return ToolResult{}, true, board.CompletionLink{URL: v.URL, Label: v.Ref, Summary: v.Summary}
 }
 
 // verifyDoneInPR gates the done on a fresh check that sha is associated with a
@@ -749,7 +749,7 @@ func (s *Service) verifyDoneInPR(
 				"pull request for the work, then accept it — or set the ticket blocked if it needs a decision.",
 			ticketID, sha, v.Reason)}, false, board.CompletionLink{}
 	}
-	return ToolResult{}, true, board.CompletionLink{URL: v.URL, Label: v.Ref}
+	return ToolResult{}, true, board.CompletionLink{URL: v.URL, Label: v.Ref, Summary: v.Summary}
 }
 
 // applyState routes one state transition to its board operation. The board's

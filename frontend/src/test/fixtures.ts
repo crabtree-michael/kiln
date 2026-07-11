@@ -92,6 +92,7 @@ export interface FeedCardFixtureInput {
   imageUrl?: string;
   githubUrl?: string;
   githubLabel?: string;
+  workSummary?: string;
 }
 
 /** Builds a `FeedCard` from the wire schema, adding optional fields only when
@@ -119,7 +120,11 @@ export function makeFeedCard(input: FeedCardFixtureInput): FeedCard {
     input.githubLabel !== undefined
       ? { ...withGithubUrl, github_label: input.githubLabel }
       : withGithubUrl;
-  return withGithubLabel;
+  const withWorkSummary =
+    input.workSummary !== undefined
+      ? { ...withGithubLabel, work_summary: input.workSummary }
+      : withGithubLabel;
+  return withWorkSummary;
 }
 
 export function makeFeedSummary(overrides: Partial<FeedSummary> = {}): FeedSummary {

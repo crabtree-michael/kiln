@@ -821,7 +821,10 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 
 	t.Run("verified commit on origin/main accepts to done", func(t *testing.T) {
 		fb := &fakeBoard{}
-		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true, URL: "https://github.com/o/r/commit/" + sha, Ref: sha[:7]}}
+		fr := &fakeRepo{verify: brain.RepoVerify{
+			OnMain: true, URL: "https://github.com/o/r/commit/" + sha, Ref: sha[:7],
+			Summary: "feat: land the change",
+		}}
 		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
 		res := svc.Dispatch(context.Background(), done(t, "t-9", new(sha)))
 		if res.IsError {
@@ -834,11 +837,10 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 		if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
 			t.Fatalf("expected a single AcceptToDone; got %v", calls)
 		}
-		// The verify's commit link threads through to AcceptToDone so it can ride
-		// onto the completion feed card.
-		if got := fb.lastCompletionLink; got.URL != "https://github.com/o/r/commit/"+sha || got.Label != sha[:7] {
-			t.Errorf("completion link = %+v, want commit URL + short-sha label", got)
-		}
+		// The verify's commit link and subject thread through to AcceptToDone so they
+		// can ride onto the completion feed card.
+		assertCompletionLink(t, fb.lastCompletionLink,
+			"https://github.com/o/r/commit/"+sha, sha[:7], "feat: land the change")
 	})
 
 	t.Run("pr gate: work not in a PR is refused, board untouched", func(t *testing.T) {
@@ -859,7 +861,10 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 
 	t.Run("pr gate: work in a PR accepts to done", func(t *testing.T) {
 		fb := &fakeBoard{}
-		fr := &fakeRepo{verify: brain.RepoVerify{InPR: true, URL: "https://github.com/o/r/pull/42", Ref: "#42"}}
+		fr := &fakeRepo{verify: brain.RepoVerify{
+			InPR: true, URL: "https://github.com/o/r/pull/42", Ref: "#42",
+			Summary: "fix(web): keep the band visible",
+		}}
 		svc := newTestServiceRGate(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{}, brain.GatePR)
 		res := svc.Dispatch(context.Background(), done(t, "t-9", new(sha)))
 		if res.IsError {
@@ -869,9 +874,18 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 		if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
 			t.Fatalf("expected a single AcceptToDone; got %v", calls)
 		}
-		// The verify's pull-request link threads through to AcceptToDone.
-		if got := fb.lastCompletionLink; got.URL != "https://github.com/o/r/pull/42" || got.Label != "#42" {
-			t.Errorf("completion link = %+v, want PR URL + #42 label", got)
-		}
+		// The verify's pull-request link and title thread through to AcceptToDone.
+		assertCompletionLink(t, fb.lastCompletionLink,
+			"https://github.com/o/r/pull/42", "#42", "fix(web): keep the band visible")
 	})
+}
+
+// assertCompletionLink checks the GitHub link + work summary the done gate
+// threaded onto AcceptToDone. Kept as a helper so its comparison branches live
+// outside the big table-driven gate test (which is at the complexity ceiling).
+func assertCompletionLink(t *testing.T, got board.CompletionLink, url, label, summary string) {
+	t.Helper()
+	if got.URL != url || got.Label != label || got.Summary != summary {
+		t.Errorf("completion link = %+v, want URL %q + label %q + summary %q", got, url, label, summary)
+	}
 }

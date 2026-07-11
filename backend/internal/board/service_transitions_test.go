@@ -637,7 +637,10 @@ func TestAcceptToDone_EmitsFeedCompletion(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Ship it", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
+	link := board.CompletionLink{
+		URL: "https://github.com/o/r/commit/a1b2c3d", Label: "a1b2c3d", Summary: "feat: ship it",
+	}
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", link, ""); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -651,6 +654,14 @@ func TestAcceptToDone_EmitsFeedCompletion(t *testing.T) {
 	}
 	if payload.TicketID != "t1" || payload.TicketTitle != "Ship it" {
 		t.Errorf("feed.completion payload = %+v, want {t1 Ship it}", payload)
+	}
+	// The GitHub link and the work summary ride the same payload onto the done card.
+	if payload.GitHubURL != link.URL || payload.GitHubLabel != link.Label {
+		t.Errorf("feed.completion link = %q/%q, want %q/%q",
+			payload.GitHubURL, payload.GitHubLabel, link.URL, link.Label)
+	}
+	if payload.Summary != link.Summary {
+		t.Errorf("feed.completion Summary = %q, want %q", payload.Summary, link.Summary)
 	}
 }
 

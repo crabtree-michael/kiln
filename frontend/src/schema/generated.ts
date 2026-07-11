@@ -562,6 +562,8 @@ export interface components {
             github_url?: string | null;
             /** @description Set for done cards alongside github_url — the clickable link text: the abbreviated commit SHA, or "#<number>" for a pull request. */
             github_label?: string | null;
+            /** @description Set for done cards — the one-line description of the landed work: the commit subject under the main merge gate, or the pull-request title under the PR gate. Rendered as the card body (08 §7). Null when unavailable. */
+            work_summary?: string | null;
             /**
              * Format: date-time
              * @description When the card became current (blocked-at for blockers, request time for proposals, post time for notes); drives the relative age label.

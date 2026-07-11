@@ -540,6 +540,84 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('deletes a proposal from the detail overlay, flowing the id up and draining the sheet', () => {
+    const proposal = makeFeedCard({
+      kind: 'proposal',
+      id: 'proposal:t-login',
+      label: 'Login Redesign',
+      body: 'Rework the login screen.',
+      ticketId: 't-login',
+      createdAt: minutesAgo(1),
+    });
+    const ticket = makeTicket({
+      id: 't-login',
+      title: 'Login Redesign',
+      body: 'The full shaped proposal body.',
+      state: 'shaping',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    const onDelete = vi.fn();
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] })}
+        board={makeBoard({ shaping: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={noop}
+        onDelete={onDelete}
+        now={NOW}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Login Redesign' }));
+    const dialog = screen.getByRole('dialog', { name: 'Login Redesign' });
+
+    // Deleting from the overlay flows the ticket id up and drains the overlay.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    expect(onDelete).toHaveBeenCalledWith('t-login');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('shows no Delete button in the detail overlay when onDelete is not wired', () => {
+    const proposal = makeFeedCard({
+      kind: 'proposal',
+      id: 'proposal:t-login',
+      label: 'Login Redesign',
+      body: 'Rework the login screen.',
+      ticketId: 't-login',
+      createdAt: minutesAgo(1),
+    });
+    const ticket = makeTicket({
+      id: 't-login',
+      title: 'Login Redesign',
+      body: 'The full shaped proposal body.',
+      state: 'shaping',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] })}
+        board={makeBoard({ shaping: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={noop}
+        now={NOW}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Login Redesign' }));
+    const dialog = screen.getByRole('dialog', { name: 'Login Redesign' });
+    expect(within(dialog).queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
   describe('ticket detail affordances by state (deep-linked open)', () => {
     // A push-notification tap deep-links a ticket open by id (02 §10). Unlike a
     // proposal click-through (always Shaping), this opens whatever state the

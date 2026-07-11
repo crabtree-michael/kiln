@@ -48,6 +48,11 @@ export interface PrimaryScreenViewProps {
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
   onAccept: (ticketId: string) => void;
+  /** Delete a proposal that's no longer wanted — the ticket detail's "Delete"
+   * action, shown only on a shaping ticket. The composing screen routes this
+   * through the brain (D5, delete_ticket); omitted (presentational tests) leaves
+   * the sheet without a Delete button, so the DOM/snapshots stay unchanged. */
+  onDelete?: ((ticketId: string) => void) | undefined;
   /** Nudge a stalled agent to continue — the ticket detail's "Poke to continue"
    * action, shown on working/blocked tickets. The composing screen routes this
    * through the brain (D5); omitted (presentational tests) leaves the sheet without
@@ -189,6 +194,7 @@ export function PrimaryScreenView({
   toasts,
   onDismiss,
   onAccept,
+  onDelete,
   onPoke,
   onDismissCard,
   onDismissAll,
@@ -434,6 +440,18 @@ export function PrimaryScreenView({
             onAccept(ticketId);
             setOpenTicketId(null);
           }}
+          // Delete only surfaces on a shaping proposal (TicketDetail gates it):
+          // route the deletion through the brain, then close the sheet like Accept
+          // — the proposal's removal comes back over the stream. Omitted when the
+          // composing screen didn't wire it, so no button shows (presentational).
+          onDelete={
+            onDelete === undefined
+              ? undefined
+              : (ticketId) => {
+                  onDelete(ticketId);
+                  setOpenTicketId(null);
+                }
+          }
           // Talk only surfaces on a blocked ticket (TicketDetail gates it):
           // close the sheet to uncover the dock and open the mic for unblocking.
           onTalk={() => {

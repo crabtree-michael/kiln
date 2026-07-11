@@ -136,6 +136,34 @@ describe('TicketDetail', () => {
     expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
   });
 
+  it('shows a Delete action for a shaping proposal when onDelete is provided', () => {
+    const onDelete = vi.fn();
+    const shaping = makeTicket({
+      id: 't-shape',
+      title: 'A shaped proposal',
+      body: 'body',
+      state: 'shaping',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={shaping} onClose={vi.fn()} onDelete={onDelete} />);
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(onDelete).toHaveBeenCalledWith('t-shape');
+  });
+
+  it('is read-only by default — no Delete action (D5 board inspection)', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
+  it('never offers Delete once past shaping — only a proposal can be discarded', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onDelete={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
   it('shows an "in progress" status indicator for a working ticket', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} />);
     const status = within(screen.getByRole('dialog'))

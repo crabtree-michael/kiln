@@ -301,11 +301,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     }
   }, [applySnapshot]);
 
-  // Optimistically drop an accepted proposal card ahead of the server confirming
-  // the move (08 tap-accept, this change): mark the ticket, re-merge to hide it
-  // now, and arm a timer to restore it once the TTL lapses if the accept never
-  // lands (a resolved accept clears the marker earlier, in `applySnapshot`).
-  const acceptProposal = useCallback(
+  // Optimistically drop a proposal card ahead of the server confirming its
+  // removal: both tap-Accept (the ticket becomes ready) and tap-Delete (the
+  // ticket is archived) make the proposal disappear, so both hide it the same
+  // way — mark the ticket, re-merge to hide it now, and arm a timer to restore it
+  // once the TTL lapses if the server transition never lands (a resolved
+  // accept/delete clears the marker earlier, in `applySnapshot`, when the
+  // proposal drops out of the board snapshot).
+  const hideProposalCard = useCallback(
     (ticketId: string): void => {
       acceptedRef.current.set(ticketId, Date.now() + OPTIMISTIC_ACCEPT_TTL_MS);
       const timer = setTimeout(() => {
@@ -515,7 +518,10 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       refreshFeed,
-      acceptProposal,
+      // Accept and delete are the same optimistic proposal-card hide (see
+      // `hideProposalCard`); the two names keep the caller's intent legible.
+      acceptProposal: hideProposalCard,
+      deleteProposal: hideProposalCard,
       dismissCard,
       dismissAll,
     }),
@@ -527,7 +533,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       refreshFeed,
-      acceptProposal,
+      hideProposalCard,
       dismissCard,
       dismissAll,
     ],

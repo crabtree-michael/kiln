@@ -381,6 +381,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/feed/dismiss-all", s.withProject(s.handleFeedDismissAll))
 	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.withProject(s.handleFeedDismiss))
 	mux.HandleFunc("POST /api/tickets/{id}/accept", s.withProject(s.handleAccept))
+	mux.HandleFunc("POST /api/tickets/{id}/delete", s.withProject(s.handleDeleteProposal))
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
@@ -744,6 +745,37 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request, _ identity
 	if err != nil {
 		slog.Error("api: accept proposal", "err", err)
 		http.Error(w, "accept proposal", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
+}
+
+// handleDeleteProposal routes a tap-Delete on a proposal through the brain,
+// mirroring handleAccept: a proposal is a shaping ticket, so removing one means
+// the brain's delete_ticket (BoardAPI.ArchiveTicket) — but the client never
+// mutates the board directly (D5). Look up the ticket's title, synthesize an
+// explicit deletion instruction, and post it exactly like POST /api/message so
+// the brain archives the ticket. Returns 202 {event_id, message_id} — the same
+// reconcile ids as a normal send.
+func (s *Server) handleDeleteProposal(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	id := r.PathValue("id")
+	title := id // fall back to the id if the title lookup fails or misses.
+	if snap, err := s.boards.GetBoard(r.Context(), project.ID); err == nil {
+		if t, ok := findTicket(snap, id); ok {
+			title = t.Title
+		}
+	}
+	text := fmt.Sprintf(
+		"The user tapped Delete on the proposal %q (ticket %s). "+
+			"Delete that ticket now; do not ask for confirmation.",
+		title, id,
+	)
+	messageID, eventID, err := s.poster.PostMessage(r.Context(), project.ID, text)
+	if err != nil {
+		slog.Error("api: delete proposal", "err", err)
+		http.Error(w, "delete proposal", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})

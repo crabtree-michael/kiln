@@ -619,6 +619,87 @@ func TestProjectIsolation_ReconcileWorkersAndWorkerIDs(t *testing.T) {
 	}
 }
 
+// ReconcileWorkers shrinks the pool when the configured count drops: lowering n
+// deletes the excess free slots (so the spawned-sandbox count follows the
+// dashboard setting down), scoped to the project.
+func TestReconcileWorkers_ShrinksToLowerCount(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+
+	if err := store.ReconcileWorkers(ctx, projA, 5); err != nil {
+		t.Fatalf("ReconcileWorkers(projA, 5): %v", err)
+	}
+	// A neighbour tenant's pool must be untouched by A's shrink.
+	if err := store.ReconcileWorkers(ctx, projB, 4); err != nil {
+		t.Fatalf("ReconcileWorkers(projB, 4): %v", err)
+	}
+
+	if err := store.ReconcileWorkers(ctx, projA, 3); err != nil {
+		t.Fatalf("ReconcileWorkers(projA, 3): %v", err)
+	}
+	aIDs, err := store.WorkerIDs(ctx, projA)
+	if err != nil {
+		t.Fatalf("WorkerIDs(projA): %v", err)
+	}
+	if len(aIDs) != 3 {
+		t.Errorf("WorkerIDs(projA) = %d ids after shrink to 3, want 3", len(aIDs))
+	}
+	bIDs, err := store.WorkerIDs(ctx, projB)
+	if err != nil {
+		t.Fatalf("WorkerIDs(projB): %v", err)
+	}
+	if len(bIDs) != 4 {
+		t.Errorf("WorkerIDs(projB) = %d ids, want 4 (A's shrink must not touch B)", len(bIDs))
+	}
+}
+
+// ReconcileWorkers never deletes a busy slot: an active ticket references it, so
+// I2 / the FK forbid removal. When more slots are busy than the new count, the
+// pool floors at the busy set rather than dropping below it or erroring.
+func TestReconcileWorkers_ShrinkSpareBusySlots(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+
+	if err := store.ReconcileWorkers(ctx, projA, 4); err != nil {
+		t.Fatalf("ReconcileWorkers(projA, 4): %v", err)
+	}
+	ids, err := store.WorkerIDs(ctx, projA)
+	if err != nil {
+		t.Fatalf("WorkerIDs(projA): %v", err)
+	}
+	// Bind two of the four slots with active (working) tickets.
+	for _, id := range ids[:2] {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO tickets (id, project_id, title, state, worker_id)
+			 VALUES (gen_random_uuid(), $1, 'busy', 'working', $2)`, projA, id); err != nil {
+			t.Fatalf("bind worker %s: %v", id, err)
+		}
+	}
+
+	// Ask for 1, but two slots are busy: shrink removes only the two free ones.
+	if err := store.ReconcileWorkers(ctx, projA, 1); err != nil {
+		t.Fatalf("ReconcileWorkers(projA, 1): %v", err)
+	}
+	after, err := store.WorkerIDs(ctx, projA)
+	if err != nil {
+		t.Fatalf("WorkerIDs(projA) after shrink: %v", err)
+	}
+	if len(after) != 2 {
+		t.Errorf("WorkerIDs(projA) = %d ids, want 2 (both busy slots survive; only free ones removed)", len(after))
+	}
+	surviving := map[string]bool{}
+	for _, id := range after {
+		surviving[id] = true
+	}
+	for _, id := range ids[:2] {
+		if !surviving[id] {
+			t.Errorf("busy worker %s was deleted; a bound slot must never be removed", id)
+		}
+	}
+}
+
 // Outbox family: every emission is stamped with the project that produced it.
 func TestProjectIsolation_OutboxRowsCarryProjectID(t *testing.T) {
 	db := testDB(t)

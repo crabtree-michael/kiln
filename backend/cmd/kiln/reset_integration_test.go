@@ -62,7 +62,10 @@ func TestResetIsolation_ResetsOnlyCallerProject(t *testing.T) {
 
 	const poolSize = 3
 	agent := &noopWorkerResetter{}
-	c := newResetCoordinator(db, agent, boardpg.New(db), poolSize)
+	// nil worker-count resolver: identity isn't wired in this DB-only test, so the
+	// reset falls back to poolSize (the deployment default) exactly as it does in a
+	// dark-when-unconfigured boot. The configured-count path is unit-tested.
+	c := newResetCoordinator(db, agent, boardpg.New(db), poolSize, nil)
 
 	if err := c.Reset(ctx, projA); err != nil {
 		t.Fatalf("Reset(A): %v", err)

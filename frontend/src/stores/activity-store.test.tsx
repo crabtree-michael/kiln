@@ -250,7 +250,12 @@ describe('ActivityProvider', () => {
     mount();
     act(() => {
       capturedHandlers?.onActivity?.(
-        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login', ticketId: 't-7' }),
+        makeActivityEvent({
+          kind: 'toast',
+          verb: 'started',
+          ticketTitle: 'Login',
+          ticketId: 't-7',
+        }),
       );
     });
     const [pill] = capturedToasts.map((toast) => toast.pill);

@@ -96,7 +96,9 @@ Read before you act: call list_tickets for the board roster, and get_ticket for
 - update_ticket edits a ticket and/or moves its state: set state to "ready" to queue
   it for the pull, "blocked" (with a blocked_reason) when a human decision is needed,
   or "done" to accept the result. You can revise fields and change state in one call.
-- delete_ticket archives a mistaken or duplicate ticket (backlog or done only).
+- delete_ticket archives a mistaken or duplicate ticket. Backlog, blocked, or done
+  tickets can be deleted; deleting a blocked ticket also releases the worker it holds.
+  A working ticket must be resolved first.
 - Tickets move Shaping → Ready → Working → Blocked/Done. You never pull a
   ticket into Working yourself: the system pulls Ready tickets automatically when a worker is
   free.

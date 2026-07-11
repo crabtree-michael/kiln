@@ -62,7 +62,7 @@ function Probe({
     loadingMoreHistory,
     loadMoreHistory,
     acceptProposal,
-    deleteProposal,
+    deleteTicketCard,
     dismissCard,
     dismissAll,
   } = useFeedStore();
@@ -95,7 +95,7 @@ function Probe({
         type="button"
         onClick={() => {
           if (deleteId !== undefined) {
-            deleteProposal(deleteId);
+            deleteTicketCard(deleteId);
           }
         }}
       >
@@ -609,6 +609,43 @@ describe('FeedProvider', () => {
     });
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1');
+    });
+  });
+
+  it('optimistically drops a deleted blocked ticket’s blocker card (tap-delete)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'blocker',
+            id: 'blocker:b1',
+            label: 'B1',
+            body: 'duplicate of t9',
+            createdAt: '2026-07-01T00:00:00Z',
+            ticketId: 'b1',
+          }),
+          proposal('p1'),
+        ],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe deleteId="b1" />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1,proposal:p1');
+    });
+
+    // Deleting a blocked ticket hides its blocker card at once (the board-side
+    // archive + worker release round-trips over the stream); the unrelated
+    // proposal is untouched. The same optimistic-hide path as a proposal delete.
+    act(() => {
+      screen.getByTestId('delete').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('proposal:p1');
     });
   });
 

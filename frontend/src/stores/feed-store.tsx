@@ -87,23 +87,22 @@ function newestUpdateId(updates: Map<number, FeedCard>): number {
 
 /** Merge the wholesale board-derived cards from the server snapshot with the
  * accumulated (retained) update cards. Order (08 §3): blockers, then proposals,
- * then updates newest-first by `notification_id`. Proposals whose ticket is in
- * `acceptedTicketIds` are optimistically dropped — the user tapped Accept and the
- * card is hidden ahead of the server confirming the move. Update/preview cards
- * whose notification id is in `dismissedIds` are likewise dropped — the user
- * swiped them away and the retract may not have round-tripped yet (this change). */
+ * then updates newest-first by `notification_id`. A board-derived card (proposal
+ * OR blocker) whose ticket is in `hiddenTicketIds` is optimistically dropped —
+ * the user tapped Accept on a proposal, or Delete on a proposal/blocked ticket,
+ * and the card is hidden ahead of the server confirming the move. Update/preview
+ * cards whose notification id is in `dismissedIds` are likewise dropped — the
+ * user swiped them away and the retract may not have round-tripped yet. */
 function mergeFeed(
   server: FeedSnapshot,
   updates: Map<number, FeedCard>,
-  acceptedTicketIds: Set<string>,
+  hiddenTicketIds: Set<string>,
   dismissedIds: Set<number>,
 ): FeedSnapshot {
-  const blockers = server.cards.filter((card) => card.kind === 'blocker');
-  const proposals = server.cards.filter(
-    (card) =>
-      card.kind === 'proposal' &&
-      !(card.ticket_id != null && acceptedTicketIds.has(card.ticket_id)),
-  );
+  const hidden = (card: FeedCard): boolean =>
+    card.ticket_id != null && hiddenTicketIds.has(card.ticket_id);
+  const blockers = server.cards.filter((card) => card.kind === 'blocker' && !hidden(card));
+  const proposals = server.cards.filter((card) => card.kind === 'proposal' && !hidden(card));
   const sortedUpdates = [...updates.values()]
     .filter((card) => !(card.notification_id != null && dismissedIds.has(card.notification_id)))
     .sort((a, b) => (b.notification_id ?? 0) - (a.notification_id ?? 0));
@@ -216,20 +215,20 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         setHasMoreHistory(snapshot.has_more_history);
       }
 
-      // An optimistically-accepted proposal the server no longer lists has
-      // resolved (the accept took, or the brain withdrew it): drop its marker so
-      // it neither lingers nor wrongly suppresses a future re-proposal of the same
-      // ticket. Proposals are board-derived and always sent in full, so absence
-      // here is authoritative regardless of `has_more_history` (which is about
-      // update history only).
-      const proposalIds = new Set<string>();
+      // An optimistically-hidden ticket the server no longer lists as a
+      // proposal/blocker has resolved (the accept/delete took, or the brain
+      // withdrew it): drop its marker so it neither lingers nor wrongly suppresses
+      // a future re-proposal/re-block of the same ticket. These board-derived
+      // cards are always sent in full, so absence here is authoritative regardless
+      // of `has_more_history` (which is about update history only).
+      const liveCardTicketIds = new Set<string>();
       for (const card of snapshot.cards) {
-        if (card.kind === 'proposal' && card.ticket_id != null) {
-          proposalIds.add(card.ticket_id);
+        if ((card.kind === 'proposal' || card.kind === 'blocker') && card.ticket_id != null) {
+          liveCardTicketIds.add(card.ticket_id);
         }
       }
       for (const ticketId of [...acceptedRef.current.keys()]) {
-        if (!proposalIds.has(ticketId)) {
+        if (!liveCardTicketIds.has(ticketId)) {
           acceptedRef.current.delete(ticketId);
         }
       }
@@ -301,14 +300,15 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     }
   }, [applySnapshot]);
 
-  // Optimistically drop a proposal card ahead of the server confirming its
-  // removal: both tap-Accept (the ticket becomes ready) and tap-Delete (the
-  // ticket is archived) make the proposal disappear, so both hide it the same
-  // way — mark the ticket, re-merge to hide it now, and arm a timer to restore it
-  // once the TTL lapses if the server transition never lands (a resolved
-  // accept/delete clears the marker earlier, in `applySnapshot`, when the
-  // proposal drops out of the board snapshot).
-  const hideProposalCard = useCallback(
+  // Optimistically drop a ticket's board-derived card (proposal or blocker)
+  // ahead of the server confirming its removal: tap-Accept (the proposal becomes
+  // ready), tap-Delete on a proposal (archived), and tap-Delete on a blocked
+  // ticket (archived, its worker released) all make the card disappear, so all
+  // hide it the same way — mark the ticket, re-merge to hide it now, and arm a
+  // timer to restore it once the TTL lapses if the server transition never lands
+  // (a resolved accept/delete clears the marker earlier, in `applySnapshot`, when
+  // the card drops out of the board snapshot).
+  const hideTicketCard = useCallback(
     (ticketId: string): void => {
       acceptedRef.current.set(ticketId, Date.now() + OPTIMISTIC_ACCEPT_TTL_MS);
       const timer = setTimeout(() => {
@@ -518,10 +518,12 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       refreshFeed,
-      // Accept and delete are the same optimistic proposal-card hide (see
-      // `hideProposalCard`); the two names keep the caller's intent legible.
-      acceptProposal: hideProposalCard,
-      deleteProposal: hideProposalCard,
+      // Accept and delete are the same optimistic board-card hide (see
+      // `hideTicketCard`); the two names keep the caller's intent legible.
+      // `deleteTicketCard` covers deleting a proposal or a blocked ticket — both
+      // hide the ticket's board-derived card the same way.
+      acceptProposal: hideTicketCard,
+      deleteTicketCard: hideTicketCard,
       dismissCard,
       dismissAll,
     }),
@@ -533,7 +535,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       refreshFeed,
-      hideProposalCard,
+      hideTicketCard,
       dismissCard,
       dismissAll,
     ],

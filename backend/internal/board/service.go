@@ -452,15 +452,41 @@ func buildSeedTicket(ctx context.Context, tx Tx, projectID string, spec SeedSpec
 // disappears from every read (Snapshot, GetTicket) and from the pull, and
 // every later targeted operation treats it as ErrNotFound.
 //
-// Precondition: state ∈ {shaping, ready, done} — a non-active ticket. An
-// active (working/blocked) ticket binds a worker (03 I3), so it must be
-// resolved first; archiving it directly is refused with ErrInvalidTransition
-// rather than silently stranding or releasing the worker. Emits board.updated
-// (via mutate) and feed.updated (an archived proposal/blocker card disappears).
+// Precondition: state ∈ {shaping, ready, blocked, done}. Only a *working*
+// ticket is refused: it has a live agent mid-turn, so archiving it would kill
+// in-flight work — resolve it first (ErrInvalidTransition).
+//
+//   - shaping/ready/done — a non-active ticket holds no worker; just stamp
+//     ArchivedAt and drop the card.
+//   - blocked — the ticket is stalled by definition (waiting on a human), so it
+//     is the one active state that can be deleted directly
+//     (2026-07-11-delete-blocked-ticket-design.md). Archiving it releases the
+//     worker it holds: null WorkerID and emit agent.release (tear the sandbox
+//     down, 05 §4) + pull.evaluate (let a waiting ready ticket claim the freed
+//     slot) — mirroring AcceptToDone's release. Archive is orthogonal to State,
+//     so the row keeps state=blocked and its BlockedReason as historical truth;
+//     the blocked-with-no-worker shape is permitted because I3 is scoped to live
+//     rows (migration 0011).
+//
+// Emits board.updated (via mutate) and feed.updated (an archived
+// proposal/blocker card disappears), plus agent.release + pull.evaluate when a
+// blocked ticket is archived.
 func (s *Service) ArchiveTicket(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, projectID, "archive_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if t.State.Active() {
+		if t.State == StateWorking {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ArchiveTicket"}
+		}
+		var emissions []Emission
+		// Blocked: free the worker the ticket holds before it leaves the board.
+		// The nil guard is defensive — I3 guarantees a blocked ticket binds a
+		// worker — but avoids a panic if the invariant is ever violated.
+		if t.State == StateBlocked && t.WorkerID != nil {
+			worker := *t.WorkerID
+			t.WorkerID = nil
+			emissions = append(emissions,
+				Emission{Topic: TopicAgentRelease, Payload: ReleasePayload{WorkerID: worker}},
+				Emission{Topic: TopicPullEvaluate},
+			)
 		}
 		now := time.Now().UTC()
 		t.ArchivedAt = &now
@@ -468,11 +494,14 @@ func (s *Service) ArchiveTicket(ctx context.Context, projectID string, id Ticket
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
+		emissions = append(emissions, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
 			Title: updated.Title,
 			Verb:  FeedVerbArchived,
-		}}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
+		}})
+		for _, e := range emissions {
+			if err := tx.AppendOutbox(ctx, projectID, e); err != nil {
+				return Ticket{}, fmt.Errorf("board: append %s: %w", e.Topic, err)
+			}
 		}
 		return updated, nil
 	})

@@ -47,12 +47,13 @@ export interface FeedStoreValue {
    */
   acceptProposal: (ticketId: string) => void;
   /**
-   * Optimistically hide a deleted proposal card by ticket id: the card drops from
-   * the feed immediately, ahead of the server confirming the archive. Same
-   * time-boxed, self-healing hide as `acceptProposal` — accepting and deleting
-   * both make the proposal disappear, so both suppress its card the same way.
+   * Optimistically hide a deleted ticket's board-derived card (proposal or
+   * blocker) by ticket id: the card drops from the feed immediately, ahead of the
+   * server confirming the archive. Same time-boxed, self-healing hide as
+   * `acceptProposal` — deleting a proposal or a blocked ticket both make the card
+   * disappear, so both suppress it the same way.
    */
-  deleteProposal: (ticketId: string) => void;
+  deleteTicketCard: (ticketId: string) => void;
   /**
    * Clear (dismiss) a single update/preview card by its notification id — the
    * swipe-left gesture (08 §3). The card drops from the feed immediately

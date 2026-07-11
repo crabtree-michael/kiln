@@ -31,7 +31,7 @@ function PrimaryScreenBody(): JSX.Element {
     loadMoreHistory,
     refreshFeed,
     acceptProposal,
-    deleteProposal,
+    deleteTicketCard,
     dismissCard,
     dismissAll,
   } = useFeedStore();
@@ -54,14 +54,18 @@ function PrimaryScreenBody(): JSX.Element {
 
   const onDelete = useCallback(
     (ticketId: string): void => {
-      // Optimistically drop the proposal card so the tap feels instant; the hide
-      // is time-boxed and self-heals if the delete never lands (feed store).
-      deleteProposal(ticketId);
+      // Optimistically drop the ticket's board-derived card (a proposal, or a
+      // blocked ticket's blocker card) so the tap feels instant; the hide is
+      // time-boxed and self-heals if the delete never lands (feed store). The
+      // blocked-delete confirm (D4) happens in the detail sheet, which knows the
+      // ticket's state — by the time we're called the user has confirmed.
+      deleteTicketCard(ticketId);
       // Deleting routes through the brain (delete_ticket, D5), same as accept; the
-      // resulting board + feed removal comes back over the stream. Fire-and-forget.
+      // resulting board + feed removal comes back over the stream. A blocked
+      // delete also releases the ticket's worker board-side. Fire-and-forget.
       void deleteTicket(ticketId);
     },
-    [deleteProposal],
+    [deleteTicketCard],
   );
 
   const onPoke = useCallback((ticketId: string): void => {

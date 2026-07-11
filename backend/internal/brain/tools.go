@@ -119,8 +119,9 @@ type UpdateTicketInput struct {
 }
 
 // DeleteTicketInput — delete_ticket → BoardAPI.ArchiveTicket(id) (06 §4
-// amended). Soft-deletes a non-active ticket; an active (working/blocked)
-// ticket is refused with a typed board error.
+// amended). Soft-deletes a shaping/ready/blocked/done ticket (a blocked delete
+// releases the worker it holds); only a *working* ticket is refused with a typed
+// board error.
 type DeleteTicketInput struct {
 	ID string `json:"id"`
 }
@@ -297,8 +298,9 @@ var Tools = []ToolDef{
 	{
 		Name: ToolDeleteTicket,
 		Description: "Delete (archive) a ticket that should not exist — a mistake or duplicate. " +
-			"It disappears from the board but is retained for history. Only backlog or done " +
-			"tickets can be deleted; resolve an in-progress ticket first.",
+			"It disappears from the board but is retained for history. Backlog, blocked, or done " +
+			"tickets can be deleted; deleting a blocked ticket releases the worker it holds. A " +
+			"working ticket must be resolved first.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
 		}),

@@ -765,6 +765,13 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 		if acceptedToDone(fb) {
 			t.Fatalf("AcceptToDone must NOT be called when commit is not on main")
 		}
+		// The refusal must steer the brain back to the agent to land THIS ticket's
+		// work on main — not hunt for some other on-main commit to satisfy the gate.
+		for _, want := range []string{"send_to_agent", "origin/main"} {
+			if !strings.Contains(res.Content, want) {
+				t.Errorf("refusal should direct the brain to %q; got %q", want, res.Content)
+			}
+		}
 	})
 
 	t.Run("repo shell unavailable fails closed", func(t *testing.T) {

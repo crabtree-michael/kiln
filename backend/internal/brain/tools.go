@@ -707,8 +707,10 @@ func (s *Service) verifyDoneOnMain(ctx context.Context, callID, sha, ticketID st
 	}
 	if !v.OnMain {
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
-			"cannot mark ticket %s done: commit %s is not on origin/main (%s). Have the agent merge the work to main, "+
-				"then accept it once it lands — or set the ticket blocked if it needs a decision.",
+			"cannot mark ticket %s done: commit %s is not on origin/main (%s). Go back to the agent with send_to_agent "+
+				"and have it commit and push this ticket's work onto origin/main; once it lands, mark the ticket done "+
+				"with that commit. Do not substitute an unrelated commit that is already on main just to pass this check. "+
+				"If it needs a human decision instead, set the ticket blocked.",
 			ticketID, sha, v.Reason)}, false
 	}
 	return ToolResult{}, true

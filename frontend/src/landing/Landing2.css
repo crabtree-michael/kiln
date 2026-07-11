@@ -406,36 +406,100 @@
   color: var(--text-body);
 }
 
-.kiln-landing-2 .kiln-how__logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px 5px 6px;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-body);
-  background: var(--surface-subtle);
+/* Step 02 swaps the flat mark row for a circular arrangement: three logo discs
+   sit on a shared orbital path around a centre point. `--r` is the path radius
+   and `--node` the disc diameter, so the whole thing scales from the two vars.
+   The group rotates a few degrees back and forth for a gentle orbital drift,
+   while each badge counter-rotates by the same amount to stay upright. */
+.kiln-landing-2 .kiln-how__orbit {
+  --r: clamp(48px, 12vw, 64px);
+  --node: clamp(52px, 13vw, 68px);
+  position: relative;
+  height: calc(2 * var(--r) + var(--node));
+  margin: 16px 0 4px;
+  animation: kiln-orbit-drift 16s ease-in-out infinite alternate;
 }
 
-/* A light chip behind each agent's brand mark, so the dark logos read the same
-   in either theme. object-fit keeps the varied logo aspect ratios centred. */
-.kiln-landing-2 .kiln-how__brandmark {
-  display: inline-flex;
+/* The faint circle tracing the orbital path the discs ride on. */
+.kiln-landing-2 .kiln-how__orbit-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(2 * var(--r));
+  height: calc(2 * var(--r));
+  margin: calc(-1 * var(--r));
+  border-radius: 50%;
+  border: 1px solid var(--border-hairline);
+}
+
+/* Each node is parked at the centre, spun to its --angle, pushed out by the
+   radius, then spun back so the disc itself hangs upright on the path. The ring
+   is the first child, so the three discs are nth-child 2–4, evenly spaced 120°
+   apart around the circle. */
+.kiln-landing-2 .kiln-how__orbit-node {
+  --angle: 0deg;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--node);
+  height: var(--node);
+  margin: calc(-0.5 * var(--node));
+  transform: rotate(var(--angle)) translateY(calc(-1 * var(--r)))
+    rotate(calc(-1 * var(--angle)));
+}
+
+.kiln-landing-2 .kiln-how__orbit-node:nth-child(3) {
+  --angle: 120deg;
+}
+
+.kiln-landing-2 .kiln-how__orbit-node:nth-child(4) {
+  --angle: 240deg;
+}
+
+/* A white disc behind each mark so the dark logos read the same in either
+   theme; the counter-drift keeps it level as the group rotates. */
+.kiln-landing-2 .kiln-how__orbit-badge {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
   background: #ffffff;
   border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-card);
+  animation: kiln-orbit-drift-counter 16s ease-in-out infinite alternate;
 }
 
-.kiln-landing-2 .kiln-how__brandmark img {
-  width: 15px;
-  height: 15px;
+.kiln-landing-2 .kiln-how__orbit-badge img {
+  width: 52%;
+  height: 52%;
   object-fit: contain;
+}
+
+@keyframes kiln-orbit-drift {
+  from {
+    transform: rotate(-9deg);
+  }
+  to {
+    transform: rotate(9deg);
+  }
+}
+
+@keyframes kiln-orbit-drift-counter {
+  from {
+    transform: rotate(9deg);
+  }
+  to {
+    transform: rotate(-9deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kiln-landing-2 .kiln-how__orbit,
+  .kiln-landing-2 .kiln-how__orbit-badge {
+    animation: none;
+  }
 }
 
 .kiln-landing-2 .kiln-how__step h3 {

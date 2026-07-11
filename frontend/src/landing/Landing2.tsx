@@ -154,9 +154,9 @@ const ANYWHERE: { icon: string; title: string; body: string }[] = [
   },
 ];
 
-/** The coding agents Kiln can drive, shown as logo lockups in the "cloud agents"
- * step. `logo` is the brand mark under /logos, sat on a light tile so each reads
- * on either theme. */
+/** The coding agents Kiln can drive, shown in the "cloud agents" step as three
+ * circular brand marks orbiting a centre point. `logo` is the mark under /logos,
+ * sat on a white disc so each dark logo reads on either theme. */
 const AGENTS: { name: string; logo: string }[] = [
   { name: 'Cursor', logo: '/logos/cursor.svg' },
   { name: 'Devin', logo: '/logos/devin.svg' },
@@ -298,13 +298,13 @@ export function Landing2(): JSX.Element {
             </li>
             <li className="kiln-how__step">
               <span className="kiln-how__num">02</span>
-              <div className="kiln-how__marks kiln-how__marks--logos">
+              <div className="kiln-how__orbit">
+                <span className="kiln-how__orbit-ring" aria-hidden="true" />
                 {AGENTS.map((agent) => (
-                  <span className="kiln-how__logo" key={agent.name}>
-                    <span className="kiln-how__brandmark" aria-hidden="true">
-                      <img src={agent.logo} alt="" loading="lazy" decoding="async" />
+                  <span className="kiln-how__orbit-node" key={agent.name}>
+                    <span className="kiln-how__orbit-badge">
+                      <img src={agent.logo} alt={agent.name} loading="lazy" decoding="async" />
                     </span>
-                    {agent.name}
                   </span>
                 ))}
               </div>

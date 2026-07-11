@@ -53,14 +53,19 @@ type BoardReader interface {
 // state, updates/previews from notification rows — but the client renders one
 // ordered list and never knows the difference.
 type FeedCard struct {
-	Kind           string  // blocker | proposal | update | preview
+	Kind           string  // blocker | proposal | update | preview | poke | done
 	ID             string  // stable card id: blocker:<tid> | proposal:<tid> | update:<nid>
 	Label          string  // card title (ticket title for board cards)
 	Body           string  // blocked_reason | shaped summary | note body
 	TicketID       *string // set for board-sourced cards and ticket-tagged notes
 	ImageURL       *string // set for kind=preview
 	NotificationID *int64  // set for update/preview cards (the seen high-water source)
-	CreatedAt      time.Time
+	// GitHubURL/GitHubLabel are set on kind=done cards (08 §7): the link to the
+	// landed commit or pull request and its clickable label (abbreviated SHA or
+	// "#<number>"), rendered as the card's second line. Nil otherwise.
+	GitHubURL   *string
+	GitHubLabel *string
+	CreatedAt   time.Time
 }
 
 // FeedSummary is the server-derived header status (08 §2): the counts the

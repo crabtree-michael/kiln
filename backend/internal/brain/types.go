@@ -158,9 +158,15 @@ type RepoResult struct {
 // The gate mode picks which check runs, so only its field is meaningful per
 // call. Unavailable (with Reason) means the clone could not be used; the done
 // gate fails closed on it. Reason explains a negative result.
+//
+// On a positive result URL and Ref name the completed work on GitHub so the done
+// feed card can link to it: a commit page + abbreviated SHA for VerifyOnMain, or
+// the pull request page + "#<number>" for VerifyInPR. Empty otherwise.
 type RepoVerify struct {
 	OnMain      bool
 	InPR        bool
+	URL         string
+	Ref         string
 	Unavailable bool
 	Reason      string
 }

@@ -330,6 +330,37 @@ describe('PrimaryScreenView', () => {
     expect(card?.querySelector('[data-role="feed-card-body"]')).toBeNull();
   });
 
+  it('renders a GitHub link on a done card as its clickable second line (08 §7)', () => {
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:73',
+      label: 'Auth',
+      body: '',
+      notificationId: 73,
+      githubUrl: 'https://github.com/o/r/commit/a1b2c3d4e5f6',
+      githubLabel: 'a1b2c3d',
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [done] }));
+    const link = screen.getByRole('link', { name: 'a1b2c3d' });
+    expect(link).toHaveAttribute('href', 'https://github.com/o/r/commit/a1b2c3d4e5f6');
+    expect(link).toHaveAttribute('data-role', 'feed-card-github');
+  });
+
+  it('omits the GitHub link on a done card with no link available (08 §7)', () => {
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:74',
+      label: 'Auth',
+      body: '',
+      notificationId: 74,
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [done] }));
+    const card = screen.getByText('Auth').closest('[data-role="feed-card"]');
+    expect(card?.querySelector('[data-role="feed-card-github"]')).toBeNull();
+  });
+
   it('wraps a done card in the swipe-to-clear affordance when a dismiss handler is wired (08 §3)', () => {
     const done = makeFeedCard({
       kind: 'done',

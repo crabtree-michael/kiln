@@ -249,12 +249,27 @@ func (s *Service) MarkBlocked(ctx context.Context, projectID string, id TicketID
 	})
 }
 
+// CompletionLink names the completed work on GitHub for the persistent "done"
+// feed card (08 §7): URL is the web page (a commit under merge-on-main, a pull
+// request under the PR gate) and Label the clickable text (abbreviated SHA or
+// "#<number>"). The brain fills it from the merge-gate verify it just ran; both
+// fields empty means no link is shown (e.g. repository verification was
+// unavailable — though the done gate refuses that case upstream).
+type CompletionLink struct {
+	URL   string
+	Label string
+}
+
 // AcceptToDone moves working|blocked → done, clearing the worker binding
 // and blocked_reason (03 §4).
 // Precondition: state ∈ {working, blocked}. Emits pull.evaluate,
 // agent.release (recycle the freed worker — 05 §4), feed.updated, the ephemeral
 // finished activity.toast, and feed.completion (the persistent "done" card).
-func (s *Service) AcceptToDone(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+// link is the GitHub reference to the accepted work, carried onto the completion
+// card so the feed can link to the commit or pull request that landed it.
+func (s *Service) AcceptToDone(
+	ctx context.Context, projectID string, id TicketID, link CompletionLink,
+) (Ticket, error) {
 	return s.mutate(ctx, projectID, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
@@ -293,6 +308,8 @@ func (s *Service) AcceptToDone(ctx context.Context, projectID string, id TicketI
 		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedCompletion, Payload: CompletionPayload{
 			TicketID:    updated.ID,
 			TicketTitle: updated.Title,
+			GitHubURL:   link.URL,
+			GitHubLabel: link.Label,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append feed.completion: %w", err)
 		}

@@ -101,9 +101,14 @@ const (
 // posts a lasting feed card for the completion deterministically, independent of
 // whether the brain/agent remembers to. TicketID tags the card to its ticket
 // (the feed renders the current title as the card label); TicketTitle is carried
-// for the card body. The runtime uses the outbox id as the idempotency key so an
-// at-least-once redelivery posts no duplicate card.
+// for the card body. GitHubURL/GitHubLabel are the link to the landed work (a
+// commit or pull request page + its clickable label), rendered as the card's
+// second line; both empty when no link is available. The runtime uses the outbox
+// id as the idempotency key so an at-least-once redelivery posts no duplicate
+// card.
 type CompletionPayload struct {
 	TicketID    TicketID `json:"ticket_id"`
 	TicketTitle string   `json:"ticket_title"`
+	GitHubURL   string   `json:"github_url,omitempty"`
+	GitHubLabel string   `json:"github_label,omitempty"`
 }

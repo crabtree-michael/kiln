@@ -558,6 +558,10 @@ export interface components {
             notification_id?: number | null;
             /** @description Set for preview cards — the embedded render (08 §3, 4c). */
             image_url?: string | null;
+            /** @description Set for done cards — the GitHub web page for the landed work (the commit on origin/main under merge-on-main, or the pull request under the PR gate). The card's second line links here (08 §7). */
+            github_url?: string | null;
+            /** @description Set for done cards alongside github_url — the clickable link text: the abbreviated commit SHA, or "#<number>" for a pull request. */
+            github_label?: string | null;
             /**
              * Format: date-time
              * @description When the card became current (blocked-at for blockers, request time for proposals, post time for notes); drives the relative age label.

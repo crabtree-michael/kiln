@@ -133,6 +133,10 @@ type fakeBoard struct {
 	archiveTicketFn   func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	getBoardFn        func(ctx context.Context) (board.Snapshot, error)
 	getTicketFn       func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+
+	// lastCompletionLink captures the GitHub link AcceptToDone was called with, so
+	// a done-path test can assert the merge-gate verify's URL/ref threaded through.
+	lastCompletionLink board.CompletionLink
 }
 
 func (f *fakeBoard) CreateTicket(ctx context.Context, title, body string) (board.Ticket, error) {
@@ -175,8 +179,13 @@ func (f *fakeBoard) MarkBlocked(ctx context.Context, id board.TicketID, reason s
 	return board.Ticket{ID: id, State: board.StateBlocked, BlockedReason: &reason}, nil
 }
 
-func (f *fakeBoard) AcceptToDone(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+func (f *fakeBoard) AcceptToDone(
+	ctx context.Context, id board.TicketID, link board.CompletionLink,
+) (board.Ticket, error) {
 	f.record(methodAcceptToDone, id)
+	f.mu.Lock()
+	f.lastCompletionLink = link
+	f.mu.Unlock()
 	if f.acceptToDoneFn != nil {
 		return f.acceptToDoneFn(ctx, id)
 	}

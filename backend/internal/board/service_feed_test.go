@@ -209,7 +209,7 @@ func TestAcceptToDone_EmitsFinishedToastAndFeedUpdated(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Land it", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -285,7 +285,7 @@ func TestFeedUpdated_CarriesChangeDescriptor(t *testing.T) {
 		worker := board.WorkerID("w1")
 		store.seedWorker(projA, worker)
 		store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Deploy done", State: board.StateWorking, WorkerID: &worker})
-		if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+		if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 			t.Fatalf("AcceptToDone: %v", err)
 		}
 		p := soleFeedUpdated(t, store.outboxSnapshot())

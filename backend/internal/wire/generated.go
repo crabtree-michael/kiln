@@ -347,6 +347,12 @@ type FeedCard struct {
 	// CreatedAt When the card became current (blocked-at for blockers, request time for proposals, post time for notes); drives the relative age label.
 	CreatedAt time.Time `json:"created_at"`
 
+	// GithubLabel Set for done cards alongside github_url — the clickable link text: the abbreviated commit SHA, or "#<number>" for a pull request.
+	GithubLabel *string `json:"github_label,omitempty"`
+
+	// GithubUrl Set for done cards — the GitHub web page for the landed work (the commit on origin/main under merge-on-main, or the pull request under the PR gate). The card's second line links here (08 §7).
+	GithubUrl *string `json:"github_url,omitempty"`
+
 	// Id Stable render key. `blocker:<ticket_id>`, `proposal:<ticket_id>`, or `update:<notification_id>`.
 	Id string `json:"id"`
 

@@ -396,6 +396,10 @@ func notificationToCard(n Notification, titles map[string]string) (FeedCard, boo
 	if n.Kind == KindPreview {
 		card.ImageURL = n.ImageURL
 	}
+	if n.Kind == KindDone {
+		card.GitHubURL = n.GitHubURL
+		card.GitHubLabel = n.GitHubLabel
+	}
 	return card, true
 }
 
@@ -689,9 +693,13 @@ type feedUpdatedPayload struct {
 
 // completionPayload is the feed.completion outbox payload (08 §7), mirroring the
 // board's CompletionPayload by value — this module never imports internal/board.
+// GitHubURL/GitHubLabel are the link to the landed work rendered as the done
+// card's second line; both empty when no link is available.
 type completionPayload struct {
 	TicketID    string `json:"ticket_id"`
 	TicketTitle string `json:"ticket_title"`
+	GitHubURL   string `json:"github_url,omitempty"`
+	GitHubLabel string `json:"github_label,omitempty"`
 }
 
 // handleFeedUpdated realizes the feed.updated topic (08 §3, §7): re-assemble
@@ -819,7 +827,9 @@ func (s *Service) handleFeedCompletion(ctx context.Context, e Entry) error {
 	if err := json.Unmarshal(e.Payload, &p); err != nil {
 		return fmt.Errorf("decode feed.completion: %w", err)
 	}
-	if _, err := s.notifications.PostCompletionCard(ctx, e.ProjectID, e.ID, p.TicketID, completionCardBody); err != nil {
+	if _, err := s.notifications.PostCompletionCard(
+		ctx, e.ProjectID, e.ID, p.TicketID, completionCardBody, p.GitHubURL, p.GitHubLabel,
+	); err != nil {
 		return fmt.Errorf("post completion card: %w", err)
 	}
 	return nil

@@ -789,7 +789,7 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 
 	t.Run("verified commit on origin/main accepts to done", func(t *testing.T) {
 		fb := &fakeBoard{}
-		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+		fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true, URL: "https://github.com/o/r/commit/" + sha, Ref: sha[:7]}}
 		svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
 		res := svc.Dispatch(context.Background(), done(t, "t-9", new(sha)))
 		if res.IsError {
@@ -801,6 +801,11 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 		calls := fb.recordedCalls()
 		if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
 			t.Fatalf("expected a single AcceptToDone; got %v", calls)
+		}
+		// The verify's commit link threads through to AcceptToDone so it can ride
+		// onto the completion feed card.
+		if got := fb.lastCompletionLink; got.URL != "https://github.com/o/r/commit/"+sha || got.Label != sha[:7] {
+			t.Errorf("completion link = %+v, want commit URL + short-sha label", got)
 		}
 	})
 
@@ -822,7 +827,7 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 
 	t.Run("pr gate: work in a PR accepts to done", func(t *testing.T) {
 		fb := &fakeBoard{}
-		fr := &fakeRepo{verify: brain.RepoVerify{InPR: true}}
+		fr := &fakeRepo{verify: brain.RepoVerify{InPR: true, URL: "https://github.com/o/r/pull/42", Ref: "#42"}}
 		svc := newTestServiceRGate(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{}, brain.GatePR)
 		res := svc.Dispatch(context.Background(), done(t, "t-9", new(sha)))
 		if res.IsError {
@@ -831,6 +836,10 @@ func TestUpdateTicketDoneGate(t *testing.T) {
 		calls := fb.recordedCalls()
 		if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
 			t.Fatalf("expected a single AcceptToDone; got %v", calls)
+		}
+		// The verify's pull-request link threads through to AcceptToDone.
+		if got := fb.lastCompletionLink; got.URL != "https://github.com/o/r/pull/42" || got.Label != "#42" {
+			t.Errorf("completion link = %+v, want PR URL + #42 label", got)
 		}
 	})
 }

@@ -34,8 +34,10 @@ type BoardAPI interface {
 	// MarkBlocked → update_ticket state="blocked" (reason required).
 	MarkBlocked(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
 	// AcceptToDone → update_ticket state="done". Always destructive — releases
-	// and recycles the worker (06 §7).
-	AcceptToDone(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	// and recycles the worker (06 §7). link is the GitHub reference to the
+	// verified work (from the merge-gate check), carried onto the completion feed
+	// card so it can link to the commit or pull request.
+	AcceptToDone(ctx context.Context, id board.TicketID, link board.CompletionLink) (board.Ticket, error)
 	// ArchiveTicket → tool delete_ticket (06 §4 amended). Soft-deletes a
 	// non-active ticket; an active (working/blocked) ticket is refused with a
 	// typed board error, fed back verbatim (06 §6, §8).

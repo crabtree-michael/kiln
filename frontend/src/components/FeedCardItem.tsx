@@ -298,6 +298,16 @@ export function FeedCardItem({
       ) : (
         <div data-role="feed-card-head">{head}</div>
       )}
+      {isDone && card.github_url != null && card.github_label != null && (
+        <a
+          data-role="feed-card-github"
+          href={card.github_url}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          {card.github_label}
+        </a>
+      )}
       {!isPoke &&
         !isDone &&
         (openDetail !== null ? (

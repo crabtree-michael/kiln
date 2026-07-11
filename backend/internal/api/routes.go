@@ -1108,6 +1108,8 @@ func feedCardsToWire(in []runtime.FeedCard) []wire.FeedCard {
 			TicketId:       c.TicketID,
 			ImageUrl:       c.ImageURL,
 			NotificationId: c.NotificationID,
+			GithubUrl:      c.GitHubURL,
+			GithubLabel:    c.GitHubLabel,
 			CreatedAt:      c.CreatedAt,
 		})
 	}

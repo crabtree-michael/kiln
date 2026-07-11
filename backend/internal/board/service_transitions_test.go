@@ -483,7 +483,7 @@ func TestAcceptToDone_FromWorking_ClearsWorkerAndReason(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	got, err := svc.AcceptToDone(ctx, projA, "t1")
+	got, err := svc.AcceptToDone(ctx, projA, "t1", board.CompletionLink{})
 	if err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestAcceptToDone_FromBlocked_ClearsWorkerAndReason(t *testing.T) {
 		WorkerID: &worker, BlockedReason: new("decision needed"),
 	})
 
-	got, err := svc.AcceptToDone(context.Background(), projA, "t1")
+	got, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{})
 	if err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestAcceptToDone_FreesTheWorker(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	snap, err := svc.GetBoard(context.Background(), projA)
@@ -543,7 +543,7 @@ func TestAcceptToDone_EmitsPullEvaluateAndAgentRelease(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -571,7 +571,7 @@ func TestAcceptToDone_EmitsFeedCompletion(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Ship it", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -596,7 +596,7 @@ func TestAcceptToDone_EmitsNotifySend(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Wrap it up", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -619,7 +619,7 @@ func TestAcceptToDone_AlreadyDone_Rejected(t *testing.T) {
 	svc, store := newTestService()
 	seedActiveOrDoneTicket(store, board.StateDone)
 
-	_, err := svc.AcceptToDone(context.Background(), projA, "t1")
+	_, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{})
 	requireInvalidTransition(t, err, board.StateDone, "AcceptToDone")
 }
 
@@ -630,7 +630,7 @@ func TestAcceptToDone_RejectsBacklogStates(t *testing.T) {
 			svc, store := newTestService()
 			seedActiveOrDoneTicket(store, state)
 
-			_, err := svc.AcceptToDone(context.Background(), projA, "t1")
+			_, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{})
 			requireInvalidTransition(t, err, state, "AcceptToDone")
 		})
 	}
@@ -638,7 +638,7 @@ func TestAcceptToDone_RejectsBacklogStates(t *testing.T) {
 
 func TestAcceptToDone_NotFound(t *testing.T) {
 	svc, _ := newTestService()
-	_, err := svc.AcceptToDone(context.Background(), projA, "missing")
+	_, err := svc.AcceptToDone(context.Background(), projA, "missing", board.CompletionLink{})
 	if !errors.Is(err, board.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
@@ -705,7 +705,7 @@ func TestEveryMutation_EmitsBoardUpdated(t *testing.T) {
 			w := board.WorkerID("w1")
 			store.seedWorker(projA, w)
 			store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &w})
-			if _, err := svc.AcceptToDone(context.Background(), projA, "t1"); err != nil {
+			if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
 				return fmt.Errorf("AcceptToDone: %w", err)
 			}
 			return nil

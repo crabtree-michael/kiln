@@ -29,6 +29,16 @@ func nullableUUID(projectID string) any {
 	return projectID
 }
 
+// nullableText maps an optional string column: "" becomes SQL NULL so an absent
+// value reads back as a nil pointer (github_url/github_label on non-linked cards)
+// rather than an empty string.
+func nullableText(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // errUnknownQueue guards the table/query lookups against a queue name outside
 // the two the runtime knows (04 §2) — a programming error, surfaced loudly.
 var errUnknownQueue = errors.New("runtime/postgres: unknown queue")
@@ -378,15 +388,15 @@ func (s *Store) PostNotification(
 // partial unique index on idempotency_key makes a redelivery a no-op
 // (ON CONFLICT DO NOTHING), so we skip the feed.updated fan-out on a duplicate.
 func (s *Store) PostCompletionCard(
-	ctx context.Context, projectID string, key int64, ticketID, body string,
+	ctx context.Context, projectID string, key int64, ticketID, body, githubURL, githubLabel string,
 ) (bool, error) {
 	var posted bool
 	txErr := s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO notifications (project_id, kind, ticket_id, body, idempotency_key)
-			 VALUES ($1, 'done', $2, $3, $4)
+			`INSERT INTO notifications (project_id, kind, ticket_id, body, github_url, github_label, idempotency_key)
+			 VALUES ($1, 'done', $2, $3, $4, $5, $6)
 			 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
-			nullableUUID(projectID), ticketID, body, key)
+			nullableUUID(projectID), ticketID, body, nullableText(githubURL), nullableText(githubLabel), key)
 		if err != nil {
 			return fmt.Errorf("runtime/postgres: insert completion card: %w", err)
 		}
@@ -478,7 +488,7 @@ func (s *Store) MarkSeen(ctx context.Context, projectID string, lastID int64) er
 // that history is retained (08 D2′).
 func (s *Store) UnseenNotifications(ctx context.Context, projectID string) ([]runtime.Notification, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, ticket_id, body, image_url, created_at
+		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, created_at
 		 FROM notifications
 		 WHERE project_id = $1 AND seen_at IS NULL AND retracted_at IS NULL AND kind NOT IN ('poke', 'done')
 		 ORDER BY id DESC`, nullableUUID(projectID))
@@ -496,7 +506,7 @@ func (s *Store) RecentNotifications(
 	ctx context.Context, projectID string, limit int,
 ) ([]runtime.Notification, bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, ticket_id, body, image_url, created_at
+		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, created_at
 		 FROM notifications
 		 WHERE project_id = $2 AND retracted_at IS NULL
 		 ORDER BY id DESC
@@ -518,7 +528,7 @@ func (s *Store) HistoryBefore(
 	ctx context.Context, projectID string, before int64, limit int,
 ) ([]runtime.Notification, bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, ticket_id, body, image_url, created_at
+		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, created_at
 		 FROM notifications
 		 WHERE project_id = $3 AND retracted_at IS NULL AND id < $1
 		 ORDER BY id DESC
@@ -576,8 +586,8 @@ func trimPage(notes []runtime.Notification, limit int) ([]runtime.Notification, 
 }
 
 // scanNotifications drains a notifications result set (the shared column list:
-// id, kind, ticket_id, body, image_url, created_at) into domain rows, closing
-// the rows and folding a close error into the return.
+// id, kind, ticket_id, body, image_url, github_url, github_label, created_at)
+// into domain rows, closing the rows and folding a close error into the return.
 func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 	defer func() {
 		if cerr := rows.Close(); cerr != nil && err == nil {
@@ -588,12 +598,16 @@ func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 	var out []runtime.Notification
 	for rows.Next() {
 		var (
-			n        runtime.Notification
-			kind     string
-			ticketID sql.NullString
-			imageURL sql.NullString
+			n           runtime.Notification
+			kind        string
+			ticketID    sql.NullString
+			imageURL    sql.NullString
+			githubURL   sql.NullString
+			githubLabel sql.NullString
 		)
-		if serr := rows.Scan(&n.ID, &kind, &ticketID, &n.Body, &imageURL, &n.CreatedAt); serr != nil {
+		if serr := rows.Scan(
+			&n.ID, &kind, &ticketID, &n.Body, &imageURL, &githubURL, &githubLabel, &n.CreatedAt,
+		); serr != nil {
 			return nil, fmt.Errorf("runtime/postgres: scan notification: %w", serr)
 		}
 		n.Kind = runtime.NotificationKind(kind)
@@ -602,6 +616,12 @@ func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 		}
 		if imageURL.Valid {
 			n.ImageURL = &imageURL.String
+		}
+		if githubURL.Valid {
+			n.GitHubURL = &githubURL.String
+		}
+		if githubLabel.Valid {
+			n.GitHubLabel = &githubLabel.String
 		}
 		out = append(out, n)
 	}

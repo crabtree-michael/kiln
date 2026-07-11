@@ -41,6 +41,12 @@ type Notification struct {
 	CreatedAt   time.Time
 	SeenAt      *time.Time
 	RetractedAt *time.Time
+	// GitHubURL/GitHubLabel are set on "done" completion cards (08 §7): the link
+	// to the landed work (a commit or pull request page) and its clickable label
+	// (abbreviated SHA or "#<number>"), rendered as the card's second line. Nil on
+	// every other kind, and on completion cards with no link available.
+	GitHubURL   *string
+	GitHubLabel *string
 }
 
 // NotificationStore is the runtime's persistence port over the notifications
@@ -75,8 +81,11 @@ type NotificationWriter interface {
 	// brain-authored: the board's feed.completion outbox entry drives it. key is
 	// the outbox entry id, used as an idempotency key (ON CONFLICT DO NOTHING) so
 	// an at-least-once redelivery posts no duplicate card; posted is false (and no
-	// feed.updated is enqueued) when the row already existed.
-	PostCompletionCard(ctx context.Context, projectID string, key int64, ticketID, body string) (posted bool, err error)
+	// feed.updated is enqueued) when the row already existed. githubURL/githubLabel
+	// link the card to the landed commit or pull request (empty when unavailable).
+	PostCompletionCard(
+		ctx context.Context, projectID string, key int64, ticketID, body, githubURL, githubLabel string,
+	) (posted bool, err error)
 
 	// RetractNotification stamps retracted_at=now() on the project's row and
 	// appends a feed.updated outbox row in one transaction (08 §3 — the brain

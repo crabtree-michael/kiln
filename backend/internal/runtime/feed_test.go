@@ -273,6 +273,35 @@ func TestService_Feed_DropsCardsForArchivedTickets(t *testing.T) {
 	}
 }
 
+// A live done card carries its GitHub link (08 §7) onto the assembled feed card
+// so the client renders the clickable commit/PR second line. Only done cards do:
+// an update note leaves the link fields nil.
+func TestService_Feed_DoneCardCarriesGitHubLink(t *testing.T) {
+	ctx := context.Background()
+	tid := "t-done"
+	board := &fakeBoardReader{view: runtime.BoardView{
+		TicketTitles: map[string]string{tid: "Ship the widget"},
+	}}
+	notes := &fakeNotificationStore{}
+	url, label := "https://github.com/o/r/commit/a1b2c3d", "a1b2c3d"
+	notes.seed(runtime.Notification{Kind: runtime.KindDone, TicketID: &tid, GitHubURL: &url, GitHubLabel: &label})
+
+	snap, err := newFeedService(notes, board, &fakeFeedPusher{}, &fakeActivityPusher{}).Feed(ctx, defaultTestProject)
+	if err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if len(snap.Cards) != 1 {
+		t.Fatalf("Feed returned %d cards, want 1: %+v", len(snap.Cards), snap.Cards)
+	}
+	c := snap.Cards[0]
+	if c.Kind != "done" {
+		t.Fatalf("card kind = %q, want done", c.Kind)
+	}
+	if c.GitHubURL == nil || *c.GitHubURL != url || c.GitHubLabel == nil || *c.GitHubLabel != label {
+		t.Errorf("done card github link = %v/%v, want %q/%q", c.GitHubURL, c.GitHubLabel, url, label)
+	}
+}
+
 func TestService_Feed_EmptyHasNilLastWord(t *testing.T) {
 	snap, err := newFeedService(
 		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
@@ -645,7 +674,8 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 
 	_, outboxWorker := svc.Workers(clock)
 	store.seed(runtime.QueueOutbox, "feed.completion",
-		[]byte(`{"ticket_id":"t1","ticket_title":"Build the widget"}`), 0)
+		[]byte(`{"ticket_id":"t1","ticket_title":"Build the widget",`+
+			`"github_url":"https://github.com/o/r/pull/7","github_label":"#7"}`), 0)
 
 	stop := runWorker(t, outboxWorker)
 	defer stop()
@@ -665,6 +695,12 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	}
 	if posts[0].Key == 0 {
 		t.Error("completion must be keyed on the outbox id for idempotency, got key 0")
+	}
+	// The GitHub link on the payload threads through to the completion card so the
+	// feed can render the done card's clickable second line (08 §7).
+	if posts[0].GitHubURL != "https://github.com/o/r/pull/7" || posts[0].GitHubLabel != "#7" {
+		t.Errorf("completion github link = %q/%q, want the payload's pull-request URL + #7",
+			posts[0].GitHubURL, posts[0].GitHubLabel)
 	}
 	if posts[0].ProjectID != defaultTestProject {
 		t.Errorf("completion card posted for project %q, want the outbox entry's %q (11 §3)",

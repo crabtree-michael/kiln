@@ -46,9 +46,17 @@ type Config struct {
 // one of the two is meaningful per call — the gate mode picks which check runs.
 // Unavailable marks a disabled shell (no repo / clone failed); Reason explains a
 // negative result or Unavailable.
+//
+// On a positive result URL and Ref name the completed work on GitHub so the feed
+// can link to it (the "done" card's second line): for VerifyOnMain URL is the
+// commit page and Ref the abbreviated SHA; for VerifyInPR URL is the pull
+// request page and Ref its "#<number>". Both are empty on a negative or
+// unavailable result.
 type Verify struct {
 	OnMain      bool
 	InPR        bool
+	URL         string
+	Ref         string
 	Unavailable bool
 	Reason      string
 }
@@ -242,7 +250,7 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 	}
 	switch code, out := run("merge-base", "--is-ancestor", sha, "origin/main"); code {
 	case 0:
-		return Verify{OnMain: true}
+		return Verify{OnMain: true, URL: commitURL(s.cfg.RepoURL, sha), Ref: shortSHA(sha)}
 	case 1:
 		return Verify{Reason: fmt.Sprintf("commit %s is not an ancestor of origin/main", sha)}
 	default:
@@ -251,21 +259,26 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 }
 
 // verifyInPR is VerifyInPR's pure decision over an injected gh runner: ask the
-// GitHub API for the pull requests associated with the commit and count them.
-// A non-zero exit (unknown commit, auth failure, no network) fails closed with a
-// Reason; a zero/empty count means the commit is in no PR. Split out so the
-// decision is testable and VerifyInPR owns only the exec/log wiring.
+// GitHub API for the pull requests associated with the commit and read the
+// first one's number and web URL. A non-zero exit (unknown commit, auth failure,
+// no network) fails closed with a Reason; an empty array means the commit is in
+// no PR. Split out so the decision is testable and VerifyInPR owns only the
+// exec/log wiring.
 func (s *Shell) verifyInPR(sha string, run func(args ...string) (int, string)) Verify {
-	// {owner}/{repo} are resolved by gh from the clone's origin remote; --jq
-	// length collapses the associated-PR array to its count (gh has jq built in).
-	code, out := run("api", "repos/{owner}/{repo}/commits/"+sha+"/pulls", "--jq", "length")
+	// {owner}/{repo} are resolved by gh from the clone's origin remote; the --jq
+	// program (gh has jq built in) emits "<number>\t<html_url>" for the first
+	// associated PR, or nothing when the array is empty. A tab separates the two
+	// so a URL containing spaces (it won't, but be safe) still parses cleanly.
+	const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)" end`
+	code, out := run("api", "repos/{owner}/{repo}/commits/"+sha+"/pulls", "--jq", jq)
 	if code != 0 {
 		return Verify{Reason: fmt.Sprintf("gh could not list pull requests for %s (exit %d): %s", sha, code, out)}
 	}
-	if out == "" || out == "0" {
+	if out == "" {
 		return Verify{Reason: fmt.Sprintf("commit %s is not associated with any pull request", sha)}
 	}
-	return Verify{InPR: true}
+	number, url, _ := strings.Cut(out, "\t")
+	return Verify{InPR: true, URL: url, Ref: "#" + number}
 }
 
 // disable records the reason and returns the shell in a disabled state.
@@ -357,6 +370,28 @@ func (s *Shell) runEnv() []string {
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=",
 	}
+}
+
+// commitURL builds the GitHub web URL for a commit from the configured repo URL
+// (e.g. https://github.com/owner/name -> .../commit/<sha>). Trailing slashes and
+// a ".git" suffix are stripped so an https clone URL in either form resolves. An
+// empty repo URL yields "" (no link), which the feed renders as a link-less card.
+func commitURL(repoURL, sha string) string {
+	base := strings.TrimSuffix(strings.TrimRight(repoURL, "/"), ".git")
+	if base == "" {
+		return ""
+	}
+	return base + "/commit/" + sha
+}
+
+// shortSHA abbreviates a commit SHA to the conventional 7 characters for display
+// as a link label, leaving an already-short (or non-hex) value untouched.
+func shortSHA(sha string) string {
+	const abbrev = 7
+	if len(sha) <= abbrev {
+		return sha
+	}
+	return sha[:abbrev]
 }
 
 // isGitRepo reports whether dir already holds a git repository (has a .git

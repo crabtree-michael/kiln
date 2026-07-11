@@ -90,6 +90,8 @@ export interface FeedCardFixtureInput {
   ticketId?: string;
   notificationId?: number;
   imageUrl?: string;
+  githubUrl?: string;
+  githubLabel?: string;
 }
 
 /** Builds a `FeedCard` from the wire schema, adding optional fields only when
@@ -111,7 +113,13 @@ export function makeFeedCard(input: FeedCardFixtureInput): FeedCard {
     input.imageUrl !== undefined
       ? { ...withNotification, image_url: input.imageUrl }
       : withNotification;
-  return withImage;
+  const withGithubUrl =
+    input.githubUrl !== undefined ? { ...withImage, github_url: input.githubUrl } : withImage;
+  const withGithubLabel =
+    input.githubLabel !== undefined
+      ? { ...withGithubUrl, github_label: input.githubLabel }
+      : withGithubUrl;
+  return withGithubLabel;
 }
 
 export function makeFeedSummary(overrides: Partial<FeedSummary> = {}): FeedSummary {

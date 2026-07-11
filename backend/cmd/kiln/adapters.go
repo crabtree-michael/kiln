@@ -249,8 +249,10 @@ func (a *boardAPIAdapter) MarkBlocked(ctx context.Context, id board.TicketID, re
 }
 
 //nolint:wrapcheck // board errors reach the model verbatim (see type doc).
-func (a *boardAPIAdapter) AcceptToDone(ctx context.Context, id board.TicketID) (board.Ticket, error) {
-	return a.svc.AcceptToDone(ctx, a.projectID, id)
+func (a *boardAPIAdapter) AcceptToDone(
+	ctx context.Context, id board.TicketID, link board.CompletionLink,
+) (board.Ticket, error) {
+	return a.svc.AcceptToDone(ctx, a.projectID, id, link)
 }
 
 //nolint:wrapcheck // board errors reach the model verbatim (see type doc).
@@ -600,6 +602,8 @@ func (a *repoShellAdapter) VerifyOnMain(ctx context.Context, sha string) (brain.
 	v := a.inner.VerifyOnMain(ctx, sha)
 	return brain.RepoVerify{
 		OnMain:      v.OnMain,
+		URL:         v.URL,
+		Ref:         v.Ref,
 		Unavailable: v.Unavailable,
 		Reason:      v.Reason,
 	}, nil
@@ -611,6 +615,8 @@ func (a *repoShellAdapter) VerifyInPR(ctx context.Context, sha string) (brain.Re
 	v := a.inner.VerifyInPR(ctx, sha)
 	return brain.RepoVerify{
 		InPR:        v.InPR,
+		URL:         v.URL,
+		Ref:         v.Ref,
 		Unavailable: v.Unavailable,
 		Reason:      v.Reason,
 	}, nil

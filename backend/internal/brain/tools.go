@@ -663,12 +663,15 @@ func (s *Service) applyUpdate(ctx context.Context, id string, in UpdateTicketInp
 // before the board accepts it — the refusal is fed back for the model to self-
 // correct. `applied` names any earlier field/approval steps for the error path.
 func (s *Service) applyStateStep(ctx context.Context, id string, in UpdateTicketInput, applied []string) ToolResult {
+	var link board.CompletionLink
 	if *in.State == stateDone {
-		if res, ok := s.verifyDone(ctx, id, in); !ok {
+		res, ok, l := s.verifyDone(ctx, id, in)
+		if !ok {
 			return res
 		}
+		link = l
 	}
-	t, err := s.applyState(ctx, board.TicketID(in.ID), *in.State, deref(in.BlockedReason))
+	t, err := s.applyState(ctx, board.TicketID(in.ID), *in.State, deref(in.BlockedReason), link)
 	if err != nil {
 		return updateStepError(id, "state="+*in.State, applied, err)
 	}
@@ -680,8 +683,11 @@ func (s *Service) applyStateStep(ctx context.Context, id string, in UpdateTicket
 // is on origin/main ("main" mode) or it is associated with a pull request ("pr"
 // mode). It dispatches to the mode-specific check; both fail closed and feed a
 // refusal back verbatim for the model to self-correct. ok=true means proceed to
-// AcceptToDone.
-func (s *Service) verifyDone(ctx context.Context, callID string, in UpdateTicketInput) (ToolResult, bool) {
+// AcceptToDone; the returned CompletionLink names the verified work on GitHub
+// (commit or pull request) and is carried onto the completion feed card.
+func (s *Service) verifyDone(
+	ctx context.Context, callID string, in UpdateTicketInput,
+) (ToolResult, bool, board.CompletionLink) {
 	sha := strings.TrimSpace(deref(in.DoneCommit))
 	if s.cfg.GateMode == GatePR {
 		return s.verifyDoneInPR(ctx, callID, sha, in.ID)
@@ -694,16 +700,18 @@ func (s *Service) verifyDone(ctx context.Context, callID string, in UpdateTicket
 // rather than silently reverting to trust. A refusal is a precondition failure
 // fed back verbatim (IsError, not malformed) — the prompt tells the model to
 // then message the agent to merge, and block the ticket meanwhile.
-func (s *Service) verifyDoneOnMain(ctx context.Context, callID, sha, ticketID string) (ToolResult, bool) {
+func (s *Service) verifyDoneOnMain(
+	ctx context.Context, callID, sha, ticketID string,
+) (ToolResult, bool, board.CompletionLink) {
 	v, err := s.repo.VerifyOnMain(ctx, sha)
 	if err != nil {
-		return errorResult(callID, err), false
+		return errorResult(callID, err), false, board.CompletionLink{}
 	}
 	if v.Unavailable {
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
 			"cannot mark ticket %s done: repository verification is unavailable (%s), so the "+
 				"push to origin/main cannot be confirmed.",
-			ticketID, v.Reason)}, false
+			ticketID, v.Reason)}, false, board.CompletionLink{}
 	}
 	if !v.OnMain {
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
@@ -711,32 +719,34 @@ func (s *Service) verifyDoneOnMain(ctx context.Context, callID, sha, ticketID st
 				"and have it commit and push this ticket's work onto origin/main; once it lands, mark the ticket done "+
 				"with that commit. Do not substitute an unrelated commit that is already on main just to pass this check. "+
 				"If it needs a human decision instead, set the ticket blocked.",
-			ticketID, sha, v.Reason)}, false
+			ticketID, sha, v.Reason)}, false, board.CompletionLink{}
 	}
-	return ToolResult{}, true
+	return ToolResult{}, true, board.CompletionLink{URL: v.URL, Label: v.Ref}
 }
 
 // verifyDoneInPR gates the done on a fresh check that sha is associated with a
 // pull request (merged or not). Fails closed exactly like verifyDoneOnMain; the
 // refusal steers the model to have the agent open a PR, or block the ticket.
-func (s *Service) verifyDoneInPR(ctx context.Context, callID, sha, ticketID string) (ToolResult, bool) {
+func (s *Service) verifyDoneInPR(
+	ctx context.Context, callID, sha, ticketID string,
+) (ToolResult, bool, board.CompletionLink) {
 	v, err := s.repo.VerifyInPR(ctx, sha)
 	if err != nil {
-		return errorResult(callID, err), false
+		return errorResult(callID, err), false, board.CompletionLink{}
 	}
 	if v.Unavailable {
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
 			"cannot mark ticket %s done: repository verification is unavailable (%s), so it "+
 				"cannot be confirmed that the work is in a pull request.",
-			ticketID, v.Reason)}, false
+			ticketID, v.Reason)}, false, board.CompletionLink{}
 	}
 	if !v.InPR {
 		return ToolResult{ToolCallID: callID, IsError: true, Content: fmt.Sprintf(
 			"cannot mark ticket %s done: commit %s is not in any pull request (%s). Have the agent open a "+
 				"pull request for the work, then accept it — or set the ticket blocked if it needs a decision.",
-			ticketID, sha, v.Reason)}, false
+			ticketID, sha, v.Reason)}, false, board.CompletionLink{}
 	}
-	return ToolResult{}, true
+	return ToolResult{}, true, board.CompletionLink{URL: v.URL, Label: v.Ref}
 }
 
 // applyState routes one state transition to its board operation. The board's
@@ -746,7 +756,7 @@ func (s *Service) verifyDoneInPR(ctx context.Context, callID, sha, ticketID stri
 //
 //nolint:wrapcheck // board error is fed back verbatim (06 §6), never wrapped.
 func (s *Service) applyState(
-	ctx context.Context, id board.TicketID, state, blockedReason string,
+	ctx context.Context, id board.TicketID, state, blockedReason string, link board.CompletionLink,
 ) (board.Ticket, error) {
 	switch state {
 	case stateReady:
@@ -754,7 +764,7 @@ func (s *Service) applyState(
 	case stateBlocked:
 		return s.board.MarkBlocked(ctx, id, blockedReason)
 	default: // stateDone — validateUpdate already rejected any other value
-		return s.board.AcceptToDone(ctx, id)
+		return s.board.AcceptToDone(ctx, id, link)
 	}
 }
 

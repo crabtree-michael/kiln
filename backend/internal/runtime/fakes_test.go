@@ -631,10 +631,12 @@ type fakeNotificationStore struct {
 
 // completionPost records one accepted PostCompletionCard call.
 type completionPost struct {
-	ProjectID string
-	Key       int64
-	TicketID  string
-	Body      string
+	ProjectID   string
+	Key         int64
+	TicketID    string
+	Body        string
+	GitHubURL   string
+	GitHubLabel string
 }
 
 // notificationEdit records one EditNotification call for delegation assertions.
@@ -665,7 +667,7 @@ func (f *fakeNotificationStore) PostNotification(
 }
 
 func (f *fakeNotificationStore) PostCompletionCard(
-	_ context.Context, projectID string, key int64, ticketID, body string,
+	_ context.Context, projectID string, key int64, ticketID, body, githubURL, githubLabel string,
 ) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -678,11 +680,18 @@ func (f *fakeNotificationStore) PostCompletionCard(
 	f.completionKeys[key] = true
 	f.next++
 	n := runtime.Notification{
-		ID: f.next, Kind: runtime.KindUpdate, Body: body, TicketID: &ticketID, CreatedAt: time.Now(),
+		ID: f.next, Kind: runtime.KindDone, Body: body, TicketID: &ticketID, CreatedAt: time.Now(),
+	}
+	if githubURL != "" {
+		n.GitHubURL = &githubURL
+	}
+	if githubLabel != "" {
+		n.GitHubLabel = &githubLabel
 	}
 	f.rows = append(f.rows, n)
 	f.completions = append(f.completions, completionPost{
 		ProjectID: projectID, Key: key, TicketID: ticketID, Body: body,
+		GitHubURL: githubURL, GitHubLabel: githubLabel,
 	})
 	return true, nil
 }

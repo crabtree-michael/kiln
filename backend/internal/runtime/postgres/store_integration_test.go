@@ -232,7 +232,8 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 	const key = int64(4242)
 	tid := "tk-done"
 
-	posted, err := store.PostCompletionCard(ctx, projA, key, tid, "")
+	const wantURL, wantLabel = "https://github.com/o/r/commit/abcdef1234567", "abcdef1"
+	posted, err := store.PostCompletionCard(ctx, projA, key, tid, "", wantURL, wantLabel)
 	if err != nil {
 		t.Fatalf("PostCompletionCard (first): %v", err)
 	}
@@ -240,7 +241,7 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 		t.Fatal("first PostCompletionCard reported posted=false, want true")
 	}
 
-	posted, err = store.PostCompletionCard(ctx, projA, key, tid, "")
+	posted, err = store.PostCompletionCard(ctx, projA, key, tid, "", wantURL, wantLabel)
 	if err != nil {
 		t.Fatalf("PostCompletionCard (redelivery): %v", err)
 	}
@@ -262,6 +263,18 @@ func TestIntegration_PostCompletionCard_IdempotentOnKey(t *testing.T) {
 	// single-line like a poke and stays out of the brain's update list/badge.
 	if kind != "done" {
 		t.Errorf("completion card kind = %q, want done", kind)
+	}
+
+	// The GitHub link (08 §7) round-trips onto the persisted row: the feed reads
+	// these columns back to render the done card's clickable second line.
+	var gotURL, gotLabel string
+	if err := db.QueryRowContext(ctx,
+		`SELECT github_url, github_label FROM notifications WHERE idempotency_key = $1`, key).
+		Scan(&gotURL, &gotLabel); err != nil {
+		t.Fatalf("read completion github link: %v", err)
+	}
+	if gotURL != wantURL || gotLabel != wantLabel {
+		t.Errorf("completion github link = %q/%q, want %q/%q", gotURL, gotLabel, wantURL, wantLabel)
 	}
 
 	// Only the accepted insert fans out; the duplicate must not enqueue a second.

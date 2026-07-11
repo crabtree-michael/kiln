@@ -808,6 +808,19 @@ components:
           type: string
           nullable: true
           description: Set for preview cards — the embedded render (08 §3, 4c).
+        github_url:
+          type: string
+          nullable: true
+          description: >
+            Set for done cards — the GitHub web page for the landed work (the
+            commit on origin/main under merge-on-main, or the pull request under
+            the PR gate). The card's second line links here (08 §7).
+        github_label:
+          type: string
+          nullable: true
+          description: >
+            Set for done cards alongside github_url — the clickable link text:
+            the abbreviated commit SHA, or "#<number>" for a pull request.
         created_at:
           type: string
           format: date-time

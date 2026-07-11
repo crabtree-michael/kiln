@@ -1,0 +1,76 @@
+# Keyless e2e overlay (design docs/keyless-e2e-tests-design.md §3.3). Layer it on
+# the base stack to run the whole loop with NO provider keys:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.keyless.yml up --build
+#
+# It flips every paid boundary to its in-process mock (AGENT_MODE=mock, the
+# scripted brain, the mock STT minter, the offline verifier), supplies a
+# test-only VAPID pair so the real push.Sender runs, seeds an `e2e-user` project
+# so the board renders without onboarding, and adds two mock services the specs
+# talk to: mock-stt (browser-facing STT socket) and mock-push (the push service
+# the backend delivers to). No ANTHROPIC_API_KEY / AMIKA_API_KEY /
+# ASSEMBLYAI_API_KEY is set. The VAPID keys here are throwaway test material, not
+# secrets. `make e2e-keyless` wraps this.
+services:
+  backend:
+    environment:
+      # Keyless mode switches (design §3). Every paid boundary → an in-process mock.
+      AGENT_MODE: mock
+      KILN_BRAIN_MODE: scripted
+      KILN_BRAIN_SCRIPT: /fixtures/brain/keyless.json
+      KILN_VOICE_MODE: mock
+      KILN_VERIFY_MODE: mock
+      KILN_DEV_ENDPOINTS: '1'
+      # Seed the e2e-user's project at boot so the board renders without the
+      # onboarding step (the onboarding spec uses a different, fresh login).
+      KILN_BOOTSTRAP_GITHUB_USER: e2e-user
+      AMIKA_REPO_URL: https://example.com/keyless/repo.git
+      KILN_WORKER_COUNT: '3'
+      # Identity must be mounted for dev sessions + bootstrap: a fixed test
+      # secrets key (64 hex) and OAuth placeholders (never used — dev session mint
+      # bypasses the OAuth flow).
+      KILN_SECRETS_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      GITHUB_OAUTH_CLIENT_ID: keyless-e2e
+      GITHUB_OAUTH_CLIENT_SECRET: keyless-e2e
+      # Test-only VAPID pair so the real push.Sender encrypts + signs (design §Test 2).
+      VAPID_PUBLIC_KEY: BOny77KcB11A-bpDinZdx_xXZdpGYcCtKvnuv8_3LCL_GY579V97OPhd--sJ59f_-PybToDkw0TpJMG3EevEcGo
+      VAPID_PRIVATE_KEY: l_V-JZXTrFkpFVMNi1brY3JLPmHa724UJdIGu0kRTak
+      VAPID_SUBJECT: e2e@kiln.test
+    volumes:
+      # Mount the scripted-brain fixtures read-only at the path KILN_BRAIN_SCRIPT points to.
+      - ./tests/fixtures:/fixtures:ro
+
+  frontend:
+    environment:
+      # Point the browser's voice client at the host-published mock STT socket
+      # (design §3.2). Vite exposes VITE_* to the client bundle; the browser runs
+      # on the host, so it reaches the mock at localhost:7071.
+      VITE_VOICE_WS_URL: ws://127.0.0.1:7071
+
+  # Browser-facing mock AssemblyAI streaming socket. Published on 7071 so the
+  # host browser can open it directly (audio ignored; scripted transcript).
+  mock-stt:
+    image: node:22-alpine
+    working_dir: /mock
+    command: node server.mjs
+    environment:
+      KILN_STT_PORT: '7071'
+      KILN_STT_TRANSCRIPT: Create a ticket to add a dark mode toggle
+    volumes:
+      - ./tests/mock-stt:/mock:ro
+    ports:
+      - '7071:7071'
+
+  # Mock Web Push service. The backend (on the compose network) delivers pushes
+  # to http://mock-push:7072/push/<id>; the spec (on the host) reads /_pushes via
+  # the published port.
+  mock-push:
+    image: node:22-alpine
+    working_dir: /mock
+    command: node server.mjs
+    environment:
+      KILN_PUSH_PORT: '7072'
+    volumes:
+      - ./tests/mock-push:/mock:ro
+    ports:
+      - '7072:7072'

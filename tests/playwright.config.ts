@@ -18,7 +18,10 @@ const baseURL = process.env.KILN_E2E_BASE_URL ?? 'http://localhost:5173';
 // this WAV as the mic stream, so the REAL frontend pipeline (worklet → socket →
 // commit machine → Dock) runs against real AssemblyAI. `%noloop` plays it once.
 const voiceSample = new URL('./fixtures/this-is-a-test.wav', import.meta.url).pathname;
-const voiceSpec = /voice-mic-to-brain\.spec\.ts/;
+// Specs that need the fake-mic Chromium (the `voice` project): the key-gated
+// real-service spec and its keyless twin (design §Test 4). Both are excluded from
+// the default `chromium` project and matched by the `voice` project below.
+const voiceSpec = /(voice-mic-to-brain|keyless-voice)\.spec\.ts/;
 
 export default defineConfig({
   testDir: './tests',

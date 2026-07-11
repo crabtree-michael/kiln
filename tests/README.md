@@ -6,6 +6,29 @@ against fakes in the commit gate. **These e2e tests are different**: they drive 
 **real web client** against a **running stack** and exercise the live loop — no fakes,
 so the brain hits the **real LLM** (02 §4a, §1).
 
+## Two lanes: real-service and keyless
+
+The specs split into two lanes:
+
+- **Real-service (default, key-gated):** the specs below drive the real LLM / Amika /
+  AssemblyAI. Run deliberately, never in the commit gate, and NOT in CI (they need keys).
+- **Keyless (`@keyless`-tagged, CI-runnable):** `keyless-*.spec.ts` drive the SAME live
+  loop with every paid boundary mocked — `AGENT_MODE=mock`, the scripted brain
+  (`KILN_BRAIN_MODE=scripted` + `tests/fixtures/brain/keyless.json`), the mock STT minter
+  (`KILN_VOICE_MODE=mock`) + `tests/mock-stt/`, the offline verifier (`KILN_VERIFY_MODE=mock`),
+  and a test VAPID pair delivering to `tests/mock-push/`. Design + rationale:
+  `docs/keyless-e2e-tests-design.md`. Run them with the keyless overlay (no keys, no onboarding):
+
+  ```sh
+  make up-keyless          # docker-compose.yml + docker-compose.keyless.yml (mocks + e2e-user project)
+  # wait for http://localhost:5173
+  cd tests && pnpm install && pnpm run install-browser
+  make e2e-keyless         # cd tests && pnpm test --grep @keyless
+  make down-keyless
+  ```
+
+  CI runs this lane on every push and PR (`.github/workflows/e2e-keyless.yml`).
+
 ## What's here
 
 - `tests/say-creates-ticket.spec.ts` — core-loop steps 1–2 (01 §2): a user says a

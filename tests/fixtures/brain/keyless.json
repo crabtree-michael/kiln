@@ -1,0 +1,72 @@
+{
+  "_comment": "Scripted-brain fixture for the keyless e2e suite (design docs/keyless-e2e-tests-design.md §3.1). Loaded by KILN_BRAIN_MODE=scripted / KILN_BRAIN_SCRIPT. Each rule matches a pass's rendered round-1 context (transcript + event); rounds[i] is the canned response for the i-th LLM round. ${ticket} is substituted with the ticket id recovered from the tool results / event text, so a two-step create-then-ready works with no known-ahead id. See internal/brain/scripted.",
+  "rules": [
+    {
+      "_comment": "keyless-core-loop.spec.ts: a login-form request creates a ticket and marks it ready (two rounds), then ends the turn.",
+      "when": { "contains": ["The user said", "login form"] },
+      "rounds": [
+        {
+          "tools": [
+            {
+              "name": "create_ticket",
+              "input": {
+                "title": "Build a login form",
+                "body": "Build a login form and wire it to the auth endpoint."
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            { "name": "update_ticket", "input": { "id": "${ticket}", "state": "ready" } }
+          ]
+        },
+        { "text": "On it — I opened a ticket and marked it ready for a worker." }
+      ]
+    },
+    {
+      "_comment": "keyless-core-loop.spec.ts return leg: when the mock agent's turn completes, Kiln reacts by saying a line and posting a feed update. It does NOT accept-to-done — the merge gate verifies a real origin/main commit, which a keyless stack's disabled repo shell cannot satisfy (design §Test 1).",
+      "when": { "contains": ["agent.turn_completed"] },
+      "rounds": [
+        {
+          "text": "The worker finished its first turn on the login form.",
+          "tools": [
+            {
+              "name": "post_update",
+              "input": { "body": "Login form: first turn complete.", "ticket": "${ticket}" }
+            },
+            { "name": "say", "input": { "text": "The worker finished a turn on the login form." } }
+          ]
+        },
+        { "text": "Standing by for the next step." }
+      ]
+    },
+    {
+      "_comment": "keyless-voice.spec.ts: a spoken (mock-STT) request to add a dark-mode toggle creates a ticket and replies on screen.",
+      "when": { "contains": ["The user said", "dark mode"] },
+      "rounds": [
+        {
+          "tools": [
+            {
+              "name": "create_ticket",
+              "input": { "title": "Add a dark mode toggle", "body": "Add a dark mode toggle to the settings screen." }
+            }
+          ]
+        },
+        { "text": "Added a ticket for the dark mode toggle." }
+      ]
+    },
+    {
+      "_comment": "keyless-notification.spec.ts / accept flow: when the user taps Accept on a proposal, handleAccept posts a 'tapped Accept … Mark that ticket ready now' message; Kiln marks it ready.",
+      "when": { "contains": ["tapped Accept"] },
+      "rounds": [
+        {
+          "tools": [
+            { "name": "update_ticket", "input": { "id": "${ticket}", "state": "ready" } }
+          ]
+        },
+        { "text": "Accepted — queued it for a worker." }
+      ]
+    }
+  ]
+}

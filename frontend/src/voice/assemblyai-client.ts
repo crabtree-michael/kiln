@@ -20,8 +20,10 @@ import { computeRms } from '@/voice/volume-meter';
 const PCM_WORKLET_NAME = 'pcm16-downsample';
 
 // AssemblyAI's streaming WebSocket host (09 §2). The client sends binary PCM16
-// mono 16 kHz frames and receives Begin/Turn JSON messages.
-const WS_BASE = 'wss://streaming.assemblyai.com/v3/ws';
+// mono 16 kHz frames and receives Begin/Turn JSON messages. VITE_VOICE_WS_URL
+// overrides it so the keyless-e2e suite can point the client at a mock STT
+// server (design §3.2); unset uses the real host, so local/prod are unchanged.
+const WS_BASE = import.meta.env.VITE_VOICE_WS_URL ?? 'wss://streaming.assemblyai.com/v3/ws';
 
 // Pin transcription to the English-only speech model. The v3 default is
 // `universal-3-5-pro`, a multilingual model that natively code-switches across

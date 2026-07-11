@@ -24,6 +24,13 @@ interface ImportMetaEnv {
    * path) without a code change, pending real per-user config support.
    */
   readonly VITE_SHOW_ANTHROPIC_KEY_FIELD?: string;
+  /**
+   * Overrides the AssemblyAI streaming WebSocket host so the keyless-e2e suite
+   * can point the voice client at a local mock STT server (design
+   * docs/keyless-e2e-tests-design.md §3.2). Unset → the real host, so nothing
+   * changes locally or in production.
+   */
+  readonly VITE_VOICE_WS_URL?: string;
 }
 
 // The W3C Audio Session API (https://www.w3.org/TR/audio-session/). Not in the

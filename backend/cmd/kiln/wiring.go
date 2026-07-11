@@ -27,6 +27,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	boardpg "github.com/crabtree-michael/kiln/backend/internal/board/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/brain/scripted"
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/githubapi"
 	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
@@ -41,6 +42,7 @@ import (
 	stewardpg "github.com/crabtree-michael/kiln/backend/internal/steward/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/tenant"
 	"github.com/crabtree-michael/kiln/backend/internal/voice/assemblyai"
+	voicemock "github.com/crabtree-michael/kiln/backend/internal/voice/mock"
 	"github.com/crabtree-michael/kiln/backend/internal/web"
 )
 
@@ -52,6 +54,14 @@ var errBadConfig = errors.New("kiln: invalid configuration")
 const (
 	readHeaderTimeout = 10 * time.Second
 	shutdownTimeout   = 15 * time.Second
+)
+
+// Keyless-e2e mode values (design §3): modeMock is the shared "mock" value for
+// AGENT_MODE / KILN_VOICE_MODE / KILN_VERIFY_MODE; modeScripted is
+// KILN_BRAIN_MODE's fixture-driven-brain value.
+const (
+	modeMock     = "mock"
+	modeScripted = "scripted"
 )
 
 // migrationSet is one module's embedded migrations plus the stable ledger-key
@@ -184,8 +194,12 @@ var errBrainType = errors.New("kiln: project brain is not a runtime.Brain")
 // registry's build closure captures the still-nil rtSvc/agentSvc pointers,
 // which are assigned before any event can trigger a lazy build.
 func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logger) (graph, error) {
-	if cfg.AgentMode != "mock" && cfg.AgentMode != "amika" {
-		return graph{}, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)
+	// Validate the mode switches and resolve the keyless-e2e scripted brain once
+	// at startup (design §3.1): a nil scriptedBrain is the default real-Anthropic
+	// case; a bad AGENT_MODE / KILN_BRAIN_MODE / fixture fails fast here.
+	scriptedBrain, err := validateConfig(cfg)
+	if err != nil {
+		return graph{}, err
 	}
 
 	boardStore := boardpg.New(db)
@@ -208,7 +222,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	// config through identity, then build its worker seeding, brain, and agent
 	// provider once and cache them. It captures &rtSvc/&agentSvc so its lazy
 	// build closure sees them once assigned below (the construction cycle).
-	registry := newRegistry(cfg, idSvc, boardStore, boardSvc, &rtSvc, &agentSvc)
+	registry := newRegistry(cfg, idSvc, boardStore, boardSvc, &rtSvc, &agentSvc, scriptedBrain)
 	if idSvc != nil {
 		// A dashboard credential/project write drops the cached providers so the
 		// next event rebuilds from fresh config — no restart (11 §3).
@@ -245,15 +259,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	)
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
 
-	// STT token minter (09 §6): the api handler mints a short-lived AssemblyAI
-	// streaming token; the browser opens the STT socket directly, so the key
-	// never leaves the backend (02 §2).
-	voiceMinter := assemblyai.New(assemblyai.Config{
-		APIKey:  cfg.AssemblyAIAPIKey,
-		BaseURL: cfg.AssemblyAIBaseURL,
-	})
-
-	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, voiceMinter)
+	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, newVoiceMinter(cfg))
 	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore, betapg.New(db))
 
 	events, outbox := rtSvc.Workers(clock)
@@ -274,7 +280,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 // can trigger a lazy build, so the runtime↔registry construction cycle is safe.
 func newRegistry(
 	cfg Config, idSvc *identity.Service, boardStore *boardpg.Store, boardSvc *board.Service,
-	rtSvc **runtime.Service, agentSvc **agent.Service,
+	rtSvc **runtime.Service, agentSvc **agent.Service, scriptedBrain brain.LLM,
 ) *tenant.Registry {
 	return tenant.New(
 		func(rctx context.Context, projectID string) (identity.RuntimeConfig, error) {
@@ -284,7 +290,7 @@ func newRegistry(
 			return idSvc.RuntimeConfig(rctx, projectID)
 		},
 		func(bctx context.Context, rc identity.RuntimeConfig) (*tenant.Providers, error) {
-			return buildTenantProviders(bctx, cfg, rc, boardStore, boardSvc, *rtSvc, *agentSvc)
+			return buildTenantProviders(bctx, cfg, rc, scriptedBrain, boardStore, boardSvc, *rtSvc, *agentSvc)
 		},
 	)
 }
@@ -297,7 +303,7 @@ func newRegistry(
 // the registry to cache.
 // Extracted from buildGraph's closure to keep both within the complexity budget.
 func buildTenantProviders(
-	ctx context.Context, cfg Config, rc identity.RuntimeConfig,
+	ctx context.Context, cfg Config, rc identity.RuntimeConfig, scriptedBrain brain.LLM,
 	boardStore *boardpg.Store, boardSvc *board.Service, rtSvc *runtime.Service, agentSvc *agent.Service,
 ) (*tenant.Providers, error) {
 	pid := rc.Project.ID
@@ -314,7 +320,7 @@ func buildTenantProviders(
 	// built from this project's owner credentials (11 §3). AGENT_MODE is
 	// validated once in buildGraph, so a non-mock mode here is always amika.
 	var provider agent.Provider
-	if cfg.AgentMode == "mock" {
+	if cfg.AgentMode == modeMock {
 		provider = mock.New()
 	} else {
 		// A per-tenant HTTP client so each project's connection pool is isolated
@@ -345,7 +351,7 @@ func buildTenantProviders(
 		model = brain.DefaultModel
 	}
 	gateMode := brain.GateMode(rc.Project.MergeGateMode)
-	llm := newBrainLLM(cfg, model)
+	llm := newBrainLLM(cfg, model, scriptedBrain)
 
 	brainSvc := brain.NewService(
 		&boardAPIAdapter{svc: boardSvc, projectID: pid},
@@ -376,11 +382,74 @@ func buildTenantProviders(
 // rc.AnthropicAPIKey (dormant — kept for a future per-user path). An empty key
 // falls back to the SDK's own env/credential lookup, so the "unconfigured boot"
 // behavior is unchanged.
-func newBrainLLM(cfg Config, model string) *brain.Adapter {
+func newBrainLLM(cfg Config, model string, scriptedBrain brain.LLM) brain.LLM {
+	// KILN_BRAIN_MODE=scripted (design §3.1): every project shares the one
+	// fixture-driven LLM loaded at startup, so the loop runs with no Anthropic
+	// key. It is stateless, so sharing across projects is safe.
+	if scriptedBrain != nil {
+		return scriptedBrain
+	}
 	if cfg.AnthropicAPIKey != "" {
 		return brain.NewAdapterWithClient(brain.Config{Model: model}, option.WithAPIKey(cfg.AnthropicAPIKey))
 	}
 	return brain.NewAdapter(brain.Config{Model: model})
+}
+
+// validateConfig checks the composition-root mode switches once at startup and
+// resolves the keyless-e2e scripted brain (design §3.1). It returns a nil
+// brain.LLM in the default real-Anthropic case (the per-project adapter is built
+// later), or the loaded fixture when KILN_BRAIN_MODE=scripted.
+func validateConfig(cfg Config) (brain.LLM, error) {
+	if cfg.AgentMode != modeMock && cfg.AgentMode != "amika" {
+		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)
+	}
+	return loadScriptedBrain(cfg)
+}
+
+// newVoiceMinter builds the STT token minter (09 §6): the api handler mints a
+// short-lived streaming token; the browser opens the STT socket directly, so the
+// key never leaves the backend (02 §2). KILN_VOICE_MODE=mock swaps the real
+// AssemblyAI adapter for a canned minter so voice runs keyless (design §3.2).
+func newVoiceMinter(cfg Config) api.VoiceTokenMinter {
+	if cfg.VoiceMode == modeMock {
+		return voicemock.New()
+	}
+	return assemblyai.New(assemblyai.Config{
+		APIKey:  cfg.AssemblyAIAPIKey,
+		BaseURL: cfg.AssemblyAIBaseURL,
+	})
+}
+
+// newVerifier builds identity's live-check adapter (11 §4). KILN_VERIFY_MODE=mock
+// swaps it for the offline verifier so a keyless stack's onboarding checks come
+// back green with no real credentials to probe (design §Test 3).
+func newVerifier(cfg Config) identity.Verifier {
+	if cfg.VerifyMode == modeMock {
+		return verify.NewMock()
+	}
+	return verify.New(resolveAmikaBaseURL(cfg))
+}
+
+// loadScriptedBrain resolves KILN_BRAIN_MODE (design §3.1): "scripted" loads the
+// fixture at KILN_BRAIN_SCRIPT into a scripted.LLM; "" / "anthropic" returns a
+// nil LLM (the real adapter is built per project). Any other value, or a
+// scripted mode with no script path, is a config error.
+func loadScriptedBrain(cfg Config) (brain.LLM, error) {
+	switch cfg.BrainMode {
+	case "", "anthropic":
+		return nil, nil //nolint:nilnil // nil LLM ⇒ "build the real adapter per project"; not an error.
+	case modeScripted:
+		if cfg.BrainScript == "" {
+			return nil, fmt.Errorf("%w: KILN_BRAIN_MODE=scripted requires KILN_BRAIN_SCRIPT", errBadConfig)
+		}
+		l, err := scripted.Load(cfg.BrainScript)
+		if err != nil {
+			return nil, fmt.Errorf("kiln: load brain script: %w", err)
+		}
+		return l, nil
+	default:
+		return nil, fmt.Errorf("%w: unknown KILN_BRAIN_MODE %q", errBadConfig, cfg.BrainMode)
+	}
 }
 
 // amikaSecretRefs maps a project's decrypted secrets (RuntimeConfig, plaintext)
@@ -548,7 +617,7 @@ func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service,
 			ClientSecret: cfg.GitHubOAuthClientSecret,
 		}, nil)
 		idSvc := identity.NewService(identitypg.New(db), cipher, gh, cfg.AllowedGitHubUsers)
-		idSvc.SetVerifier(verify.New(resolveAmikaBaseURL(cfg)))
+		idSvc.SetVerifier(newVerifier(cfg))
 		return idSvc, nil
 	case cfg.GitHubOAuthClientID != "" || cfg.GitHubOAuthClientSecret != "" || cfg.SecretsKey != "":
 		log.Warn("identity disabled: need all of GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY")

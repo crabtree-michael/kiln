@@ -53,11 +53,17 @@ type Config struct {
 	AmikaBaseURL    string // AMIKA_BASE_URL, when AgentMode == "amika" (05 §9)
 	AnthropicAPIKey string // ANTHROPIC_API_KEY — the brain's LLM adapter (06 §2)
 	BrainModel      string // KILN_BRAIN_MODEL, default brain.DefaultModel (06 §2)
-	HTTPAddr        string // KILN_HTTP_ADDR — address the api server binds (04 §7)
-	LogLevel        string // KILN_LOG_LEVEL (docker-compose.yml)
-	WorkerCount     int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
-	WorkerPrefix    string // KILN_WORKER_PREFIX — per-environment provider worker-name scope (05 §4)
-	DevEndpoints    bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
+	// Keyless-e2e brain (design docs/keyless-e2e-tests-design.md §3.1): the
+	// counterpart to AGENT_MODE=mock. "scripted" swaps the Anthropic adapter for
+	// a fixture-driven LLM so the whole loop runs with no Anthropic key; "" (or
+	// "anthropic") is the real model.
+	BrainMode    string // KILN_BRAIN_MODE: "" / "anthropic" (default) or "scripted"
+	BrainScript  string // KILN_BRAIN_SCRIPT — fixture path, required when BrainMode == "scripted"
+	HTTPAddr     string // KILN_HTTP_ADDR — address the api server binds (04 §7)
+	LogLevel     string // KILN_LOG_LEVEL (docker-compose.yml)
+	WorkerCount  int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
+	WorkerPrefix string // KILN_WORKER_PREFIX — per-environment provider worker-name scope (05 §4)
+	DevEndpoints bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
 
 	// Mechanical stall watchdog (steward): how long a Working ticket's agent may
 	// sit idle/stopped before a poke, and how often the sweep runs. Zero ⇒ the
@@ -67,6 +73,11 @@ type Config struct {
 
 	AssemblyAIAPIKey  string // ASSEMBLYAI_API_KEY — the STT provider's token-mint credential (09 §6)
 	AssemblyAIBaseURL string // ASSEMBLYAI_BASE_URL — override the streaming host (default in-adapter)
+	// Keyless-e2e mode switches (design docs/keyless-e2e-tests-design.md §3.2,
+	// §Test 3): "mock" swaps the paid boundary for an offline stand-in so the loop
+	// runs with no key. Empty is the real adapter.
+	VoiceMode  string // KILN_VOICE_MODE: "" (AssemblyAI) or "mock" (canned token)
+	VerifyMode string // KILN_VERIFY_MODE: "" (live checks) or "mock" (offline ok)
 
 	// The brain's repo-inspection bash tool (design 2026-07-04): a maintained
 	// local clone the brain runs allowlisted git/gh/rg commands in to verify an
@@ -146,6 +157,8 @@ func loadConfig() Config {
 		AmikaBaseURL:    os.Getenv("AMIKA_BASE_URL"),
 		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
 		BrainModel:      os.Getenv("KILN_BRAIN_MODEL"),
+		BrainMode:       os.Getenv("KILN_BRAIN_MODE"),
+		BrainScript:     os.Getenv("KILN_BRAIN_SCRIPT"),
 		HTTPAddr:        resolveHTTPAddr(),
 		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
 		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
@@ -157,6 +170,8 @@ func loadConfig() Config {
 
 		AssemblyAIAPIKey:  os.Getenv("ASSEMBLYAI_API_KEY"),
 		AssemblyAIBaseURL: os.Getenv("ASSEMBLYAI_BASE_URL"),
+		VoiceMode:         os.Getenv("KILN_VOICE_MODE"),
+		VerifyMode:        os.Getenv("KILN_VERIFY_MODE"),
 
 		GitHubRepoURL:   os.Getenv("GITHUB_REPO_URL"),
 		GitHubAuthToken: os.Getenv("GITHUB_AUTH_TOKEN"),

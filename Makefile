@@ -81,6 +81,19 @@ test-frontend:
 e2e: ## End-to-end test: drive the real web client against a running stack (02 §4a; hits real services)
 	cd tests && pnpm test
 
+.PHONY: up-keyless
+up-keyless: ## Bring the stack up in keyless mode (all providers mocked; no API keys)
+	docker compose -f docker-compose.yml -f docker-compose.keyless.yml up --build -d
+	@echo "keyless stack up — frontend http://localhost:5173, mock-stt :7071, mock-push :7072"
+
+.PHONY: down-keyless
+down-keyless: ## Tear down the keyless stack + volumes
+	docker compose -f docker-compose.yml -f docker-compose.keyless.yml down -v
+
+.PHONY: e2e-keyless
+e2e-keyless: ## Keyless e2e: the @keyless specs against the mocked stack — no API keys, CI-runnable (design docs/keyless-e2e-tests-design.md)
+	cd tests && pnpm test --grep @keyless
+
 ## ----------------------------------------------------------------------------
 ## Contract + build + run
 ## ----------------------------------------------------------------------------

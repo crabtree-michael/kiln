@@ -448,9 +448,10 @@ func TestDispatch_ListAgents_RoutesToInspector(t *testing.T) {
 }
 
 // TestDispatch_ListAgents_ErroredWorkers_WarnsHealth pins the aggregate health
-// warning list_agents leads with when any worker is errored, so the brain knows
-// the failure is infrastructure and stops marking tickets ready. A healthy pool
-// carries no such warning.
+// warning list_agents leads with when any worker is errored: it names the
+// errored count AND the healthy capacity that can still run work, so the brain
+// keeps tickets flowing up to the available sandboxes rather than halting the
+// whole board. A healthy pool carries no such warning.
 func TestDispatch_ListAgents_ErroredWorkers_WarnsHealth(t *testing.T) {
 	fi := &fakeInspector{list: []brain.AgentInfo{
 		{WorkerID: workerW1, Status: brain.AgentErrored},
@@ -465,11 +466,17 @@ func TestDispatch_ListAgents_ErroredWorkers_WarnsHealth(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("IsError = true, want false (%q)", result.Content)
 	}
-	if !strings.Contains(result.Content, "SANDBOX HEALTH: 2 of 3 workers errored") {
+	if !strings.Contains(result.Content, "SANDBOX HEALTH: 2 of 3 workers are errored") {
 		t.Errorf("Content = %q, want a leading health warning naming the errored count", result.Content)
 	}
-	if !strings.Contains(result.Content, "Do not mark tickets ready") {
-		t.Errorf("Content = %q, want the do-not-proceed guidance", result.Content)
+	// 2 of 3 errored leaves 1 healthy — the warning must name that capacity so
+	// the brain runs up to it instead of stopping entirely.
+	if !strings.Contains(result.Content, "1 worker") {
+		t.Errorf("Content = %q, want the warning to name the 1 healthy worker of capacity", result.Content)
+	}
+	// The old behaviour halted all ticket work on any error; the fix must not.
+	if strings.Contains(result.Content, "Do not mark tickets ready") {
+		t.Errorf("Content = %q, must not halt all ticket work — start up to available capacity", result.Content)
 	}
 }
 

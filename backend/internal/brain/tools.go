@@ -1015,16 +1015,21 @@ func formatRepoResult(res RepoResult) string {
 }
 
 // sandboxHealthWarning is the leading line list_agents emits when any worker is
-// errored — it names the count and tells the brain the failure is
-// infrastructure, so it stops marking tickets ready (formatAgents).
-const sandboxHealthWarning = "SANDBOX HEALTH: %d of %d workers errored — this is an infrastructure " +
-	"failure, not the ticket. Do not mark tickets ready or expect new agent work to run until the sandboxes recover."
+// errored. It names the errored count AND the healthy capacity that remains, so
+// the brain keeps work flowing up to the available sandboxes rather than
+// halting the whole board on the first failure (formatAgents). Args in order:
+// errored, total, healthy, healthy.
+const sandboxHealthWarning = "SANDBOX HEALTH: %d of %d workers are errored — this is an infrastructure " +
+	"failure, not the tickets. The other %d worker(s) are healthy and can still run work: keep tickets " +
+	"flowing, but do not let the number of Ready + Working tickets exceed %d, since anything the pull " +
+	"binds to an errored sandbox stalls instead of running. The rest will flow once the sandboxes recover."
 
 // formatAgents renders list_agents' result as one line per worker for the
 // model, led by a health-warning line when any worker is in a terminal errored
 // state. The warning tells the brain the failure is infrastructure, not the
-// ticket — so it does not keep marking tickets ready and burning the retry
-// budget on work the sandboxes cannot run (the user sees the same failure as a
+// ticket, and names how many sandboxes are still healthy — so it starts as many
+// tickets as there is available capacity instead of stopping the board, while
+// not overloading the dead sandboxes (the user sees the same failure as a
 // permanent error band on the dock). Provider-agnostic: keyed off the neutral
 // AgentErrored status, no MECA/Amika specifics.
 func formatAgents(agents []AgentInfo) string {
@@ -1039,7 +1044,8 @@ func formatAgents(agents []AgentInfo) string {
 	}
 	var b strings.Builder
 	if failing > 0 {
-		fmt.Fprintf(&b, sandboxHealthWarning+"\n", failing, len(agents))
+		healthy := len(agents) - failing
+		fmt.Fprintf(&b, sandboxHealthWarning+"\n", failing, len(agents), healthy, healthy)
 	}
 	for i, a := range agents {
 		if i > 0 {

@@ -57,7 +57,7 @@ export interface PrimaryScreenViewProps {
    * through the brain (D5, delete_ticket); omitted (presentational tests) leaves
    * the sheet without a Delete button, so the DOM/snapshots stay unchanged. */
   onDelete?: ((ticketId: string) => void) | undefined;
-  /** Nudge a stalled agent to continue — the ticket detail's "Poke to continue"
+  /** Nudge a stalled agent to continue — the ticket detail's "👉 Poke"
    * action, shown on working/blocked tickets. The composing screen routes this
    * through the brain (D5); omitted (presentational tests) leaves the sheet without
    * a Poke button. */
@@ -238,7 +238,7 @@ export function PrimaryScreenView({
   const openTicket = findTicket(board, openTicketId);
   // The open ticket's bound agent, looked up in the board snapshot's `agents`
   // join (keyed by ticket_id). Its session status gates the Poke button: a
-  // *working* ticket only offers "Poke to continue" once the agent is `idle`
+  // *working* ticket only offers "👉 Poke" once the agent is `idle`
   // (alive, between turns, waiting) — never while a turn is streaming
   // (`building`), so the user isn't invited to nudge an agent already moving.
   const openAgentIdle =

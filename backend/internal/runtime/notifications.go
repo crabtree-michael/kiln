@@ -47,10 +47,11 @@ type Notification struct {
 	// every other kind, and on completion cards with no link available.
 	GitHubURL   *string
 	GitHubLabel *string
-	// WorkSummary is set on "done" completion cards (08 §7): the one-line
-	// description of the landed work (commit subject or PR title), rendered as the
-	// card body. Nil on every other kind, and on completion cards whose summary
-	// could not be read.
+	// WorkSummary is set on "done" completion cards (08 §7): the full description
+	// of the landed work (the commit message, or the PR title + description),
+	// rendered as the card's expandable body — a preview that opens to the full
+	// text. Nil on every other kind, and on completion cards whose summary could
+	// not be read.
 	WorkSummary *string
 }
 
@@ -88,8 +89,8 @@ type NotificationWriter interface {
 	// an at-least-once redelivery posts no duplicate card; posted is false (and no
 	// feed.updated is enqueued) when the row already existed. githubURL/githubLabel
 	// link the card to the landed commit or pull request (empty when unavailable);
-	// workSummary is the landed work's one-line description shown as the card body
-	// (empty when unavailable → a body-less card).
+	// workSummary is the landed work's full description shown as the card's
+	// expandable body (empty when unavailable → a body-less card).
 	PostCompletionCard(
 		ctx context.Context, projectID string, key int64, ticketID, body, githubURL, githubLabel, workSummary string,
 	) (posted bool, err error)

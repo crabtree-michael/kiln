@@ -371,7 +371,7 @@ type FeedCard struct {
 	// TicketId Set for blocker/proposal (the derived ticket); optional for authored notes.
 	TicketId *string `json:"ticket_id,omitempty"`
 
-	// WorkSummary Set for done cards — the one-line description of the landed work: the commit subject under the main merge gate, or the pull-request title under the PR gate. Rendered as the card body (08 §7). Null when unavailable.
+	// WorkSummary Set for done cards — the full description of the landed work: the entire commit message (subject + body) under the main merge gate, or the pull-request title + description under the PR gate. Rendered as the card's expandable body — the client previews the first lines and reveals the rest on tap (08 §7). Null when unavailable.
 	WorkSummary *string `json:"work_summary,omitempty"`
 }
 

@@ -869,6 +869,16 @@ button[data-role='feed-card-head']:focus-visible {
   border-radius: var(--radius-sm);
 }
 
+/* The done card's body carries a real commit message / PR description (08 §7):
+   multi-line text with a subject, a blank line, then a body. Preserve those line
+   breaks (pre-line collapses runs of spaces but keeps newlines) so the message
+   reads with its paragraph structure — both in the three-line preview and once
+   expanded — rather than flowing into one run the way brain-authored note bodies
+   do. Scoped to done so no other card kind's body changes. */
+[data-role='feed-card'][data-kind='done'] [data-role='feed-card-body'] {
+  white-space: pre-line;
+}
+
 /* Type label, leftmost: the small uppercase kind marker ("Preview") that anchors
    the scannable head. Only preview still wears a tag — update/blocker/proposal
    drop it and let the title colour carry the kind. */

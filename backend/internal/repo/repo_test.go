@@ -223,13 +223,49 @@ func TestVerifyOnMain(t *testing.T) {
 	} else if v.Ref != onMain[:7] || !strings.HasSuffix(v.URL, "/commit/"+onMain) {
 		t.Fatalf("expected commit link (ref %s, .../commit/%s); got ref %q url %q", onMain[:7], onMain, v.Ref, v.URL)
 	} else if v.Summary != "seed: initial commit" {
-		t.Fatalf("expected commit subject as Summary; got %q", v.Summary)
+		t.Fatalf("expected commit message as Summary; got %q", v.Summary)
 	}
 	if v := s.VerifyOnMain(context.Background(), offMain); v.OnMain {
 		t.Fatalf("expected NOT OnMain for unmerged branch commit %s; got %+v", offMain, v)
 	}
 	if v := s.VerifyOnMain(context.Background(), "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"); v.OnMain {
 		t.Fatalf("expected NOT OnMain for unknown sha; got %+v", v)
+	}
+}
+
+// TestVerifyOnMain_FullCommitMessage proves the Summary carries the entire
+// commit message (subject + body via %B), not just the subject line — the
+// expandable done-card body (08 §7).
+func TestVerifyOnMain_FullCommitMessage(t *testing.T) {
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+	work := filepath.Join(root, "work")
+	gitOut(t, root, "init", "--bare", bare)
+	gitOut(t, root, "init", work)
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, work, "add", "README.md")
+	// Subject, blank line, then a body paragraph — the shape a real commit has.
+	const message = "feat(web): show a 404 page\n\nAdds a catch-all route so unmatched paths render the 404 view."
+	gitOut(t, work, "commit", "-m", message)
+	gitOut(t, work, "branch", "-M", "main")
+	gitOut(t, work, "remote", "add", "origin", bare)
+	gitOut(t, work, "push", "-u", "origin", "main")
+	sha := gitOut(t, work, "rev-parse", "HEAD")
+
+	dir := filepath.Join(t.TempDir(), "clone")
+	s := New(context.Background(), Config{RepoURL: bare, Dir: dir})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	v := s.VerifyOnMain(context.Background(), sha)
+	if !v.OnMain {
+		t.Fatalf("expected OnMain for %s; got %+v", sha, v)
+	}
+	if v.Summary != message {
+		t.Fatalf("expected full commit message as Summary; got %q, want %q", v.Summary, message)
 	}
 }
 
@@ -271,13 +307,21 @@ func TestVerifyOnMain_FetchesFreshCommits(t *testing.T) {
 }
 
 // TestVerifyInPR drives the pure decision over a fake gh runner: the outcome
-// hinges only on gh's exit code and the "<number>\t<html_url>\t<title>" line the
-// --jq program prints, so a stubbed runner exercises every branch (including the
-// URL, Ref and Summary it lifts for the feed link and card body) without a real
-// GitHub API.
+// hinges only on gh's exit code and the "<number>\t<html_url>\t<title>\n\n<body>"
+// text the --jq program prints, so a stubbed runner exercises every branch
+// (including the URL, Ref and Summary it lifts for the feed link and expandable
+// card body) without a real GitHub API.
 func TestVerifyInPR(t *testing.T) {
 	var s Shell
 	const sha = "abc1234"
+	const (
+		prURL = "https://github.com/o/r/pull/42"
+		prRef = "#42"
+		// A title, a blank line, then a body — the "title\n\nbody" shape the jq
+		// joins and the whole thing rides Summary as the expandable card body.
+		titleAndBody = "fix(web): show a 404 page\n\n" +
+			"Adds a catch-all route so unmatched paths render the 404 view."
+	)
 
 	cases := []struct {
 		name        string
@@ -290,13 +334,26 @@ func TestVerifyInPR(t *testing.T) {
 	}{
 		{
 			"associated with a PR", 0,
-			"42\thttps://github.com/o/r/pull/42\tfix(web): show a 404 page",
-			true, "https://github.com/o/r/pull/42", "#42", "fix(web): show a 404 page",
+			"42\t" + prURL + "\tfix(web): show a 404 page",
+			true, prURL, prRef, "fix(web): show a 404 page",
+		},
+		{
+			// Title + body: the title is the preview, the body follows on expand.
+			"associated with a PR, title and body", 0,
+			"42\t" + prURL + "\t" + titleAndBody,
+			true, prURL, prRef, titleAndBody,
+		},
+		{
+			// GitHub PR bodies arrive CRLF; cleanMessage strips the carriage
+			// returns so the client renders clean line breaks.
+			"associated with a PR, CRLF body normalized", 0,
+			"42\t" + prURL + "\ttitle\r\n\r\nbody line\r\n",
+			true, prURL, prRef, "title\n\nbody line",
 		},
 		{
 			"associated with a PR, empty title", 0,
-			"42\thttps://github.com/o/r/pull/42\t",
-			true, "https://github.com/o/r/pull/42", "#42", "",
+			"42\t" + prURL + "\t",
+			true, prURL, prRef, "",
 		},
 		{"no associated PR (empty output)", 0, "", false, "", "", ""},
 		{"gh error (unknown commit / auth)", 1, "HTTP 422: No commit found for SHA", false, "", "", ""},
@@ -321,7 +378,7 @@ func TestVerifyInPR(t *testing.T) {
 			if !tc.wantInPR && v.Reason == "" {
 				t.Fatal("expected a Reason on a negative result")
 			}
-			const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)\t\(.[0].title)" end`
+			const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)\t\(.[0].title)\n\n\(.[0].body // "")" end`
 			want := []string{"api", "repos/{owner}/{repo}/commits/" + sha + "/pulls", "--jq", jq}
 			if strings.Join(gotArgs, " ") != strings.Join(want, " ") {
 				t.Fatalf("gh args = %v, want %v", gotArgs, want)

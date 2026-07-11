@@ -252,11 +252,12 @@ func (s *Service) MarkBlocked(ctx context.Context, projectID string, id TicketID
 // CompletionLink names the completed work on GitHub for the persistent "done"
 // feed card (08 §7): URL is the web page (a commit under merge-on-main, a pull
 // request under the PR gate) and Label the clickable text (abbreviated SHA or
-// "#<number>"). Summary is the landed work's one-line description — the commit
-// subject or PR title — rendered as the card body. The brain fills it from the
-// merge-gate verify it just ran; both link fields empty means no link is shown
-// (e.g. repository verification was unavailable — though the done gate refuses
-// that case upstream), and an empty Summary means a body-less card.
+// "#<number>"). Summary is the landed work's full description — the commit
+// message, or the PR title + description — rendered as the card's expandable body
+// (preview + tap-to-expand). The brain fills it from the merge-gate verify it just
+// ran; both link fields empty means no link is shown (e.g. repository verification
+// was unavailable — though the done gate refuses that case upstream), and an empty
+// Summary means a body-less card.
 type CompletionLink struct {
 	URL     string
 	Label   string

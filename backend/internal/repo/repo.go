@@ -57,10 +57,12 @@ type Verify struct {
 	InPR   bool
 	URL    string
 	Ref    string
-	// Summary is the one-line description of the landed work read gate-aligned
-	// from the verified artifact: the commit subject under merge-on-main, or the
-	// pull-request title under the PR gate. Surfaced as the done feed card's body
-	// (08 §7). Empty when it could not be read — a fail-soft body-less card.
+	// Summary is the full description of the landed work read gate-aligned from the
+	// verified artifact: the entire commit message (subject + body) under
+	// merge-on-main, or the pull-request title + description under the PR gate.
+	// Surfaced as the done feed card's expandable body — the client previews the
+	// first line and reveals the rest on tap (08 §7). Empty when it could not be
+	// read — a fail-soft body-less card.
 	Summary     string
 	Unavailable bool
 	Reason      string
@@ -257,7 +259,7 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 	case 0:
 		return Verify{
 			OnMain: true, URL: commitURL(s.cfg.RepoURL, sha), Ref: shortSHA(sha),
-			Summary: commitSubject(sha, run),
+			Summary: commitMessage(sha, run),
 		}
 	case 1:
 		return Verify{Reason: fmt.Sprintf("commit %s is not an ancestor of origin/main", sha)}
@@ -274,11 +276,14 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 // exec/log wiring.
 func (s *Shell) verifyInPR(sha string, run func(args ...string) (int, string)) Verify {
 	// {owner}/{repo} are resolved by gh from the clone's origin remote; the --jq
-	// program (gh has jq built in) emits "<number>\t<html_url>\t<title>" for the
-	// first associated PR, or nothing when the array is empty. Tabs separate the
-	// fields so a value containing spaces (they won't, but be safe) still parses
-	// cleanly; the title is the card body under the PR gate (08 §7).
-	const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)\t\(.[0].title)" end`
+	// program (gh has jq built in) emits the first associated PR as
+	// "<number>\t<html_url>\t<title>\n\n<body>", or nothing when the array is
+	// empty. The number/url/title are tab-separated (so a value containing spaces
+	// still parses cleanly); the title and body are joined by a blank line, so the
+	// title reads as the summary's first line (the preview) and the description
+	// follows as the expandable body under the PR gate (08 §7). A null/absent body
+	// falls back to "" so the join degrades to just the title.
+	const jq = `if length == 0 then "" else "\(.[0].number)\t\(.[0].html_url)\t\(.[0].title)\n\n\(.[0].body // "")" end`
 	code, out := run("api", "repos/{owner}/{repo}/commits/"+sha+"/pulls", "--jq", jq)
 	if code != 0 {
 		return Verify{Reason: fmt.Sprintf("gh could not list pull requests for %s (exit %d): %s", sha, code, out)}
@@ -286,25 +291,35 @@ func (s *Shell) verifyInPR(sha string, run func(args ...string) (int, string)) V
 	if out == "" {
 		return Verify{Reason: fmt.Sprintf("commit %s is not associated with any pull request", sha)}
 	}
-	// Fields are number, html_url, title in that order. The title is taken as the
-	// remainder after the second tab (so a title containing a tab — it won't, but
-	// be safe — still parses); an empty title leaves Summary "" → body-less card.
+	// Fields are number, html_url, then the "title\n\nbody" summary in that order.
+	// The summary is the remainder after the second tab (so a value containing a
+	// tab still parses); an empty title AND body leaves Summary "" → body-less card.
 	number, rest, _ := strings.Cut(out, "\t")
-	url, title, _ := strings.Cut(rest, "\t")
-	return Verify{InPR: true, URL: url, Ref: "#" + number, Summary: title}
+	url, summary, _ := strings.Cut(rest, "\t")
+	return Verify{InPR: true, URL: url, Ref: "#" + number, Summary: cleanMessage(summary)}
 }
 
-// commitSubject reads the one-line subject of sha via `git show -s --format=%s`
-// on the already-fetched, ancestor-verified local commit — no network. %s yields
-// only the subject, so trailers (Co-Authored-By: …) never reach the card. Returns
-// "" on any non-zero exit so an unreadable subject just leaves the done card
+// commitMessage reads the full message of sha via `git show -s --format=%B` on
+// the already-fetched, ancestor-verified local commit — no network. %B yields the
+// entire message (subject line, blank line, then body), so the done card can
+// surface everything the agent wrote without a trip to GitHub (08 §7): the client
+// shows the subject as a preview and expands to the full text on tap. Returns ""
+// on any non-zero exit so an unreadable message just leaves the done card
 // body-less (fail-soft), never blocking the verified done.
-func commitSubject(sha string, run func(args ...string) (int, string)) string {
-	code, out := run("show", "-s", "--format=%s", sha)
+func commitMessage(sha string, run func(args ...string) (int, string)) string {
+	code, out := run("show", "-s", "--format=%B", sha)
 	if code != 0 {
 		return ""
 	}
-	return out
+	return cleanMessage(out)
+}
+
+// cleanMessage normalizes a commit or PR message for the done-card body: strip
+// carriage returns (GitHub PR bodies come CRLF) so the client renders clean line
+// breaks, and trim surrounding blank space. The message is otherwise preserved
+// whole — subject and body — for the card's expandable body (08 §7).
+func cleanMessage(s string) string {
+	return strings.TrimSpace(strings.ReplaceAll(s, "\r", ""))
 }
 
 // disable records the reason and returns the shell in a disabled state.

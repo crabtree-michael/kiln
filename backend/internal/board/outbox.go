@@ -104,8 +104,9 @@ const (
 // for the card body. GitHubURL/GitHubLabel are the link to the landed work (a
 // commit or pull request page + its clickable label), rendered as the card's
 // second line; both empty when no link is available. Summary is the landed
-// work's one-line description (commit subject or PR title) rendered as the card
-// body; empty when unavailable → a body-less card. The runtime uses the outbox
+// work's full description (the commit message, or the PR title + description)
+// rendered as the card's expandable body — a preview that opens to the full text;
+// empty when unavailable → a body-less card. The runtime uses the outbox
 // id as the idempotency key so an at-least-once redelivery posts no duplicate
 // card.
 type CompletionPayload struct {

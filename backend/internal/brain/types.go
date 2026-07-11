@@ -162,8 +162,9 @@ type RepoResult struct {
 // On a positive result URL and Ref name the completed work on GitHub so the done
 // feed card can link to it: a commit page + abbreviated SHA for VerifyOnMain, or
 // the pull request page + "#<number>" for VerifyInPR. Summary is the landed
-// work's one-line description (commit subject or PR title) for the card body (08
-// §7). Empty otherwise.
+// work's full description (the commit message under VerifyOnMain, or the PR title
+// + description under VerifyInPR) for the card's expandable body (08 §7). Empty
+// otherwise.
 type RepoVerify struct {
 	OnMain      bool
 	InPR        bool

@@ -27,10 +27,15 @@
 // cue is the same; only where the tap lands changes. The inline Accept stays a
 // *sibling* of that button — never nested — so tapping Accept accepts without
 // also opening the detail.
-// Done and poke cards have no body to carry that click-through (they are just a
-// ✅/👉 + ticket title, 08 §7/§3), so when they are tagged to a ticket the *head*
-// row itself becomes the button that opens the same ticket detail overlay — the
-// only surface a body-less card has.
+// Poke cards have no body to carry that click-through (they are just a 👉 +
+// ticket title, 08 §3), so when tagged to a ticket the *head* row itself becomes
+// the button that opens the ticket detail overlay — the only surface a body-less
+// card has. A done card (08 §7) leads with its GitHub link (the actionable jump
+// to the landed commit/PR), then carries the commit message / PR description as an
+// expand-in-place body below it — a truncated preview that opens to the full text
+// on tap, the same FeedCardBody every other kind uses. That body is a
+// self-contained note, never a click-through, so a done card tagged to a ticket
+// still makes its *head* the ticket-detail button, exactly like a poke.
 //
 // Already-seen cards (below the last-seen divider, 08 D2′) render de-emphasized
 // via `seen`: an unbolded ticket name and a body collapsed tighter than the
@@ -324,9 +329,6 @@ export function FeedCardItem({
       ) : (
         <div data-role="feed-card-head">{head}</div>
       )}
-      {isDone && card.work_summary != null && card.work_summary !== '' && (
-        <FeedCardBody body={card.work_summary} seen={seen} />
-      )}
       {isDone && card.github_url != null && card.github_label != null && (
         <a
           data-role="feed-card-github"
@@ -337,6 +339,9 @@ export function FeedCardItem({
           <GitHubMark />
           {card.github_label}
         </a>
+      )}
+      {isDone && card.work_summary != null && card.work_summary !== '' && (
+        <FeedCardBody body={card.work_summary} seen={seen} />
       )}
       {!isPoke &&
         !isDone &&

@@ -1277,6 +1277,9 @@
 [data-role='thinking-text'] {
   font-size: 12.5px;
   font-weight: 500;
+  /* Title-case the clay-work verb so each word reads capitalised (the words file
+     stores them lowercase). */
+  text-transform: capitalize;
   /* Muted grey text; the life comes from the red glow pulsing on the container. */
   color: var(--text-muted);
   /* Only the subtle brightness/opacity flicker rides the text now; the glow moved

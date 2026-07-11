@@ -12,7 +12,7 @@
 // threshold, clicking the scrim, and pressing Escape all route through
 // `onOpenChange(false)` → `onClose`, so this component adds none of that by
 // hand — dismiss stays low-friction, never a trap (07 §7–§8).
-import { type JSX } from 'react';
+import { type JSX, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Drawer } from 'vaul';
@@ -52,6 +52,18 @@ export interface TicketDetailProps {
    * hidden, so the user isn't invited to nudge an agent that's already moving.
    * Defaults false (unknown / no bound agent → treat as not-idle, so no Poke). */
   agentIdle?: boolean;
+  /** A voice control rendered at the footer's bottom-left on a *proposal*
+   * (shaping) sheet — the first of the pair of bottom-left affordances (delete
+   * joins it later). It is the same mic-orb button as the main screen's dock
+   * (`MicButton`); tapping it starts a voice recording session so the user can
+   * talk to the brain about the proposal without leaving the sheet (the transcript
+   * lands in the dock behind — they don't need to watch it). Passed in rather than
+   * rendered here so this component stays free of the voice store: it is a live
+   * `useVoice()` consumer and only the primary screen (under a `VoiceProvider`)
+   * wires it — the /debug board opens the same sheet without one, so it stays
+   * omitted there. Shown only while shaping, mirroring Accept: once accepted the
+   * proposal is gone. */
+  voiceControl?: ReactNode;
   /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
    * default: the main app view shows only the title and description. The /debug
    * board opts in to inspect a ticket's full record (D5). */
@@ -101,6 +113,7 @@ export function TicketDetail({
   onTalk,
   onPoke,
   agentIdle = false,
+  voiceControl,
   showInternalMeta = false,
   surface = 'debug',
 }: TicketDetailProps): JSX.Element {
@@ -133,6 +146,12 @@ export function TicketDetail({
   const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
   const canTalk = isBlocked && onTalk !== undefined;
   const canAccept = isShaping && onAccept !== undefined;
+  // The bottom-left voice control is a proposal affordance, so it rides the same
+  // shaping-only gate as Accept: a proposal is only ever a shaping ticket, and the
+  // caller only wires it on the primary screen (the /debug board leaves it
+  // undefined). Rendered in its own lead cluster so a delete button can join it
+  // later without disturbing the trailing Accept/Talk/Poke.
+  const showVoice = isShaping && voiceControl !== undefined;
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -229,8 +248,13 @@ export function TicketDetail({
               rightmost, where flex-end makes it the most prominent. Each button
               narrows on its callback directly inside the guard so TypeScript knows
               it's defined in the handler — no optional chain (the lint gate). */}
-          {(canPoke || canTalk || canAccept) && (
+          {(showVoice || canPoke || canTalk || canAccept) && (
             <div data-role="ticket-detail-actions">
+              {/* Bottom-left cluster: the mic (and, later, delete). `margin-right:
+                  auto` on it pushes the trailing state action (Accept/Talk/Poke)
+                  to the right, so when it's absent the row is byte-identical to the
+                  old flex-end footer. */}
+              {showVoice && <div data-role="ticket-detail-lead-actions">{voiceControl}</div>}
               {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
                 <button
                   type="button"

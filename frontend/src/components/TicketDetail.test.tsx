@@ -146,6 +146,48 @@ describe('TicketDetail', () => {
     expect(status?.querySelector('[data-role="ticket-detail-status-dot"]')).not.toBeNull();
   });
 
+  // The bottom-left voice control (the mic) on a proposal sheet. TicketDetail is
+  // voice-store-agnostic — it renders whatever node the caller passes — so a plain
+  // stand-in stands in for the real MicButton here. It rides the same shaping-only
+  // gate as Accept: a proposal is only ever a shaping ticket.
+  describe('proposal voice control', () => {
+    const proposal = makeTicket({
+      id: 't-prop',
+      title: 'A shaped proposal',
+      body: 'body',
+      state: 'shaping',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    const mic = <button data-role="mock-mic">mic</button>;
+
+    it('renders the voice control at the footer bottom-left on a shaping proposal', () => {
+      render(
+        <TicketDetail ticket={proposal} onClose={vi.fn()} onAccept={vi.fn()} voiceControl={mic} />,
+      );
+      const lead = within(screen.getByRole('dialog'))
+        .getByText('mic')
+        .closest('[data-role="ticket-detail-lead-actions"]');
+      expect(lead).not.toBeNull();
+      // It shares the footer with the trailing Accept action.
+      expect(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }),
+      ).toBeInTheDocument();
+    });
+
+    it('never renders the voice control past shaping — not a proposal anymore', () => {
+      render(<TicketDetail ticket={working} onClose={vi.fn()} voiceControl={mic} />);
+      expect(screen.queryByText('mic')).toBeNull();
+    });
+
+    it('renders no lead cluster when the caller wires no voice control (/debug inspection)', () => {
+      render(<TicketDetail ticket={proposal} onClose={vi.fn()} onAccept={vi.fn()} />);
+      expect(within(screen.getByRole('dialog')).queryByText('mic')).toBeNull();
+      expect(document.querySelector('[data-role="ticket-detail-lead-actions"]')).toBeNull();
+    });
+  });
+
   describe('Poke action', () => {
     it('is absent by default — read-only inspection has no Poke button', () => {
       render(<TicketDetail ticket={working} onClose={vi.fn()} />);

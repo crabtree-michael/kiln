@@ -21,6 +21,7 @@ import { TicketDetail } from '@/components/TicketDetail';
 import { ActivityRow } from '@/components/ActivityRow';
 import { SystemAlertBand } from '@/components/SystemAlertBand';
 import { Dock } from '@/components/Dock';
+import { MicButton } from '@/components/MicButton';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { streamDetail } from '@/components/feed-format';
@@ -425,6 +426,11 @@ export function PrimaryScreenView({
           // Only a working ticket whose agent has gone idle offers Poke; while the
           // agent is mid-turn (progress streaming) the button stays hidden.
           agentIdle={openAgentIdle}
+          // The bottom-left mic on a proposal sheet (TicketDetail gates it to
+          // shaping): the same dock orb, tapped to start a voice session about the
+          // proposal without leaving the sheet. Safe to always pass — it only
+          // mounts (and touches the voice store) when the sheet renders it.
+          voiceControl={<MicButton />}
           onClose={() => {
             setOpenTicketId(null);
           }}

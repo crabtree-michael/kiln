@@ -295,7 +295,20 @@
 [data-role='ticket-detail-actions'] {
   margin-top: 0.9rem;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* Bottom-left affordance cluster (the mic now; delete later) — the first of the
+ * pair 08 §5 calls for. `margin-right: auto` pins it to the row's left edge and
+ * shoves the trailing state action (Accept/Talk/Poke) to the right, so the footer
+ * reads as left-group / right-group. Absent (every non-proposal sheet) the row is
+ * exactly the old flex-end footer, unchanged. */
+[data-role='ticket-detail-lead-actions'] {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 

@@ -3,7 +3,7 @@
 // fixture data and never touch the live stores. `PrimaryScreen` (the composing
 // wrapper) bridges the feed + activity stores into these props, mirroring how
 // `App` bridges its stores into `Board`/`ChatPanel`.
-import { useRef, useState, type JSX } from 'react';
+import { useCallback, useRef, useState, type JSX } from 'react';
 import type {
   Board,
   ConnectionState,
@@ -47,8 +47,8 @@ export interface PrimaryScreenViewProps {
   thinking: boolean;
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
-  /** Pauses/resumes a toast's auto-dismiss timer as the user expands or collapses
-   * it (08 §4). Optional so presentational tests can omit the store wiring. */
+  /** Pauses a `say` pill's auto-dismiss timer when the user opens it to read the
+   * full message (08 §4). Optional so presentational tests can omit the store wiring. */
   onToastExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
   onAccept: (ticketId: string) => void;
   /** Delete a proposal that's no longer wanted — the ticket detail's "Delete"
@@ -230,6 +230,15 @@ export function PrimaryScreenView({
   // ticket. The id is resolved against the live board each render, so the overlay
   // drains on its own if the ticket leaves the board (e.g. after Accept).
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  // The ticket detail overlay is opened from a feed card, the header menu, or a
+  // push-notification deep link. Board `toast` pills no longer route here — they
+  // open in place on the activity row and dismiss via their own Close control
+  // (08 §4) — so opening/closing the overlay is a plain setter with no toast to
+  // reconcile. `closeTicket` is a stable callback because the sheet + several
+  // in-sheet actions all close through it.
+  const closeTicket = useCallback((): void => {
+    setOpenTicketId(null);
+  }, []);
   // A tapped push notification deep-links here (02 §10): open the ticket it names,
   // whether we were opened fresh at `/app?ticket=<id>` or handed the tap live by the
   // service worker. The id resolves against the board below like any other open.
@@ -424,7 +433,6 @@ export function PrimaryScreenView({
           toasts={toasts}
           onDismiss={onDismiss}
           onToastExpandedChange={onToastExpandedChange}
-          onOpenTicket={setOpenTicketId}
         />
         {/* The permanent error band is rendered INSIDE the dock (as its first
             child), not here — so the live-transcript overlay grows above it rather
@@ -449,14 +457,12 @@ export function PrimaryScreenView({
           // behind the sheet. Safe to always pass — it only mounts (and touches the
           // voice store) when the sheet renders it.
           voiceControl={<MicButton sendable />}
-          onClose={() => {
-            setOpenTicketId(null);
-          }}
+          onClose={closeTicket}
           // Accept is a proposal action; TicketDetail only surfaces it while the
           // ticket is still shaping, so it's safe to always wire — the sheet decides.
           onAccept={(ticketId) => {
             onAccept(ticketId);
-            setOpenTicketId(null);
+            closeTicket();
           }}
           // Delete only surfaces on a shaping proposal (TicketDetail gates it):
           // route the deletion through the brain, then close the sheet like Accept
@@ -467,13 +473,13 @@ export function PrimaryScreenView({
               ? undefined
               : (ticketId) => {
                   onDelete(ticketId);
-                  setOpenTicketId(null);
+                  closeTicket();
                 }
           }
           // Talk only surfaces on a blocked ticket (TicketDetail gates it):
           // close the sheet to uncover the dock and open the mic for unblocking.
           onTalk={() => {
-            setOpenTicketId(null);
+            closeTicket();
             resume();
           }}
           // Poke surfaces on working/blocked tickets (TicketDetail gates it):
@@ -485,7 +491,7 @@ export function PrimaryScreenView({
               ? undefined
               : (ticketId) => {
                   onPoke(ticketId);
-                  setOpenTicketId(null);
+                  closeTicket();
                 }
           }
         />

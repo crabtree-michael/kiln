@@ -3,6 +3,10 @@
 // and the persistent say pill — each rendered from the stack the store hands
 // down. Multiple live toasts stack. DOM-structure snapshots stand in for pixel
 // snapshots (07 §9 D4).
+//
+// Interaction (08 §4): neither pill carries an always-on ×. BOTH kinds open in
+// place on tap (full content + a Close control), and closing dismisses the pill
+// entirely; opening pauses the pill's auto-dismiss timer.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ActivityRow } from '@/components/ActivityRow';
@@ -15,17 +19,6 @@ const noop = (): void => {
 
 function toast(id: number, pill: ActivityToast['pill']): ActivityToast {
   return { id, pill };
-}
-
-/**
- * jsdom performs no layout, so `scrollHeight`/`clientHeight` are both 0 and the
- * clamp never registers as truncated. Fake a clamped box (content taller than
- * the 2-line window) so the expand affordance can be exercised; restore after
- * each test so the layout-free default holds for the snapshot cases.
- */
-function fakeClampedOverflow(): void {
-  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(100);
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40);
 }
 
 afterEach(() => {
@@ -88,50 +81,38 @@ describe('ActivityRow', () => {
     expect(document.querySelectorAll('[data-role="say-pill"]')).toHaveLength(1);
   });
 
-  it('renders the say pill with a dismiss affordance and calls onDismiss with its id', () => {
+  it('opens a say pill in place on tap, revealing the full text and a Close control', () => {
+    const toasts = [toast(1, { kind: 'say', text: 'A very long agent utterance that overflows.' })];
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
+
+    // Collapsed: the whole pill is one Open button, the text clamped (no expand flag).
+    const openButton = screen.getByRole('button', { name: 'Open message' });
+    expect(openButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText(/A very long agent utterance/)).not.toHaveAttribute('data-expanded');
+    // No dismiss affordance while collapsed — tapping opens, it doesn't dismiss.
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+
+    fireEvent.click(openButton);
+
+    // Open: the clamp drops and a Close control appears; the Open button is gone.
+    expect(screen.getByText(/A very long agent utterance/)).toHaveAttribute('data-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open message' })).toBeNull();
+  });
+
+  it('closing an open say pill dismisses it entirely with its id', () => {
     const onDismiss = vi.fn();
     const toasts = [toast(7, { kind: 'say', text: 'Trust the session cookie.' })];
     render(<ActivityRow thinking={false} toasts={toasts} onDismiss={onDismiss} />);
-    expect(screen.getByText('Trust the session cookie.')).toHaveAttribute('data-role', 'say-text');
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open message' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledWith(7);
   });
 
-  it('leaves a say pill inert when its text fits (no clamp, no expand affordance)', () => {
-    const toasts = [toast(1, { kind: 'say', text: 'On it.' })];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
-    const text = screen.getByText('On it.');
-    expect(text).not.toHaveAttribute('data-expandable');
-    expect(text).not.toHaveAttribute('data-expanded');
-    expect(text).not.toHaveAttribute('role', 'button');
-  });
-
-  it('expands a truncated say pill in place on tap and collapses it again', () => {
-    fakeClampedOverflow();
-    const toasts = [toast(1, { kind: 'say', text: 'A very long agent utterance that overflows.' })];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
-    const text = screen.getByText(/A very long agent utterance/);
-
-    // Truncated: tappable, collapsed to start.
-    expect(text).toHaveAttribute('data-expandable', 'true');
-    expect(text).toHaveAttribute('role', 'button');
-    expect(text).toHaveAttribute('aria-expanded', 'false');
-    expect(text).not.toHaveAttribute('data-expanded');
-
-    fireEvent.click(text);
-    expect(text).toHaveAttribute('data-expanded', 'true');
-    expect(text).toHaveAttribute('aria-expanded', 'true');
-
-    fireEvent.click(text);
-    expect(text).not.toHaveAttribute('data-expanded');
-    expect(text).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('reports expand/collapse for a truncated toast so its timer can pause and resume', () => {
-    fakeClampedOverflow();
+  it("pauses a say pill's auto-dismiss timer when it is opened so it can't vanish mid-read", () => {
     const onToastExpandedChange = vi.fn();
-    const toasts = [toast(4, { kind: 'say', text: 'A very long say that clamps and reveals.' })];
+    const toasts = [toast(4, { kind: 'say', text: 'A say that clamps and reveals.' })];
     render(
       <ActivityRow
         thinking={false}
@@ -140,86 +121,75 @@ describe('ActivityRow', () => {
         onToastExpandedChange={onToastExpandedChange}
       />,
     );
-    const text = screen.getByText(/A very long say/);
-
-    fireEvent.click(text);
-    expect(onToastExpandedChange).toHaveBeenLastCalledWith(4, true);
-    fireEvent.click(text);
-    expect(onToastExpandedChange).toHaveBeenLastCalledWith(4, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Open message' }));
+    // Opening pauses the timer; closing dismisses outright, so it is never resumed.
+    expect(onToastExpandedChange).toHaveBeenCalledTimes(1);
+    expect(onToastExpandedChange).toHaveBeenCalledWith(4, true);
   });
 
-  it('opens the ticket detail when a ticket-activity toast is tapped (not expand-in-place)', () => {
-    const onOpenTicket = vi.fn();
+  it('opens a ticket-activity toast in place on tap, revealing its title and a Close control', () => {
     const toasts = [
       toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-1' }),
     ];
-    render(
-      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} onOpenTicket={onOpenTicket} />,
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
+
+    // Collapsed: one Open button, the title clamped, no dismiss control — tapping
+    // opens the pill in place (not a ticket overlay).
+    const openButton = screen.getByRole('button', { name: 'Open update: Login Redesign' });
+    expect(openButton).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('[data-role="toast-text"]')).not.toHaveAttribute('data-expanded');
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+
+    fireEvent.click(openButton);
+
+    // Open: the title's clamp drops and a Close control appears.
+    expect(document.querySelector('[data-role="toast-text"]')).toHaveAttribute(
+      'data-expanded',
+      'true',
     );
-    // The whole icon+title region is one button labelled by the ticket, and the
-    // title never becomes an expand toggle — the tap opens the ticket instead.
-    const open = screen.getByRole('button', { name: 'Open ticket: Login Redesign' });
-    expect(screen.getByText('Login Redesign')).not.toHaveAttribute('data-expandable');
-    fireEvent.click(open);
-    expect(onOpenTicket).toHaveBeenCalledTimes(1);
-    expect(onOpenTicket).toHaveBeenCalledWith('t-1');
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open update/ })).toBeNull();
   });
 
-  it('tapping the toast dismiss × closes it without opening the ticket', () => {
-    const onOpenTicket = vi.fn();
+  it('closing an open ticket-activity toast dismisses it entirely with its id', () => {
     const onDismiss = vi.fn();
     const toasts = [
       toast(5, { kind: 'toast', verb: 'finished', ticketTitle: 'Auth', ticketId: 't-5' }),
+    ];
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open update: Auth' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith(5);
+  });
+
+  it("pauses a ticket toast's auto-dismiss timer when it is opened", () => {
+    const onToastExpandedChange = vi.fn();
+    const toasts = [
+      toast(3, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-3' }),
     ];
     render(
       <ActivityRow
         thinking={false}
         toasts={toasts}
-        onDismiss={onDismiss}
-        onOpenTicket={onOpenTicket}
+        onDismiss={noop}
+        onToastExpandedChange={onToastExpandedChange}
       />,
     );
-    // The dismiss button is a sibling of the open button, so its click never
-    // bubbles into an open.
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(onDismiss).toHaveBeenCalledWith(5);
-    expect(onOpenTicket).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open update: Login Redesign' }));
+    expect(onToastExpandedChange).toHaveBeenCalledTimes(1);
+    expect(onToastExpandedChange).toHaveBeenCalledWith(3, true);
   });
 
-  it('renders a ticket-activity toast inert when no open handler is wired', () => {
-    const toasts = [
-      toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-1' }),
-    ];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
-    // Without onOpenTicket the pill is a static row — no open button, just the
-    // (still-present) dismiss affordance.
-    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
-    expect(screen.getByText('Login Redesign')).toBeInTheDocument();
-  });
-
-  it('leaves a toast with no linked ticket id inert even when an open handler is wired', () => {
-    const onOpenTicket = vi.fn();
+  it('opens a toast with no linked ticket id (inline expand needs no ticket)', () => {
     const toasts = [
       toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Orphan', ticketId: '' }),
     ];
-    render(
-      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} onOpenTicket={onOpenTicket} />,
-    );
-    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
-  });
-
-  it('dismisses a say pill without toggling expansion when the × is tapped', () => {
-    fakeClampedOverflow();
-    const onDismiss = vi.fn();
-    const toasts = [
-      toast(9, { kind: 'say', text: 'A very long say that is clamped and dismissable.' }),
-    ];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={onDismiss} />);
-    const text = screen.getByText(/A very long say/);
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(onDismiss).toHaveBeenCalledWith(9);
-    // The dismiss button is a sibling of the text, so it never toggles expansion.
-    expect(text).not.toHaveAttribute('data-expanded');
+    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
+    // Opening is inline expand now, not a ticket jump, so a toast with no ticket id
+    // is still fully interactive.
+    fireEvent.click(screen.getByRole('button', { name: 'Open update: Orphan' }));
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
   it('renders an empty row when idle (nothing needs the activity surface)', () => {
@@ -241,7 +211,7 @@ describe('ActivityRow', () => {
       toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-1' }),
     ];
     const { container } = render(
-      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} onOpenTicket={noop} />,
+      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />,
     );
     expect(container).toMatchSnapshot();
   });

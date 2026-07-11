@@ -4,202 +4,179 @@
 // the E2E asserts: `thinking-indicator`, `toast-pill` (+ `data-verb`), `say-pill`.
 // Multiple live toasts stack into a list; the spinner shows only when the stack
 // is empty.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { JSX, ReactNode } from 'react';
-import type { ActivityToast } from '@/stores/activity-context';
+//
+// Both pill kinds — a `say` and a board `toast` — share ONE interaction and carry
+// no always-on × any more (08 §4): tapping a pill OPENS it in place, dropping the
+// 2-line clamp to reveal the full content and swapping in a Close control; closing
+// dismisses the pill entirely (there is no collapse-back). Opening pauses the
+// pill's auto-dismiss timer so it can't vanish mid-read.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { JSX } from 'react';
+import type { ActivityToast, ToastVerb } from '@/stores/activity-context';
 import { verbEmoji, verbLabel } from '@/components/feed-format';
 import { pickKilnWord } from '@/components/kiln-words';
-
-/**
- * The clamped text inside a toast/say pill. Mobile caps the message at 2 lines
- * (df0f2a75), which silently hid the tail of longer messages — including agent
- * `say` output. When the clamp actually bites we turn the text into a tappable
- * button that reveals the full message in place (`data-expanded`); text that
- * fits stays inert and renders exactly as before.
- *
- * Truncation is measured (`scrollHeight` overflows the clamped `clientHeight`)
- * only while collapsed — once expanded the clamp is gone and the two heights
- * agree, so we freeze the flag rather than re-measuring. `measureKey` re-runs
- * the check when the message text changes.
- */
-function ClampedText({
-  role,
-  measureKey,
-  onExpandedChange,
-  children,
-}: {
-  role: 'say-text' | 'toast-text';
-  measureKey: string;
-  /** Notifies the owner when the reveal toggles, so it can pause/resume the
-   * toast's auto-dismiss timer while the full message is on screen. */
-  onExpandedChange?: ((expanded: boolean) => void) | undefined;
-  children: ReactNode;
-}): JSX.Element {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [truncated, setTruncated] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  useLayoutEffect(() => {
-    // Only meaningful against the clamped box; skip while expanded so the
-    // frozen `truncated` flag keeps the collapse affordance available.
-    if (expanded) return;
-    const el = ref.current;
-    if (el === null) return;
-    // `+1` absorbs sub-pixel rounding between scroll/client height.
-    const measure = (): void => {
-      setTruncated(el.scrollHeight > el.clientHeight + 1);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => {
-      window.removeEventListener('resize', measure);
-    };
-  }, [measureKey, expanded]);
-
-  const interactive = truncated || expanded;
-  const toggle = (): void => {
-    setExpanded((value) => {
-      const next = !value;
-      onExpandedChange?.(next);
-      return next;
-    });
-  };
-
-  return (
-    <span
-      ref={ref}
-      data-role={role}
-      data-expandable={interactive ? 'true' : undefined}
-      data-expanded={expanded ? 'true' : undefined}
-      role={interactive ? 'button' : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      aria-expanded={interactive ? expanded : undefined}
-      onClick={interactive ? toggle : undefined}
-      onKeyDown={
-        interactive
-          ? (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                toggle();
-              }
-            }
-          : undefined
-      }
-    >
-      {children}
-    </span>
-  );
-}
 
 export interface ActivityRowProps {
   thinking: boolean;
   toasts: ActivityToast[];
-  /** Dismisses one toast by id (e.g. a persistent `say`) (08 §4). */
+  /** Dismisses one pill by id — fired when an open pill's Close control is tapped
+   * (08 §4). This is the only manual dismiss now that the always-on × is gone. */
   onDismiss: (id: number) => void;
-  /** Pauses (`true`) / resumes (`false`) a toast's auto-dismiss timer as the
-   * user expands or collapses its clamped message, so it can't vanish mid-read.
-   * Optional so presentational tests can render the row without the store. */
+  /** Pauses (`true`) a pill's auto-dismiss timer when it is opened, so it can't
+   * vanish while the user reads the full content. Optional so presentational tests
+   * can render the row without the store. Closing dismisses the pill outright, so
+   * the timer is never resumed. */
   onToastExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
-  /** Opens the full ticket detail overlay for a ticket-activity toast (not a
-   * `say`) when it is tapped. Optional so presentational tests can render the
-   * row without a board to resolve the ticket against; a toast then stays inert. */
-  onOpenTicket?: ((ticketId: string) => void) | undefined;
+}
+
+/** A `say` pill: opens in place to reveal the full utterance, and its Close
+ * control dismisses it entirely (there is no collapse-back). */
+function SayPill({
+  id,
+  text,
+  onDismiss,
+  onExpandedChange,
+}: {
+  id: number;
+  text: string;
+  onDismiss: (id: number) => void;
+  onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+
+  // Opening reveals the full text and pauses the auto-dismiss timer so it can't
+  // disappear mid-read; Close is the only way back out and dismisses the pill
+  // (there is no collapse-in-place, so the timer is never resumed).
+  const openPill = (): void => {
+    setOpen(true);
+    onExpandedChange?.(id, true);
+  };
+
+  return (
+    <div data-role="say-pill">
+      {open ? (
+        <>
+          <div data-role="toast-open">
+            <span data-role="say-text" data-expanded="true">
+              {text}
+            </span>
+          </div>
+          <button
+            type="button"
+            data-role="toast-close"
+            aria-label="Close"
+            onClick={() => {
+              onDismiss(id);
+            }}
+          >
+            Close
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          data-role="toast-open"
+          aria-expanded={false}
+          aria-label="Open message"
+          onClick={openPill}
+        >
+          <span data-role="say-text">{text}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A board `toast`: opens in place to reveal its full title (the status emoji beside
+ * it), and its Close control dismisses it entirely (there is no collapse-back). */
+function ToastPill({
+  id,
+  verb,
+  ticketTitle,
+  onDismiss,
+  onExpandedChange,
+}: {
+  id: number;
+  verb: ToastVerb;
+  ticketTitle: string;
+  onDismiss: (id: number) => void;
+  onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+
+  // Opening reveals the full title and pauses the auto-dismiss timer so it can't
+  // disappear mid-read; Close is the only way back out and dismisses the pill
+  // (there is no collapse-in-place, so the timer is never resumed).
+  const openPill = (): void => {
+    setOpen(true);
+    onExpandedChange?.(id, true);
+  };
+  const openLabel = ticketTitle !== '' ? `Open update: ${ticketTitle}` : 'Open update';
+  const content = (
+    <>
+      <span data-role="toast-icon" role="img" aria-label={verbLabel(verb)}>
+        {verbEmoji(verb)}
+      </span>
+      <span data-role="toast-text" data-expanded={open ? 'true' : undefined}>
+        <span data-role="toast-title">{ticketTitle}</span>
+      </span>
+    </>
+  );
+
+  return (
+    <div data-role="toast-pill" data-verb={verb}>
+      {open ? (
+        <>
+          <div data-role="toast-open">{content}</div>
+          <button
+            type="button"
+            data-role="toast-close"
+            aria-label="Close"
+            onClick={() => {
+              onDismiss(id);
+            }}
+          >
+            Close
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          data-role="toast-open"
+          aria-expanded={false}
+          aria-label={openLabel}
+          onClick={openPill}
+        >
+          {content}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function ActivityToastPill({
   toast,
   onDismiss,
   onExpandedChange,
-  onOpenTicket,
 }: {
   toast: ActivityToast;
   onDismiss: (id: number) => void;
   onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
-  onOpenTicket?: ((ticketId: string) => void) | undefined;
-}): JSX.Element | null {
+}): JSX.Element {
   const { id, pill } = toast;
-
   if (pill.kind === 'say') {
     return (
-      <div data-role="say-pill">
-        <ClampedText
-          role="say-text"
-          measureKey={pill.text}
-          onExpandedChange={
-            onExpandedChange
-              ? (expanded) => {
-                  onExpandedChange(id, expanded);
-                }
-              : undefined
-          }
-        >
-          {pill.text}
-        </ClampedText>
-        <button
-          type="button"
-          data-role="toast-dismiss"
-          aria-label="Dismiss"
-          onClick={() => {
-            onDismiss(id);
-          }}
-        >
-          ×
-        </button>
-      </div>
+      <SayPill id={id} text={pill.text} onDismiss={onDismiss} onExpandedChange={onExpandedChange} />
     );
   }
-
-  // A ticket-activity toast is a shortcut into its ticket: tapping it opens the
-  // full ticket detail overlay (unlike the `say` pill above, which names no
-  // ticket and only expands in place). So the icon+title become a clickable
-  // button when a ticket id and an open handler are both present — the title
-  // just clamps (CSS) rather than expanding, since the tap opens the ticket
-  // where the whole thing is legible. Narrow on the id + callback directly (not
-  // a derived boolean) so TypeScript knows both are defined inside the handler,
-  // mirroring FeedCardItem's `openDetail`. Falls back to a static row for a
-  // toast with no linked ticket or an unwired presentational render.
-  const openTicket =
-    onOpenTicket !== undefined && pill.ticketId !== ''
-      ? () => {
-          onOpenTicket(pill.ticketId);
-        }
-      : null;
-  const content = (
-    <>
-      <span data-role="toast-icon" role="img" aria-label={verbLabel(pill.verb)}>
-        {verbEmoji(pill.verb)}
-      </span>
-      <span data-role="toast-text">
-        <span data-role="toast-title">{pill.ticketTitle}</span>
-      </span>
-    </>
-  );
-
   return (
-    <div data-role="toast-pill" data-verb={pill.verb}>
-      {openTicket !== null ? (
-        <button
-          type="button"
-          data-role="toast-open"
-          aria-label={`Open ticket: ${pill.ticketTitle}`}
-          onClick={openTicket}
-        >
-          {content}
-        </button>
-      ) : (
-        <div data-role="toast-open">{content}</div>
-      )}
-      <button
-        type="button"
-        data-role="toast-dismiss"
-        aria-label="Dismiss"
-        onClick={() => {
-          onDismiss(id);
-        }}
-      >
-        ×
-      </button>
-    </div>
+    <ToastPill
+      id={id}
+      verb={pill.verb}
+      ticketTitle={pill.ticketTitle}
+      onDismiss={onDismiss}
+      onExpandedChange={onExpandedChange}
+    />
   );
 }
 
@@ -208,7 +185,6 @@ export function ActivityRow({
   toasts,
   onDismiss,
   onToastExpandedChange,
-  onOpenTicket,
 }: ActivityRowProps): JSX.Element {
   const empty = toasts.length === 0;
   const rowRef = useRef<HTMLDivElement>(null);
@@ -279,7 +255,6 @@ export function ActivityRow({
               toast={toast}
               onDismiss={onDismiss}
               onExpandedChange={onToastExpandedChange}
-              onOpenTicket={onOpenTicket}
             />
           ))}
         </div>

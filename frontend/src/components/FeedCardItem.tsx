@@ -49,9 +49,8 @@ import { cardTag, relativeAge } from '@/components/feed-format';
  * sub-pixel rounding). Measured only while `active` (the clamp is applied): the
  * expand-in-place body passes `active = !expanded` so the flag freezes once the
  * clamp is gone; the open-detail body always clamps, so it passes `true`.
- * Mirrors ActivityRow's `ClampedText`; jsdom performs no layout, so the flag
- * stays false under test unless the heights are faked. Re-runs when `body`
- * changes (the text) or `active` flips.
+ * jsdom performs no layout, so the flag stays false under test unless the heights
+ * are faked. Re-runs when `body` changes (the text) or `active` flips.
  */
 function useClampOverflow<T extends HTMLElement>(
   body: string,

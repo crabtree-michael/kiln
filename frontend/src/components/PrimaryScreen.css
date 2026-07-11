@@ -1377,9 +1377,14 @@ button[data-role='feed-card-head']:focus-visible {
   animation: kiln-thinking-flicker 1.5s ease-in-out infinite;
 }
 
-[data-role='toast-pill'] {
-  position: relative;
+/* Both pill kinds are one card surface holding a tappable content region and,
+   once open, a Close control beside it (08 §4). The container carries only the
+   card chrome — its padding lives on `toast-open` so it doesn't double up when
+   that region is a nested element. */
+[data-role='toast-pill'],
+[data-role='say-pill'] {
   display: flex;
+  align-items: stretch;
   /* Never exceed the activity row's inner width (its 26px side padding is the
      mobile safe margin). Without this a long ticket title grew the pill wider
      than the screen; the text now clamps to 2 lines instead (see toast-text). */
@@ -1390,23 +1395,21 @@ button[data-role='feed-card-head']:focus-visible {
   box-shadow: var(--shadow-raised);
 }
 
-/* The icon+title region. It fills the pill (minus the absolute dismiss) and
-   carries the inner flex layout + padding for BOTH renderings — the plain div
-   (an un-linked toast) and the button that opens the ticket (08 §5). Extra
-   right padding reserves room for the absolutely-positioned dismiss button so
-   text never slides under it. */
+/* The tappable content region. It fills the pill and carries the inner flex
+   layout + padding for BOTH states — the collapsed open button and the open
+   state's static preview — so opening a pill doesn't shift its content. */
 [data-role='toast-open'] {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 26px 9px 14px;
+  padding: 9px 14px;
 }
 
-/* The clickable variant: reset the button chrome so it reads exactly like the
-   plain region above (layout/padding come from the shared rule), leaving only
-   cursor + focus as the interactive cues (matches feed-card-head). */
+/* The clickable (collapsed) variant: reset the button chrome so it reads exactly
+   like the static region above (layout/padding come from the shared rule),
+   leaving only cursor + focus as the interactive cues (matches feed-card-head). */
 button[data-role='toast-open'] {
   margin: 0;
   border: none;
@@ -1426,37 +1429,40 @@ button[data-role='toast-open']:focus-visible {
   border-radius: var(--radius-md);
 }
 
-[data-role='toast-dismiss'] {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 16px;
-  height: 16px;
+/* The Close control, shown only while a pill is open (08 §4). Closing dismisses
+   the toast entirely — there is no always-on × any more — so it sits at the
+   trailing edge as a full-height tap target, divided from the content by a hair
+   rule that echoes the pill border. */
+[data-role='toast-close'] {
+  flex-shrink: 0;
+  align-self: stretch;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0;
-  font-size: 13px;
-  line-height: 1;
+  padding: 0 12px;
+  margin: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--text-faint);
   background: transparent;
   border: none;
-  border-radius: 50%;
+  border-left: 1px solid var(--accent-soft);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  outline: none;
   -webkit-appearance: none;
   appearance: none;
 }
 
-[data-role='toast-dismiss']:hover,
-[data-role='toast-dismiss']:focus-visible {
+[data-role='toast-close']:hover,
+[data-role='toast-close']:focus-visible {
   color: var(--text-body);
 }
 
-[data-role='toast-dismiss']:active {
-  background: transparent;
-  color: var(--text-body);
+[data-role='toast-close']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 [data-role='toast-icon'] {
@@ -1483,21 +1489,6 @@ button[data-role='toast-open']:focus-visible {
   color: var(--accent);
 }
 
-[data-role='say-pill'] {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 100%;
-  /* Extra right padding reserves room for the absolutely-positioned dismiss
-     button (shared toast-dismiss treatment) so text never slides under it. */
-  padding: 10px 26px 10px 16px;
-  background: var(--surface-card);
-  border: 1.5px solid var(--accent-soft);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-raised);
-}
-
 [data-role='say-text'] {
   /* Match toast-text: shrink within the pill and cap at 2 lines with ellipsis
      so a long `say` never grows the card unbounded in height. */
@@ -1513,16 +1504,11 @@ button[data-role='toast-open']:focus-visible {
   color: var(--text-body);
 }
 
-/* When a `say` message overflows the 2-line clamp (df0f2a75) the text becomes
-   tappable to read the rest: `data-expandable` flags the affordance, and
-   `data-expanded` drops the clamp so the full message shows in place. Text that
-   fits carries neither attribute and is unaffected. A toast title does NOT
-   expand — tapping the toast opens its ticket detail instead (08 §5). */
-[data-role='say-text'][data-expandable='true'] {
-  cursor: pointer;
-}
-
-[data-role='say-text'][data-expanded='true'] {
+/* Opening a pill drops its 2-line clamp (`data-expanded`) so the whole content
+   shows in place; the collapsed preview keeps the clamp. Applies to both a `say`'s
+   text and a board toast's ticket title, since both kinds open in place (08 §4). */
+[data-role='say-text'][data-expanded='true'],
+[data-role='toast-text'][data-expanded='true'] {
   display: block;
   -webkit-line-clamp: unset;
   line-clamp: unset;

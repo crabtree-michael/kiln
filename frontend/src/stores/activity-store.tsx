@@ -12,10 +12,12 @@
 //   - every source pushes onto the stack rather than overwriting — `say` (brain
 //     utterance, reused via onSay) and `toast` (`activity` kind=toast, a board
 //     side-effect) share one surface and stack when several are live at once;
-//   - each toast auto-dismisses independently after 20s (its own timer), and a
-//     `say` also carries a manual dismiss; expanding a toast (to read a clamped
-//     message) pauses its timer, and collapsing it restarts a fresh dwell, so a
-//     toast never vanishes mid-read;
+//   - each toast auto-dismisses independently after 20s (its own timer); opening
+//     a toast (to read its full content) pauses that timer so it can't vanish
+//     mid-read, and closing an open toast dismisses it outright (the manual way
+//     out, replacing the old always-on ×). The pause/resume API still resumes a
+//     fresh dwell on `false`, but the UI now only ever pauses — a close removes
+//     the entry rather than collapsing it;
 //   - `thinking` is merely exposed; the UI shows it only when the stack is empty.
 // Each entry gets a unique id so its timer and dismiss target exactly one toast
 // and the stack reflows smoothly as individual entries fall off.

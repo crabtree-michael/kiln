@@ -13,6 +13,7 @@ import {
   makeTicket,
 } from '@/test/fixtures';
 import { acceptTicket } from '@/transport/transport';
+import type { ActivityToast } from '@/stores/activity-context';
 
 /**
  * jsdom performs no layout, so a card body's `scrollHeight`/`clientHeight` are
@@ -708,6 +709,62 @@ describe('PrimaryScreenView', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Auth' }));
     expect(screen.getByRole('dialog', { name: 'Auth' })).toBeInTheDocument();
+  });
+
+  it('opens a board toast in place and dismisses it via Close, without any overlay (08 §4)', () => {
+    // A board `toast` opens INLINE on the activity row now (like a say pill) — it
+    // no longer jumps into the ticket detail overlay. Tapping reveals its content
+    // and a Close control, and closing dismisses the toast entirely by id.
+    const onDismiss = vi.fn();
+    const toasts: ActivityToast[] = [
+      { id: 5, pill: { kind: 'toast', verb: 'finished', ticketTitle: 'Auth', ticketId: 't-auth' } },
+    ];
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [] }), {
+      toasts,
+      onDismiss,
+    });
+    // Opening the toast reveals it in place — no ticket dialog is mounted...
+    fireEvent.click(screen.getByRole('button', { name: 'Open update: Auth' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // ...and its own Close control dismisses the toast.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onDismiss).toHaveBeenCalledWith(5);
+  });
+
+  it('leaves a live toast untouched when a ticket overlay is closed', () => {
+    // Toasts and the ticket overlay are independent now (08 §4): a toast dismisses
+    // only through its own Close control, so closing a feed-card overlay must never
+    // dismiss an unrelated toast that happens to be up at the same time.
+    const onDismiss = vi.fn();
+    const ticket = makeTicket({
+      id: 't-login',
+      title: 'Login Redesign',
+      body: 'The card-linked ticket.',
+      state: 'done',
+      priority: 1,
+      createdAt: minutesAgo(120),
+      updatedAt: minutesAgo(10),
+    });
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:9',
+      label: 'Login Redesign',
+      body: '',
+      ticketId: 't-login',
+      notificationId: 9,
+      createdAt: minutesAgo(0),
+    });
+    const toasts: ActivityToast[] = [
+      { id: 7, pill: { kind: 'toast', verb: 'started', ticketTitle: 'Other', ticketId: 't-other' } },
+    ];
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [done] }), {
+      board: makeBoard({ done: [ticket] }),
+      toasts,
+      onDismiss,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Login Redesign' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it('leaves a body-less card head static when it carries no ticket link', () => {

@@ -13,7 +13,8 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
         data-verb="started"
       >
         <button
-          aria-label="Open ticket: Login Redesign"
+          aria-expanded="false"
+          aria-label="Open update: Login Redesign"
           data-role="toast-open"
           type="button"
         >
@@ -34,13 +35,6 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
             </span>
           </span>
         </button>
-        <button
-          aria-label="Dismiss"
-          data-role="toast-dismiss"
-          type="button"
-        >
-          ×
-        </button>
       </div>
     </div>
   </div>
@@ -58,17 +52,17 @@ exports[`ActivityRow > matches the DOM-structure snapshot: say pill 1`] = `
       <div
         data-role="say-pill"
       >
-        <span
-          data-role="say-text"
-        >
-          Trust the session cookie.
-        </span>
         <button
-          aria-label="Dismiss"
-          data-role="toast-dismiss"
+          aria-expanded="false"
+          aria-label="Open message"
+          data-role="toast-open"
           type="button"
         >
-          ×
+          <span
+            data-role="say-text"
+          >
+            Trust the session cookie.
+          </span>
         </button>
       </div>
     </div>

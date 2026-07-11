@@ -170,6 +170,16 @@ export function startVoiceStream(options: StartVoiceStreamOptions): VoiceStream 
       void audioContext.close();
       audioContext = null;
     }
+    // Hand audio focus back so iOS notifies other apps to resume the music/podcast
+    // our play-and-record session was holding (09 §3a). Stopping the mic tracks and
+    // closing the context above is what actually ends the recording session; resetting
+    // the type off the exclusive `play-and-record` nudges WebKit to deactivate cleanly.
+    // Resuming a third-party app is best-effort — Apple's Music/Podcasts resume, some
+    // apps don't (the web exposes no cross-app "play"). Absent everywhere but Safari
+    // 16.4+, where this is a feature-detected no-op.
+    if (navigator.audioSession !== undefined) {
+      navigator.audioSession.type = 'auto';
+    }
   }
 
   function stopTracks(stream: MediaStream): void {

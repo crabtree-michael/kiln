@@ -91,6 +91,19 @@ no-ops (feature-detected).
 exclusive session and still stops music, the fallback is to drop it to `false` (trading
 some echo when the user is on speaker).
 
+**Resuming other audio after a report.** Ducking only lowers the other app's volume while
+the mic is live; on some devices WebKit interrupts (pauses) it outright instead, and an
+interrupted third-party app does not reliably auto-resume. So a **send releases the mic**:
+committing an utterance — an auto-send (end-of-turn) or the send button — tears the stream
+down, ending the `play-and-record` session, which is the only thing iOS turns into a
+"resume other apps" signal. Teardown also resets `navigator.audioSession.type` off the
+exclusive `play-and-record` to nudge a clean deactivation. This ends the earlier
+"hands-free keeps listening across turns" behavior (D4): a send now returns to **Paused**
+("tap to talk"), the unavoidable cost of letting music resume — a live capture session is
+exactly what holds the other app's audio. Resuming a *specific* app stays **best effort**
+(Apple's Music/Podcasts resume; some apps don't), because the web exposes no cross-app
+"play" — only our own session's release.
+
 Because the runtime behavior is platform-decided and cannot be asserted from code or an
 automated browser test, the acceptance gate is a **real-device checklist** (both must
 pass before this ships):
@@ -101,6 +114,8 @@ auto-starts) → music **keeps playing, ducked** (not stopped/muted).
 correctly (STT is not degraded by the background audio).
 - [ ] **iPhone:** pause the mic / background the app → music returns to full volume; the
 mic does not remain holding the audio session.
+- [ ] **iPhone:** music playing → open Kiln, speak a report, send it → the mic returns to
+"tap to talk" and music resumes (best effort; Apple Music/Podcasts should resume).
 - [ ] **iPhone (headphones/BT):** output routing is not yanked to the built-in speaker
 when the mic engages.
 - [ ] **Android (Chrome):** music keeps playing while the mic is active and STT works
@@ -207,6 +222,7 @@ gate.
 | D3  | Mic on by default at app open; "Tap to talk" only after explicit pause (or Blocked/Retry).                                                                                                         | Tap-to-start each session.                            | User decision. The product moment is "open the app and talk" (`01` §2 step 9–10); a mandatory tap taxes every session.                            |
 | D4  | Utterance commit via AssemblyAI auto end-of-turn; X cancels pre-commit.                                                                                                                            | Tap-to-stop-and-send; hybrid grace-window coalescing. | User decision. Hands-free matches the design; mis-fires are cheap (`01` §7 confirmation) and hybrid coalescing is client state we don't need yet. |
 | D5  | Mic capture must not silence other apps' audio — duck (not full-stop, not full-volume) via a `play-and-record` Audio Session on iOS; no-op elsewhere (§3a).                                          | Full-stop (status quo); full-volume mix; native wrapper with `AVAudioSession` control. | Ducking matches Siri/Voice Memos and is the cleanest STT input. Duck-vs-mix is ultimately platform-decided; a native wrapper (real `.duckOthers` control) waits on `10` packaging. |
+| D6  | A sent report **releases the mic** (returns to Paused, ending hands-free continuation — amends D4/§3a) so the audio session frees other apps' audio and iOS can resume the paused/ducked music — best effort. | Keep hands-free and resume music mid-session (impossible — a live capture session is what holds the other app's audio); native `AVAudioSession` control (waits on `10` packaging). | User decision. The only web lever to resume another app is our own session going inactive; keeping the mic live precludes it, so a send must end the turn. |
 
 
 **Open questions (owned elsewhere or later):** PWA-vs-wrapped-native packaging — gated

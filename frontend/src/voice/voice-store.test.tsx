@@ -3,10 +3,10 @@
 // `startVoiceStream` whose `stop` spy stands in for tearing the mic down, and
 // whose captured `onEvent` lets a test push provider events through the seam.
 // These pin the core rules: the mic never STARTS on its own — no start on mount,
-// none on foreground — it opens ONLY on an explicit tap (`resume`). The send
-// button keeps the mic live: it reopens a fresh socket (a clean turn boundary) so
-// the user can keep speaking, while an auto-send (end-of-turn) leaves the existing
-// socket open — either way the hands-free session keeps listening after a send.
+// none on foreground — it opens ONLY on an explicit tap (`resume`). A send
+// RELEASES the mic: both the send button and an auto-send (end-of-turn) tear the
+// stream down and drop to Paused, so the play-and-record audio session ends and
+// other apps' audio can resume (09 §3a). The user taps to talk for the next report.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -123,7 +123,7 @@ describe('VoiceProvider mic activation', () => {
     expect(result.current.connecting).toBe(false);
   });
 
-  it('sending keeps the mic live — it reopens a fresh socket rather than stopping', async () => {
+  it('sending releases the mic — it tears the stream down and drops to Paused', async () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {
       result.current.resume();
@@ -134,30 +134,28 @@ describe('VoiceProvider mic activation', () => {
       fireProviderEvent({ kind: 'partial', text: 'ship it' });
     });
     expect(result.current.tailText).toBe('ship it');
-    // ...then the user taps send: the commit effect POSTs and, because the send
-    // fired mid-turn interim text, tears the CURRENT socket down and immediately
-    // reopens a fresh one (a clean turn boundary) — the mic stays listening so the
-    // user can keep speaking without a re-tap.
+    // ...then the user taps send: the commit effect POSTs and releases the mic —
+    // the stream is torn down (ending the play-and-record audio session so other
+    // apps' audio can resume, 09 §3a) and the machine drops to Paused. No fresh
+    // socket is opened; the user taps to talk again for the next report.
     act(() => {
       result.current.sendNow();
     });
     expect(live.stop).toHaveBeenCalled();
-    expect(result.current.micState).toBe('listening');
-    // A replacement stream was started: the initial tap plus the post-send reopen.
-    expect(startVoiceStream).toHaveBeenCalledTimes(2);
-    // The fresh socket is a different handle than the one that was stopped.
-    expect(liveStream()).not.toBe(live);
+    expect(result.current.micState).toBe('paused');
+    // No replacement stream: only the initial tap's stream, now stopped.
+    expect(startVoiceStream).toHaveBeenCalledTimes(1);
     // Flush the pending POST so its follow-up dispatch settles inside act.
     await act(async () => {
       await Promise.resolve();
     });
   });
 
-  it('an auto-send (end-of-turn) keeps the mic listening — socket stays open, no restart', async () => {
+  it('an auto-send (end-of-turn) releases the mic — the stream is stopped and drops to Paused', async () => {
     vi.useFakeTimers();
     try {
       const { result } = renderHook(() => useVoice(), { wrapper });
-      // One tap starts the hands-free session.
+      // One tap starts the session.
       act(() => {
         result.current.resume();
       });
@@ -170,17 +168,16 @@ describe('VoiceProvider mic activation', () => {
         fireProviderEvent({ kind: 'final', text: 'Move it to done.' });
       });
       // The post-turn-end grace window closes -> the utterance auto-sends (POST)
-      // and the transcript clears back to idle.
+      // and the mic is released: the stream is torn down (ending the audio session
+      // so music can resume, 09 §3a) and the machine drops to Paused.
       await act(async () => {
         vi.advanceTimersByTime(GRACE_MS);
         await Promise.resolve();
         await Promise.resolve();
       });
-      // The session stays live for the next turn with no second tap: the same
-      // stream is still up (never stopped) and no fresh stream was started.
-      expect(live.stop).not.toHaveBeenCalled();
+      expect(live.stop).toHaveBeenCalled();
       expect(startVoiceStream).toHaveBeenCalledTimes(1);
-      expect(result.current.micState).toBe('listening');
+      expect(result.current.micState).toBe('paused');
     } finally {
       vi.useRealTimers();
     }

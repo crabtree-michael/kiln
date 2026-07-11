@@ -38,7 +38,7 @@ export interface VoiceState {
    *  is already `listening` but is not yet capturing audio — the dock shows a
    *  spinner around the mic so the user waits to speak instead of getting cut off.
    *  Cleared by `open` (connected), and by anything that stops the mic
-   *  (pause/denied/background/providerFailed). */
+   *  (pause/denied/background/providerFailed/a send). */
   connecting: boolean;
   settledText: string; // committed/finalized text, in ink
   tailText: string; // still-forming partial, ghosted
@@ -52,14 +52,6 @@ export interface VoiceState {
    *  Explicitly `| undefined` so the reducer can clear it under
    *  `exactOptionalPropertyTypes` (02 §4b strictness). */
   commit?: string | undefined;
-  /** One-tick companion to `commit`, set only by the send button: it fires
-   *  mid-turn interim text, so the store must close the socket (else the just-sent
-   *  words return in that turn's trailing final and double-post) yet keep the mic
-   *  live — so the store reopens a fresh socket (a clean turn boundary) and the
-   *  user keeps speaking without a re-tap. Unset on an auto-send, which leaves the
-   *  socket untouched. Travels and clears with `commit`; `| undefined` so the
-   *  reducer can drop it. */
-  restart?: boolean | undefined;
 }
 
 export function initialVoiceState(): VoiceState {
@@ -77,15 +69,18 @@ function fireArmedSend(state: VoiceState): VoiceState {
   if (state.pending === undefined) {
     return state;
   }
-  // An auto-send KEEPS the mic listening on the SAME socket: the end-of-turn final
-  // commits, but the user-started hands-free session stays live for the next turn.
-  // `micState` stays `listening` and `restart` stays unset, so the store leaves
-  // the socket open and untouched. This is safe because the turn already ended:
-  // the committed words can't come back in a trailing final, so unlike the send
-  // button (which fires mid-turn interim text and must reopen a fresh socket)
-  // there's no double-post risk and no reason to reconnect. Only an explicit stop,
-  // backgrounding, or unmount ends the session.
-  return { ...state, pending: undefined, commit: state.pending, restart: undefined };
+  // A send RELEASES the mic: the machine drops to Paused and the store tears the
+  // stream down, ending the play-and-record audio session so iOS can resume the
+  // other app's audio (music/podcast) our capture was ducking/holding — best
+  // effort (09 §3a). This ends the turn; the user taps to talk again for the next
+  // report. `connecting` clears in case a send lands mid-setup.
+  return {
+    ...state,
+    pending: undefined,
+    commit: state.pending,
+    micState: 'paused',
+    connecting: false,
+  };
 }
 
 /** Commit whatever transcript is on screen right now — the settled ink plus any
@@ -101,22 +96,19 @@ function fireDisplayedSend(state: VoiceState): VoiceState {
   if (text === '') {
     return state;
   }
-  // Sending leaves the mic LIVE so the user can keep speaking without re-tapping
-  // (09 §4). But this fires mid-turn interim text: were the current socket left
-  // open, the just-sent words would come back in that turn's trailing final and
-  // double-post. So it stays `listening` and flags `restart` — the store closes
-  // the socket (dropping the sent turn) and immediately reopens a fresh one, a
-  // clean turn boundary for the words to come. `connecting` marks that brief
-  // reconnect so the dock shows the setup spinner until the new socket's `open`.
+  // The send button commits whatever is on screen now, then RELEASES the mic (→
+  // Paused): the store tears the stream down so the play-and-record audio session
+  // ends and iOS can resume the other app's audio our capture was holding — best
+  // effort (09 §3a). Closing the socket for good also means the just-sent interim
+  // words can't return in that turn's trailing final and double-post — no reopen.
   return {
     ...state,
     settledText: text,
     tailText: '',
     pending: undefined,
     commit: text,
-    micState: 'listening',
-    connecting: true,
-    restart: true,
+    micState: 'paused',
+    connecting: false,
   };
 }
 
@@ -133,7 +125,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         connecting: false,
         pending: undefined,
         commit: undefined,
-        restart: undefined,
       };
     case 'pause':
       // The mic/stop-listening button only stops listening — it does NOT
@@ -148,7 +139,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         connecting: false,
         pending: undefined,
         commit: undefined,
-        restart: undefined,
       };
     case 'resume':
       // The mic tap flips to listening immediately, but the socket/getUserMedia
@@ -161,7 +151,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         connecting: true,
         pending: undefined,
         commit: undefined,
-        restart: undefined,
       };
     case 'cancel':
       // The X clears the whole shown transcript — settled ink and the
@@ -174,7 +163,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         tailText: '',
         pending: undefined,
         commit: undefined,
-        restart: undefined,
       };
     case 'denied':
       return {
@@ -184,7 +172,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         tailText: '',
         pending: undefined,
         commit: undefined,
-        restart: undefined,
       };
     case 'background':
       // Leaving the app stops the mic for good: the store closes the socket and
@@ -198,18 +185,18 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
             connecting: false,
             pending: undefined,
             commit: undefined,
-            restart: undefined,
           }
         : state;
     case 'commitConsumed':
       // A sent utterance clears back to the idle transcript so stale text can't
-      // linger or flash back (09 §4): the on-screen ink, the one-tick commit, and
-      // its restart companion are all dropped.
-      return { ...state, settledText: '', commit: undefined, restart: undefined };
+      // linger or flash back (09 §4): the on-screen ink and the one-tick commit
+      // are dropped. The mic was already released to Paused by the send.
+      return { ...state, settledText: '', commit: undefined };
     case 'commitFailed':
       // The POST failed: keep the finalized text visible so the user can just
-      // speak again (09 §4); only drop the one-tick commit and its restart flag.
-      return { ...state, commit: undefined, restart: undefined };
+      // speak again (09 §4); only drop the one-tick commit. The mic was already
+      // released to Paused by the send, so the user taps to talk to retry.
+      return { ...state, commit: undefined };
     case 'commitDelayElapsed':
       // The post-turn-end grace window closed with the send still armed: promote
       // the held `pending` to the one-tick `commit` the store POSTs (09 §4). A
@@ -218,11 +205,9 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
     case 'sendNow':
       // The send button fires whatever is on screen *now* — interim tail included
       // — without waiting for an end-of-turn final (09 §4). Commit the displayed
-      // transcript verbatim but keep the mic LIVE so the user can keep speaking
-      // without re-tapping; `fireDisplayedSend` flags `restart` so the store
-      // reopens a fresh socket (a clean turn boundary), keeping the just-sent words
-      // from returning in a trailing final and double-posting. A no-op if nothing
-      // is shown.
+      // transcript verbatim, then release the mic (→ Paused) so the audio session
+      // ends and other apps' audio can resume (09 §3a) — `fireDisplayedSend` does
+      // both. A no-op if nothing is shown.
       return fireDisplayedSend(state);
     default:
       return state;

@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Dock } from '@/components/Dock';
+import { makeSystemAlert } from '@/test/fixtures';
 import type { VoiceStoreValue } from '@/voice/voice-context';
 
 let mockVoiceValue: VoiceStoreValue;
@@ -187,6 +188,41 @@ describe('Dock', () => {
     // Set (to the measured height — 0px under jsdom's null layout, but present),
     // which is what pushes the hub above the expanded dock.
     expect(root?.getAttribute('style') ?? '').toContain('--dock-overlay-height');
+  });
+
+  // Regression (sandbox-health band occlusion): the persistent error band lives
+  // INSIDE the dock as its first in-flow child, above the controls — so the
+  // transcript overlay, anchored to the dock's top edge (`bottom: 100%`), grows
+  // ABOVE the band instead of painting over it. Moving the band back out to a
+  // dock-region sibling, or nesting it under the transcript, re-introduces the
+  // bug: the opaque overlay occludes the band and the toast row floats a
+  // band-height too high (whitespace between the input and the toast). jsdom has
+  // no layout, so the pixel geometry is verified in the browser; this locks the
+  // DOM contract the CSS occlusion-avoidance depends on.
+  it('renders the error band as the dock’s first child, sibling to (never under) the transcript overlay, so a live transcript cannot occlude it', () => {
+    mockVoiceValue = stubVoice({ keyboardMode: true });
+    const { container } = render(<Dock alerts={[makeSystemAlert('1 of 3 sandboxes failing')]} />);
+
+    const dock = container.querySelector('[data-role="dock"]');
+    const band = container.querySelector('[data-role="system-alert-band"]');
+    const transcript = container.querySelector('[data-role="dock-transcript"]');
+
+    // The band shows its message and the transcript overlay is up at the same time.
+    expect(band).toHaveTextContent('1 of 3 sandboxes failing');
+    expect(transcript).not.toBeNull();
+
+    // The band is a direct child of the dock — not a dock-region sibling — and the
+    // transcript is a peer of it, NOT an ancestor (nesting would let the opaque
+    // overlay cover it).
+    expect(band?.parentElement).toBe(dock);
+    expect(transcript?.parentElement).toBe(dock);
+    expect(transcript?.contains(band)).toBe(false);
+
+    // First in-flow child: the band is the dock's first element, so the dock's top
+    // edge is the band's top and the transcript's `bottom: 100%` anchors there,
+    // growing upward — clear of the band, ahead of the controls row below.
+    expect(dock?.firstElementChild).toBe(band);
+    expect(container.querySelector('[data-role="dock-controls"]')).not.toBeNull();
   });
 
   // As text streams in the transcript can overflow its cap (`max-height: 28vh`,

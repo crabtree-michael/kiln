@@ -1160,14 +1160,26 @@ button[data-role='feed-card-head']:focus-visible {
   transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
 }
 
-/* The permanent error band (SystemAlertBand). Unlike the toast overlay it sits
-   IN FLOW at the top of the dock region, so a persistent failure (e.g. the
-   sandbox pool is down) reserves its own height above the dock instead of
-   floating over and hiding the feed like a transient toast. Danger-toned and
-   full-bleed so it reads as a system-level state, not a per-ticket notice; one
-   row per alert. Absent entirely when there are no alerts (the component
-   returns null), so the healthy layout is byte-for-byte unchanged. */
+/* The permanent error band (SystemAlertBand). It sits IN FLOW at the very top of
+   the DOCK — as the dock's first child, above the controls — so a persistent
+   failure (e.g. the sandbox pool is down) reserves its own height above the dock
+   controls instead of floating over and hiding the feed like a transient toast.
+   Living inside the dock (not as a dock-region sibling) is deliberate: the live
+   transcript is anchored to the dock's top edge (`bottom: 100%`) and is opaque, so
+   a sibling above the dock would be painted over by it — as the dock's child the
+   band's top IS the transcript's anchor, so the transcript grows ABOVE the band.
+   Danger-toned and full-bleed so it reads as a system-level state, not a
+   per-ticket notice; one row per alert. It breaks out of the dock's padding
+   (negative margin) to span edge-to-edge and sit flush at the dock's top edge.
+   Absent entirely when there are no alerts (the component returns null), so the
+   healthy layout is byte-for-byte unchanged. */
 [data-role='system-alert-band'] {
+  /* Full-bleed at the dock's top: `stretch` overrides the dock's `align-items:
+     center`, and the negative margin cancels the dock's top + side padding so the
+     fill spans edge-to-edge and the band sits flush against the dock's top edge.
+     The dock's `gap` then separates it from the controls row below. */
+  align-self: stretch;
+  margin: -14px -26px 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1176,6 +1188,13 @@ button[data-role='feed-card-head']:focus-visible {
   border-top: 1px solid var(--danger);
   border-bottom: 1px solid var(--danger);
   color: var(--danger);
+}
+
+/* With the error band pinned to the dock's top, drop the dock's own top hairline
+   so the band's danger border reads as the single top edge (mirrors the transcript
+   and toast-band merges below). */
+[data-role='dock']:has([data-role='system-alert-band']) {
+  border-top-color: transparent;
 }
 
 [data-role='system-alert'] {

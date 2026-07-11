@@ -99,6 +99,20 @@ function PhoneFeedShot(): JSX.Element {
   );
 }
 
+/** The hero screen: the activity feed of a finished project — a phone-framed
+ * capture of `/` seeded so every card is a ✅ "done" completion, one per shipped
+ * task of a whole Pac-Man game. The all-green feed is the pitch: a team of
+ * agents orchestrated to done. */
+function PacmanFeedShot(): JSX.Element {
+  return (
+    <ThemedShot
+      base="pacman"
+      className="shot-phone"
+      alt="The Kiln activity feed after a full Pac-Man build: a stack of green ✅ completion cards — maze, ghost AI, power pellets, score, sounds, the win screen — every task shipped, with the voice dock at the bottom."
+    />
+  );
+}
+
 /** The board, captured from `/debug` (dark-only), framed as a screen. */
 function BoardShot(): JSX.Element {
   return (
@@ -227,13 +241,15 @@ export function Landing2(): JSX.Element {
           <div className="kiln-hero__copy">
             <span className="kiln-eyebrow">Coding agent orchestrator</span>
             <h1 className="kiln-hero__title">
-              Orchestrate a team of coding agents{' '}
-              <span className="kiln-accent">from anywhere you are.</span>
+              We shipped a whole Pac-Man{' '}
+              <span className="kiln-accent">with a team of agents.</span>
             </h1>
             <p className="kiln-hero__lead">
-              Kiln runs your autonomous coding agents in the cloud and puts the whole operation in
-              your pocket. Steer the work from your phone, your desk, or your voice — on the train,
-              between meetings, or from the couch. Your team never has to wait for you to sit down.
+              Every task on this board — the maze, the four ghosts, the power pellets, the score, the
+              win screen — was built by an autonomous coding agent in the cloud. Here is the feed
+              once the last one landed: all green. Kiln let us orchestrate the whole team from a
+              phone — shape a ticket, unblock a ghost&rsquo;s chase logic, accept the work. Point it
+              at your project and watch the checkmarks stack up. Waka waka.
             </p>
             <div className="kiln-hero__actions">
               <BetaSignupForm cta="Join the beta" />
@@ -249,7 +265,7 @@ export function Landing2(): JSX.Element {
             </ul>
           </div>
           <div className="kiln-hero__art">
-            <PhoneFeedShot />
+            <PacmanFeedShot />
           </div>
         </section>
 

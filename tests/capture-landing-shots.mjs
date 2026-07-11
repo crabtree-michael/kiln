@@ -21,7 +21,32 @@ import { mkdir } from 'node:fs/promises';
 const API = process.env.KILN_E2E_API_URL ?? 'http://localhost:8080';
 const BASE = process.env.KILN_E2E_BASE_URL ?? 'http://localhost:5173';
 const OUT = new URL('../frontend/public/shots/', import.meta.url).pathname;
+// The login the backend's boot-time bootstrap seeded the owner project under
+// (KILN_BOOTSTRAP_GITHUB_USER); dev sign-in resolves it deterministically.
+const LOGIN = process.env.KILN_BOOTSTRAP_GITHUB_USER ?? 'e2e-user';
 await mkdir(OUT, { recursive: true });
+
+// Every /api/* is behind the session gate now (spec 11), so mint a dev session
+// up front and carry its cookie on the seeding fetches AND every browser context
+// (the app's boot GET /api/me must see it before the first goto). The dev-only
+// POST /api/dev/session route mints one straight from a GitHub login.
+async function mintSession() {
+  const res = await fetch(`${API}/api/dev/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ github_login: LOGIN }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `dev session mint failed: POST /api/dev/session -> ${res.status}: ${await res.text()} — ` +
+        `is the stack up with KILN_DEV_ENDPOINTS=1 and identity configured ` +
+        `(GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, KILN_SECRETS_KEY)?`,
+    );
+  }
+  return (await res.json()).token;
+}
+const SESSION = await mintSession();
+const sessionCookie = { name: 'kiln_session', value: SESSION, url: BASE };
 
 // ── seed a coherent, brain-free board + feed ──────────────────────────────────
 const previewSvg = `
@@ -44,12 +69,17 @@ const previewImageUrl = `data:image/svg+xml,${encodeURIComponent(previewSvg.trim
 async function post(path, body) {
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: `kiln_session=${SESSION}` },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST ${path} -> ${res.status}: ${await res.text()}`);
+  return res;
 }
 const seedTicket = (spec) => post('/api/dev/tickets', { body: 'seeded', ...spec });
+// Seed a ticket and return the id the dev route echoes back, so a follow-up
+// notification can be tagged to it (a done card renders the linked ticket's
+// title as its label — 08 §3).
+const seedTicketId = async (spec) => (await seedTicket(spec)).json().then((r) => r.id);
 const postNote = (note) => post('/api/dev/notifications', note);
 
 // Reset so a rerun is deterministic (best-effort — falls back to assuming a
@@ -100,8 +130,9 @@ async function primary(theme) {
     permissions: ['microphone'],
     baseURL: BASE,
   });
+  await ctx.addCookies([sessionCookie]); // authed before the app's boot GET /api/me
   const page = await ctx.newPage();
-  await page.goto('/');
+  await page.goto('/app');
   await page.getByRole('region', { name: 'Feed' }).waitFor({ state: 'visible' });
   await page.locator('[data-role="feed-card"][data-kind="blocker"]').first().waitFor();
   await page.waitForTimeout(1200); // fonts + preview image
@@ -118,6 +149,65 @@ async function primary(theme) {
   await ctx.close();
 }
 
+// ── the hero shot: a finished Pac-Man, as an all-✅ feed ───────────────────────
+// One done card per shipped task of a whole Pac-Man game. Ordered intro→finale;
+// posted in this order so the "win screen" completion lands last and therefore
+// sits at the TOP of the newest-first feed — the triumphant final green check.
+const PACMAN = [
+  { title: 'game-loop', body: 'Fixed-step loop, tile grid, and the READY! intro.' },
+  { title: 'maze-render', body: 'Draw the maze walls, gates, and the pellet grid.' },
+  { title: 'pac-movement', body: 'Grid-locked movement with tile-snapping turns.' },
+  { title: 'ghost-ai-blinky', body: "Blinky's relentless direct-chase targeting." },
+  { title: 'ghost-ai-pinky', body: 'Pinky ambushes four tiles ahead of Pac-Man.' },
+  { title: 'ghost-ai-inky', body: "Inky's vector off Blinky and Pac-Man." },
+  { title: 'ghost-ai-clyde', body: 'Clyde chases, then scatters when close.' },
+  { title: 'power-pellets', body: 'Frightened mode: ghosts flee and turn blue.' },
+  { title: 'fruit-bonus', body: 'Spawn the cherry and strawberry bonuses.' },
+  { title: 'score-and-lives', body: 'HUD for score, high score, and lives.' },
+  { title: 'sound-waka', body: 'Waka-waka chomp, siren, and the death jingle.' },
+  { title: 'win-screen', body: 'Clear the maze → the level-complete flash and next board.' },
+];
+
+async function pacman(theme) {
+  const ctx = await browser.newContext({
+    viewport: { width: 402, height: 860 },
+    deviceScaleFactor: 2,
+    colorScheme: theme,
+    permissions: ['microphone'],
+    baseURL: BASE,
+  });
+  await ctx.addCookies([sessionCookie]); // authed before the app's boot GET /api/me
+  const page = await ctx.newPage();
+  await page.goto('/app');
+  await page.getByRole('region', { name: 'Feed' }).waitFor({ state: 'visible' });
+  // Wait until every seeded completion has landed as a done card.
+  await page
+    .locator('[data-role="feed-card"][data-kind="done"]')
+    .nth(PACMAN.length - 1)
+    .waitFor();
+  await page.waitForTimeout(600); // fonts
+  await page.screenshot({ path: `${OUT}pacman-${theme}.png` });
+  console.log(`captured pacman (${theme})`);
+  await ctx.close();
+}
+
+// Reset to a clean board, then seed the finished Pac-Man: each task as a done
+// ticket, then a done notification tagged to it so the feed is a stack of ✅s.
+async function capturePacman() {
+  try {
+    await post('/api/dev/reset', {});
+  } catch (err) {
+    console.warn('pacman reset skipped:', err.message);
+  }
+  for (const task of PACMAN) {
+    const id = await seedTicketId({ title: task.title, body: task.body, state: 'done' });
+    await postNote({ kind: 'done', body: '', ticket_id: id });
+  }
+  await new Promise((r) => setTimeout(r, 1000));
+  await pacman('light');
+  await pacman('dark');
+}
+
 async function board() {
   // /debug is dark-only; tall viewport so the board fits its region without an
   // internal scroll (which would stitch a sibling panel into the element shot).
@@ -127,6 +217,7 @@ async function board() {
     colorScheme: 'dark',
     baseURL: BASE,
   });
+  await ctx.addCookies([sessionCookie]); // authed before the app's boot GET /api/me
   const page = await ctx.newPage();
   await page.goto('/debug');
   await page.locator('[data-role="ticket-card"]').first().waitFor();
@@ -139,5 +230,8 @@ async function board() {
 await primary('light');
 await primary('dark');
 await board();
+// Last: the pacman phase resets the board, so run it after the shots above are
+// already on disk.
+await capturePacman();
 await browser.close();
 console.log('done ->', OUT);

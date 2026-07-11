@@ -20,7 +20,9 @@ describe('Landing2', () => {
   it('states the product and collects beta emails', () => {
     renderLanding();
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('from anywhere you are');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      /shipped a whole Pac-Man with a team of agents/i,
+    );
 
     // The hero embeds the signup form inline; the closing banner is gone, so its
     // "Notify me" submit now lives in the beta modal and is absent until a CTA
@@ -75,15 +77,20 @@ describe('Landing2', () => {
     }
   });
 
-  it('shows the captured app screenshots (feed, board, dock)', () => {
+  it('shows the captured app screenshots (hero pacman feed, feature feed, board, dock)', () => {
     renderLanding();
+
+    // The hero is the finished-Pac-Man feed (all-✅), a distinct shot from the
+    // feature-section feed below it — both alt texts start "The Kiln activity
+    // feed", so match each on the part unique to it.
+    const hero = screen.getByRole('img', { name: /Pac-Man build/i });
+    expect(hero).toHaveAttribute('src', '/shots/pacman-light.png');
+
+    const feed = screen.getByRole('img', { name: /blocker pinned/i });
+    expect(feed).toHaveAttribute('src', '/shots/feed-light.png');
 
     const board = screen.getByRole('img', { name: /the kiln board/i });
     expect(board).toHaveAttribute('src', '/shots/board-dark.png');
-
-    const feed = screen.getAllByRole('img', { name: /activity feed/i });
-    expect(feed.length).toBeGreaterThan(0);
-    expect(feed[0]).toHaveAttribute('src', '/shots/feed-light.png');
 
     expect(screen.getByRole('img', { name: /microphone button/i })).toHaveAttribute(
       'src',

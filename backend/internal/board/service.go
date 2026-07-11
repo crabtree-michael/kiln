@@ -279,15 +279,9 @@ func (s *Service) AcceptToDone(
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
 		}
 		if doneCommit != "" {
-			// Lock-then-check (03 §6): the target ticket is already locked, so a
-			// commit unspent here cannot be spent by a committed sibling. The
-			// partial unique index (0010) backstops the residual race.
-			if other, ok, err := tx.TicketIDByDoneCommit(ctx, projectID, doneCommit); err != nil {
-				return Ticket{}, fmt.Errorf("board: lookup done_commit: %w", err)
-			} else if ok && other != id {
-				return Ticket{}, &ErrCommitAlreadyUsed{SHA: doneCommit, OtherID: other}
+			if err := recordDoneCommit(ctx, tx, projectID, id, doneCommit, t); err != nil {
+				return Ticket{}, err
 			}
-			t.DoneCommit = &doneCommit
 		}
 		worker := *t.WorkerID
 		t.State = StateDone
@@ -297,48 +291,48 @@ func (s *Service) AcceptToDone(
 		if err != nil {
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicPullEvaluate}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", err)
+		// Emitted in order: pull.evaluate, agent.release (recycle the freed
+		// worker), feed.updated, the ephemeral finished toast, the persistent
+		// completion card (so a done is never missed when the agent forgets — 08
+		// §7), and notify.send (done is one of the three pushed transitions, 02 §10).
+		emissions := []Emission{
+			{Topic: TopicPullEvaluate},
+			{Topic: TopicAgentRelease, Payload: ReleasePayload{WorkerID: worker}},
+			{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{Title: updated.Title, Verb: FeedVerbFinished}},
+			{Topic: TopicActivityToast, Payload: ToastPayload{
+				Verb: "finished", TicketID: updated.ID, TicketTitle: updated.Title,
+			}},
+			{Topic: TopicFeedCompletion, Payload: CompletionPayload{
+				TicketID: updated.ID, TicketTitle: updated.Title, GitHubURL: link.URL, GitHubLabel: link.Label,
+			}},
+			{Topic: TopicNotifySend, Payload: NotifyPayload{
+				TicketID: updated.ID, Title: updated.Title, Reason: notifyReasonDone,
+			}},
 		}
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicAgentRelease, Payload: ReleasePayload{
-			WorkerID: worker,
-		}}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append agent.release: %w", err)
-		}
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{
-			Title: updated.Title,
-			Verb:  FeedVerbFinished,
-		}}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append feed.updated: %w", err)
-		}
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
-			Verb:        "finished",
-			TicketID:    updated.ID,
-			TicketTitle: updated.Title,
-		}}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
-		}
-		// Persistent completion card: the transition itself posts the "done" feed
-		// card, so completions are never missed when the agent forgets to (08 §7).
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicFeedCompletion, Payload: CompletionPayload{
-			TicketID:    updated.ID,
-			TicketTitle: updated.Title,
-			GitHubURL:   link.URL,
-			GitHubLabel: link.Label,
-		}}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append feed.completion: %w", err)
-		}
-		// Completion is one of the three transitions the user is pushed for
-		// (start/blocked/done — 02 §10), independent of the persistent feed card.
-		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicNotifySend, Payload: NotifyPayload{
-			TicketID: updated.ID,
-			Title:    updated.Title,
-			Reason:   notifyReasonDone,
-		}}); err != nil {
-			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
+		for _, e := range emissions {
+			if err := tx.AppendOutbox(ctx, projectID, e); err != nil {
+				return Ticket{}, fmt.Errorf("board: append %s: %w", e.Topic, err)
+			}
 		}
 		return updated, nil
 	})
+}
+
+// recordDoneCommit enforces the one-commit-to-one-ticket rule and stamps the SHA
+// onto t. Lock-then-check (03 §6): the target ticket is already locked, so a
+// commit unspent here cannot be spent by a committed sibling; the partial unique
+// index (0010) backstops the residual race. Returns ErrCommitAlreadyUsed when
+// the commit is already linked to a different ticket.
+func recordDoneCommit(ctx context.Context, tx Tx, projectID string, id TicketID, doneCommit string, t *Ticket) error {
+	other, ok, err := tx.TicketIDByDoneCommit(ctx, projectID, doneCommit)
+	if err != nil {
+		return fmt.Errorf("board: lookup done_commit: %w", err)
+	}
+	if ok && other != id {
+		return &ErrCommitAlreadyUsed{SHA: doneCommit, OtherID: other}
+	}
+	t.DoneCommit = &doneCommit
+	return nil
 }
 
 // SeedSpec describes a ticket to plant directly into a target state, bypassing

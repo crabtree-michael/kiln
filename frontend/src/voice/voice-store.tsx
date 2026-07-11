@@ -36,6 +36,11 @@ const REFRESH_BUFFER_MS = 30_000;
 // send. Resumed speech within the window cancels the send. Tune here.
 const COMMIT_DELAY_MS = 5_000;
 
+// How much the "+10" control pushes the auto-send out per tap (09 §4): a user who
+// isn't ready when the countdown is about to fire taps it to buy another 10s. It
+// extends the CURRENT deadline (additive), so repeated taps stack.
+const SEND_DELAY_EXTENSION_MS = 10_000;
+
 export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const [state, dispatch] = useReducer(voiceReducer, undefined, initialVoiceState);
 
@@ -63,6 +68,12 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const refreshTimerRef = useRef<number | null>(null);
   const reconnectedRef = useRef<boolean>(false);
   const startStreamRef = useRef<() => void>(() => undefined);
+  // The single grace-window timer and the absolute deadline it fires at (09 §4).
+  // The deadline (not a fixed duration) is what "+10" extends, so the timer can be
+  // rescheduled further out without losing time already elapsed. `null` deadline =
+  // no send armed.
+  const graceTimerRef = useRef<number | null>(null);
+  const graceDeadlineRef = useRef<number | null>(null);
 
   const stopStream = useCallback((): void => {
     if (streamRef.current !== null) {
@@ -162,22 +173,51 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     };
   }, [stopStream]);
 
-  // Grace-window effect (09 §4): an end-of-turn final arms `pending` rather than
-  // committing outright. Hold it COMMIT_DELAY_MS, then dispatch `commitDelayElapsed`
-  // to promote it to a real commit. If the user keeps talking, a fresh partial
-  // clears `pending` (or a new final re-arms it), which re-runs this effect and the
-  // cleanup cancels the timer — so a pause misread as turn-end never sends.
-  useEffect(() => {
-    if (state.pending === undefined) {
+  const clearGraceTimer = useCallback((): void => {
+    if (graceTimerRef.current !== null) {
+      clearTimeout(graceTimerRef.current);
+      graceTimerRef.current = null;
+    }
+  }, []);
+
+  // (Re)schedule the single grace-window timer to fire at the current deadline
+  // (09 §4). Called on arm and again on every "+10" extension, so it always
+  // reflects the latest deadline. Firing promotes the armed send to a real commit
+  // via `commitDelayElapsed`. A no-op when nothing is armed.
+  const armGraceTimer = useCallback((): void => {
+    clearGraceTimer();
+    const deadline = graceDeadlineRef.current;
+    if (deadline === null) {
       return;
     }
-    const timer = window.setTimeout(() => {
-      dispatch({ type: 'commitDelayElapsed' });
-    }, COMMIT_DELAY_MS);
+    graceTimerRef.current = window.setTimeout(
+      () => {
+        graceDeadlineRef.current = null;
+        dispatch({ type: 'commitDelayElapsed' });
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+  }, [clearGraceTimer]);
+
+  // Grace-window effect (09 §4): an end-of-turn final arms `pending` rather than
+  // committing outright. Set a deadline COMMIT_DELAY_MS out and hold the send until
+  // it passes, then `commitDelayElapsed` promotes it to a real commit. If the user
+  // keeps talking, a fresh partial clears `pending` (or a new final re-arms it),
+  // which re-runs this effect and the cleanup cancels the timer — so a pause
+  // misread as turn-end never sends. `delaySend` pushes the deadline out mid-window.
+  useEffect(() => {
+    if (state.pending === undefined) {
+      graceDeadlineRef.current = null;
+      clearGraceTimer();
+      return;
+    }
+    graceDeadlineRef.current = Date.now() + COMMIT_DELAY_MS;
+    armGraceTimer();
     return () => {
-      clearTimeout(timer);
+      graceDeadlineRef.current = null;
+      clearGraceTimer();
     };
-  }, [state.pending]);
+  }, [state.pending, armGraceTimer, clearGraceTimer]);
 
   // Commit effect (09 §4): a finalized utterance is POSTed to the unchanged
   // /api/message seam. On success the transcript clears back to idle
@@ -274,6 +314,19 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     dispatch({ type: 'sendNow' });
   }, []);
 
+  const delaySend = useCallback((): void => {
+    // The "+10" control extends the post-turn-end auto-send countdown by 10s
+    // (09 §4). The timer lives in the store (the machine stays pure and owns no
+    // I/O), so this pushes the deadline out and reschedules directly — no reducer
+    // action. A no-op when no send is armed (the dock hides the control then, but
+    // guard anyway). Additive to the current deadline, so taps stack.
+    if (graceDeadlineRef.current === null) {
+      return;
+    }
+    graceDeadlineRef.current += SEND_DELAY_EXTENSION_MS;
+    armGraceTimer();
+  }, [armGraceTimer]);
+
   const openKeyboard = useCallback((): void => {
     // Switch to typed input. Stop the mic and clear any un-committed transcript,
     // so a spoken and a typed message never overlap in one submission. Nothing
@@ -327,6 +380,8 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       resume,
       cancel,
       sendNow,
+      countingDown: state.pending !== undefined,
+      delaySend,
       getLevel,
       keyboardMode,
       openKeyboard,
@@ -338,10 +393,12 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       state.connecting,
       state.settledText,
       state.tailText,
+      state.pending,
       pause,
       resume,
       cancel,
       sendNow,
+      delaySend,
       getLevel,
       keyboardMode,
       openKeyboard,

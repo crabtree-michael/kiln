@@ -26,6 +26,8 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     resume: vi.fn(),
     cancel: vi.fn(),
     sendNow: vi.fn(),
+    countingDown: false,
+    delaySend: vi.fn(),
     getLevel: vi.fn(() => 0),
     keyboardMode: false,
     openKeyboard: vi.fn(),
@@ -149,6 +151,30 @@ describe('Dock', () => {
     // mic state so the user can still send or clear it (09 §4, items 1 & 4).
     mockVoiceValue = stubVoice({ micState: 'paused', tailText: 'stuck text' });
     render(<Dock />);
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('shows "+10" while the auto-send is counting down, and forwards the tap', () => {
+    const delaySend = vi.fn();
+    mockVoiceValue = stubVoice({
+      micState: 'listening',
+      settledText: 'Move it to done.',
+      countingDown: true,
+      delaySend,
+    });
+    render(<Dock />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delay auto-send 10 seconds' }));
+    expect(delaySend).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides "+10" when there is transcript but no countdown (the "stuck" case)', () => {
+    // A frozen/paused transcript can still be sent or cleared, but nothing is about
+    // to auto-fire — so the delay control has no countdown to extend and stays hidden.
+    mockVoiceValue = stubVoice({ micState: 'paused', settledText: 'stuck', countingDown: false });
+    render(<Dock />);
+    expect(screen.queryByRole('button', { name: 'Delay auto-send 10 seconds' })).toBeNull();
+    // The send + X remain available in this state.
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });

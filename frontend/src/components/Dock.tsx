@@ -32,6 +32,8 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
     resume,
     cancel,
     sendNow,
+    countingDown,
+    delaySend,
     keyboardMode,
     openKeyboard,
     closeKeyboard,
@@ -57,6 +59,11 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
   const hasTranscript = settledText !== '' || tailText !== '';
   const showSend = hasTranscript;
   const showCancel = hasTranscript;
+  // The "+10" delay control appears only while an end-of-turn auto-send is armed
+  // and counting down (09 §4) — not in the "stuck"/paused case where there is
+  // transcript but nothing is about to fire. It gives the user a way to push the
+  // auto-send out when they aren't ready.
+  const showDelay = countingDown;
   // The overlay field is shown for the live voice transcript OR the keyboard input
   // (they reuse the same container). The keyboard toggle only appears in the
   // resting voice state — never mid-dictation (where the flanks are send + X) and
@@ -323,6 +330,20 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
           </>
         ) : (
           <>
+            {showDelay && (
+              // "+10": push the armed auto-send 10s further out. Parked at the
+              // row's far-left edge (column 1) alongside the send it defers, and
+              // shown only while the countdown is live.
+              <button
+                type="button"
+                data-role="dock-delay"
+                aria-label="Delay auto-send 10 seconds"
+                onClick={delaySend}
+              >
+                <span aria-hidden="true">+10</span>
+              </button>
+            )}
+
             {showSend && (
               <button type="button" data-role="dock-send" aria-label="Send" onClick={sendNow}>
                 <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">

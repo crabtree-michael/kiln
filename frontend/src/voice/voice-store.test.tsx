@@ -186,6 +186,55 @@ describe('VoiceProvider mic activation', () => {
     }
   });
 
+  it('the "+10" control pushes the auto-send deadline out — it fires only after the extension', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      act(() => {
+        result.current.resume();
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'open' });
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'final', text: 'Move it to done.' });
+      });
+      // Armed: the transcript is settled and the grace window is counting down.
+      expect(result.current.countingDown).toBe(true);
+      expect(result.current.settledText).toBe('Move it to done.');
+
+      // Part-way through the 5s window, tap "+10" to extend the deadline by 10s.
+      act(() => {
+        vi.advanceTimersByTime(2_000);
+      });
+      act(() => {
+        result.current.delaySend();
+      });
+
+      // The ORIGINAL 5s deadline now passes (advance well past it): without the
+      // extension the send would have fired here, but it hasn't — still counting.
+      await act(async () => {
+        vi.advanceTimersByTime(4_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.countingDown).toBe(true);
+      expect(result.current.settledText).toBe('Move it to done.');
+
+      // Past the extended deadline (armed at 0 → 5s, +10s at 2s → fires at 15s):
+      // the utterance auto-sends and the transcript clears back to idle.
+      await act(async () => {
+        vi.advanceTimersByTime(9_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.countingDown).toBe(false);
+      expect(result.current.settledText).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('backgrounding stops the mic and returning does NOT restart it', () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {

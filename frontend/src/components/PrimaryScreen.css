@@ -1651,6 +1651,36 @@ button[data-role='toast-open']:focus-visible {
   border-color: var(--accent);
 }
 
+/* "+10" delay control: extends the auto-send grace window by 10s (09 §4). Same
+   40px circle as the flanking send/cancel controls so it reads as a peer button;
+   parked at the row's far-left edge (column 1, justify-self:start) alongside the
+   send it defers, while the send hugs the mic at the column's inner edge. Neutral
+   like the cancel (×) — a "hold on" affordance, not the affirmative send. Shown
+   only while a send is counting down. */
+[data-role='dock-delay'] {
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-faint);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+[data-role='dock-delay']:hover {
+  color: var(--text-body);
+  border-color: var(--border-strong);
+}
+
 [data-role='dock-talk'] {
   grid-column: 2;
   display: flex;

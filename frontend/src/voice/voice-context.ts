@@ -27,6 +27,14 @@ export interface VoiceStoreValue {
    *  waiting for an end-of-turn final (09 §4). A no-op when nothing is shown; the
    *  dock gates its visibility on there being transcript text. */
   sendNow: () => void;
+  /** True while an end-of-turn auto-send is armed and counting down through the
+   *  post-turn-end grace window before it POSTs (09 §4). Drives the dock's "+10"
+   *  delay control, which only makes sense while the countdown is live. */
+  countingDown: boolean;
+  /** The "+10" control → push the armed auto-send 10s further out, giving the user
+   *  time to catch a not-yet-ready utterance before it fires (09 §4). A no-op when
+   *  nothing is counting down; the dock gates its visibility on `countingDown`. */
+  delaySend: () => void;
   /** Current mic input loudness as a raw RMS (0..~1); the dock samples this each
    *  animation frame to size the volume orb (09 §3). 0 when not listening. */
   getLevel: () => number;

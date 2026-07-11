@@ -43,6 +43,7 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
     one-silent-reconnect-then-retry, `visibilitychange` foreground-only, commit → `postMessage`.
   - `useVoice()` → the full `VoiceStoreValue` (`voice-context.ts`): `micState`, `connecting`,
     `settledText`, `tailText`, `pause`, `resume`, `cancel`, `sendNow` (the send button),
+    `countingDown` + `delaySend` (the "+10" control — see the grace-window note below),
     `getLevel`, plus the keyboard-mode surface (`keyboardMode`, `openKeyboard`, `closeKeyboard`,
     `submitText`).
 - **Dock** — `components/Dock.tsx`: presentational `useVoice()` consumer. Preserves the `08 §F`
@@ -118,6 +119,13 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
   sent). Empty/whitespace finals never POST (and never restart).
 - Keep decision logic in `commit-machine` (pure, testable); keep all I/O in `voice-store` /
   `assemblyai-client`. The machine returns a `commit` intent; the store performs the POST.
+- **Grace-window timing lives in the store, not the machine.** An end-of-turn final arms
+  `state.pending` (machine); the *timer* is the store's. It runs off an **absolute deadline**
+  (`graceDeadlineRef` = `Date.now() + COMMIT_DELAY_MS`), not a fixed-duration `setTimeout`, so
+  the dock's **"+10" control (`delaySend`)** can push the deadline out mid-window and reschedule
+  (additive — taps stack) without losing elapsed time. `countingDown` (= `state.pending !==
+  undefined`) gates the control's visibility. Extending the window is I/O (a reschedule), so it
+  stays in the store and dispatches no reducer action — the machine stays pure.
 - Escape-hatch ban (02 §4b): no `any`/`as` — narrow `unknown` with guards. The strict
   `.golangci.yml` (err113/errcheck-check-blank/mnd/nonamedreturns/lll) rejects the "obvious"
   Go — use static wrapped sentinels, a lone named-error return for deferred body-close, named

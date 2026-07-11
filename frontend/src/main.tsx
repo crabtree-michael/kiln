@@ -19,6 +19,7 @@ import {
 import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
+import { DefaultRoute } from '@/components/DefaultRoute';
 import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
 import { Guide } from '@/guide/Guide';
@@ -76,9 +77,13 @@ if (root === null) {
   throw new Error('root element #root is missing from index.html');
 }
 
-// `/` is the marketing landing page — the default page every visitor lands on:
-// a stateless, scrolling page reusing the design system and real presentational
-// components. `/landing` and `/landing-2` are kept as aliases for the same page.
+// `/` is the site default (`DefaultRoute`): the marketing landing page for
+// browser-tab visitors, but an installed web app (an iOS home-screen app, whose
+// launch URL is pinned to `/` by the manifest `start_url`) is redirected
+// straight to `/app` so it opens onto the board, not the marketing page. The
+// landing page is a stateless, scrolling page reusing the design system and real
+// presentational components. `/landing` and `/landing-2` stay pinned to it as
+// aliases for everyone.
 // `/app` is the primary (08) screen; `/debug` keeps the original board+chat
 // client (07) whole and unchanged as a developer view. Both sit behind the
 // session gate (11 phase 2): every `/api/*` call now requires a session cookie,
@@ -95,7 +100,7 @@ createRoot(root).render(
       <BrowserRouter>
         <ThemeColorSync />
         <SentryRoutes>
-          <Route path="/" element={<Landing2 />} />
+          <Route path="/" element={<DefaultRoute />} />
           <Route path="/landing" element={<Landing2 />} />
           <Route path="/landing-2" element={<Landing2 />} />
           <Route

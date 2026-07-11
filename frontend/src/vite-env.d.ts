@@ -41,4 +41,13 @@ interface AudioSession {
 
 interface Navigator {
   readonly audioSession?: AudioSession;
+  /**
+   * iOS Safari's non-standard flag: `true` only when the page is running as an
+   * installed home-screen web app (standalone display), absent in a normal
+   * browser tab. Not in the DOM lib types, and the only reliable "installed web
+   * app" signal on iOS (which does not implement the `display-mode` media
+   * query). Used to send installed iOS web-app launches straight to the app
+   * instead of the marketing landing page. See src/standalone.ts.
+   */
+  readonly standalone?: boolean;
 }

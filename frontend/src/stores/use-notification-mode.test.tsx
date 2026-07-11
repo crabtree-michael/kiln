@@ -55,6 +55,20 @@ describe('useNotificationMode', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent('all');
   });
 
+  // Regression guard for the cross-device sync ticket: the shared mode is a
+  // per-user global (one value for all of a user's devices). Merely opening the
+  // app on a second device must never write it — otherwise a device that read a
+  // stale/default value could clobber the mode another device just set. Mount
+  // reads, and only an explicit selection writes.
+  it('never writes the mode on mount (read-only launch)', async () => {
+    fetchMock.mockResolvedValue('all');
+    render(<Probe />);
+    await waitFor(() => {
+      expect(screen.getByTestId('ready')).toHaveTextContent('ready');
+    });
+    expect(putMock).not.toHaveBeenCalled();
+  });
+
   it('falls back to blocked when the read fails', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
     render(<Probe />);

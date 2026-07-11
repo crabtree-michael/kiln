@@ -578,6 +578,22 @@ export async function postPushSubscription(sub: PushSubscriptionPayload): Promis
   }
 }
 
+/** `DELETE /api/push/subscribe` — remove this browser's push subscription
+ * server-side when the user disables notifications (02 §10). Identified by
+ * endpoint and scoped to the signed-in user; idempotent, so an already-absent
+ * endpoint still resolves. Best-effort: the sender also prunes dead endpoints on
+ * its next send (404/410), so a failure here only delays cleanup. */
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  const response = await fetch('/api/push/subscribe', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!response.ok) {
+    throw new Error(`deletePushSubscription: HTTP ${String(response.status)}`);
+  }
+}
+
 /** `POST /api/beta-signup` — record a landing-page beta-interest email. The
  * server is idempotent on the address, so a repeat submit still resolves; the
  * caller redirects to the confirmation page on success. Throws on a non-2xx so

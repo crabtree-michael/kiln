@@ -295,7 +295,11 @@ export interface paths {
          * @description Stores the browser `PushSubscription` (endpoint + p256dh/auth keys) so the runtime's notify.send executor can deliver Web Push messages to it. Upsert on endpoint — a re-subscribe from the same browser is idempotent. Single user in v1: subscriptions are stored globally and every notification fans out to all of them.
          */
         post: operations["postPushSubscribe"];
-        delete?: never;
+        /**
+         * Remove a browser push subscription (02 §10).
+         * @description Drops the subscription for the given endpoint so the runtime stops fanning notifications out to a device the user disabled. Scoped to the signed-in user, and idempotent — deleting an unknown or already-removed endpoint still returns 204. Complements the sender's own pruning of endpoints the push service reports gone (404/410); this lets a device that disables notifications clear its row immediately rather than waiting for the next send.
+         */
+        delete: operations["deletePushSubscribe"];
         options?: never;
         head?: never;
         patch?: never;
@@ -722,6 +726,11 @@ export interface components {
                 auth: string;
             };
         };
+        /** @description Identifies a browser push subscription to remove by its endpoint URL — the same endpoint carried in PushSubscription. No keys are needed to delete. */
+        PushUnsubscribe: {
+            /** @description The push service URL of the subscription to remove. */
+            endpoint: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -1064,6 +1073,35 @@ export interface operations {
         };
         responses: {
             /** @description Subscription stored. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deletePushSubscribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushUnsubscribe"];
+            };
+        };
+        responses: {
+            /** @description Subscription removed (or already absent). */
             204: {
                 headers: {
                     [name: string]: unknown;

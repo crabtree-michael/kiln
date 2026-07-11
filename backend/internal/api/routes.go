@@ -184,13 +184,15 @@ type PushSubscription struct {
 
 // PushRegistrar is the api's port onto the push store (02 §10): the subscription
 // write side — POST /api/push/subscribe lands a browser subscription that the
-// runtime's notify.send executor later delivers to — plus the global
+// runtime's notify.send executor later delivers to, and DELETE /api/push/subscribe
+// removes one when a device disables notifications — plus the global
 // notification-frequency mode read/written by GET/PUT /api/push/mode. Mode is a
 // plain string on this boundary (the api never imports internal/push); the
 // allowed values are validated against the wire enum before SetMode. Satisfied
 // by a cmd/kiln adapter over the push store.
 type PushRegistrar interface {
 	Subscribe(ctx context.Context, userID string, sub PushSubscription) error
+	Unsubscribe(ctx context.Context, userID, endpoint string) error
 	Mode(ctx context.Context, userID string) (string, error)
 	SetMode(ctx context.Context, userID, mode string) error
 }
@@ -393,6 +395,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.push != nil {
 		mux.HandleFunc("POST /api/push/subscribe", s.withSession(s.handlePushSubscribe))
+		mux.HandleFunc("DELETE /api/push/subscribe", s.withSession(s.handlePushUnsubscribe))
 		mux.HandleFunc("GET /api/push/key", s.withSession(s.handlePushKey))
 		mux.HandleFunc("GET /api/push/mode", s.withSession(s.handlePushModeGet))
 		mux.HandleFunc("PUT /api/push/mode", s.withSession(s.handlePushModeSet))
@@ -834,6 +837,34 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request, use
 	}); err != nil {
 		slog.Error("api: store push subscription", "err", err)
 		http.Error(w, "store subscription", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePushUnsubscribe removes the caller's subscription for an endpoint (02
+// §10) — the device-disables-notifications path. Scoped to the signed-in user
+// and idempotent: an unknown or already-gone endpoint still returns 204, so a
+// client that also lost its browser subscription need not special-case it.
+func (s *Server) handlePushUnsubscribe(w http.ResponseWriter, r *http.Request, user identity.User) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushBody)
+	var req wire.PushUnsubscribe
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Endpoint == "" {
+		http.Error(w, "endpoint is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.push.Unsubscribe(r.Context(), user.ID, req.Endpoint); err != nil {
+		slog.Error("api: delete push subscription", "err", err)
+		http.Error(w, "delete subscription", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

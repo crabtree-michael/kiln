@@ -8,7 +8,7 @@
 // (GET /api/push/key → 404) resolve to a disabled, explanatory state rather than
 // throwing, so the toggle can render "unavailable" instead of erroring.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchPushKey, postPushSubscription } from '@/transport/transport';
+import { deletePushSubscription, fetchPushKey, postPushSubscription } from '@/transport/transport';
 import type { PushSubscriptionPayload } from '@/transport/transport';
 
 /** Where the static service worker is served (public/push-sw.js). */
@@ -163,10 +163,19 @@ export function useWebPush(): WebPush {
     try {
       const registration = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_URL);
       const existing = registration ? await registration.pushManager.getSubscription() : null;
-      // unsubscribe() invalidates the endpoint browser-side; the next notify.send
-      // to it 404/410s and the sender prunes it, so no server call is needed here.
       if (existing !== null) {
+        // Capture the endpoint before unsubscribe() invalidates it browser-side,
+        // then drop the server row so notify.send stops fanning out to this
+        // device immediately — rather than waiting for the next send to 404/410
+        // and prune it. Server delete is best-effort: if it fails, that fallback
+        // pruning still cleans up, so it must not block the local unsubscribe.
+        const { endpoint } = existing;
         await existing.unsubscribe();
+        try {
+          await deletePushSubscription(endpoint);
+        } catch {
+          // Left for the sender's 404/410 pruning; the device is already off.
+        }
       }
       // Permission stays granted, but with no subscription we're back to 'default'
       // (supported + configured, not yet subscribed) — the enable affordance.

@@ -339,6 +339,28 @@ paths:
           description: Subscription stored.
         '400':
           description: Invalid request body.
+    delete:
+      operationId: deletePushSubscribe
+      summary: Remove a browser push subscription (02 §10).
+      description: >
+        Drops the subscription for the given endpoint so the runtime stops
+        fanning notifications out to a device the user disabled. Scoped to the
+        signed-in user, and idempotent — deleting an unknown or already-removed
+        endpoint still returns 204. Complements the sender's own pruning of
+        endpoints the push service reports gone (404/410); this lets a device
+        that disables notifications clear its row immediately rather than waiting
+        for the next send.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushUnsubscribe'
+      responses:
+        '204':
+          description: Subscription removed (or already absent).
+        '400':
+          description: Invalid request body.
   /api/push/mode:
     get:
       operationId: getPushMode
@@ -1104,4 +1126,16 @@ components:
               type: string
               description: Base64url client auth secret.
           additionalProperties: false
+      additionalProperties: false
+    PushUnsubscribe:
+      type: object
+      description: >
+        Identifies a browser push subscription to remove by its endpoint URL —
+        the same endpoint carried in PushSubscription. No keys are needed to
+        delete.
+      required: [endpoint]
+      properties:
+        endpoint:
+          type: string
+          description: The push service URL of the subscription to remove.
       additionalProperties: false

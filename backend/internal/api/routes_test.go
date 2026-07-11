@@ -80,6 +80,21 @@ func doPost(t *testing.T, url string, body []byte) *http.Response {
 	return resp
 }
 
+func doDelete(t *testing.T, url string, body []byte) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build DELETE %s: %v", url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(authCookie())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE %s: %v", url, err)
+	}
+	return resp
+}
+
 // doGetNoAuth issues a cookieless GET, for asserting a guarded route rejects an
 // unauthenticated caller with 401.
 func doGetNoAuth(t *testing.T, url string) *http.Response {

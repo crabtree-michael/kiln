@@ -48,6 +48,13 @@ func (f *fakeStore) DeleteByEndpoint(_ context.Context, endpoint string) error {
 	return nil
 }
 
+func (f *fakeStore) DeleteUserEndpoint(_ context.Context, _, endpoint string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, endpoint)
+	return nil
+}
+
 func (f *fakeStore) Mode(context.Context, string) (string, error) { return push.ModeBlocked, nil }
 
 func (f *fakeStore) SetMode(context.Context, string, string) error { return nil }

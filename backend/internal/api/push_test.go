@@ -21,11 +21,12 @@ var errFakeRegistrarFailed = errors.New("fakePushRegistrar: synthetic failure")
 // fakePushRegistrar records the subscriptions it is asked to store and holds the
 // global notification mode (defaulting to "blocked", as a fresh store would).
 type fakePushRegistrar struct {
-	mu         sync.Mutex
-	subs       []api.PushSubscription
-	mode       string
-	err        error
-	lastUserID string
+	mu           sync.Mutex
+	subs         []api.PushSubscription
+	unsubscribed []string
+	mode         string
+	err          error
+	lastUserID   string
 }
 
 func (f *fakePushRegistrar) Subscribe(_ context.Context, userID string, sub api.PushSubscription) error {
@@ -36,6 +37,17 @@ func (f *fakePushRegistrar) Subscribe(_ context.Context, userID string, sub api.
 	defer f.mu.Unlock()
 	f.lastUserID = userID
 	f.subs = append(f.subs, sub)
+	return nil
+}
+
+func (f *fakePushRegistrar) Unsubscribe(_ context.Context, userID, endpoint string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastUserID = userID
+	f.unsubscribed = append(f.unsubscribed, endpoint)
 	return nil
 }
 
@@ -160,6 +172,65 @@ func TestHandlePushSubscribe(t *testing.T) {
 		ts := newPushServer(t, reg, "BPUB")
 		defer ts.Close()
 		resp := doPost(t, ts.URL+"/api/push/subscribe", body("https://push.example/a", "pub", "auth"))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", resp.StatusCode)
+		}
+	})
+}
+
+func TestHandlePushUnsubscribe(t *testing.T) {
+	unsubBody := func(endpoint string) []byte {
+		return mustJSON(t, wire.PushUnsubscribe{Endpoint: endpoint})
+	}
+
+	t.Run("removes the endpoint and returns 204", func(t *testing.T) {
+		reg := &fakePushRegistrar{}
+		ts := newPushServer(t, reg, "BPUB")
+		defer ts.Close()
+		resp := doDelete(t, ts.URL+"/api/push/subscribe", unsubBody("https://push.example/a"))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", resp.StatusCode)
+		}
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		if len(reg.unsubscribed) != 1 || reg.unsubscribed[0] != "https://push.example/a" {
+			t.Errorf("unsubscribed = %v, want [https://push.example/a]", reg.unsubscribed)
+		}
+	})
+
+	t.Run("missing endpoint returns 400", func(t *testing.T) {
+		reg := &fakePushRegistrar{}
+		ts := newPushServer(t, reg, "BPUB")
+		defer ts.Close()
+		resp := doDelete(t, ts.URL+"/api/push/subscribe", unsubBody(""))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		if len(reg.unsubscribed) != 0 {
+			t.Errorf("unsubscribed %v on bad request, want none", reg.unsubscribed)
+		}
+	})
+
+	t.Run("invalid JSON returns 400", func(t *testing.T) {
+		ts := newPushServer(t, &fakePushRegistrar{}, "BPUB")
+		defer ts.Close()
+		resp := doDelete(t, ts.URL+"/api/push/subscribe", []byte("{not json"))
+		closeBody(t, resp)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+	})
+
+	t.Run("registrar error returns 500", func(t *testing.T) {
+		reg := &fakePushRegistrar{err: errFakeRegistrarFailed}
+		ts := newPushServer(t, reg, "BPUB")
+		defer ts.Close()
+		resp := doDelete(t, ts.URL+"/api/push/subscribe", unsubBody("https://push.example/a"))
 		closeBody(t, resp)
 		if resp.StatusCode != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500", resp.StatusCode)

@@ -86,6 +86,18 @@ func (s *Store) DeleteByEndpoint(ctx context.Context, endpoint string) error {
 	return nil
 }
 
+// DeleteUserEndpoint drops the caller's own subscription for an endpoint — the
+// device-disables-notifications path. Scoped by user_id so a caller can only
+// remove a row they own; a no-op (no error) when the endpoint is absent or owned
+// by someone else, matching DeleteByEndpoint's idempotence.
+func (s *Store) DeleteUserEndpoint(ctx context.Context, userID, endpoint string) error {
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2`, userID, endpoint); err != nil {
+		return fmt.Errorf("push/postgres: delete user subscription: %w", err)
+	}
+	return nil
+}
+
 // Mode reads the user's notification frequency (their push_user_settings row).
 // A missing row is treated as the default (push.ModeBlocked) rather than an
 // error, so a user who never set a mode behaves exactly like the pre-mode

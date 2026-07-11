@@ -718,6 +718,13 @@ func (a *pushRegistrarAdapter) Subscribe(ctx context.Context, userID string, sub
 	return nil
 }
 
+func (a *pushRegistrarAdapter) Unsubscribe(ctx context.Context, userID, endpoint string) error {
+	if err := a.store.DeleteUserEndpoint(ctx, userID, endpoint); err != nil {
+		return fmt.Errorf("kiln: delete push subscription: %w", err)
+	}
+	return nil
+}
+
 func (a *pushRegistrarAdapter) Mode(ctx context.Context, userID string) (string, error) {
 	mode, err := a.store.Mode(ctx, userID)
 	if err != nil {

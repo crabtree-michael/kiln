@@ -531,6 +531,12 @@ type PushSubscription struct {
 	} `json:"keys"`
 }
 
+// PushUnsubscribe Identifies a browser push subscription to remove by its endpoint URL — the same endpoint carried in PushSubscription. No keys are needed to delete.
+type PushUnsubscribe struct {
+	// Endpoint The push service URL of the subscription to remove.
+	Endpoint string `json:"endpoint"`
+}
+
 // SayEvent The `say` SSE event payload (07 §4) — one event per brain say (renamed from `speak`, 07 A1). message_id matches the corresponding Message row from GET /api/messages/the transcript.
 type SayEvent struct {
 	At        time.Time `json:"at"`
@@ -650,6 +656,9 @@ type PutProjectJSONRequestBody = ProjectUpdateRequest
 
 // PutPushModeJSONRequestBody defines body for PutPushMode for application/json ContentType.
 type PutPushModeJSONRequestBody = NotificationMode
+
+// DeletePushSubscribeJSONRequestBody defines body for DeletePushSubscribe for application/json ContentType.
+type DeletePushSubscribeJSONRequestBody = PushUnsubscribe
 
 // PostPushSubscribeJSONRequestBody defines body for PostPushSubscribe for application/json ContentType.
 type PostPushSubscribeJSONRequestBody = PushSubscription

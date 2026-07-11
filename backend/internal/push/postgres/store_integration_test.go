@@ -334,3 +334,77 @@ func TestDeleteByEndpoint(t *testing.T) {
 		t.Errorf("DeleteByEndpoint on absent row: %v", err)
 	}
 }
+
+func TestDeleteUserEndpointIsOwnerScoped(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	if err := store.Save(ctx, userA, sub("https://push.example/a")); err != nil {
+		t.Fatalf("Save userA: %v", err)
+	}
+	if err := store.Save(ctx, userB, sub("https://push.example/b")); err != nil {
+		t.Fatalf("Save userB: %v", err)
+	}
+
+	// userB cannot delete userA's endpoint: scoped by owner, so this is a no-op.
+	if err := store.DeleteUserEndpoint(ctx, userB, "https://push.example/a"); err != nil {
+		t.Fatalf("DeleteUserEndpoint (cross-user): %v", err)
+	}
+	got, err := store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List userA: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("userA lost a subscription to a cross-user delete: %+v", got)
+	}
+
+	// The owner deleting their own endpoint drops exactly that row.
+	if err := store.DeleteUserEndpoint(ctx, userA, "https://push.example/a"); err != nil {
+		t.Fatalf("DeleteUserEndpoint (owner): %v", err)
+	}
+	got, err = store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List userA after owner delete: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("owner delete left %d rows, want 0", len(got))
+	}
+	// Deleting an absent endpoint is a no-op, not an error.
+	if err := store.DeleteUserEndpoint(ctx, userA, "https://push.example/never"); err != nil {
+		t.Errorf("DeleteUserEndpoint on absent row: %v", err)
+	}
+}
+
+// TestDeleteUserEndpointLeavesOtherDevices is the reported cross-device scenario:
+// one user with two devices (Phone A and Phone B, both under the single v1 user).
+// Disabling notifications on Phone B deletes only Phone B's endpoint — Phone A's
+// subscription must survive, so its notifications are never "reset" by activity
+// on another device.
+func TestDeleteUserEndpointLeavesOtherDevices(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	const phoneA = "https://push.example/phone-a"
+	const phoneB = "https://push.example/phone-b"
+	if err := store.Save(ctx, userA, sub(phoneA)); err != nil {
+		t.Fatalf("Save phoneA: %v", err)
+	}
+	if err := store.Save(ctx, userA, sub(phoneB)); err != nil {
+		t.Fatalf("Save phoneB: %v", err)
+	}
+
+	// Phone B disables notifications: it removes its own endpoint only.
+	if err := store.DeleteUserEndpoint(ctx, userA, phoneB); err != nil {
+		t.Fatalf("DeleteUserEndpoint phoneB: %v", err)
+	}
+
+	got, err := store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List userA: %v", err)
+	}
+	if len(got) != 1 || got[0].Endpoint != phoneA {
+		t.Fatalf("after disabling phoneB, List(userA) = %+v, want only phoneA", got)
+	}
+}

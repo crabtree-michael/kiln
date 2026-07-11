@@ -11,6 +11,7 @@ import * as transport from '@/transport/transport';
 vi.mock('@/transport/transport', () => ({
   fetchPushKey: vi.fn(),
   postPushSubscription: vi.fn(),
+  deletePushSubscription: vi.fn(),
 }));
 
 function Probe(): JSX.Element {
@@ -47,6 +48,7 @@ interface PushEnv {
 
 // The fake subscription returned by pushManager.subscribe().
 const FAKE_SUBSCRIPTION = {
+  endpoint: 'https://push.example/abc',
   toJSON: () => ({ endpoint: 'https://push.example/abc', keys: { p256dh: 'pub', auth: 'auth' } }),
 };
 
@@ -82,6 +84,7 @@ describe('useWebPush', () => {
   beforeEach(() => {
     vi.mocked(transport.fetchPushKey).mockResolvedValue('BPUBLIC');
     vi.mocked(transport.postPushSubscription).mockResolvedValue(undefined);
+    vi.mocked(transport.deletePushSubscription).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -173,6 +176,75 @@ describe('useWebPush', () => {
       expect(screen.getByTestId('status').textContent).toBe('default');
     });
     expect(unsubscribe).toHaveBeenCalledOnce();
+    // The server row is dropped immediately (not left for send-time pruning),
+    // keyed by the endpoint captured before unsubscribe() invalidated it.
+    expect(vi.mocked(transport.deletePushSubscription)).toHaveBeenCalledWith('https://push.example/abc');
+  });
+
+  it('still disables locally when the server-side delete fails', async () => {
+    installPushEnv({ existingSubscription: true });
+    vi.mocked(transport.deletePushSubscription).mockRejectedValue(new Error('offline'));
+    const unsubscribe = vi.fn(() => Promise.resolve(true));
+    const subscription = { ...FAKE_SUBSCRIPTION, unsubscribe };
+    const registration = {
+      pushManager: { getSubscription: () => Promise.resolve(subscription) },
+    };
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistration: () => Promise.resolve(registration) },
+      configurable: true,
+    });
+    render(<Probe />);
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('enabled');
+    });
+
+    fireEvent.click(screen.getByText('disable'));
+
+    // Best-effort: a failed server delete must not strand the user in 'error' —
+    // the browser is already unsubscribed and send-time pruning is the fallback.
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('default');
+    });
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('error').textContent).toBe('');
+  });
+
+  // Regression guard for the cross-device sync ticket. Push subscriptions are
+  // per-device browser state: opening the app must only *reflect* the current
+  // subscription, never mutate it. If a future change made the mount probe
+  // subscribe/unsubscribe/POST, one device opening the app could disturb another
+  // device's enablement — the reported "Phone A reverts to disabled" symptom.
+  it('does not touch the subscription on mount when already enabled', async () => {
+    installPushEnv({ existingSubscription: true });
+    const unsubscribe = vi.fn(() => Promise.resolve(true));
+    const subscribe = vi.fn(() => Promise.resolve(FAKE_SUBSCRIPTION));
+    const subscription = { ...FAKE_SUBSCRIPTION, unsubscribe };
+    const registration = {
+      pushManager: { getSubscription: () => Promise.resolve(subscription), subscribe },
+    };
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistration: () => Promise.resolve(registration) },
+      configurable: true,
+    });
+    render(<Probe />);
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('enabled');
+    });
+    // Reflected, not re-subscribed, not unsubscribed, not re-POSTed, not deleted.
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(unsubscribe).not.toHaveBeenCalled();
+    expect(vi.mocked(transport.postPushSubscription)).not.toHaveBeenCalled();
+    expect(vi.mocked(transport.deletePushSubscription)).not.toHaveBeenCalled();
+  });
+
+  it('does not subscribe or POST on mount when not yet subscribed', async () => {
+    installPushEnv({});
+    render(<Probe />);
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('default');
+    });
+    expect(subscribeMock).not.toHaveBeenCalled();
+    expect(vi.mocked(transport.postPushSubscription)).not.toHaveBeenCalled();
   });
 
   it('reports denied when the user blocks the permission prompt', async () => {

@@ -44,12 +44,17 @@ const (
 // to that user. List returns only the given user's subscriptions.
 // DeleteByEndpoint prunes an endpoint the push service has reported gone
 // (404/410) so a dead subscription is dropped on its next send attempt; no
-// userID because the endpoint alone identifies the row. Mode is per user
-// (push_user_settings); a user who never set one gets ModeBlocked, not an error.
+// userID because the endpoint alone identifies the row.
+// DeleteUserEndpoint is the client-driven counterpart: a device disabling
+// notifications removes its own subscription immediately, scoped to the owner so
+// one user can never drop another's row. Both are idempotent — deleting an absent
+// endpoint is a no-op. Mode is per user (push_user_settings); a user who never
+// set one gets ModeBlocked, not an error.
 type Store interface {
 	Save(ctx context.Context, userID string, sub Subscription) error
 	List(ctx context.Context, userID string) ([]Subscription, error)
 	DeleteByEndpoint(ctx context.Context, endpoint string) error
+	DeleteUserEndpoint(ctx context.Context, userID, endpoint string) error
 	Mode(ctx context.Context, userID string) (string, error)
 	SetMode(ctx context.Context, userID, mode string) error
 }

@@ -12,7 +12,8 @@
 // Parse the JSON payload the backend sends (push.Notification in Go), falling
 // back to a generic notification for a missing or malformed body.
 function parsePush(data) {
-  const fallback = { title: 'Kiln', body: 'You have a new notification.', url: '/' };
+  // `/app` is the primary screen; `/` is the marketing landing page.
+  const fallback = { title: 'Kiln', body: 'You have a new notification.', url: '/app' };
   if (!data) return fallback;
   try {
     const parsed = data.json();
@@ -77,7 +78,7 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   const data = event.notification.data;
-  const target = data && typeof data.url === 'string' ? data.url : '/';
+  const target = data && typeof data.url === 'string' ? data.url : '/app';
   event.waitUntil(
     (async function () {
       // Focus an already-open Kiln tab if there is one, and hand it the deep link

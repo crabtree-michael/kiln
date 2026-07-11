@@ -1,8 +1,9 @@
-// Smoke coverage for the marketing landing page (`/landing`): it renders
-// standalone (no stores/providers), states the product, funnels its beta CTAs to
-// the beta-signup modal (nothing links into the app), points its "How it works"
-// CTAs at the How It Works (#how) section, and embeds the captured app
-// screenshots (frontend/public/shots) as themed <picture>/<img>.
+// Smoke coverage for the marketing landing page (the default `/` route, also at
+// `/landing`): it renders standalone (no stores/providers), states the product,
+// funnels its beta CTAs to the beta-signup modal, offers a GitHub sign-in beside
+// them, points its "How it works" CTAs at the How It Works (#how) section, and
+// embeds the captured app screenshots (frontend/public/shots) as themed
+// <picture>/<img>.
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Landing2 } from '@/landing/Landing2';
@@ -36,18 +37,24 @@ describe('Landing2', () => {
     expect(within(dialog).getByRole('button', { name: /notify me/i })).toBeInTheDocument();
   });
 
-  it('funnels beta CTAs to the signup modal and links nowhere into the app', () => {
+  it('funnels beta CTAs to the signup modal and offers a GitHub sign-in', () => {
     renderLanding();
 
     // The modal is closed until a CTA opens it — no dialog up front.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     // Nav / voice / footer "Join the beta" CTAs are buttons (they open the
-    // modal), not links into the app ("/").
+    // modal), not links into the app.
     const betaCtas = screen.getAllByRole('button', { name: /join the beta/i });
     expect(betaCtas.length).toBeGreaterThan(0);
     expect(screen.queryByRole('link', { name: /join the beta/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /open the app/i })).not.toBeInTheDocument();
+
+    // The sign-in affordance sits beside the beta CTA and is a plain full-page
+    // anchor to the backend-owned GitHub OAuth start (not a router Link into the
+    // SPA), mirroring SessionGate / dashboard SignIn.
+    const signIn = screen.getByRole('link', { name: /sign in/i });
+    expect(signIn).toHaveAttribute('href', '/auth/github/login');
 
     // Closing the opened modal returns to the page.
     fireEvent.click(

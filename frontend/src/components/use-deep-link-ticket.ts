@@ -1,6 +1,6 @@
 // Deep-link → open-ticket bridge for the primary screen (02 §10 tap-to-open).
-// A push notification's `notificationclick` deep link is `/?ticket=<id>` (built
-// by webPushNotifier). Two arrival paths converge here:
+// A push notification's `notificationclick` deep link is `/app?ticket=<id>`
+// (built by webPushNotifier). Two arrival paths converge here:
 //   • cold / backgrounded: the service worker opens a fresh window at that URL,
 //     and we read the `ticket` query param once on mount;
 //   • already-open tab: the worker can't reload it without dropping the live
@@ -14,8 +14,8 @@ import { useEffect } from 'react';
 /** postMessage type the service worker sends a focused tab on notification tap. */
 export const DEEP_LINK_MESSAGE = 'kiln:navigate';
 
-/** Pull the `ticket` id out of a `/?ticket=<id>` deep link — a full URL or a bare
- * query string both work. Returns null when the param is absent or empty. */
+/** Pull the `ticket` id out of a `/app?ticket=<id>` deep link — a full URL or a
+ * bare query string both work. Returns null when the param is absent or empty. */
 export function ticketIdFromUrl(url: string): string | null {
   const start = url.indexOf('?');
   if (start === -1) {

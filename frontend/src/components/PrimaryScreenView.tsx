@@ -221,7 +221,7 @@ export function PrimaryScreenView({
   // drains on its own if the ticket leaves the board (e.g. after Accept).
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   // A tapped push notification deep-links here (02 §10): open the ticket it names,
-  // whether we were opened fresh at `/?ticket=<id>` or handed the tap live by the
+  // whether we were opened fresh at `/app?ticket=<id>` or handed the tap live by the
   // service worker. The id resolves against the board below like any other open.
   useDeepLinkTicket(setOpenTicketId);
   const openTicket = findTicket(board, openTicketId);

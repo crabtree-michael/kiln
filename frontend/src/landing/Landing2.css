@@ -135,7 +135,10 @@
   color: var(--accent);
 }
 
-.kiln-landing-2 .kiln-nav__cta {
+.kiln-landing-2 .kiln-nav__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   margin-left: var(--space-2);
 }
 
@@ -143,8 +146,13 @@
   .kiln-landing-2 .kiln-nav__links {
     display: none;
   }
-  .kiln-landing-2 .kiln-nav__cta {
+  .kiln-landing-2 .kiln-nav__actions {
     margin-left: auto;
+  }
+  /* On a phone the beta CTA carries the page; the sign-in link would crowd the
+     bar, so it collapses out and returning users use the in-app gate. */
+  .kiln-landing-2 .kiln-nav__signin {
+    display: none;
   }
 }
 

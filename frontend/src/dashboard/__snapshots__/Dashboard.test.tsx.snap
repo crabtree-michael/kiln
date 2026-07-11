@@ -11,7 +11,7 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
       <a
         data-discover="true"
         data-role="go-to-app"
-        href="/"
+        href="/app"
       >
         <span
           aria-hidden="true"

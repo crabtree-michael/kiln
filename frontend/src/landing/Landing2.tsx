@@ -1,4 +1,5 @@
-// Marketing landing page (`/landing`, also served at the `/landing-2` alias). A
+// Marketing landing page — the default page every visitor lands on at `/`, also
+// served at the `/landing` and `/landing-2` aliases. A
 // standalone, scrolling page that positions Kiln as a coding agent orchestrator
 // you can run from anywhere you are — phone, desk, or on the move, by voice or
 // by tap. It is NOT part of the app shell: it holds no state, opens no stream/mic, and
@@ -193,7 +194,7 @@ export function Landing2(): JSX.Element {
     <div className="kiln-landing-2">
       <header className="kiln-nav">
         <div className="kiln-nav__inner">
-          <Link to="/landing" className="kiln-nav__brand" aria-label="Kiln home">
+          <Link to="/" className="kiln-nav__brand" aria-label="Kiln home">
             <KilnGlyph size={28} />
             <span className="kiln-nav__wordmark">Kiln</span>
           </Link>
@@ -202,13 +203,22 @@ export function Landing2(): JSX.Element {
             <a href="#how">How it works</a>
             <a href="#surfaces">The surfaces</a>
           </nav>
-          <button
-            type="button"
-            className="kiln-btn kiln-btn--primary kiln-nav__cta"
-            onClick={openBeta}
-          >
-            Join the beta
-          </button>
+          <div className="kiln-nav__actions">
+            {/* Sign-in is a plain full-page anchor — NOT a router Link — because
+                `/auth/github/login` is a backend route the SPA does not own
+                (mirrors SessionGate / dashboard SignIn). It sits beside the beta
+                CTA so returning users have a way straight into the app. */}
+            <a href="/auth/github/login" className="kiln-btn kiln-btn--ghost kiln-nav__signin">
+              Sign in
+            </a>
+            <button
+              type="button"
+              className="kiln-btn kiln-btn--primary kiln-nav__cta"
+              onClick={openBeta}
+            >
+              Join the beta
+            </button>
+          </div>
         </div>
       </header>
 

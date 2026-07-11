@@ -199,6 +199,15 @@ func (p *Provider) SetWorkerStatus(name string, status agent.RunStatus) {
 	p.StatusByName[name] = status
 }
 
+// SetFailProvisioning flips the provisioning-failure knob under the lock, so a
+// test can make CreateWorker start or stop failing mid-loop without racing the
+// reconciler's CreateWorker call (05 §8 test knob; mirrors SetWorkerStatus).
+func (p *Provider) SetFailProvisioning(fail bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.FailProvisioning = fail
+}
+
 // SeedLatestOutput presets a worker's latest output so inspector tests can read
 // it without driving a full turn (05 §8 test knob).
 func (p *Provider) SeedLatestOutput(name string, out agent.TurnOutput) {

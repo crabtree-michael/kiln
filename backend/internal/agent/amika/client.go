@@ -116,6 +116,14 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("amika: %d %s: %s (trace %s)", e.Status, e.Code, e.Message, e.TraceID)
 }
 
+// ProviderErrorFields exposes the envelope's scrub-safe diagnostics — HTTP
+// status, error code, trace id, in that order — to the provider-neutral core for
+// logging. It deliberately omits the free-text Message, which can echo a rejected
+// secret value. Satisfies agent.ProviderErrorFields.
+func (e *APIError) ProviderErrorFields() (int, string, string) {
+	return e.Status, e.Code, e.TraceID
+}
+
 // Client implements agent.Provider over Amika v0beta1. Sandbox, session, and
 // job ids stay inside agent.ProviderWorker/agent.TurnRef as opaque handles —
 // never visible outside the agent module (05 §6).

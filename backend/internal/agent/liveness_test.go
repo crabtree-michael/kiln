@@ -50,7 +50,10 @@ func (f *fakeRefresher) count() int {
 }
 
 // erroredFor returns the errored-worker set last reported for the project, and
-// whether any report has landed yet.
+// whether any report has landed yet. Keyed by project to mirror the per-project
+// health map, though every test so far is single-tenant on testProject.
+//
+//nolint:unparam // projectID mirrors the project-keyed health map; kept general.
 func (f *fakeRefresher) erroredFor(projectID string) ([]string, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -105,5 +108,39 @@ func TestRun_ErroredWorkerReportedToBoardHealth(t *testing.T) {
 	testutil.Eventually(t, func() bool {
 		ids, _ := refresher.erroredFor(testProject)
 		return len(ids) == 1 && ids[0] == testWorkerID
+	})
+}
+
+// TestRun_CreateFailureReportedToBoardHealth pins the create-failure health gate:
+// a slot whose sandbox never provisions (CreateWorker keeps failing) leaves no
+// live sandbox to observe, yet the health-aware pull must still learn the slot is
+// unusable. The reconciler records the provisioning failure and the liveness loop
+// reports the slot errored — so the pull skips it and the sandbox_health alert
+// fires — instead of the pre-fix behaviour where a never-provisioned slot stayed
+// silently 'ok' and Ready tickets bound to a dead sandbox.
+func TestRun_CreateFailureReportedToBoardHealth(t *testing.T) {
+	store := newFakeStore()
+	provider := mock.New()
+	provider.FailProvisioning = true // CreateWorker fails: no sandbox ever comes live
+	clock := testutil.NewFakeClock()
+	refresher := &fakeRefresher{}
+	svc := newService(store, provider, &fakeEvents{}, &fakeSlots{ids: []string{testWorkerID}}, clock, refresher)
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	// No live sandbox exists to report errored, but the failed provision must still
+	// mark the slot errored for the pull.
+	testutil.Eventually(t, func() bool {
+		ids, _ := refresher.erroredFor(testProject)
+		return len(ids) == 1 && ids[0] == testWorkerID
+	})
+
+	// Provisioning recovers: the reconciler creates the sandbox and the slot flips
+	// back to healthy (empty errored set), so the pull can bind it again.
+	provider.SetFailProvisioning(false)
+	testutil.Eventually(t, func() bool {
+		ids, reported := refresher.erroredFor(testProject)
+		return reported && len(ids) == 0
 	})
 }

@@ -41,6 +41,19 @@ var ErrConversationLost = errors.New("agent: provider lost the conversation")
 // (05 §5). Adapters wrap it (fmt.Errorf("…: %w", …)) so errors.Is still matches.
 var ErrOutOfCredits = errors.New("agent: provider credits exhausted")
 
+// ProviderErrorFields is optionally implemented by a provider adapter's returned
+// error to expose scrub-safe, structured diagnostics — the transport status, the
+// provider's error code, and a trace id — carrying no secret values. The
+// provider-neutral core logs these as separate attributes so a create/turn
+// failure stays diagnosable even when the log backend scrubs the free-text error
+// (a provider's message can echo a rejected secret value — the very failure that
+// motivated this: a bad injected secret made every CreateWorker fail and the
+// scrubbed err read only "[Filtered]"). The amika adapter's *APIError implements
+// it; a plain error simply doesn't, and callers fall back to the wrapped err.
+type ProviderErrorFields interface {
+	ProviderErrorFields() (status int, code, trace string)
+}
+
 // WorkerName derives the deterministic provider-side name for a board worker
 // slot under the DEFAULT prefix (05 §4). The name is the whole board↔provider
 // join — no shared registry, adoption is pure list-and-match (05 D5). A project

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -626,6 +627,29 @@ func TestAPIErrorEnvelopeDecoded(t *testing.T) {
 	}
 	if apiErr.Code != "upstream_unavailable" || apiErr.Message != "provider down" || apiErr.TraceID != "tr-42" {
 		t.Errorf("envelope not fully decoded: %+v", apiErr)
+	}
+}
+
+// TestAPIErrorProviderErrorFields pins the scrub-safe diagnostics the
+// provider-neutral core logs (agent.ProviderErrorFields): status, code, and
+// trace — never the free-text Message, which can echo a rejected secret value.
+func TestAPIErrorProviderErrorFields(t *testing.T) {
+	e := &APIError{
+		Status:  http.StatusBadRequest,
+		Code:    "invalid_secret",
+		Message: "secret FOO has a bad value sk-super-secret-123",
+		TraceID: "tr-99",
+	}
+
+	var pe agent.ProviderErrorFields = e
+	status, code, trace := pe.ProviderErrorFields()
+	if status != http.StatusBadRequest || code != "invalid_secret" || trace != "tr-99" {
+		t.Errorf("fields = (%d, %q, %q), want (400, \"invalid_secret\", \"tr-99\")", status, code, trace)
+	}
+	for _, f := range []string{code, trace} {
+		if strings.Contains(f, "sk-super-secret-123") {
+			t.Errorf("scrub-safe field leaked the free-text message: %q", f)
+		}
 	}
 }
 

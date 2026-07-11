@@ -123,6 +123,16 @@ type Service struct {
 
 	statusMu   sync.Mutex             // guards lastStatus only — never held across a ListAgents call
 	lastStatus map[string]AgentStatus // worker id → last-pushed status, for the liveness diff
+
+	// provisionMu guards provisionErrs: project id → the worker ids whose sandbox
+	// failed to provision on the last reconcile sweep (CreateWorker errored, so no
+	// live sandbox exists to observe). The 60s reconcile loop writes it; the 10s
+	// liveness loop unions it into the errored set it reports to the board, so a
+	// never-provisioned slot is health-gated out of the pull between sweeps instead
+	// of staying silently 'ok'. Held only for the map swap, never across a provider
+	// or board call.
+	provisionMu   sync.Mutex
+	provisionErrs map[string]map[string]struct{}
 }
 
 // NewService assembles the agent runtime over its ports. providers resolves a
@@ -142,6 +152,8 @@ func NewService(
 		clock:     clock,
 		refresher: refresher,
 		workers:   map[string]ProviderWorker{},
+
+		provisionErrs: map[string]map[string]struct{}{},
 	}
 }
 
@@ -404,11 +416,24 @@ func (s *Service) reconcileWorkerHealth(ctx context.Context, projectID string, i
 	if s.refresher == nil {
 		return
 	}
-	var errored []string
+	// Two disjoint errored sources: slots whose sandbox failed to provision (no
+	// live sandbox in infos, carried by the reconcile loop) and live sandboxes
+	// reporting a terminal RunErrored. Union both so a never-provisioned slot is
+	// gated out of the pull just like a sandbox that died after coming up.
+	errored := s.provisionFailedIDs(projectID)
+	seen := make(map[string]struct{}, len(errored))
+	for _, id := range errored {
+		seen[id] = struct{}{}
+	}
 	for _, in := range infos {
-		if in.Status == AgentErrored {
-			errored = append(errored, in.WorkerID)
+		if in.Status != AgentErrored {
+			continue
 		}
+		if _, dup := seen[in.WorkerID]; dup {
+			continue
+		}
+		seen[in.WorkerID] = struct{}{}
+		errored = append(errored, in.WorkerID)
 	}
 	if err := s.refresher.SetWorkerHealth(ctx, projectID, errored); err != nil {
 		slog.WarnContext(ctx, "agent: set worker health after liveness refresh",
@@ -759,16 +784,20 @@ func (s *Service) reconcileProject(ctx context.Context, projectID string) {
 		return
 	}
 	wanted := wantedNames(prefix, ids)
-	s.adoptAndCreate(ctx, provider, wanted, live)
+	failed := s.adoptAndCreate(ctx, provider, wanted, live)
 	s.destroyOrphans(ctx, provider, prefix, wanted, live)
+	s.recordProvisionFailures(projectID, prefix, failed)
 }
 
-// adoptAndCreate adopts every wanted worker already live and creates the rest
-// on the given provider.
+// adoptAndCreate adopts every wanted worker already live and creates the rest on
+// the given provider, returning the names whose CreateWorker failed this sweep —
+// slots with no live sandbox, which the health reconcile must gate out of the
+// pull until they provision.
 func (s *Service) adoptAndCreate(
 	ctx context.Context, provider Provider, wanted map[string]struct{}, live []ProviderWorker,
-) {
+) []string {
 	byName := indexByName(live)
+	var failed []string
 	for name := range wanted {
 		if w, ok := byName[name]; ok {
 			s.putWorker(w)
@@ -776,11 +805,62 @@ func (s *Service) adoptAndCreate(
 		}
 		w, err := provider.CreateWorker(ctx, name)
 		if err != nil {
-			slog.ErrorContext(ctx, "agent: create worker", "worker", name, "err", err)
+			// Log the wrapped err (a backend may scrub it — a provider message can
+			// echo a rejected secret) plus the provider's scrub-safe status/code/trace
+			// so the failure stays diagnosable even when err reads "[Filtered]".
+			slog.ErrorContext(ctx, "agent: create worker",
+				append([]any{"worker", name, "err", err}, providerErrAttrs(err)...)...)
+			failed = append(failed, name)
 			continue
 		}
 		s.putWorker(w)
 	}
+	return failed
+}
+
+// providerErrAttrs returns scrub-safe slog attributes for a provider error that
+// carries structured diagnostics (ProviderErrorFields); nil for a plain error.
+// Kept separate from the wrapped err attr: the status/code/trace never carry
+// secret values, so they survive a log backend that filters the free-text err.
+func providerErrAttrs(err error) []any {
+	var pe ProviderErrorFields
+	if !errors.As(err, &pe) {
+		return nil
+	}
+	status, code, trace := pe.ProviderErrorFields()
+	return []any{"provider_status", status, "provider_error_code", code, "provider_trace", trace}
+}
+
+// recordProvisionFailures replaces the project's provisioning-failure set with
+// the worker ids behind failedNames (empty clears it). A full replace per sweep,
+// so a slot that provisions on a later sweep — or is no longer wanted — drops out
+// automatically and the liveness loop stops reporting it errored.
+func (s *Service) recordProvisionFailures(projectID, prefix string, failedNames []string) {
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
+	if len(failedNames) == 0 {
+		delete(s.provisionErrs, projectID)
+		return
+	}
+	ids := make(map[string]struct{}, len(failedNames))
+	for _, name := range failedNames {
+		ids[strings.TrimPrefix(name, prefix)] = struct{}{}
+	}
+	s.provisionErrs[projectID] = ids
+}
+
+// provisionFailedIDs returns the worker ids whose sandbox failed to provision on
+// the last sweep for the project — the slots the health reconcile must add to the
+// errored set even though no live sandbox exists to observe.
+func (s *Service) provisionFailedIDs(projectID string) []string {
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
+	ids := s.provisionErrs[projectID]
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	return out
 }
 
 // destroyOrphans removes live prefix-matched entries that match no slot (05 §4).

@@ -617,6 +617,91 @@ describe('PrimaryScreenView', () => {
     expect(body).toHaveAttribute('data-expanded', 'true');
   });
 
+  it('opens the ticket detail from a done card head (a body-less card links from its head)', () => {
+    // A done card is just ✅ + ticket title, no body — so its head is the tap
+    // target that opens the completed ticket's detail (08 §7 → §5).
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:73',
+      label: 'Auth',
+      body: '',
+      ticketId: 't-auth',
+      notificationId: 73,
+      createdAt: minutesAgo(0),
+    });
+    const ticket = makeTicket({
+      id: 't-auth',
+      title: 'Auth',
+      body: 'The whole shipped auth flow, the record the done card points at.',
+      state: 'done',
+      priority: 1,
+      createdAt: minutesAgo(120),
+      updatedAt: minutesAgo(10),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [done] }), {
+      board: makeBoard({ done: [ticket] }),
+    });
+    // Nothing open until the card is tapped.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // The head itself is the tap target — a button reset to read like the plain head.
+    const open = screen.getByRole('button', { name: 'Open ticket: Auth' });
+    expect(open).toHaveAttribute('data-role', 'feed-card-head');
+
+    fireEvent.click(open);
+
+    const dialog = screen.getByRole('dialog', { name: 'Auth' });
+    expect(
+      within(dialog).getByText('Done').closest('[data-role="ticket-detail-status"]'),
+    ).toHaveAttribute('data-state', 'done');
+  });
+
+  it('opens the ticket detail from a poke card head', () => {
+    // A poke is the steward's body-less stall nudge (👉 + title); its head links
+    // into the stalled ticket so tapping the nudge jumps straight to the work.
+    const poke = makeFeedCard({
+      kind: 'poke',
+      id: 'update:51',
+      label: 'Auth',
+      body: '',
+      ticketId: 't-auth',
+      notificationId: 51,
+      createdAt: minutesAgo(0),
+    });
+    const ticket = makeTicket({
+      id: 't-auth',
+      title: 'Auth',
+      body: 'The stalled auth work the poke nudges.',
+      state: 'working',
+      priority: 1,
+      createdAt: minutesAgo(30),
+      updatedAt: minutesAgo(5),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [poke] }), {
+      board: makeBoard({ working: [ticket] }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Auth' }));
+    expect(screen.getByRole('dialog', { name: 'Auth' })).toBeInTheDocument();
+  });
+
+  it('leaves a body-less card head static when it carries no ticket link', () => {
+    // A done/poke card with no ticket_id has nowhere to open — the head stays a
+    // plain row, never a button (mirrors a ticket-less update staying expandable).
+    const done = makeFeedCard({
+      kind: 'done',
+      id: 'update:74',
+      label: 'Auth',
+      body: '',
+      notificationId: 74,
+      createdAt: minutesAgo(0),
+    });
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [done] }), {
+      board: makeBoard({}),
+    });
+    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
+    const head = document.querySelector('[data-role="feed-card-head"]');
+    expect(head?.tagName).toBe('DIV');
+  });
+
   describe('ticket detail affordances by state (deep-linked open)', () => {
     // A push-notification tap deep-links a ticket open by id (02 §10). Unlike a
     // proposal click-through (always Shaping), this opens whatever state the

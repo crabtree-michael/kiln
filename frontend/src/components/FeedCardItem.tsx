@@ -25,6 +25,10 @@
 // Either way the cue is the same; only where the tap lands changes. The inline
 // Accept stays a *sibling* of that button — never nested — so tapping Accept
 // accepts without also opening the detail.
+// Done and poke cards have no body to carry that click-through (they are just a
+// ✅/👉 + ticket title, 08 §7/§3), so when they are tagged to a ticket the *head*
+// row itself becomes the button that opens the same ticket detail overlay — the
+// only surface a body-less card has.
 //
 // Already-seen cards (below the last-seen divider, 08 D2′) render de-emphasized
 // via `seen`: an unbolded ticket name and a body collapsed tighter than the
@@ -198,11 +202,11 @@ export interface FeedCardItemProps {
    * the card de-emphasized — unbolded title, body collapsed tighter by default.
    * Defaults to false (the unseen/new treatment). */
   seen?: boolean;
-  /** Called with the card's linked ticket id when the body is tapped to open the
-   * full ticket detail (08 §5) — for proposals and for activity updates that
-   * carry a ticket_id. Omitted → the body renders inline/collapsible with no
-   * click-through (updates with no linked ticket, other kinds, or presentational
-   * tests with no board to resolve the ticket against). */
+  /** Called with the card's linked ticket id when it is tapped to open the full
+   * ticket detail (08 §5): from the body for proposals and ticket-linked activity
+   * updates, or from the head for body-less done/poke cards tagged to a ticket.
+   * Omitted → no click-through (updates with no linked ticket, other kinds, or
+   * presentational tests with no board to resolve the ticket against). */
   onOpenDetail?: (ticketId: string) => void;
 }
 
@@ -242,25 +246,55 @@ export function FeedCardItem({
           onOpenDetail(ticketId);
         }
       : null;
+  // Done and poke cards are body-less notices — just the ✅/👉 + ticket title
+  // (08 §7/§3) — so there is no body to turn into a click-through. When one is
+  // tagged to a ticket, its *head* (the only surface it has) becomes the link into
+  // the same ticket detail overlay a proposal/update body opens (08 §5), so a
+  // completion or a stall nudge is a shortcut into its ticket rather than a
+  // dead-end note. Narrow on the id + callback directly, same as openDetail above.
+  const openHeadDetail =
+    (isDone || isPoke) && ticketId != null && onOpenDetail !== undefined
+      ? () => {
+          onOpenDetail(ticketId);
+        }
+      : null;
+  // The head row's children are shared by both renderings — the plain div and the
+  // button that opens the ticket for a tagged done/poke card — so they live here
+  // once and slot into whichever wrapper the head takes below.
+  const head = (
+    <>
+      {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
+      {isPoke && (
+        <span data-role="feed-card-poke" aria-label="poke">
+          👉
+        </span>
+      )}
+      {isDone && (
+        <span data-role="feed-card-done" aria-label="done">
+          ✅
+        </span>
+      )}
+      {showTag && <span data-role="feed-card-tag">{cardTag(card.kind)}</span>}
+      <span data-role="feed-card-label">{card.label}</span>
+      <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
+    </>
+  );
 
   return (
     <article data-role="feed-card" data-kind={card.kind} data-seen={seen ? 'true' : undefined}>
-      <div data-role="feed-card-head">
-        {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
-        {isPoke && (
-          <span data-role="feed-card-poke" aria-label="poke">
-            👉
-          </span>
-        )}
-        {isDone && (
-          <span data-role="feed-card-done" aria-label="done">
-            ✅
-          </span>
-        )}
-        {showTag && <span data-role="feed-card-tag">{cardTag(card.kind)}</span>}
-        <span data-role="feed-card-label">{card.label}</span>
-        <span data-role="feed-card-age">{relativeAge(card.created_at, now)}</span>
-      </div>
+      {openHeadDetail !== null ? (
+        <button
+          type="button"
+          data-role="feed-card-head"
+          data-clickable="true"
+          aria-label={`Open ticket: ${card.label}`}
+          onClick={openHeadDetail}
+        >
+          {head}
+        </button>
+      ) : (
+        <div data-role="feed-card-head">{head}</div>
+      )}
       {!isPoke &&
         !isDone &&
         (openDetail !== null ? (

@@ -684,15 +684,16 @@ func (n *webPushNotifier) Send(ctx context.Context, projectID string, payload []
 
 var _ runtime.Notifier = (*webPushNotifier)(nil)
 
-// notifyURL is the tap-to-open deep link for a notify.send (02 §10): "/?ticket=<id>",
-// which the frontend reads on load (or via the service worker's postMessage) to
-// open that ticket's detail overlay. A payload with no ticket falls back to the
-// plain board root.
+// notifyURL is the tap-to-open deep link for a notify.send (02 §10):
+// "/app?ticket=<id>", which the frontend reads on load (or via the service
+// worker's postMessage) to open that ticket's detail overlay. The primary screen
+// lives at "/app" ("/" is the marketing landing page), so a payload with no
+// ticket falls back to the plain app root.
 func notifyURL(id board.TicketID) string {
 	if id == "" {
-		return "/"
+		return "/app"
 	}
-	return "/?" + url.Values{"ticket": {string(id)}}.Encode()
+	return "/app?" + url.Values{"ticket": {string(id)}}.Encode()
 }
 
 // pushRegistrarAdapter satisfies api.PushRegistrar over the push store (02 §10,

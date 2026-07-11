@@ -404,10 +404,10 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    // A router Link (relative href '/'), not a full-page anchor — client nav back
-    // to the SPA-owned board. The ← glyph is aria-hidden, so the name is "Go to app".
+    // A router Link (relative href '/app'), not a full-page anchor — client nav
+    // back to the SPA-owned board. The ← glyph is aria-hidden, so the name is "Go to app".
     const link = await screen.findByRole('link', { name: 'Go to app' });
-    expect(link).toHaveAttribute('href', '/');
+    expect(link).toHaveAttribute('href', '/app');
   });
 
   it('matches the DOM-structure snapshot: settings view', async () => {

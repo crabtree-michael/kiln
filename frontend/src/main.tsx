@@ -76,25 +76,30 @@ if (root === null) {
   throw new Error('root element #root is missing from index.html');
 }
 
-// `/` is the primary (08) screen; `/debug` keeps the original board+chat client
-// (07) whole and unchanged as a developer view. Both sit behind the session
-// gate (11 phase 2): every `/api/*` call now requires a session cookie, so
-// the gate resolves `GET /api/me` before either screen mounts its data
+// `/` is the marketing landing page — the default page every visitor lands on:
+// a stateless, scrolling page reusing the design system and real presentational
+// components. `/landing` and `/landing-2` are kept as aliases for the same page.
+// `/app` is the primary (08) screen; `/debug` keeps the original board+chat
+// client (07) whole and unchanged as a developer view. Both sit behind the
+// session gate (11 phase 2): every `/api/*` call now requires a session cookie,
+// so the gate resolves `GET /api/me` before either screen mounts its data
 // providers (which immediately open SSE + fetch board/feed). `/dashboard`
-// keeps its own existing gate. `/landing` is the standalone marketing page — a
-// stateless, scrolling page reusing the design system and real presentational
-// components; `/landing-2` is kept as an alias for the same page. `/onboarding`
-// is the onboarding guide (docs/onboarding.md) as a standalone, stateless styled page in
-// the same design-system chrome. `/beta/thanks` is the confirmation page the
-// beta-signup form redirects to. All stay public (no session gate).
+// keeps its own existing gate. `/onboarding` is the onboarding guide
+// (docs/onboarding.md) as a standalone, stateless styled page in the same
+// design-system chrome. `/beta/thanks` is the confirmation page the beta-signup
+// form redirects to. The landing, onboarding, and thanks pages stay public (no
+// session gate).
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
       <BrowserRouter>
         <ThemeColorSync />
         <SentryRoutes>
+          <Route path="/" element={<Landing2 />} />
+          <Route path="/landing" element={<Landing2 />} />
+          <Route path="/landing-2" element={<Landing2 />} />
           <Route
-            path="/"
+            path="/app"
             element={
               <SessionProvider>
                 <SessionGate>
@@ -103,8 +108,6 @@ createRoot(root).render(
               </SessionProvider>
             }
           />
-          <Route path="/landing" element={<Landing2 />} />
-          <Route path="/landing-2" element={<Landing2 />} />
           <Route path="/onboarding" element={<Guide />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />

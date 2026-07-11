@@ -1,5 +1,5 @@
 // Deep-link → open-ticket bridge tests (02 §10 tap-to-open). Covers the URL
-// parser and both arrival paths the hook wires: a cold open at `/?ticket=<id>`
+// parser and both arrival paths the hook wires: a cold open at `/app?ticket=<id>`
 // and a live service-worker `kiln:navigate` message to an already-open tab.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';

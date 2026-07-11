@@ -1,5 +1,5 @@
 // Session gate (11 phase 2): stands between the router and the app screens
-// (`/` and `/debug`) so their data providers — which immediately open SSE and
+// (`/app` and `/debug`) so their data providers — which immediately open SSE and
 // fetch board/feed — never mount without a session. Branches on the session
 // store's mount-time `GET /api/me`:
 //

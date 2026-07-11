@@ -15,8 +15,9 @@ consumed: LLM (Anthropic client behind a port; scripted fake in tests), Board AP
 Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
 
 **Open decisions — resolved in `docs/specs/06-orchestrator-brain.md` (status: proposed).**
-- [x] Model → 06 §2: Anthropic Go SDK, default `claude-sonnet-5`, `KILN_BRAIN_MODEL`
-      override.
+- [x] Model → 06 §2: Anthropic Go SDK, default `claude-haiku-4-5-20251001` (`DefaultModel`
+      in `llm.go` — switched from Sonnet to Haiku to cut cost/latency), `KILN_BRAIN_MODEL`
+      override (`ModelEnvVar`). Per-project override via the `brain_model` project setting.
 - [x] Input contract → 06 §3 (amended by the CRUD consolidation): fresh context per pass —
       last 20 transcript messages + the event (agent output truncated ~8k head+tail). The
       board is NO LONGER injected — the model pulls it via list_tickets/get_ticket, so a
@@ -68,6 +69,12 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
 
 ## Potential gotchas
 
+- **The done gate is configurable per project (merge-gate mode).** `update_ticket` with
+  `state="done"` requires a `done_commit` and verifies it before calling `AcceptToDone`: mode
+  `main` → `verifyDoneOnMain` (commit landed on `origin/main`), mode `pr` → `verifyDoneInPR`
+  (work is in a pull request). The mode comes from the project's `merge_gate_mode` setting
+  (`GatePR` etc. in `tools.go`); a refusal is steered back to the agent to actually land the
+  work, not surfaced to the user.
 - The prompt is written to 08's interaction model: the user sees the *feed*, not
   the board — routine board actions already emit mechanical toasts (08 §4), so the
   prompt forbids narrating them with `say`/`post_update`. Keep new prompt prose

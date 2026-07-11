@@ -34,11 +34,17 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
     `commit` field the store consumes (it never calls the network itself).
   - `assemblyai-client.ts` — getUserMedia → AudioContext → PCM16 worklet → binary WS frames;
     decodes messages via the **pure exported `decodeAssemblyMessage`** (also unit-tested).
-  - `pcm-worklet.ts` — the AudioWorkletProcessor (Float32 → 16 kHz PCM16); loaded via `?url`,
+  - `pcm-batch.ts` — the pure `PcmFramer` (Float32 → decimate to 16 kHz → batch into
+    1600-sample frames); unit-tested, the decimation/batching logic itself.
+  - `pcm-worklet.ts` — the AudioWorkletProcessor shell; loaded via `?worker&url`
+    (a plain `?url` import emits raw `.ts` that `addModule` rejects — the file documents this),
     **never imported into the main thread** (its top-level `registerProcessor` would throw).
   - `voice-store.tsx` / `voice-context.ts` — React glue: token fetch + proactive refresh,
     one-silent-reconnect-then-retry, `visibilitychange` foreground-only, commit → `postMessage`.
-  - `useVoice()` → `{ micState, settledText, tailText, pause, resume, cancel }`.
+  - `useVoice()` → the full `VoiceStoreValue` (`voice-context.ts`): `micState`, `connecting`,
+    `settledText`, `tailText`, `pause`, `resume`, `cancel`, `sendNow` (the send button),
+    `getLevel`, plus the keyboard-mode surface (`keyboardMode`, `openKeyboard`, `closeKeyboard`,
+    `submitText`).
 - **Dock** — `components/Dock.tsx`: presentational `useVoice()` consumer. Preserves the `08 §F`
   selector surface (`data-role="dock"/"dock-talk"`, `aria-label="Talk"`, mic-glyph sub-elements);
   `data-dock-state` reflects `micState`. `VoiceProvider` wraps the tree in `PrimaryScreen.tsx`

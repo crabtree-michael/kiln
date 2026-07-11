@@ -11,8 +11,9 @@ v1 runs **entirely locally via Docker Compose** — no cloud or production (§1)
 agent brings the whole system up with a single `docker compose up`.
 
 - **Services** (`docker-compose.yml`): `db` (Postgres — board state **and** the durable event
-  queue, one engine), `backend` (Go monolith: api · runtime · brain · board · amika), and
-  `frontend` (TS/React client).
+  queue, one engine), `backend` (Go monolith — the modules under `backend/internal/`: api ·
+  runtime · brain · board · agent[amika] · voice · push · identity · tenant · steward · repo ·
+  web, etc.), and `frontend` (TS/React client).
 - **Where state lives.** All authoritative state is in Postgres. The backend holds no
   authoritative state between events; a restart/deploy recovers by re-reading Postgres and
   draining the queue table.
@@ -36,9 +37,12 @@ agent brings the whole system up with a single `docker compose up`.
 - **Reset the database:** `docker compose down -v && docker compose up -d db`.
 - **Check health:** `docker compose ps` (db has a `pg_isready` healthcheck; backend waits
   on it) and `docker compose logs backend` (JSON logs; expect `"kiln starting"` then
-  `"kiln serving" addr=":8080"`). There is **no `/healthz` route** yet (the wire schema
-  declares it but the backend only serves `/api/*`); use `GET /api/board` as a readiness
-  probe — it returns the empty board snapshot once migrations have run.
+  `"kiln serving" addr=":8080"`). `GET /healthz` is the liveness+DB probe — 200
+  `{status:ok, version}` when the DB ping succeeds, 503 `{status:degraded}` otherwise
+  (`EnableHealthz` in `cmd/kiln/wiring.go`, mounted outside `/api` so it needs no session or
+  project). `GET /api/board` also works as a readiness check but is now **project-scoped** —
+  it needs a signed-in user with a project (see the onboarding footgun), so `/healthz` is the
+  simpler probe.
 - **End-to-end test:** the live-stack suite lives in `/tests` (Playwright, drives the real
   web client). Bring the stack up on the cheap model (`KILN_BRAIN_MODEL=claude-haiku-4-5-20251001 make up`),
   **onboard a project for the test user once** (see the footgun below), then `make e2e`. See the

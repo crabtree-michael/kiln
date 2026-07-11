@@ -17,17 +17,28 @@ skills, and both sides of the wire contract **version together atomically** (§4
 
 **Dependencies.** None upstream. Consumed by the API / runtime (§7) and the web client (§11).
 
-**Open decisions — TBD → §3/§14.**
-- [ ] Schema format (OpenAPI vs JSON-Schema).
-- [ ] Code-generation tooling for Go and TS, and where generated code lands.
-- [ ] How the generation step is wired into the hard gate.
+**Decisions (resolved — see `schema/README.md`).**
+- [x] Schema format → **OpenAPI 3.0.x** (`schema/openapi.yaml`, the single source of truth).
+      Pinned to 3.0.x because oapi-codegen does not yet fully support 3.1; `make schema`
+      fails loud if the document isn't valid 3.0.x.
+- [x] Code-generation tooling → **`oapi-codegen`** (Go, config in `schema/oapi-codegen.yaml`)
+      + **`openapi-typescript`** (TS, a frontend devDep). Output lands in
+      `backend/internal/wire/generated.go` (package `wire`, zero external deps) and
+      `frontend/src/schema/generated.ts`.
+- [x] Wired into the hard gate → `make schema` regenerates both sides; `make schema-verify`
+      (CI runs it) regenerates and fails if the checked-in output is stale.
 
 ## How to work here
 
-**Never hand-edit generated types.** Change the schema in `/schema` and regenerate both Go
-and TS (AGENTS.md rule). A boundary change means one schema edit and a regen — reviewed as
-one artifact.
-_(Accumulate: the exact regen command and where output lands, once tooling is chosen.)_
+**Never hand-edit generated types.** Change `schema/openapi.yaml` and run **`make schema`**
+to regenerate both Go and TS (AGENTS.md rule). A boundary change means one schema edit and a
+regen — reviewed as one artifact. Schema, generated Go, and generated TS **version together
+atomically** in one commit (§4).
+
+- Regen: `make schema` (root) → `openapi-typescript` writes `frontend/src/schema/generated.ts`,
+  `oapi-codegen` writes `backend/internal/wire/generated.go`.
+- Verify nothing drifted: `make schema-verify` (fails if regenerating produces a diff).
+- Keep `openapi.yaml` a valid **OpenAPI 3.0.x** document (3.1 constructs break oapi-codegen).
 
 ## Common footguns
 

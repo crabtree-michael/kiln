@@ -38,6 +38,12 @@ export interface ActivityStoreValue {
    * input, which supersedes any lingering toast.
    */
   dismissToast: () => void;
+  /**
+   * Pause (`true`) or resume (`false`) one toast's auto-dismiss timer as the user
+   * expands or collapses it. Expanding a clamped message stops the timer so the
+   * toast can't disappear mid-read; collapsing restarts a fresh dwell.
+   */
+  setToastExpanded: (id: number, expanded: boolean) => void;
 }
 
 export const ActivityStoreContext = createContext<ActivityStoreValue | undefined>(undefined);

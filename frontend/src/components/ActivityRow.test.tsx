@@ -124,6 +124,26 @@ describe('ActivityRow', () => {
     expect(text).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('reports expand/collapse for a truncated toast so its timer can pause and resume', () => {
+    fakeClampedOverflow();
+    const onToastExpandedChange = vi.fn();
+    const toasts = [toast(4, { kind: 'say', text: 'A very long say that clamps and reveals.' })];
+    render(
+      <ActivityRow
+        thinking={false}
+        toasts={toasts}
+        onDismiss={noop}
+        onToastExpandedChange={onToastExpandedChange}
+      />,
+    );
+    const text = screen.getByText(/A very long say/);
+
+    fireEvent.click(text);
+    expect(onToastExpandedChange).toHaveBeenLastCalledWith(4, true);
+    fireEvent.click(text);
+    expect(onToastExpandedChange).toHaveBeenLastCalledWith(4, false);
+  });
+
   it('expands a truncated toast pill via keyboard (Enter)', () => {
     fakeClampedOverflow();
     const toasts = [

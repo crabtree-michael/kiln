@@ -13,7 +13,9 @@
 //     utterance, reused via onSay) and `toast` (`activity` kind=toast, a board
 //     side-effect) share one surface and stack when several are live at once;
 //   - each toast auto-dismisses independently after 20s (its own timer), and a
-//     `say` also carries a manual dismiss;
+//     `say` also carries a manual dismiss; expanding a toast (to read a clamped
+//     message) pauses its timer, and collapsing it restarts a fresh dwell, so a
+//     toast never vanishes mid-read;
 //   - `thinking` is merely exposed; the UI shows it only when the stack is empty.
 // Each entry gets a unique id so its timer and dismiss target exactly one toast
 // and the stack reflows smoothly as individual entries fall off.
@@ -96,6 +98,31 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
       return prev.filter((toast) => toast.pill.kind !== 'toast');
     });
   }, []);
+
+  // Pause / resume a toast's auto-dismiss around its expanded state. Expanding a
+  // toast to read a clamped message cancels the running timer so it can't vanish
+  // mid-read; collapsing it back down starts a fresh dwell. A collapse only ever
+  // fires while the pill is still mounted (dismiss unmounts it without a collapse
+  // event), so on resume the toast is guaranteed to still be on the stack.
+  const setToastExpanded = useCallback(
+    (id: number, expanded: boolean): void => {
+      const timer = timersRef.current.get(id);
+      if (expanded) {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timersRef.current.delete(id);
+        }
+      } else if (timer === undefined) {
+        timersRef.current.set(
+          id,
+          setTimeout(() => {
+            dismiss(id);
+          }, TOAST_MS),
+        );
+      }
+    },
+    [dismiss],
+  );
 
   const handleActivity = useCallback(
     (event: ActivityEvent): void => {
@@ -191,8 +218,8 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
   }, []);
 
   const value = useMemo<ActivityStoreValue>(
-    () => ({ thinking, toasts, dismiss, dismissToast }),
-    [thinking, toasts, dismiss, dismissToast],
+    () => ({ thinking, toasts, dismiss, dismissToast, setToastExpanded }),
+    [thinking, toasts, dismiss, dismissToast, setToastExpanded],
   );
 
   return <ActivityStoreContext.Provider value={value}>{children}</ActivityStoreContext.Provider>;

@@ -25,10 +25,14 @@ import { pickKilnWord } from '@/components/kiln-words';
 function ClampedText({
   role,
   measureKey,
+  onExpandedChange,
   children,
 }: {
   role: 'say-text' | 'toast-text';
   measureKey: string;
+  /** Notifies the owner when the reveal toggles, so it can pause/resume the
+   * toast's auto-dismiss timer while the full message is on screen. */
+  onExpandedChange?: ((expanded: boolean) => void) | undefined;
   children: ReactNode;
 }): JSX.Element {
   const ref = useRef<HTMLSpanElement>(null);
@@ -54,7 +58,11 @@ function ClampedText({
 
   const interactive = truncated || expanded;
   const toggle = (): void => {
-    setExpanded((value) => !value);
+    setExpanded((value) => {
+      const next = !value;
+      onExpandedChange?.(next);
+      return next;
+    });
   };
 
   return (
@@ -88,21 +96,37 @@ export interface ActivityRowProps {
   toasts: ActivityToast[];
   /** Dismisses one toast by id (e.g. a persistent `say`) (08 §4). */
   onDismiss: (id: number) => void;
+  /** Pauses (`true`) / resumes (`false`) a toast's auto-dismiss timer as the
+   * user expands or collapses its clamped message, so it can't vanish mid-read.
+   * Optional so presentational tests can render the row without the store. */
+  onToastExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
 }
 
 function ActivityToastPill({
   toast,
   onDismiss,
+  onExpandedChange,
 }: {
   toast: ActivityToast;
   onDismiss: (id: number) => void;
+  onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
 }): JSX.Element | null {
   const { id, pill } = toast;
 
   if (pill.kind === 'say') {
     return (
       <div data-role="say-pill">
-        <ClampedText role="say-text" measureKey={pill.text}>
+        <ClampedText
+          role="say-text"
+          measureKey={pill.text}
+          onExpandedChange={
+            onExpandedChange
+              ? (expanded) => {
+                  onExpandedChange(id, expanded);
+                }
+              : undefined
+          }
+        >
           {pill.text}
         </ClampedText>
         <button
@@ -124,7 +148,17 @@ function ActivityToastPill({
       <span data-role="toast-icon" role="img" aria-label={verbLabel(pill.verb)}>
         {verbEmoji(pill.verb)}
       </span>
-      <ClampedText role="toast-text" measureKey={pill.ticketTitle}>
+      <ClampedText
+        role="toast-text"
+        measureKey={pill.ticketTitle}
+        onExpandedChange={
+          onExpandedChange
+            ? (expanded) => {
+                onExpandedChange(id, expanded);
+              }
+            : undefined
+        }
+      >
         <span data-role="toast-title">{pill.ticketTitle}</span>
       </ClampedText>
       <button
@@ -141,7 +175,12 @@ function ActivityToastPill({
   );
 }
 
-export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): JSX.Element {
+export function ActivityRow({
+  thinking,
+  toasts,
+  onDismiss,
+  onToastExpandedChange,
+}: ActivityRowProps): JSX.Element {
   const empty = toasts.length === 0;
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -206,7 +245,12 @@ export function ActivityRow({ thinking, toasts, onDismiss }: ActivityRowProps): 
       {!empty && (
         <div data-role="toast-stack">
           {toasts.map((toast) => (
-            <ActivityToastPill key={toast.id} toast={toast} onDismiss={onDismiss} />
+            <ActivityToastPill
+              key={toast.id}
+              toast={toast}
+              onDismiss={onDismiss}
+              onExpandedChange={onToastExpandedChange}
+            />
           ))}
         </div>
       )}

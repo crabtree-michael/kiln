@@ -31,12 +31,14 @@ function makeSay(text: string): SayEvent {
 
 let capturedDismiss: ((id: number) => void) | undefined;
 let capturedDismissToast: (() => void) | undefined;
+let capturedSetToastExpanded: ((id: number, expanded: boolean) => void) | undefined;
 let capturedIds: number[] = [];
 
 function Probe(): JSX.Element {
-  const { thinking, toasts, dismiss, dismissToast } = useActivityStore();
+  const { thinking, toasts, dismiss, dismissToast, setToastExpanded } = useActivityStore();
   capturedDismiss = dismiss;
   capturedDismissToast = dismissToast;
+  capturedSetToastExpanded = setToastExpanded;
   capturedIds = toasts.map((toast) => toast.id);
   const rendered = toasts
     .map((toast) =>
@@ -57,6 +59,7 @@ describe('ActivityProvider', () => {
     capturedHandlers = undefined;
     capturedDismiss = undefined;
     capturedDismissToast = undefined;
+    capturedSetToastExpanded = undefined;
     capturedIds = [];
     closeStream.mockClear();
     vi.mocked(transport.openStream).mockImplementation((handlers): StreamConnection => {
@@ -236,6 +239,53 @@ describe('ActivityProvider', () => {
 
     act(() => {
       vi.advanceTimersByTime(TOAST_MS);
+    });
+    expect(pills()).toBe('');
+  });
+
+  it('pauses a toast while it is expanded so it does not vanish mid-read', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login' }),
+      );
+    });
+    const [id] = capturedIds;
+
+    // The user expands the toast to read a clamped message part-way through its
+    // dwell; the auto-dismiss timer is cancelled.
+    act(() => {
+      vi.advanceTimersByTime(TOAST_MS - 1000);
+      capturedSetToastExpanded?.(id!, true);
+    });
+
+    // Well past the original 20s window, the expanded toast is still up.
+    act(() => {
+      vi.advanceTimersByTime(TOAST_MS * 2);
+    });
+    expect(pills()).toBe('toast:started:Login');
+  });
+
+  it('resumes a fresh dwell when a toast is collapsed back down', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onSay(makeSay('a long utterance'));
+    });
+    const [id] = capturedIds;
+
+    act(() => {
+      vi.advanceTimersByTime(TOAST_MS - 1000);
+      capturedSetToastExpanded?.(id!, true);
+    });
+    // Collapsed again — a full fresh 20s starts from here, not the remaining 1s.
+    act(() => {
+      capturedSetToastExpanded?.(id!, false);
+      vi.advanceTimersByTime(TOAST_MS - 1);
+    });
+    expect(pills()).toBe('say:a long utterance');
+
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
     expect(pills()).toBe('');
   });

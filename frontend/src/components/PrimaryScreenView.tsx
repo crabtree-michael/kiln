@@ -48,6 +48,9 @@ export interface PrimaryScreenViewProps {
   thinking: boolean;
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
+  /** Pauses/resumes a toast's auto-dismiss timer as the user expands or collapses
+   * it (08 §4). Optional so presentational tests can omit the store wiring. */
+  onToastExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
   onAccept: (ticketId: string) => void;
   /** Delete a proposal that's no longer wanted — the ticket detail's "Delete"
    * action, shown only on a shaping ticket. The composing screen routes this
@@ -194,6 +197,7 @@ export function PrimaryScreenView({
   thinking,
   toasts,
   onDismiss,
+  onToastExpandedChange,
   onAccept,
   onDelete,
   onPoke,
@@ -416,7 +420,12 @@ export function PrimaryScreenView({
           PrimaryScreen.css). That keeps a multi-line toast or a long transcript
           from shrinking the flex:1 feed and reflowing the empty state / backlog. */}
       <div data-role="dock-region">
-        <ActivityRow thinking={thinking} toasts={toasts} onDismiss={onDismiss} />
+        <ActivityRow
+          thinking={thinking}
+          toasts={toasts}
+          onDismiss={onDismiss}
+          onToastExpandedChange={onToastExpandedChange}
+        />
         {/* The permanent error band sits at the TOP of the dock region, in flow,
             so a persistent failure (e.g. sandboxes down) reserves its own space
             above the dock rather than floating over the feed like a toast. Empty

@@ -36,7 +36,7 @@ function PrimaryScreenBody(): JSX.Element {
     dismissAll,
   } = useFeedStore();
   const { board, refreshBoard, refreshing } = useBoardStore();
-  const { thinking, toasts, dismiss } = useActivityStore();
+  const { thinking, toasts, dismiss, setToastExpanded } = useActivityStore();
   const { mode: notificationMode, setMode: setNotificationMode } = useNotificationMode();
   const { status: pushStatus, enable: enablePush, disable: disablePush } = useWebPush();
 
@@ -83,6 +83,7 @@ function PrimaryScreenBody(): JSX.Element {
       thinking={thinking}
       toasts={toasts}
       onDismiss={dismiss}
+      onToastExpandedChange={setToastExpanded}
       onAccept={onAccept}
       onDelete={onDelete}
       onPoke={onPoke}

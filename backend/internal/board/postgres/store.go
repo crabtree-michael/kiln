@@ -151,30 +151,6 @@ func (s *Store) ReconcileWorkers(ctx context.Context, projectID string, n int) e
 	return nil
 }
 
-// shrinkWorkers removes up to excess free worker slots from the project, newest
-// first, so lowering the configured worker count shrinks the pool. The victim
-// CTE locks its candidates with FOR UPDATE OF s SKIP LOCKED — the same lock the
-// pull takes (lockFreeCandidates) — so a slot a concurrent RunPull is binding is
-// skipped rather than deleted out from under it, and a slot this delete holds is
-// skipped by the pull; a single statement makes the lock-then-delete atomic.
-// Fewer than excess rows are removed when not enough slots are free; the
-// remaining shrink lands on a later reconcile once busy slots free up.
-func (s *Store) shrinkWorkers(ctx context.Context, projectID string, excess int) error {
-	if _, err := s.db.ExecContext(ctx,
-		`WITH victims AS (
-			SELECT s.id FROM workers s
-			WHERE s.project_id = $1 AND NOT EXISTS (`+activeTicketExists+`)
-			ORDER BY s.created_at DESC, s.id DESC
-			LIMIT $2
-			FOR UPDATE OF s SKIP LOCKED
-		)
-		DELETE FROM workers WHERE id IN (SELECT id FROM victims)`,
-		projectID, excess); err != nil {
-		return fmt.Errorf("board/postgres: delete free workers for shrink: %w", err)
-	}
-	return nil
-}
-
 // WorkerIDs lists the project's capacity-slot ids (03 §2.3), oldest first.
 // Like ReconcileWorkers it is a concrete composition-root helper, not part of
 // board.Store: no Board API operation needs it, but the agent-runtime
@@ -206,6 +182,30 @@ func (s *Store) WorkerIDs(ctx context.Context, projectID string) (_ []string, er
 		return nil, fmt.Errorf("board/postgres: iterate worker ids: %w", rerr)
 	}
 	return ids, nil
+}
+
+// shrinkWorkers removes up to excess free worker slots from the project, newest
+// first, so lowering the configured worker count shrinks the pool. The victim
+// CTE locks its candidates with FOR UPDATE OF s SKIP LOCKED — the same lock the
+// pull takes (lockFreeCandidates) — so a slot a concurrent RunPull is binding is
+// skipped rather than deleted out from under it, and a slot this delete holds is
+// skipped by the pull; a single statement makes the lock-then-delete atomic.
+// Fewer than excess rows are removed when not enough slots are free; the
+// remaining shrink lands on a later reconcile once busy slots free up.
+func (s *Store) shrinkWorkers(ctx context.Context, projectID string, excess int) error {
+	if _, err := s.db.ExecContext(ctx,
+		`WITH victims AS (
+			SELECT s.id FROM workers s
+			WHERE s.project_id = $1 AND NOT EXISTS (`+activeTicketExists+`)
+			ORDER BY s.created_at DESC, s.id DESC
+			LIMIT $2
+			FOR UPDATE OF s SKIP LOCKED
+		)
+		DELETE FROM workers WHERE id IN (SELECT id FROM victims)`,
+		projectID, excess); err != nil {
+		return fmt.Errorf("board/postgres: delete free workers for shrink: %w", err)
+	}
+	return nil
 }
 
 // readTickets loads the project's every ticket into snap, grouped by state

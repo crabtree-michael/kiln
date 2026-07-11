@@ -596,7 +596,7 @@ func enableServerRoutes(
 		resetWorkerCount = func(ctx context.Context, projectID string) (int, error) {
 			p, err := idSvc.GetProject(ctx, projectID)
 			if err != nil {
-				return 0, err
+				return 0, fmt.Errorf("kiln: reset worker count lookup: %w", err)
 			}
 			return p.WorkerCount, nil
 		}

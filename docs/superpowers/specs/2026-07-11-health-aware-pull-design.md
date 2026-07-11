@@ -1,7 +1,7 @@
 # Health-aware pull — design
 
 **Date:** 2026-07-11
-**Status:** Approved, pending implementation plan
+**Status:** Implemented (commits `bd08969`, `fab4bd2`)
 
 ## Problem
 

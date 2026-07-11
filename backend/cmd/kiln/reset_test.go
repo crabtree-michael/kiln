@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	errFakeDelete  = errors.New("synthetic state delete failure")
-	errFakeWorkers = errors.New("synthetic worker teardown failure")
+	errFakeDelete      = errors.New("synthetic state delete failure")
+	errFakeWorkers     = errors.New("synthetic worker teardown failure")
+	errFakeWorkerCount = errors.New("synthetic worker-count lookup failure")
 )
 
 // testProjectID is the caller project every resetCoordinator unit test threads;
@@ -130,7 +131,7 @@ func TestResetCoordinator_ResolverError_FallsBackToDefault(t *testing.T) {
 	c := &resetCoordinator{
 		state: sd, workers: wr, pool: pool, defaultPoolSize: 3,
 		workerCountFor: func(_ context.Context, _ string) (int, error) {
-			return 0, errors.New("synthetic worker-count lookup failure")
+			return 0, errFakeWorkerCount
 		},
 	}
 

@@ -770,7 +770,7 @@ func (s *Server) handleDeleteTicket(
 	// noun defaults to a plain "ticket"; a resolved lookup upgrades it to the
 	// user-facing label for the ticket's state so the instruction reads right
 	// ("the blocked ticket …", "the proposal …").
-	noun := "ticket"
+	noun := deleteNounTicket
 	if snap, err := s.boards.GetBoard(r.Context(), project.ID); err == nil {
 		if t, ok := findTicket(snap, id); ok {
 			title = t.Title
@@ -795,15 +795,23 @@ func (s *Server) handleDeleteTicket(
 // way the user sees it on the sheet: a shaping ticket is a "proposal" (08 §5), a
 // blocked ticket is a "blocked ticket" (so the brain knows the delete releases a
 // worker), everything else a plain "ticket".
+// deleteNounTicket is the generic fallback noun for the synthesized delete
+// message — used when the ticket can't be looked up or its state carries no
+// special label.
+const deleteNounTicket = "ticket"
+
 func deleteNounForState(state board.State) string {
 	switch state {
 	case board.StateShaping:
 		return "proposal"
 	case board.StateBlocked:
 		return "blocked ticket"
-	default:
-		return "ticket"
+	case board.StateReady, board.StateWorking, board.StateDone:
+		return deleteNounTicket
 	}
+	// Unreachable: the switch covers every board.State. A trailing return keeps
+	// the compiler satisfied without a default, which the exhaustive linter rejects.
+	return deleteNounTicket
 }
 
 // handleVoiceToken mints a short-lived AssemblyAI streaming token (09 §6) and

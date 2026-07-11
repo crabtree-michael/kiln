@@ -827,9 +827,19 @@ func TestHandleFeedDismiss_RejectsBadID(t *testing.T) {
 	}
 }
 
+// testTicketTitle / testTicketID are the sample ticket fields shared by the
+// accept/delete handler tests (they assert the title appears verbatim in the
+// synthesized brain message, keyed by the id).
+const (
+	testTicketTitle = "Payment retries"
+	testTicketID    = "t-42"
+)
+
 func TestHandleAccept_PostsSynthesizedMessageAndReturns202(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{
-		Shaping: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateShaping, ApprovalRequested: true}},
+		Shaping: []board.Ticket{{
+			ID: testTicketID, Title: testTicketTitle, State: board.StateShaping, ApprovalRequested: true,
+		}},
 	}}
 	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
 	srv := api.NewServer(
@@ -883,7 +893,9 @@ func TestHandleAccept_UnknownTicketFallsBackToID(t *testing.T) {
 
 func TestHandleDeleteProposal_PostsSynthesizedMessageAndReturns202(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{
-		Shaping: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateShaping, ApprovalRequested: true}},
+		Shaping: []board.Ticket{{
+			ID: testTicketID, Title: testTicketTitle, State: board.StateShaping, ApprovalRequested: true,
+		}},
 	}}
 	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
 	srv := api.NewServer(
@@ -921,7 +933,10 @@ func TestHandleDeleteTicket_BlockedNamesTheBlockedTicket(t *testing.T) {
 	reason := "duplicate of t-1"
 	wid := board.WorkerID("w1")
 	boards := &fakeBoardReader{snapshot: board.Snapshot{
-		Blocked: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateBlocked, WorkerID: &wid, BlockedReason: &reason}},
+		Blocked: []board.Ticket{{
+			ID: testTicketID, Title: testTicketTitle, State: board.StateBlocked,
+			WorkerID: &wid, BlockedReason: &reason,
+		}},
 	}}
 	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
 	srv := api.NewServer(

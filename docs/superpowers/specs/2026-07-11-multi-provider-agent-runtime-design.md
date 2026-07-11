@@ -4,9 +4,13 @@
 **Status:** Proposed (design only — no implementation in this change)
 **Scope:** `internal/agent` (the Provider port and Service), `internal/agent/{amika,mock}`
 and future adapter packages, `internal/identity` (the project entity's provider
-config), `cmd/kiln` (composition-root provider selection), and the `AGENT_MODE` /
-`AMIKA_*` configuration surface. No board, brain, runtime, or wire changes — that is
-the whole point of the exercise.
+config), `cmd/kiln` (composition-root provider selection), the `AGENT_MODE` /
+`AMIKA_*` configuration surface, and the `/dashboard` provider-config surface
+(`frontend/src/dashboard`, `11` §5) plus the `/schema` wire types its config blob
+generates. No board, brain, runtime, or **agent-event-contract** changes — the neutral
+`Send`/`Release` verbs and the `agent.turn_completed` payload are frozen; that is the
+whole point of the exercise. The config/dashboard surface *does* change, by design
+(§7–§9): generalizing per-project provider config is how the leak gets paid down.
 **Builds on:** spec `05` (agent runtime) and its abstraction rule; `02` §8; `11` §3
 (the per-project `ProviderResolver`).
 
@@ -25,8 +29,10 @@ We now want to support providers that **do not** work that way:
 - **Devin** (Cognition) — hosted SaaS, but the execution environment is **hidden inside
   a session**. There is no caller-managed sandbox, machine, or VM object to list or
   destroy. You create a *session* from a prompt and poll it.
-- **Devon** (entropy-research) — an **open-source, local** pair-programmer that runs
-  against the user's own machine. No managed sandbox, no hosted API, no billing layer.
+
+Devin is the concrete second provider this design is built against; the same shape
+covers any future hosted platform whose execution environment lives inside an opaque
+session rather than a caller-managed workspace.
 
 If we add each of these by teaching the core new special cases, provider vocabulary
 leaks back into the layer we deliberately cleaned — violating `05`'s abstraction rule
@@ -35,10 +41,10 @@ leaks back into the layer we deliberately cleaned — violating `05`'s abstracti
 decides how to add providers of *different shapes* while keeping the leak surface at
 exactly one place: a new adapter package plus its config.
 
-**Objective:** a provider model where adding Devin, Devon, or any future platform touches
-only an adapter + a config registry, and where a provider's *shape* (sandbox vs session
-vs local, cost-reporting vs not, idempotent vs not) is expressed through a small,
-declared capability surface rather than by branching in the core.
+**Objective:** a provider model where adding Devin or any future platform touches only an
+adapter + a config registry (and its dashboard descriptor, §8), and where a provider's
+*shape* (sandbox vs session, cost-reporting vs not, idempotent vs not) is expressed
+through a small, declared capability surface rather than by branching in the core.
 
 ## What already exists (and is already right)
 
@@ -49,7 +55,7 @@ because getting credit for them is half the design:
 | --- | --- | --- |
 | The three-verb consumer contract | `AgentRuntime{Send, Release}` + `agent.turn_completed` event (05 §2.1–2.2) | Says nothing about sandboxes/sessions. A provider swap never touches it. |
 | Idempotency / dedupe | `agent_turns` table keyed by outbox id (05 §7) | The module owns its own dedupe *precisely because* Amika lacks idempotency keys. A provider that *does* have them (Devin) simply doesn't need the module's — the table is harmless and stays. |
-| Cost reporting | `TurnStatus.CostUSD`, "0 when the provider doesn't report cost" (`provider.go:106`) | Already models the absence of cost data. Devon reports nothing; the field is just 0. |
+| Cost reporting | `TurnStatus.CostUSD`, "0 when the provider doesn't report cost" (`provider.go:106`) | Already models the absence of cost data. A provider that reports nothing leaves the field at 0. |
 | Cross-provider error taxonomy | `ErrConversationLost`, `ErrOutOfCredits`, `ProviderErrorFields` (`provider.go:28–55`) | Neutral sentinels an adapter maps *into*; the machine reacts to the sentinel, not the platform. |
 | Per-project provider resolution | `ProviderResolver.For(ctx, projectID) → (Provider, prefix)` (`provider.go:23`) | Already the seam where "which provider serves this project" is answered. Multi-provider is a *fuller* implementation of the same interface, not a new one. |
 | The turn state machine, reconciler, poller, mock | `internal/agent/service.go` + `mock` | Written once against the port; provider-agnostic already. |
@@ -57,37 +63,29 @@ because getting credit for them is half the design:
 So the neutral **contract** is sound. The work is entirely about the **internal port
 shape** (§4), the **config surface** (§7), and **provider selection** (§6).
 
-## The three providers at a glance
+## The two providers at a glance
 
 Grounded in the API research (sources at the end). The axes are the ones that actually
 change how an adapter maps onto the port.
 
-| Axis | **Amika** (v0beta1) | **Devin** (Cognition) | **Devon** (entropy-research) |
-| --- | --- | --- | --- |
-| Hosting | Hosted-managed | Hosted-managed | **Self-hosted / local** |
-| Caller-managed sandbox/worker? | **Yes** — `POST /sandboxes`, addressable by name; the only provider with this | **No** — environment hidden inside a session (`snapshot_id` is the only handle) | **No** — runs against the user's own filesystem |
-| Unit of work | `agent-send-jobs` (async job) on a sandbox | `session` (created from a prompt) | local session in a localhost backend |
-| Continue a conversation | reuse `session_id` on the sandbox | `POST /sessions/{id}/messages` | local, interactive |
-| Sync vs async | **async + poll** (202, no webhooks) | **async + poll** (`GET /sessions/{id}`, `status_enum`) | local/interactive |
-| Auth | `Authorization: Bearer <AMIKA_API_KEY>` | `Authorization: Bearer cog_…` (service key or PAT) | **BYO LLM key** (`ANTHROPIC_API_KEY`…); no platform auth |
-| Idempotency | **None** (module supplies its own) | `idempotent` body flag + `is_new_session` | none |
-| Cost reporting | `cost_usd` on the job | **ACUs** (`max_acu_limit`; per-session ACU accounting) | none — user pays their LLM directly |
-| Getting started | Amika account + API key + repo/snapshot config | Team/Enterprise plan → Service User API key | `pipx install devon_agent` locally + LLM key |
+| Axis | **Amika** (v0beta1) | **Devin** (Cognition) |
+| --- | --- | --- |
+| Hosting | Hosted-managed | Hosted-managed |
+| Caller-managed sandbox/worker? | **Yes** — `POST /sandboxes`, addressable by name; the only provider with this | **No** — environment hidden inside a session (`snapshot_id` is the only handle) |
+| Unit of work | `agent-send-jobs` (async job) on a sandbox | `session` (created from a prompt) |
+| Continue a conversation | reuse `session_id` on the sandbox | `POST /sessions/{id}/messages` |
+| Sync vs async | **async + poll** (202, no webhooks) | **async + poll** (`GET /sessions/{id}`, `status_enum`) |
+| Auth | `Authorization: Bearer <AMIKA_API_KEY>` | `Authorization: Bearer cog_…` (service key or PAT) |
+| Idempotency | **None** (module supplies its own) | `idempotent` body flag + `is_new_session` |
+| Cost reporting | `cost_usd` on the job | **ACUs** (`max_acu_limit`; per-session ACU accounting) |
+| Getting started | Amika account + API key + repo/snapshot config | Team/Enterprise plan → Service User API key |
 
-**Devon disambiguation (must be resolved before any Devon adapter is built).** The name
-"Devon" is overloaded. The literal match — `entropy-research/Devon` — is a **local tool
-with no documented public HTTP API**; it executes on the developer's own machine and has
-no managed sandbox, no bearer auth, and no usage accounting. That makes it a poor fit for
-a *hosted orchestrator* like Kiln, which dispatches work to a remote worker it does not
-sit next to. If the intent behind "Devon" was "the open-source Devin alternative that has
-a real hosted API," the correct referent is almost certainly **OpenHands** (formerly
-OpenDevin, org All Hands AI): a dual-mode system with a hosted **OpenHands Cloud** REST
-API (`https://app.all-hands.dev`, `Authorization: Bearer …`, `POST
-/api/v1/app-conversations`) *and* a self-host Docker-sandbox mode. This document treats
-"Devon" as the **local/self-hosted, no-managed-sandbox archetype** for the architecture,
-and calls out OpenHands as the concrete hosted variant if that is what's wanted. See
-§8 open questions — this choice materially changes the Devon row above and should be
-confirmed by the author, not guessed.
+These two sit at opposite ends of the one axis that matters most — **caller-managed
+sandbox vs no managed sandbox** — which is exactly why they are the right pair to design
+against: an architecture that cleanly spans both spans anything hosted in between. A
+purely local agent (one that runs against a developer's own machine with no reachable
+hosted endpoint) is a different beast and out of scope for a hosted orchestrator — see
+the open questions.
 
 ## The core insight: one port, two capabilities
 
@@ -131,13 +129,13 @@ remote backing, a `ListWorkers` that returns empty, and an always-ready `WorkerR
 are all valid states the reconciler and poller already handle. Devin needs *no core
 change* — only an adapter that answers the lifecycle calls virtually.
 
-**Devon — local, out-of-band.** The local archetype does not fit a hosted orchestrator
-without a **runner**: something that hosts the Devon backend where Kiln can reach it over
-HTTP. Two honest options, deferred (§8): (a) treat "Devon" as OpenHands Cloud and write a
-normal hosted adapter like Devin's; or (b) stand up a Kiln-side Devon runner (a container
-per worker running `devon_agent`), at which point Devon *becomes* a sandbox-style
-provider much like Amika. Either way the port shape is unchanged; only the adapter (and,
-for (b), an ops component) differs. We do **not** attempt to drive a developer's laptop.
+**A hypothetical local agent — out of band.** A tool that runs against a developer's own
+machine does not fit a hosted orchestrator without a **runner**: a Kiln-side container
+per worker that hosts the agent where Kiln can reach it over HTTP — at which point it
+*becomes* a sandbox-style provider much like Amika. Either way the port shape is
+unchanged; only the adapter (plus an ops component for the runner) differs. We do **not**
+attempt to drive a developer's laptop. This is deferred until a concrete such provider is
+on the table (open questions).
 
 ## What's provider-agnostic vs provider-specific
 
@@ -156,7 +154,7 @@ never mention a provider):**
 - Sandboxes, sessions, jobs, `snapshot_id`, ACUs, session ids, job ids — every platform
   noun.
 - Whether a worker is a real remote resource or a virtual slot.
-- Auth scheme and credential shape (Amika API key; Devin `cog_` bearer; BYO LLM keys).
+- Auth scheme and credential shape (Amika API key; Devin `cog_` bearer).
 - Idempotency-key usage, cost-unit conversion (ACU→USD), state-string classification.
 - Provider config (repo/snapshot/secret wiring) — see §7 for the leak to fix.
 
@@ -169,7 +167,7 @@ the core sniff the provider type, an adapter **declares** a small capability set
 // Capabilities is an adapter's self-description of provider shape. The core reads
 // booleans/enums here to adapt affordances WITHOUT naming a provider (05 abstraction
 // rule). An adapter that omits it gets the conservative default (no sandbox, no cost,
-// no snapshots) — the Devin/Devon shape.
+// no snapshots) — the Devin shape.
 type Capabilities struct {
     ManagedSandbox bool // caller creates/destroys a real workspace (Amika: true)
     ReportsCost    bool // TurnStatus.CostUSD is meaningful (Amika, Devin: true)
@@ -263,6 +261,114 @@ This is the change that most directly serves "without leaking provider-specific 
 into the core system": after it, `grep -ri amika internal/{board,brain,runtime,api,wire}`
 and the identity entity returns nothing.
 
+## Dashboard registration (§8)
+
+The backend leak (§7) has a mirror on the client. The dashboard (`11` §5) hard-codes
+Amika at every turn: `frontend/src/dashboard/ConfigFields.tsx` renders literal "Amika API
+key", "Amika Claude credential ID", "Amika snapshot", and "Sandbox secrets" inputs;
+`CHECK_NAME_FOR_CREDENTIAL` is a fixed `{anthropic, amika, repo}` map; and
+`POST /api/settings/verify` (`11` §4) runs a fixed Amika authenticated ping. Registering
+a new provider means generalizing this exactly as §7 generalizes the backend — the
+dashboard must render provider fields **from data, not from hard-coded Amika inputs**.
+
+**How a provider is registered.** The §6 registry entry gains a **dashboard descriptor**
+— the single declaration the generic dashboard reads. It travels over the wire as a
+generated type (`/schema`, `02` §3), so neither side hand-writes provider fields:
+
+- **Identity** — the registry key + human label (`amika` → "Amika", `devin` → "Devin").
+  The key is the same one `AGENT_MODE`/`AgentProvider` uses, and must name a registered
+  backend constructor (§6).
+- **Config-field schema** — the shape of the provider's project-scoped config blob (§7):
+  per field a `{key, label, type (text | number | password | secret-list), writeOnly,
+  help}`. The project form renders its provider section from this instead of the
+  hard-coded "Amika snapshot" + "Sandbox secrets". Amika declares
+  `{snapshot: text, secrets: secret-list}`; Devin declares
+  `{snapshot_id: text, max_acu_limit: number}`.
+- **Credential-field list** — the user-level secrets the provider needs (Amika:
+  `api_key`, `claude_cred_id`; Devin: a `cog_` bearer). Rendered in the credentials
+  section with the existing write-only convention (`11` §3 D7): the input never carries
+  the stored value, only a `configured · …tail` placeholder.
+- **Verify probe** — a check name plus a live-connection test, so `settings/verify` fans
+  out one `{name, ok, message}` result per registered provider (Amika's ping today; for
+  Devin a session-list/auth call). `CHECK_NAME_FOR_CREDENTIAL` becomes *derived from the
+  registry*, not a literal map.
+- **Capabilities** (§5, optional) — so the dashboard hides sandbox-only affordances
+  (workspace reset, secret injection) for a provider that declares
+  `ManagedSandbox: false`, reading the flag, never the name.
+
+**What registration requires:** exactly those five — key, label, config-field schema,
+credential list, verify probe (Capabilities optional). Nothing else; the descriptor is
+the whole contract between a provider and the dashboard.
+
+**Validations / checks:**
+- **Key must resolve.** A dashboard descriptor whose key has no registered backend
+  constructor (§6) is a composition-root error caught at startup, not a broken form at
+  runtime — the descriptor set and the constructor set are validated to match.
+- **The adapter owns blob validation.** The field schema drives client-side
+  required/format hints, but the config blob is opaque to identity/config (§7): the
+  adapter parses and validates its *own* blob server-side on `PUT /api/project`, and a
+  malformed blob fails the save with the adapter's message. The dashboard never
+  second-guesses a provider's config rules.
+- **Live verify is the real gate.** A provider's config counts as "working" for a project
+  only once its verify probe passes — exactly today's onboarding "verify connections"
+  step (`11` §5 state 2), now one check per registered provider instead of a fixed three.
+
+The payoff mirrors §7: afterwards the generic dashboard code names no provider —
+`grep -ri amika frontend/src/dashboard` outside the descriptor data returns nothing, and
+adding a provider's UI is "ship a descriptor", not "edit `ConfigFields.tsx`".
+
+## Project-level provider defaults (§9)
+
+A project already resolves to exactly one provider —
+`ProviderResolver.For(ctx, projectID) → (Provider, prefix)` (`provider.go:23`), and "a
+project has one provider" is a standing constraint (open questions). Multi-provider turns
+that single provider into a **per-project default**: the provider every worker, turn, and
+conversation in that project uses.
+
+**Users select a default provider per project — yes.** The §7 per-project `AgentProvider`
+field *is* that default (the registry key). The dashboard's project section gains a
+**provider select** listing the registered providers (from the §8 descriptors); the
+choice is stored as `Project.AgentProvider`. The config-field section below it re-renders
+from the selected provider's schema (§8), so switching the select swaps which config
+fields appear. A deployment that registers only Amika shows a one-option select (or hides
+it) — no UX change for single-provider deployments.
+
+**How the default is applied across the system.** Entirely at the existing seam, with no
+new machinery downstream. `ProviderResolver.For` reads `Project.AgentProvider`, looks up
+the registry constructor (§6), builds the provider from the project owner's credentials +
+config blob (`11` §3, `wiring.go:323`), and returns `(Provider, prefix)`. Everything past
+that point — board workers, brain, runtime, reconciler, wire — sees only the resolved
+`Provider` and never learns which key was chosen (the `05` abstraction rule). The default
+is resolved per turn, so it is always the *current* stored value.
+
+**Deployment default vs project default.** `AGENT_MODE`/the registry still decides which
+providers a deployment *offers* and the fallback for a project that has not chosen one. A
+project with an empty `AgentProvider` resolves to the deployment default (today: `amika`)
+— which is exactly the §7 migration's behavior (existing projects get `amika` implicitly,
+with no backfill of a per-project choice). Per-project selection is purely additive on
+top of a working single-provider default.
+
+**When a provider is removed but is set as a project default.** Two distinct cases:
+
+1. **Unregistered from the deployment** (its constructor is gone — a rollback, a dropped
+   integration). `ProviderResolver.For` cannot build it, and it must fail **loud and
+   contained**: a new neutral sentinel `ErrProviderUnavailable` (sibling to
+   `ErrConversationLost` / `ErrOutOfCredits`, `provider.go:28`) so the runtime surfaces
+   "this project's provider is unavailable" and the project's board **pauses**. It does
+   **not** silently fall back to the deployment default — silent fallback is explicitly
+   rejected, because it would run the project's tickets on a different agent with
+   different credentials and a different billing model, invisibly. The board resumes when
+   an admin re-registers the provider or the owner picks a new one. The dashboard shows
+   the provider select in an error state ("provider *X* is no longer available — pick
+   another") rather than rewriting the stored value behind the user's back.
+2. **Deselected by the owner** (a normal `AgentProvider` change to another registered
+   provider). In-flight turns finish on the old provider (the resolver is read per turn);
+   new turns use the new one. Because workers are opaque slots and a conversation is a
+   provider-scoped handle inside the blob, the switch starts fresh workers/conversations
+   on the new side and releases the old provider's sessions/sandboxes best-effort via its
+   `Release` / `DestroyWorker`. There is **no** cross-provider conversation migration —
+   consistent with one-provider-per-project (open questions).
+
 ## Roadmap
 
 Phased so each step ships value and none requires a big-bang rewrite:
@@ -283,9 +389,11 @@ Phased so each step ships value and none requires a big-bang rewrite:
   whether any hidden assumption in the machinery still expects a real remote worker; the
   design predicts none, and Phase 2 is the test of that prediction. Behind
   `AGENT_MODE=devin`, opt-in, mock-tested with httptest fixtures first.
-- **Phase 3 — decide and handle "Devon" (§8).** Either register OpenHands Cloud as a
-  normal hosted adapter (cheap, reuses Phase 2's shape) or design the Kiln-side Devon
-  runner (a sandbox-style adapter plus an ops component). Gated on the §8 decision.
+- **Phase 3 — dashboard registration + per-project provider default (§8, §9).** Turn the
+  hard-coded Amika dashboard fields into a data-driven provider descriptor, add the
+  per-project provider select, and wire `ProviderResolver.For` to the stored
+  `AgentProvider` (with `ErrProviderUnavailable` for an unregistered default). After this
+  a project owner can actually pick Devin in the UI, not just via `AGENT_MODE`.
 - **Phase 4 — polish the capability-driven UX.** Operator affordances (workspace reset,
   sandbox inspection, cost display) read capabilities so they light up per provider
   without core branches.
@@ -295,18 +403,17 @@ and independently shippable.
 
 ## Out of scope / open questions
 
-- **Which "Devon"?** (§3) — `entropy-research/Devon` (local, no public API) vs OpenHands
-  Cloud (hosted API). This must be answered before Phase 3; it changes whether Devon is a
-  hosted adapter or a runner-plus-adapter. Flagged for the author, not assumed.
-- **Driving a truly local agent** (a developer's laptop) from a hosted orchestrator is
-  out of scope — Kiln dispatches to reachable workers; a local agent needs a Kiln-hosted
-  runner or is not a fit.
+- **Driving a truly local agent** (a developer's laptop, or any self-hosted tool with no
+  reachable hosted endpoint) from a hosted orchestrator is out of scope — Kiln dispatches
+  to reachable workers; such an agent would need a Kiln-hosted runner (a container per
+  worker), at which point it becomes a sandbox-style provider much like Amika. Deferred
+  until a concrete such provider is on the table.
 - **Multiple providers within one project** (e.g. some tickets to Amika, some to Devin) —
-  out of scope. The `ProviderResolver` is per-project; a project has one provider.
+  out of scope. The `ProviderResolver` is per-project; a project has one provider (§9).
   Per-ticket routing is a later question if it ever arises.
-- **Cost normalization across billing models** (Amika USD vs Devin ACUs vs Devon's zero)
-  beyond a best-effort ACU→USD estimate. The `cost_usd` field stays a single float; a
-  richer usage model is deferred.
+- **Cost normalization across billing models** (Amika USD vs Devin ACUs) beyond a
+  best-effort ACU→USD estimate. The `cost_usd` field stays a single float; a richer usage
+  model is deferred.
 - **Backfilling the config blob** for historical projects beyond the one-time migration
   in Phase 1.
 
@@ -318,8 +425,9 @@ and independently shippable.
 | D2 | Provider shape is expressed by a declared `Capabilities` descriptor, read by the core. | Let the core switch on provider identity; or infer from method behaviour. | A declared capability is the one leak-free way to vary core-visible affordances — the core reads a boolean, never a provider name. Matches the existing `CostUSD == 0` pattern. |
 | D3 | Provider selection becomes a **registry** keyed by config value. | Keep extending the `mock`/`amika` `if`/validation list. | A registry makes "add a provider" a one-line registration and keeps `buildGraph` validation data-driven. The `if`-ladder is O(providers) edits in two files. |
 | D4 | Generalize `Amika*` config into a per-project provider name + opaque config blob. | Add parallel `Devin*` fields through `Config`, the project entity, and identity. | Parallel fields multiply the leak surface through layers that must not name providers. An opaque blob keeps identity/config provider-neutral; the adapter owns its schema. This is the change that actually delivers "no provider concepts in the core". |
-| D5 | Treat "Devon" as the local/no-managed-sandbox archetype; flag OpenHands as the hosted variant; defer the choice. | Assume Devon == OpenHands and write a hosted adapter now; or assume the local tool and build a runner now. | The name is genuinely ambiguous and the two referents sit at opposite ends of the axis table. Guessing wrong wastes an adapter. Document both, decide before Phase 3. |
-| D6 | Devin uses virtual workers; its sessions are created lazily in `StartTurn(fresh)`. | Model a Devin "worker" as a pre-created session at `CreateWorker` time. | Devin has no persistent workspace to pre-create; a session is per-conversation and ephemeral. Lazy creation matches Devin's model and keeps `Release`/fresh-workspace semantics automatic. |
+| D5 | Devin uses virtual workers; its sessions are created lazily in `StartTurn(fresh)`. | Model a Devin "worker" as a pre-created session at `CreateWorker` time. | Devin has no persistent workspace to pre-create; a session is per-conversation and ephemeral. Lazy creation matches Devin's model and keeps `Release`/fresh-workspace semantics automatic. |
+| D6 | The dashboard renders a provider's config/credential fields from a declared **provider descriptor**, not hard-coded Amika inputs. | Keep the hand-written Amika fields and add parallel Devin fields in `ConfigFields.tsx`. | Hard-coded fields are the §7 leak on the frontend. A descriptor (key + field schema + credential list + verify probe) lets the generic dashboard name no provider, mirroring the opaque config blob on the backend (D4). |
+| D7 | A project's provider is a **per-project default** (`AgentProvider`); an unavailable default fails loud (`ErrProviderUnavailable`), never silently falls back. | Fall back to the deployment default when a project's provider is missing; or allow per-ticket provider choice. | Silent fallback would run a project's tickets on the wrong agent and credentials, invisibly. Failing loud pauses the board until an admin re-registers the provider or the owner re-selects one. Per-ticket routing is out of scope (§9). |
 
 ## Sources (provider research)
 
@@ -330,15 +438,6 @@ and independently shippable.
   `/api-reference/v1/sessions/retrieve-details-about-an-existing-session` (`status_enum`,
   `structured_output`, `pull_request`; no sandbox object), `/admin/billing` (API needs
   Team/Enterprise; ACU accounting), `https://devin.ai/pricing/`.
-- Devon (entropy-research): `https://github.com/entropy-research/Devon` (local install
-  `pipx install devon_agent` / `npx devon-ui`; BYO LLM keys; local-filesystem execution;
-  no managed sandbox; no documented public HTTP API), `https://pypi.org/project/devon-agent/`.
-- OpenHands (the hosted "open Devin alternative"):
-  `https://docs.openhands.dev/openhands/usage/cloud/cloud-api` (base
-  `https://app.all-hands.dev`, Bearer key, `POST /api/v1/app-conversations`),
-  `https://github.com/OpenHands/OpenHands` (OpenDevin rename; self-host Docker sandbox).
-- Disambiguation: `https://github.com/e2b-dev/awesome-devins`,
-  `https://e2b.dev/blog/open-source-alternatives-to-devin`.
 - Amika: internal — spec `05` and `internal/agent/amika`, against Amika v0beta1
   (`https://app.amika.dev/api/v0beta1/llms.txt`).
 

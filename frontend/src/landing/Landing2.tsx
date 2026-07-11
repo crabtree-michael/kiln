@@ -45,9 +45,9 @@ function GitHubMark(): JSX.Element {
   );
 }
 
-/** A microphone glyph for the "talk to it on the go" step — stroked with
- * currentColor so it reads in both themes. */
-function MicMark(): JSX.Element {
+/** A bell glyph for the "use it anywhere" step — stroked with currentColor,
+ * matching the weight of the other step marks so it reads in both themes. */
+function BellMark(): JSX.Element {
   return (
     <svg
       width="28"
@@ -61,10 +61,8 @@ function MicMark(): JSX.Element {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <rect x="9" y="2.5" width="6" height="11" rx="3" />
-      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-      <line x1="12" y1="17.5" x2="12" y2="21" />
-      <line x1="8.5" y1="21" x2="15.5" y2="21" />
+      <path d="M18 8.5a6 6 0 0 0-12 0c0 6.5-2.5 8.5-2.5 8.5h17s-2.5-2-2.5-8.5" />
+      <path d="M10.3 20.5a2 2 0 0 0 3.4 0" />
     </svg>
   );
 }
@@ -156,12 +154,12 @@ const ANYWHERE: { icon: string; title: string; body: string }[] = [
 ];
 
 /** The coding agents Kiln can drive, shown as logo lockups in the "cloud agents"
- * step. `mark` is the monogram tile letter (avoids indexing `name` under the
- * strict TS config). */
-const AGENTS: { name: string; mark: string }[] = [
-  { name: 'Cursor', mark: 'C' },
-  { name: 'Devin', mark: 'D' },
-  { name: 'Amika', mark: 'A' },
+ * step. `logo` is the brand mark under /logos, sat on a light tile so each reads
+ * on either theme. */
+const AGENTS: { name: string; logo: string }[] = [
+  { name: 'Cursor', logo: '/logos/cursor.svg' },
+  { name: 'Devin', logo: '/logos/devin.svg' },
+  { name: 'Amika', logo: '/logos/amika.svg' },
 ];
 
 const FEATURES: {
@@ -293,8 +291,8 @@ export function Landing2(): JSX.Element {
               <div className="kiln-how__marks kiln-how__marks--logos">
                 {AGENTS.map((agent) => (
                   <span className="kiln-how__logo" key={agent.name}>
-                    <span className="kiln-how__monogram" aria-hidden="true">
-                      {agent.mark}
+                    <span className="kiln-how__brandmark" aria-hidden="true">
+                      <img src={agent.logo} alt="" loading="lazy" decoding="async" />
                     </span>
                     {agent.name}
                   </span>
@@ -309,9 +307,9 @@ export function Landing2(): JSX.Element {
             <li className="kiln-how__step">
               <span className="kiln-how__num">03</span>
               <div className="kiln-how__marks">
-                <MicMark />
+                <BellMark />
               </div>
-              <h3>Talk to it on the go</h3>
+              <h3>Use it anywhere</h3>
               <p>
                 Steer the whole operation from your phone or your voice. Say the work, check in, or
                 clear a blocker — from wherever you are.

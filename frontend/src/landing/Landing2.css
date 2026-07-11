@@ -411,17 +411,23 @@
   background: var(--surface-subtle);
 }
 
-.kiln-landing-2 .kiln-how__monogram {
+/* A light chip behind each agent's brand mark, so the dark logos read the same
+   in either theme. object-fit keeps the varied logo aspect ratios centred. */
+.kiln-landing-2 .kiln-how__brandmark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-size: 12px;
-  font-weight: 700;
+  background: #ffffff;
+  border: 1px solid var(--border-default);
+}
+
+.kiln-landing-2 .kiln-how__brandmark img {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
 }
 
 .kiln-landing-2 .kiln-how__step h3 {

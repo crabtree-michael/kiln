@@ -32,7 +32,7 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
     resume,
     cancel,
     sendNow,
-    countingDown,
+    sendImminent,
     delaySend,
     keyboardMode,
     openKeyboard,
@@ -59,11 +59,13 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
   const hasTranscript = settledText !== '' || tailText !== '';
   const showSend = hasTranscript;
   const showCancel = hasTranscript;
-  // The "+10" delay control appears only while an end-of-turn auto-send is armed
-  // and counting down (09 §4) — not in the "stuck"/paused case where there is
-  // transcript but nothing is about to fire. It gives the user a way to push the
-  // auto-send out when they aren't ready.
-  const showDelay = countingDown;
+  // The "+10" delay control appears only in the final stretch before an armed
+  // end-of-turn auto-send fires (09 §4, `sendImminent`) — not for the whole
+  // countdown, and never in the "stuck"/paused case where there is transcript but
+  // nothing is about to fire. It floats above the mic as the deadline nears, giving
+  // the user a way to push the send out when they aren't ready; tapping it extends
+  // the deadline past the stretch, so the control withdraws until it nears again.
+  const showDelay = sendImminent;
   // The overlay field is shown for the live voice transcript OR the keyboard input
   // (they reuse the same container). The keyboard toggle only appears in the
   // resting voice state — never mid-dictation (where the flanks are send + X) and
@@ -331,9 +333,9 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
         ) : (
           <>
             {showDelay && (
-              // "+10": push the armed auto-send 10s further out. Parked at the
-              // row's far-left edge (column 1) alongside the send it defers, and
-              // shown only while the countdown is live.
+              // "+10": push the armed auto-send 10s further out. Floats as a bubble
+              // centred above the mic (CSS), surfacing only in the final stretch of
+              // the countdown; tapping it defers the send and withdraws the bubble.
               <button
                 type="button"
                 data-role="dock-delay"

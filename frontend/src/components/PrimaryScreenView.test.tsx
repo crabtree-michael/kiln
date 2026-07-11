@@ -54,6 +54,7 @@ vi.mock('@/voice/voice-context', async (importOriginal) => {
       cancel: vi.fn(),
       sendNow: vi.fn(),
       countingDown: false,
+      sendImminent: false,
       delaySend: vi.fn(),
       getLevel: vi.fn(() => 0),
       keyboardMode: false,

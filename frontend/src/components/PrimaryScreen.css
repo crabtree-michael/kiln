@@ -1625,6 +1625,9 @@ button[data-role='toast-open']:focus-visible {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   width: 100%;
+  /* Positioning context for the "+10" bubble, which floats centred above the mic
+     (below) rather than sitting in the flanking grid. */
+  position: relative;
 }
 
 /* Send button: mirrors the cancel (X) box exactly — same 40px circle, border,
@@ -1652,14 +1655,22 @@ button[data-role='toast-open']:focus-visible {
 }
 
 /* "+10" delay control: extends the auto-send grace window by 10s (09 §4). Same
-   40px circle as the flanking send/cancel controls so it reads as a peer button;
-   parked at the row's far-left edge (column 1, justify-self:start) alongside the
-   send it defers, while the send hugs the mic at the column's inner edge. Neutral
-   like the cancel (×) — a "hold on" affordance, not the affirmative send. Shown
-   only while a send is counting down. */
+   40px circle as the flanking send/cancel controls so it reads as a peer button,
+   but floated OUT of the grid to hover centred above the mic — the button it
+   defers the send of — rather than flanking it. Absolutely positioned against the
+   controls row (position:relative above): centred horizontally on the mic
+   (left:50% + translateX) and lifted just above the top of the row (bottom:100%),
+   with z-index over the transcript overlay (z-index 5) so it stays visible and
+   tappable while a transcript is up. Neutral like the cancel (×) — a "hold on"
+   affordance, not the affirmative send. Shown only in the final stretch before the
+   send fires (`sendImminent`). */
 [data-role='dock-delay'] {
-  grid-column: 1;
-  justify-self: start;
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;

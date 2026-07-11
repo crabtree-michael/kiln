@@ -27,6 +27,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     cancel: vi.fn(),
     sendNow: vi.fn(),
     countingDown: false,
+    sendImminent: false,
     delaySend: vi.fn(),
     getLevel: vi.fn(() => 0),
     keyboardMode: false,
@@ -155,12 +156,13 @@ describe('Dock', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
-  it('shows "+10" while the auto-send is counting down, and forwards the tap', () => {
+  it('shows "+10" in the final stretch before the auto-send fires, and forwards the tap', () => {
     const delaySend = vi.fn();
     mockVoiceValue = stubVoice({
       micState: 'listening',
       settledText: 'Move it to done.',
       countingDown: true,
+      sendImminent: true,
       delaySend,
     });
     render(<Dock />);
@@ -168,10 +170,29 @@ describe('Dock', () => {
     expect(delaySend).toHaveBeenCalledTimes(1);
   });
 
+  it('hides "+10" while counting down but not yet in the final stretch', () => {
+    // Just after a "+10" tap the deadline is pushed out past the reveal stretch: the
+    // send is still armed (countingDown) but not imminent, so the control withdraws
+    // until the countdown runs back down into the stretch.
+    mockVoiceValue = stubVoice({
+      micState: 'listening',
+      settledText: 'Move it to done.',
+      countingDown: true,
+      sendImminent: false,
+    });
+    render(<Dock />);
+    expect(screen.queryByRole('button', { name: 'Delay auto-send 10 seconds' })).toBeNull();
+  });
+
   it('hides "+10" when there is transcript but no countdown (the "stuck" case)', () => {
     // A frozen/paused transcript can still be sent or cleared, but nothing is about
     // to auto-fire — so the delay control has no countdown to extend and stays hidden.
-    mockVoiceValue = stubVoice({ micState: 'paused', settledText: 'stuck', countingDown: false });
+    mockVoiceValue = stubVoice({
+      micState: 'paused',
+      settledText: 'stuck',
+      countingDown: false,
+      sendImminent: false,
+    });
     render(<Dock />);
     expect(screen.queryByRole('button', { name: 'Delay auto-send 10 seconds' })).toBeNull();
     // The send + X remain available in this state.

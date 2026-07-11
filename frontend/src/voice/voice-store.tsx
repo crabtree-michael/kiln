@@ -41,6 +41,14 @@ const COMMIT_DELAY_MS = 5_000;
 // extends the CURRENT deadline (additive), so repeated taps stack.
 const SEND_DELAY_EXTENSION_MS = 10_000;
 
+// The "+10" control is offered only in this final stretch before the armed send
+// fires (09 §4). It surfaces as the deadline draws near — not for the whole window
+// — so a "+10" tap that pushes the deadline out past this stretch withdraws the
+// control until it counts back down into it. Equal to COMMIT_DELAY_MS, so the base
+// (un-extended) window is entirely inside it and the control shows the moment a
+// send arms.
+const DELAY_REVEAL_WINDOW_MS = 5_000;
+
 export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const [state, dispatch] = useReducer(voiceReducer, undefined, initialVoiceState);
 
@@ -74,6 +82,14 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   // no send armed.
   const graceTimerRef = useRef<number | null>(null);
   const graceDeadlineRef = useRef<number | null>(null);
+  // The reveal timer that flips `sendImminent` on when the countdown enters its
+  // final DELAY_REVEAL_WINDOW_MS — the only stretch the "+10" control is offered
+  // in. Rescheduled alongside the grace timer on every arm/extend.
+  const revealTimerRef = useRef<number | null>(null);
+  // Whether the armed auto-send is within its final reveal stretch — drives the
+  // dock's "+10" control visibility. Store state (not the pure machine's): it is a
+  // function of the wall-clock deadline the store owns, not of transcript state.
+  const [sendImminent, setSendImminent] = useState(false);
 
   const stopStream = useCallback((): void => {
     if (streamRef.current !== null) {
@@ -178,25 +194,44 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       clearTimeout(graceTimerRef.current);
       graceTimerRef.current = null;
     }
+    if (revealTimerRef.current !== null) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    // Any disarm/reschedule starts from "control hidden"; `armGraceTimer` flips it
+    // back on synchronously when the deadline is already inside the reveal stretch.
+    setSendImminent(false);
   }, []);
 
-  // (Re)schedule the single grace-window timer to fire at the current deadline
-  // (09 §4). Called on arm and again on every "+10" extension, so it always
-  // reflects the latest deadline. Firing promotes the armed send to a real commit
-  // via `commitDelayElapsed`. A no-op when nothing is armed.
+  // (Re)schedule the grace-window timer (and the reveal timer behind the "+10"
+  // control) to the current deadline (09 §4). Called on arm and again on every
+  // "+10" extension, so both always reflect the latest deadline. The grace timer
+  // fires at the deadline to promote the armed send to a real commit; the reveal
+  // timer flips `sendImminent` on once the deadline is within DELAY_REVEAL_WINDOW_MS.
+  // A no-op when nothing is armed.
   const armGraceTimer = useCallback((): void => {
     clearGraceTimer();
     const deadline = graceDeadlineRef.current;
     if (deadline === null) {
       return;
     }
-    graceTimerRef.current = window.setTimeout(
-      () => {
-        graceDeadlineRef.current = null;
-        dispatch({ type: 'commitDelayElapsed' });
-      },
-      Math.max(0, deadline - Date.now()),
-    );
+    const remaining = Math.max(0, deadline - Date.now());
+    graceTimerRef.current = window.setTimeout(() => {
+      graceDeadlineRef.current = null;
+      setSendImminent(false);
+      dispatch({ type: 'commitDelayElapsed' });
+    }, remaining);
+    // Offer the "+10" control only in the final stretch: reveal now if the deadline
+    // is already that close (the base window, or a run-down extension), else arm a
+    // timer to reveal it when the countdown reaches the stretch. `clearGraceTimer`
+    // above already left it hidden, so an extension past the stretch withdraws it.
+    if (remaining <= DELAY_REVEAL_WINDOW_MS) {
+      setSendImminent(true);
+    } else {
+      revealTimerRef.current = window.setTimeout(() => {
+        setSendImminent(true);
+      }, remaining - DELAY_REVEAL_WINDOW_MS);
+    }
   }, [clearGraceTimer]);
 
   // Grace-window effect (09 §4): an end-of-turn final arms `pending` rather than
@@ -381,6 +416,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       cancel,
       sendNow,
       countingDown: state.pending !== undefined,
+      sendImminent,
       delaySend,
       getLevel,
       keyboardMode,
@@ -394,6 +430,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       state.settledText,
       state.tailText,
       state.pending,
+      sendImminent,
       pause,
       resume,
       cancel,

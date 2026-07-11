@@ -235,6 +235,56 @@ describe('VoiceProvider mic activation', () => {
     }
   });
 
+  it('`sendImminent` reveals the "+10" control only in the final stretch — a tap withdraws it until it nears again', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      act(() => {
+        result.current.resume();
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'open' });
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'final', text: 'Move it to done.' });
+      });
+      // The base 5s window is entirely inside the reveal stretch, so the control
+      // surfaces the moment the send arms.
+      expect(result.current.countingDown).toBe(true);
+      expect(result.current.sendImminent).toBe(true);
+
+      // Tap "+10" 2s in: the deadline jumps to 15s out — well past the final
+      // stretch — so the control withdraws even though the send is still armed.
+      act(() => {
+        vi.advanceTimersByTime(2_000);
+      });
+      act(() => {
+        result.current.delaySend();
+      });
+      expect(result.current.countingDown).toBe(true);
+      expect(result.current.sendImminent).toBe(false);
+
+      // Run the countdown back down to 5s before the extended deadline (fires at
+      // 15s; advance to 10s): the control re-surfaces.
+      act(() => {
+        vi.advanceTimersByTime(8_000);
+      });
+      expect(result.current.sendImminent).toBe(true);
+
+      // Past the extended deadline the send fires and the control is gone.
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.countingDown).toBe(false);
+      expect(result.current.sendImminent).toBe(false);
+      expect(result.current.settledText).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('backgrounding stops the mic and returning does NOT restart it', () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {

@@ -1116,8 +1116,8 @@ func feedCardsToWire(in []runtime.FeedCard) []wire.FeedCard {
 
 // activityToWire maps a runtime.ActivityEvent onto the generated
 // wire.ActivityEvent (08 §4). The wire type keys its optional fields by kind:
-// On is set only for thinking; Verb and TicketTitle only for a toast (and only
-// when non-empty), left nil otherwise.
+// On is set only for thinking; Verb, TicketTitle and TicketID only for a toast
+// (and only when non-empty), left nil otherwise.
 func activityToWire(ev runtime.ActivityEvent) wire.ActivityEvent {
 	out := wire.ActivityEvent{Kind: wire.ActivityEventKind(ev.Kind)}
 	if ev.Kind == string(wire.Thinking) {
@@ -1130,6 +1130,10 @@ func activityToWire(ev runtime.ActivityEvent) wire.ActivityEvent {
 	if ev.TicketTitle != "" {
 		tt := ev.TicketTitle
 		out.TicketTitle = &tt
+	}
+	if ev.TicketID != "" {
+		id := ev.TicketID
+		out.TicketId = &id
 	}
 	return out
 }

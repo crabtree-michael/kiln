@@ -673,6 +673,7 @@ type notifyPayload struct {
 // board's ToastPayload by value — this module never imports internal/board.
 type toastPayload struct {
 	Verb        string `json:"verb"`
+	TicketID    string `json:"ticket_id"`
 	TicketTitle string `json:"ticket_title"`
 }
 
@@ -800,7 +801,7 @@ func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
 		slog.Error("runtime: activity.toast decode", "id", e.ID, "err", err)
 		return
 	}
-	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketTitle: p.TicketTitle}
+	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketID: p.TicketID, TicketTitle: p.TicketTitle}
 	if err := s.activityPusher.PushActivity(ctx, e.ProjectID, ev); err != nil {
 		slog.Error("runtime: activity.toast push", "id", e.ID, "project_id", e.ProjectID, "err", err)
 	}

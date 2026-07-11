@@ -142,8 +142,8 @@ func TestMarkReady_EmitsQueuedToastAndFeedUpdated(t *testing.T) {
 	if !ok {
 		t.Fatalf("activity.toast payload type = %T, want board.ToastPayload", toasts[0].Payload)
 	}
-	if p.Verb != "queued" || p.TicketTitle != "Ship the thing" {
-		t.Errorf("queued toast payload = %+v, want {queued Ship the thing}", p)
+	if p.Verb != "queued" || p.TicketID != "t1" || p.TicketTitle != "Ship the thing" {
+		t.Errorf("queued toast payload = %+v, want {queued t1 Ship the thing}", p)
 	}
 }
 

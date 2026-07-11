@@ -98,11 +98,13 @@ type FeedSnapshot struct {
 // ActivityEvent is the ephemeral activity SSE payload (08 §4), never stored.
 // thinking brackets a brain pass (On toggles the spinner); toast confirms one
 // side-effect board transition (Verb + TicketTitle render the auto-dismissing
-// pill). Runtime domain type; the api package maps it to wire.ActivityEvent.
+// pill, TicketID lets a tap open the ticket). Runtime domain type; the api
+// package maps it to wire.ActivityEvent.
 type ActivityEvent struct {
 	Kind        string // thinking | toast
 	On          *bool  // set for kind=thinking
 	Verb        string // set for kind=toast: started | nudged | finished | queued
+	TicketID    string // set for kind=toast
 	TicketTitle string // set for kind=toast
 }
 

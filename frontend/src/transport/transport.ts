@@ -229,7 +229,8 @@ function isActivityEvent(value: unknown): value is ActivityEvent {
     isActivityKind(value.kind) &&
     (value.on === undefined || value.on === null || typeof value.on === 'boolean') &&
     isActivityVerb(value.verb) &&
-    isNullableString(value.ticket_title)
+    isNullableString(value.ticket_title) &&
+    isNullableString(value.ticket_id)
   );
 }
 

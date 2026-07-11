@@ -602,7 +602,7 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 
 	_, outboxWorker := svc.Workers(clock)
 	store.seed(runtime.QueueOutbox, "activity.toast",
-		[]byte(`{"verb":"started","ticket_title":"Build the widget"}`), 0)
+		[]byte(`{"verb":"started","ticket_id":"t-42","ticket_title":"Build the widget"}`), 0)
 
 	stop := runWorker(t, outboxWorker)
 	defer stop()
@@ -627,8 +627,8 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	if toast == nil {
 		t.Fatal("no toast activity event pushed")
 	}
-	if toast.Verb != "started" || toast.TicketTitle != "Build the widget" {
-		t.Errorf("toast = %+v, want Verb=started TicketTitle='Build the widget'", *toast)
+	if toast.Verb != "started" || toast.TicketID != "t-42" || toast.TicketTitle != "Build the widget" {
+		t.Errorf("toast = %+v, want Verb=started TicketID=t-42 TicketTitle='Build the widget'", *toast)
 	}
 }
 

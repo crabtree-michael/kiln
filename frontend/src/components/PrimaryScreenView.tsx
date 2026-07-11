@@ -425,6 +425,7 @@ export function PrimaryScreenView({
           toasts={toasts}
           onDismiss={onDismiss}
           onToastExpandedChange={onToastExpandedChange}
+          onOpenTicket={setOpenTicketId}
         />
         {/* The permanent error band sits at the TOP of the dock region, in flow,
             so a persistent failure (e.g. sandboxes down) reserves its own space

@@ -12,22 +12,28 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
         data-role="toast-pill"
         data-verb="started"
       >
-        <span
-          aria-label="Started"
-          data-role="toast-icon"
-          role="img"
-        >
-          🚀
-        </span>
-        <span
-          data-role="toast-text"
+        <button
+          aria-label="Open ticket: Login Redesign"
+          data-role="toast-open"
+          type="button"
         >
           <span
-            data-role="toast-title"
+            aria-label="Started"
+            data-role="toast-icon"
+            role="img"
           >
-            Login Redesign
+            🚀
           </span>
-        </span>
+          <span
+            data-role="toast-text"
+          >
+            <span
+              data-role="toast-title"
+            >
+              Login Redesign
+            </span>
+          </span>
+        </button>
         <button
           aria-label="Dismiss"
           data-role="toast-dismiss"

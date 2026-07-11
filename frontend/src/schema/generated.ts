@@ -617,6 +617,8 @@ export interface components {
             verb?: "started" | "nudged" | "finished" | "queued" | null;
             /** @description For kind=toast — the affected ticket's title. */
             ticket_title?: string | null;
+            /** @description For kind=toast — the affected ticket's id, so tapping the toast opens that ticket's detail view. Absent on a say pill, which names no ticket. */
+            ticket_id?: string | null;
         };
         /** @description GET /api/activity response (08 §4) — the current value of the `thinking` bracket, pulled by the client on foreground/resume and stream reconnect to resync the spinner. Server-authoritative: the client never writes it (it is derived from whether a brain pass is in flight), so this is a read-only snapshot, not a settable state. */
         ActivityStatus: {

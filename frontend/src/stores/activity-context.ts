@@ -13,7 +13,8 @@ export type ToastVerb = 'started' | 'nudged' | 'finished' | 'queued';
  * each other, and each auto-dismisses independently.
  */
 export type ActivityPill =
-  { kind: 'say'; text: string } | { kind: 'toast'; verb: ToastVerb; ticketTitle: string };
+  | { kind: 'say'; text: string }
+  | { kind: 'toast'; verb: ToastVerb; ticketTitle: string; ticketId: string };
 
 /**
  * One live notification in the activity stack. `id` is a stable, unique key so

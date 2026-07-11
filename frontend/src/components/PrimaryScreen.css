@@ -1323,19 +1323,50 @@ button[data-role='feed-card-head']:focus-visible {
 [data-role='toast-pill'] {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 9px;
   /* Never exceed the activity row's inner width (its 26px side padding is the
      mobile safe margin). Without this a long ticket title grew the pill wider
      than the screen; the text now clamps to 2 lines instead (see toast-text). */
   max-width: 100%;
-  /* Extra right padding reserves room for the absolutely-positioned dismiss
-     button so text never slides under it. */
-  padding: 9px 26px 9px 14px;
   background: var(--surface-card);
   border: 1.5px solid var(--accent-soft);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
+}
+
+/* The icon+title region. It fills the pill (minus the absolute dismiss) and
+   carries the inner flex layout + padding for BOTH renderings — the plain div
+   (an un-linked toast) and the button that opens the ticket (08 §5). Extra
+   right padding reserves room for the absolutely-positioned dismiss button so
+   text never slides under it. */
+[data-role='toast-open'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 26px 9px 14px;
+}
+
+/* The clickable variant: reset the button chrome so it reads exactly like the
+   plain region above (layout/padding come from the shared rule), leaving only
+   cursor + focus as the interactive cues (matches feed-card-head). */
+button[data-role='toast-open'] {
+  margin: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+button[data-role='toast-open']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
 }
 
 [data-role='toast-dismiss'] {
@@ -1425,16 +1456,15 @@ button[data-role='feed-card-head']:focus-visible {
   color: var(--text-body);
 }
 
-/* When a toast/say message overflows the 2-line clamp (df0f2a75) the text
-   becomes tappable to read the rest: `data-expandable` flags the affordance,
-   and `data-expanded` drops the clamp so the full message shows in place. Text
-   that fits carries neither attribute and is unaffected. */
-[data-role='toast-text'][data-expandable='true'],
+/* When a `say` message overflows the 2-line clamp (df0f2a75) the text becomes
+   tappable to read the rest: `data-expandable` flags the affordance, and
+   `data-expanded` drops the clamp so the full message shows in place. Text that
+   fits carries neither attribute and is unaffected. A toast title does NOT
+   expand — tapping the toast opens its ticket detail instead (08 §5). */
 [data-role='say-text'][data-expandable='true'] {
   cursor: pointer;
 }
 
-[data-role='toast-text'][data-expanded='true'],
 [data-role='say-text'][data-expanded='true'] {
   display: block;
   -webkit-line-clamp: unset;

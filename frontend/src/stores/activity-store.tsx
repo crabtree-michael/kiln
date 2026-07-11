@@ -135,7 +135,12 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
       if (event.verb === undefined || event.verb === null) {
         return;
       }
-      push({ kind: 'toast', verb: event.verb, ticketTitle: event.ticket_title ?? '' });
+      push({
+        kind: 'toast',
+        verb: event.verb,
+        ticketTitle: event.ticket_title ?? '',
+        ticketId: event.ticket_id ?? '',
+      });
     },
     [push],
   );

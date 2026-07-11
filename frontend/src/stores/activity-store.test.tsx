@@ -8,6 +8,7 @@ import { act, render, screen } from '@testing-library/react';
 import type { JSX } from 'react';
 import { ActivityProvider } from '@/stores/activity-store';
 import { useActivityStore } from '@/stores/activity-context';
+import type { ActivityToast } from '@/stores/activity-context';
 import * as transport from '@/transport/transport';
 import type { SayEvent, StreamConnection, StreamHandlers } from '@/transport/transport';
 import { makeActivityEvent } from '@/test/fixtures';
@@ -33,6 +34,7 @@ let capturedDismiss: ((id: number) => void) | undefined;
 let capturedDismissToast: (() => void) | undefined;
 let capturedSetToastExpanded: ((id: number, expanded: boolean) => void) | undefined;
 let capturedIds: number[] = [];
+let capturedToasts: ActivityToast[] = [];
 
 function Probe(): JSX.Element {
   const { thinking, toasts, dismiss, dismissToast, setToastExpanded } = useActivityStore();
@@ -40,6 +42,7 @@ function Probe(): JSX.Element {
   capturedDismissToast = dismissToast;
   capturedSetToastExpanded = setToastExpanded;
   capturedIds = toasts.map((toast) => toast.id);
+  capturedToasts = toasts;
   const rendered = toasts
     .map((toast) =>
       toast.pill.kind === 'say'
@@ -241,6 +244,17 @@ describe('ActivityProvider', () => {
       vi.advanceTimersByTime(TOAST_MS);
     });
     expect(pills()).toBe('');
+  });
+
+  it('carries the wire ticket_id onto the toast pill so a tap can open the ticket', () => {
+    mount();
+    act(() => {
+      capturedHandlers?.onActivity?.(
+        makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'Login', ticketId: 't-7' }),
+      );
+    });
+    const [pill] = capturedToasts.map((toast) => toast.pill);
+    expect(pill).toEqual({ kind: 'toast', verb: 'started', ticketTitle: 'Login', ticketId: 't-7' });
   });
 
   it('pauses a toast while it is expanded so it does not vanish mid-read', () => {

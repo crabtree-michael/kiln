@@ -100,16 +100,22 @@ export interface ActivityRowProps {
    * user expands or collapses its clamped message, so it can't vanish mid-read.
    * Optional so presentational tests can render the row without the store. */
   onToastExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
+  /** Opens the full ticket detail overlay for a ticket-activity toast (not a
+   * `say`) when it is tapped. Optional so presentational tests can render the
+   * row without a board to resolve the ticket against; a toast then stays inert. */
+  onOpenTicket?: ((ticketId: string) => void) | undefined;
 }
 
 function ActivityToastPill({
   toast,
   onDismiss,
   onExpandedChange,
+  onOpenTicket,
 }: {
   toast: ActivityToast;
   onDismiss: (id: number) => void;
   onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
+  onOpenTicket?: ((ticketId: string) => void) | undefined;
 }): JSX.Element | null {
   const { id, pill } = toast;
 
@@ -143,24 +149,46 @@ function ActivityToastPill({
     );
   }
 
-  return (
-    <div data-role="toast-pill" data-verb={pill.verb}>
+  // A ticket-activity toast is a shortcut into its ticket: tapping it opens the
+  // full ticket detail overlay (unlike the `say` pill above, which names no
+  // ticket and only expands in place). So the icon+title become a clickable
+  // button when a ticket id and an open handler are both present — the title
+  // just clamps (CSS) rather than expanding, since the tap opens the ticket
+  // where the whole thing is legible. Narrow on the id + callback directly (not
+  // a derived boolean) so TypeScript knows both are defined inside the handler,
+  // mirroring FeedCardItem's `openDetail`. Falls back to a static row for a
+  // toast with no linked ticket or an unwired presentational render.
+  const openTicket =
+    onOpenTicket !== undefined && pill.ticketId !== ''
+      ? () => {
+          onOpenTicket(pill.ticketId);
+        }
+      : null;
+  const content = (
+    <>
       <span data-role="toast-icon" role="img" aria-label={verbLabel(pill.verb)}>
         {verbEmoji(pill.verb)}
       </span>
-      <ClampedText
-        role="toast-text"
-        measureKey={pill.ticketTitle}
-        onExpandedChange={
-          onExpandedChange
-            ? (expanded) => {
-                onExpandedChange(id, expanded);
-              }
-            : undefined
-        }
-      >
+      <span data-role="toast-text">
         <span data-role="toast-title">{pill.ticketTitle}</span>
-      </ClampedText>
+      </span>
+    </>
+  );
+
+  return (
+    <div data-role="toast-pill" data-verb={pill.verb}>
+      {openTicket !== null ? (
+        <button
+          type="button"
+          data-role="toast-open"
+          aria-label={`Open ticket: ${pill.ticketTitle}`}
+          onClick={openTicket}
+        >
+          {content}
+        </button>
+      ) : (
+        <div data-role="toast-open">{content}</div>
+      )}
       <button
         type="button"
         data-role="toast-dismiss"
@@ -180,6 +208,7 @@ export function ActivityRow({
   toasts,
   onDismiss,
   onToastExpandedChange,
+  onOpenTicket,
 }: ActivityRowProps): JSX.Element {
   const empty = toasts.length === 0;
   const rowRef = useRef<HTMLDivElement>(null);
@@ -250,6 +279,7 @@ export function ActivityRow({
               toast={toast}
               onDismiss={onDismiss}
               onExpandedChange={onToastExpandedChange}
+              onOpenTicket={onOpenTicket}
             />
           ))}
         </div>

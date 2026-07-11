@@ -269,6 +269,9 @@ type ActivityEvent struct {
 	// On For kind=thinking — true when a pass starts, false when it ends.
 	On *bool `json:"on,omitempty"`
 
+	// TicketId For kind=toast — the affected ticket's id, so tapping the toast opens that ticket's detail view. Absent on a say pill, which names no ticket.
+	TicketId *string `json:"ticket_id,omitempty"`
+
 	// TicketTitle For kind=toast — the affected ticket's title.
 	TicketTitle *string `json:"ticket_title,omitempty"`
 

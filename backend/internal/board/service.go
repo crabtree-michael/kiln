@@ -161,6 +161,7 @@ func (s *Service) MarkReady(ctx context.Context, projectID string, id TicketID) 
 		}
 		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 			Verb:        "queued",
+			TicketID:    updated.ID,
 			TicketTitle: updated.Title,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
@@ -204,6 +205,7 @@ func (s *Service) SendToAgent(ctx context.Context, projectID string, id TicketID
 			}
 			if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 				Verb:        "nudged",
+				TicketID:    updated.ID,
 				TicketTitle: updated.Title,
 			}}); err != nil {
 				return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
@@ -281,6 +283,7 @@ func (s *Service) AcceptToDone(ctx context.Context, projectID string, id TicketI
 		}
 		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 			Verb:        "finished",
+			TicketID:    updated.ID,
 			TicketTitle: updated.Title,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append activity.toast: %w", err)
@@ -560,6 +563,7 @@ func emitPullEffects(ctx context.Context, tx Tx, projectID string, t Ticket, wid
 	}
 	if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicActivityToast, Payload: ToastPayload{
 		Verb:        "started",
+		TicketID:    t.ID,
 		TicketTitle: t.Title,
 	}}); err != nil {
 		return fmt.Errorf("board: append activity.toast: %w", err)

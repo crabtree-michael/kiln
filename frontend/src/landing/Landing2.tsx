@@ -31,6 +31,44 @@ function KilnGlyph({ size = 26 }: { size?: number }): JSX.Element {
   );
 }
 
+/** The GitHub mark (invertocat), a single path so it inherits currentColor and
+ * follows the page theme. Used by the "Connect to GitHub" step. */
+function GitHubMark(): JSX.Element {
+  return (
+    <svg width="30" height="30" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+      />
+    </svg>
+  );
+}
+
+/** A microphone glyph for the "talk to it on the go" step — stroked with
+ * currentColor so it reads in both themes. */
+function MicMark(): JSX.Element {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="2.5" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <line x1="12" y1="17.5" x2="12" y2="21" />
+      <line x1="8.5" y1="21" x2="15.5" y2="21" />
+    </svg>
+  );
+}
+
 /** A theme-swapped screenshot: the dark capture in dark mode, the light capture
  * otherwise. `base` is the shared filename stem under /shots (e.g. "feed"). */
 function ThemedShot({
@@ -117,27 +155,13 @@ const ANYWHERE: { icon: string; title: string; body: string }[] = [
   },
 ];
 
-const LOOP_STEPS: { n: string; title: string; body: string }[] = [
-  {
-    n: '01',
-    title: 'Say the work, from anywhere',
-    body: 'Open a tab or just talk. Describe what you want like you would to a lead; Kiln turns it into a ticket and shapes the details with you.',
-  },
-  {
-    n: '02',
-    title: 'Agents build in the cloud',
-    body: 'Once a ticket is ready, a coding agent pulls it into its own sandbox and starts writing, running, and committing code — no machine of yours involved.',
-  },
-  {
-    n: '03',
-    title: 'It stays quiet',
-    body: 'Routine progress lands in the activity feed for whenever you look. No pings, no noise — you carry on with your day.',
-  },
-  {
-    n: '04',
-    title: 'It finds you when needed',
-    body: 'When a decision comes up, the ticket goes Blocked and Kiln notifies you wherever you are. Answer by voice or tap, and it resumes.',
-  },
+/** The coding agents Kiln can drive, shown as logo lockups in the "cloud agents"
+ * step. `mark` is the monogram tile letter (avoids indexing `name` under the
+ * strict TS config). */
+const AGENTS: { name: string; mark: string }[] = [
+  { name: 'Cursor', mark: 'C' },
+  { name: 'Devin', mark: 'D' },
+  { name: 'Amika', mark: 'A' },
 ];
 
 const FEATURES: {
@@ -206,7 +230,7 @@ export function Landing2(): JSX.Element {
             <div className="kiln-hero__actions">
               <BetaSignupForm cta="Join the beta" />
               <a href="#how" className="kiln-btn kiln-btn--ghost kiln-btn--lg kiln-hero__secondary">
-                See it anywhere
+                How it works
               </a>
             </div>
             <ul className="kiln-hero__chips" aria-label="Steer Kiln from">
@@ -243,24 +267,56 @@ export function Landing2(): JSX.Element {
           </ul>
         </section>
 
-        <section id="how" className="kiln-section kiln-loop">
+        <section id="how" className="kiln-section kiln-how">
           <div className="kiln-section__head">
-            <span className="kiln-eyebrow">The loop</span>
-            <h2 className="kiln-section__title">Hands-off until you are genuinely needed.</h2>
+            <span className="kiln-eyebrow">How it works</span>
+            <h2 className="kiln-section__title">Up and running in three steps.</h2>
             <p className="kiln-section__lead">
-              Kiln is built to minimise interruption and free you from your desk. Agents work
-              silently; you step in — from wherever you are — only for the decisions that move the
-              work forward.
+              Connect your repo, bring your agents, and steer from anywhere. Kiln handles the
+              orchestration in between.
             </p>
           </div>
-          <ol className="kiln-loop__grid">
-            {LOOP_STEPS.map((step) => (
-              <li className="kiln-loop__step" key={step.n}>
-                <span className="kiln-loop__num">{step.n}</span>
-                <h3>{step.title}</h3>
-                <p>{step.body}</p>
-              </li>
-            ))}
+          <ol className="kiln-how__grid">
+            <li className="kiln-how__step">
+              <span className="kiln-how__num">01</span>
+              <div className="kiln-how__marks">
+                <GitHubMark />
+              </div>
+              <h3>Connect to GitHub</h3>
+              <p>
+                Point Kiln at your repository. It signs in through GitHub and ships every change as
+                a pull request you review.
+              </p>
+            </li>
+            <li className="kiln-how__step">
+              <span className="kiln-how__num">02</span>
+              <div className="kiln-how__marks kiln-how__marks--logos">
+                {AGENTS.map((agent) => (
+                  <span className="kiln-how__logo" key={agent.name}>
+                    <span className="kiln-how__monogram" aria-hidden="true">
+                      {agent.mark}
+                    </span>
+                    {agent.name}
+                  </span>
+                ))}
+              </div>
+              <h3>Set up with cloud agents</h3>
+              <p>
+                Bring your coding agents — Cursor, Devin, or Amika. Each runs in its own cloud
+                sandbox and pulls tickets on its own, no machine of yours involved.
+              </p>
+            </li>
+            <li className="kiln-how__step">
+              <span className="kiln-how__num">03</span>
+              <div className="kiln-how__marks">
+                <MicMark />
+              </div>
+              <h3>Talk to it on the go</h3>
+              <p>
+                Steer the whole operation from your phone or your voice. Say the work, check in, or
+                clear a blocker — from wherever you are.
+              </p>
+            </li>
           </ol>
         </section>
 

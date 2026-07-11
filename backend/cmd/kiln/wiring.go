@@ -588,9 +588,20 @@ func enableServerRoutes(
 	server.EnableBeta(&betaRegistrarAdapter{store: betaStore})
 	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
-	// It re-seeds the worker pool to WorkerCount, mirroring startup, so a fresh
-	// session comes back up with capacity.
-	server.EnableReset(newResetCoordinator(db, agentSvc, boardStore, cfg.WorkerCount))
+	// It re-seeds the worker pool to the project's configured worker count (so a
+	// fresh session mirrors the dashboard setting, not the deployment default),
+	// falling back to cfg.WorkerCount when identity is unconfigured.
+	var resetWorkerCount func(ctx context.Context, projectID string) (int, error)
+	if idSvc != nil {
+		resetWorkerCount = func(ctx context.Context, projectID string) (int, error) {
+			p, err := idSvc.GetProject(ctx, projectID)
+			if err != nil {
+				return 0, err
+			}
+			return p.WorkerCount, nil
+		}
+	}
+	server.EnableReset(newResetCoordinator(db, agentSvc, boardStore, cfg.WorkerCount, resetWorkerCount))
 	// GET /healthz probes the DB (Render health check + first-curl diagnostic);
 	// the embedded SPA is the "/" catch-all so the client is served same-origin
 	// with the API (design 2026-07-05).

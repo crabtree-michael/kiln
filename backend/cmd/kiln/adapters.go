@@ -800,20 +800,29 @@ var (
 // modules — a DB state truncate and the agent service's worker teardown —
 // neither of which owns the other's state, so it lives at the composition root.
 type resetCoordinator struct {
-	state    projectStateDeleter
-	workers  workerResetter
-	pool     poolReconciler
-	poolSize int
+	state           projectStateDeleter
+	workers         workerResetter
+	pool            poolReconciler
+	defaultPoolSize int
+	// workerCountFor resolves a project's configured worker count so a reset
+	// re-seeds the pool to the dashboard setting rather than the deployment
+	// default; nil when identity is unconfigured, in which case defaultPoolSize
+	// (the global KILN_WORKER_COUNT default) is used as the fallback.
+	workerCountFor func(ctx context.Context, projectID string) (int, error)
 }
 
 // newResetCoordinator wires the reset over the shared pool, the agent service,
 // and the board's worker-pool store.
-func newResetCoordinator(db *sql.DB, workers workerResetter, pool poolReconciler, poolSize int) *resetCoordinator {
+func newResetCoordinator(
+	db *sql.DB, workers workerResetter, pool poolReconciler, poolSize int,
+	workerCountFor func(ctx context.Context, projectID string) (int, error),
+) *resetCoordinator {
 	return &resetCoordinator{
-		state:    &dbStateDeleter{db: db},
-		workers:  workers,
-		pool:     pool,
-		poolSize: poolSize,
+		state:           &dbStateDeleter{db: db},
+		workers:         workers,
+		pool:            pool,
+		defaultPoolSize: poolSize,
+		workerCountFor:  workerCountFor,
 	}
 }
 
@@ -851,10 +860,24 @@ func (c *resetCoordinator) Reset(ctx context.Context, projectID string) error {
 	if err := c.workers.ResetProject(ctx, projectID); err != nil {
 		return fmt.Errorf("kiln: reset workers: %w", err)
 	}
-	if err := c.pool.ReconcileWorkers(ctx, projectID, c.poolSize); err != nil {
+	if err := c.pool.ReconcileWorkers(ctx, projectID, c.poolSize(ctx, projectID)); err != nil {
 		return fmt.Errorf("kiln: reset reconcile worker pool: %w", err)
 	}
 	return nil
+}
+
+// poolSize resolves how many worker slots a fresh session re-seeds to: the
+// project's configured worker count when identity can supply it, else the
+// deployment default (KILN_WORKER_COUNT). A resolver error is non-fatal — the
+// reset still brings the project back up with default capacity rather than
+// failing outright.
+func (c *resetCoordinator) poolSize(ctx context.Context, projectID string) int {
+	if c.workerCountFor != nil {
+		if n, err := c.workerCountFor(ctx, projectID); err == nil && n > 0 {
+			return n
+		}
+	}
+	return c.defaultPoolSize
 }
 
 var (

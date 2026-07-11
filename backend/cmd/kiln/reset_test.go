@@ -72,7 +72,7 @@ func TestResetCoordinator_DeletesTearsDownThenReseeds(t *testing.T) {
 	sd := &fakeStateDeleter{order: &order}
 	wr := &fakeWorkerResetter{order: &order}
 	pool := &fakePoolReconciler{order: &order}
-	c := &resetCoordinator{state: sd, workers: wr, pool: pool, poolSize: 3}
+	c := &resetCoordinator{state: sd, workers: wr, pool: pool, defaultPoolSize: 3}
 
 	if err := c.Reset(context.Background(), testProjectID); err != nil {
 		t.Fatalf("Reset: %v", err)
@@ -96,12 +96,58 @@ func TestResetCoordinator_DeletesTearsDownThenReseeds(t *testing.T) {
 	}
 }
 
+func TestResetCoordinator_ReseedsToConfiguredWorkerCount(t *testing.T) {
+	var order []string
+	sd := &fakeStateDeleter{order: &order}
+	wr := &fakeWorkerResetter{order: &order}
+	pool := &fakePoolReconciler{order: &order}
+	// The project's dashboard setting (7) must win over the deployment default (3).
+	c := &resetCoordinator{
+		state: sd, workers: wr, pool: pool, defaultPoolSize: 3,
+		workerCountFor: func(_ context.Context, projectID string) (int, error) {
+			if projectID != testProjectID {
+				t.Errorf("worker count resolved for %q, want %q", projectID, testProjectID)
+			}
+			return 7, nil
+		},
+	}
+
+	if err := c.Reset(context.Background(), testProjectID); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if pool.n != 7 {
+		t.Errorf("pool re-seeded to %d, want the configured 7", pool.n)
+	}
+}
+
+func TestResetCoordinator_ResolverError_FallsBackToDefault(t *testing.T) {
+	var order []string
+	sd := &fakeStateDeleter{order: &order}
+	wr := &fakeWorkerResetter{order: &order}
+	pool := &fakePoolReconciler{order: &order}
+	// A resolver failure (or a non-positive count) must not fail the reset — it
+	// re-seeds to the deployment default so the session comes back with capacity.
+	c := &resetCoordinator{
+		state: sd, workers: wr, pool: pool, defaultPoolSize: 3,
+		workerCountFor: func(_ context.Context, _ string) (int, error) {
+			return 0, errors.New("synthetic worker-count lookup failure")
+		},
+	}
+
+	if err := c.Reset(context.Background(), testProjectID); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if pool.n != 3 {
+		t.Errorf("pool re-seeded to %d, want the default 3 fallback", pool.n)
+	}
+}
+
 func TestResetCoordinator_DeleteError_SkipsRest(t *testing.T) {
 	var order []string
 	sd := &fakeStateDeleter{order: &order, err: errFakeDelete}
 	wr := &fakeWorkerResetter{order: &order}
 	pool := &fakePoolReconciler{order: &order}
-	c := &resetCoordinator{state: sd, workers: wr, pool: pool, poolSize: 3}
+	c := &resetCoordinator{state: sd, workers: wr, pool: pool, defaultPoolSize: 3}
 
 	if err := c.Reset(context.Background(), testProjectID); err == nil {
 		t.Fatal("expected error when state delete fails")
@@ -116,7 +162,7 @@ func TestResetCoordinator_WorkerError_SkipsReseed(t *testing.T) {
 	sd := &fakeStateDeleter{order: &order}
 	wr := &fakeWorkerResetter{order: &order, err: errFakeWorkers}
 	pool := &fakePoolReconciler{order: &order}
-	c := &resetCoordinator{state: sd, workers: wr, pool: pool, poolSize: 3}
+	c := &resetCoordinator{state: sd, workers: wr, pool: pool, defaultPoolSize: 3}
 
 	if err := c.Reset(context.Background(), testProjectID); err == nil {
 		t.Fatal("expected error when worker teardown fails")

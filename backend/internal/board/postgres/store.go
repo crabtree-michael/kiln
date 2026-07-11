@@ -121,14 +121,16 @@ func (s *Store) SetWorkerHealth(ctx context.Context, projectID string, erroredWo
 	return nil
 }
 
-// ReconcileWorkers brings the project's workers to exactly n rows at startup
-// (03 §8): insert-only — rows are added when the project's current count is
-// below n, and a row is never deleted while an active ticket could reference
-// it (v1 never auto-deletes at all; the FK would refuse it anyway). Called by
-// the composition root (backend/cmd/kiln) before the runtime starts driving
-// RunPull, using the WIP cap from configuration. Not part of board.Store: no
-// Board API operation needs it, so it stays a concrete method on the adapter
-// rather than widening the port (03 I8).
+// ReconcileWorkers brings the project's workers toward exactly n rows (03 §8),
+// the WIP cap from the project's configured worker count. Called by the
+// composition root (backend/cmd/kiln) at startup and on every config-change
+// rebuild, before the runtime starts driving RunPull. When the current count
+// is below n it inserts the missing rows; when it is above n it deletes the
+// excess, but only *free* slots (no active ticket references them) so the WIP
+// invariant I2 and the tickets→workers FK are never violated — a busy slot is
+// left in place and the pool converges once its ticket completes. Not part of
+// board.Store: no Board API operation needs it, so it stays a concrete method
+// on the adapter rather than widening the port (03 I8).
 func (s *Store) ReconcileWorkers(ctx context.Context, projectID string, n int) error {
 	var count int
 	if err := s.db.QueryRowContext(ctx,
@@ -140,6 +142,35 @@ func (s *Store) ReconcileWorkers(ctx context.Context, projectID string, n int) e
 			`INSERT INTO workers (id, project_id) VALUES (gen_random_uuid(), $1)`, projectID); err != nil {
 			return fmt.Errorf("board/postgres: insert worker: %w", err)
 		}
+	}
+	if count > n {
+		if err := s.shrinkWorkers(ctx, projectID, count-n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// shrinkWorkers removes up to excess free worker slots from the project, newest
+// first, so lowering the configured worker count shrinks the pool. The victim
+// CTE locks its candidates with FOR UPDATE OF s SKIP LOCKED — the same lock the
+// pull takes (lockFreeCandidates) — so a slot a concurrent RunPull is binding is
+// skipped rather than deleted out from under it, and a slot this delete holds is
+// skipped by the pull; a single statement makes the lock-then-delete atomic.
+// Fewer than excess rows are removed when not enough slots are free; the
+// remaining shrink lands on a later reconcile once busy slots free up.
+func (s *Store) shrinkWorkers(ctx context.Context, projectID string, excess int) error {
+	if _, err := s.db.ExecContext(ctx,
+		`WITH victims AS (
+			SELECT s.id FROM workers s
+			WHERE s.project_id = $1 AND NOT EXISTS (`+activeTicketExists+`)
+			ORDER BY s.created_at DESC, s.id DESC
+			LIMIT $2
+			FOR UPDATE OF s SKIP LOCKED
+		)
+		DELETE FROM workers WHERE id IN (SELECT id FROM victims)`,
+		projectID, excess); err != nil {
+		return fmt.Errorf("board/postgres: delete free workers for shrink: %w", err)
 	}
 	return nil
 }

@@ -250,9 +250,9 @@ func (a *boardAPIAdapter) MarkBlocked(ctx context.Context, id board.TicketID, re
 
 //nolint:wrapcheck // board errors reach the model verbatim (see type doc).
 func (a *boardAPIAdapter) AcceptToDone(
-	ctx context.Context, id board.TicketID, link board.CompletionLink,
+	ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string,
 ) (board.Ticket, error) {
-	return a.svc.AcceptToDone(ctx, a.projectID, id, link)
+	return a.svc.AcceptToDone(ctx, a.projectID, id, link, doneCommit)
 }
 
 //nolint:wrapcheck // board errors reach the model verbatim (see type doc).

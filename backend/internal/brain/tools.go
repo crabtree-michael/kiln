@@ -288,7 +288,9 @@ var Tools = []ToolDef{
 			fieldState:         stringSchema("New state: \"ready\", \"blocked\", or \"done\"."),
 			fieldBlockedReason: stringSchema("Required when state is \"blocked\": what the user must decide."),
 			fieldDoneCommit: stringSchema("Required when state is \"done\": the origin/main commit SHA " +
-				"carrying this ticket's work. Verified to be on origin/main before the ticket is accepted."),
+				"carrying this ticket's work. Verified to be on origin/main before the ticket is accepted. " +
+				"Each commit maps to one ticket — a SHA already used to accept another ticket is rejected, " +
+				"so use the commit that carries this ticket's own work."),
 			fieldApproval: boolSchema("Optional emphasis; every shaping ticket already shows as a proposal card."),
 		}),
 	},
@@ -671,7 +673,8 @@ func (s *Service) applyStateStep(ctx context.Context, id string, in UpdateTicket
 		}
 		link = l
 	}
-	t, err := s.applyState(ctx, board.TicketID(in.ID), *in.State, deref(in.BlockedReason), link)
+	t, err := s.applyState(ctx, board.TicketID(in.ID), *in.State,
+		deref(in.BlockedReason), link, strings.TrimSpace(deref(in.DoneCommit)))
 	if err != nil {
 		return updateStepError(id, "state="+*in.State, applied, err)
 	}
@@ -756,7 +759,8 @@ func (s *Service) verifyDoneInPR(
 //
 //nolint:wrapcheck // board error is fed back verbatim (06 §6), never wrapped.
 func (s *Service) applyState(
-	ctx context.Context, id board.TicketID, state, blockedReason string, link board.CompletionLink,
+	ctx context.Context, id board.TicketID, state, blockedReason string,
+	link board.CompletionLink, doneCommit string,
 ) (board.Ticket, error) {
 	switch state {
 	case stateReady:
@@ -764,7 +768,7 @@ func (s *Service) applyState(
 	case stateBlocked:
 		return s.board.MarkBlocked(ctx, id, blockedReason)
 	default: // stateDone — validateUpdate already rejected any other value
-		return s.board.AcceptToDone(ctx, id, link)
+		return s.board.AcceptToDone(ctx, id, link, doneCommit)
 	}
 }
 

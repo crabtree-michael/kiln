@@ -354,6 +354,18 @@ func (t *fakeTx) UpdateTicket(_ context.Context, projectID string, tk board.Tick
 	return tk, nil
 }
 
+func (t *fakeTx) TicketIDByDoneCommit(_ context.Context, projectID, sha string) (board.TicketID, bool, error) {
+	for id, tk := range t.s.tickets {
+		if t.s.ticketProj[id] != projectID || tk.DoneCommit == nil {
+			continue
+		}
+		if *tk.DoneCommit == sha {
+			return id, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (t *fakeTx) NextReadyTicket(_ context.Context, projectID string) (board.Ticket, bool, error) {
 	var best *board.Ticket
 	for id, tk := range t.s.tickets {

@@ -66,6 +66,13 @@ type Tx interface {
 	// the project is ErrNotFound.
 	UpdateTicket(ctx context.Context, projectID string, t Ticket) (Ticket, error)
 
+	// TicketIDByDoneCommit reports the project's ticket that already carries
+	// done_commit = sha, if any (AcceptToDone's one-commit-one-ticket check,
+	// 03 §4). ok is false when the commit is unspent. Archived tickets count.
+	// Run under the target ticket's row lock (lock-then-check, 03 §6); the
+	// partial unique index on (project_id, done_commit) is the DB backstop.
+	TicketIDByDoneCommit(ctx context.Context, projectID, sha string) (id TicketID, ok bool, err error)
+
 	// NextReadyTicket locks the project's next pullable ticket in pull order
 	// — priority DESC, ready_at ASC, id ASC — using FOR UPDATE SKIP LOCKED
 	// (03 §5). ok is false when no ready ticket is available in the project.

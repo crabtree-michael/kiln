@@ -483,7 +483,7 @@ func TestAcceptToDone_FromWorking_ClearsWorkerAndReason(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	got, err := svc.AcceptToDone(ctx, projA, "t1", board.CompletionLink{})
+	got, err := svc.AcceptToDone(ctx, projA, "t1", board.CompletionLink{}, "")
 	if err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
@@ -498,6 +498,72 @@ func TestAcceptToDone_FromWorking_ClearsWorkerAndReason(t *testing.T) {
 	}
 }
 
+func TestAcceptToDone_RecordsDoneCommit(t *testing.T) {
+	svc, store := newTestService()
+	worker := board.WorkerID("w1")
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
+
+	got, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, "abc1234")
+	if err != nil {
+		t.Fatalf("AcceptToDone: unexpected error: %v", err)
+	}
+	if got.DoneCommit == nil || *got.DoneCommit != "abc1234" {
+		t.Errorf("DoneCommit = %v, want abc1234", got.DoneCommit)
+	}
+}
+
+// A commit already linked to another ticket cannot mark a second one done
+// (03 §4): the SHA maps one-to-one, so the transition is refused with
+// ErrCommitAlreadyUsed rather than double-assigning the commit.
+func TestAcceptToDone_RejectsCommitLinkedToAnotherTicket(t *testing.T) {
+	svc, store := newTestService()
+	ctx := context.Background()
+	w1, w2 := board.WorkerID("w1"), board.WorkerID("w2")
+	store.seedWorker(projA, w1)
+	store.seedWorker(projA, w2)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T1", State: board.StateWorking, WorkerID: &w1})
+	store.seedTicket(projA, board.Ticket{ID: "t2", Title: "T2", State: board.StateWorking, WorkerID: &w2})
+
+	if _, err := svc.AcceptToDone(ctx, projA, "t1", board.CompletionLink{}, "abc1234"); err != nil {
+		t.Fatalf("first AcceptToDone: unexpected error: %v", err)
+	}
+
+	_, err := svc.AcceptToDone(ctx, projA, "t2", board.CompletionLink{}, "abc1234")
+	var used *board.ErrCommitAlreadyUsed
+	if !errors.As(err, &used) {
+		t.Fatalf("AcceptToDone with a reused commit: got %v, want ErrCommitAlreadyUsed", err)
+	}
+	if used.SHA != "abc1234" || used.OtherID != "t1" {
+		t.Errorf("ErrCommitAlreadyUsed = {SHA:%q OtherID:%q}, want {abc1234 t1}", used.SHA, used.OtherID)
+	}
+
+	// The refused ticket stays working (strict error, not a partial write — D8).
+	if tk, _ := store.ticket("t2"); tk.State != board.StateWorking || tk.DoneCommit != nil {
+		t.Errorf("t2 after refusal = {state:%q done_commit:%v}, want working/nil", tk.State, tk.DoneCommit)
+	}
+}
+
+// The same commit may re-accept the *same* ticket without tripping the reuse
+// guard — the check excludes the ticket being accepted. (In practice a done
+// ticket can't re-accept, but the id-exclusion keeps the guard precise.)
+func TestAcceptToDone_DistinctCommitsPerTicketAreFine(t *testing.T) {
+	svc, store := newTestService()
+	ctx := context.Background()
+	w1, w2 := board.WorkerID("w1"), board.WorkerID("w2")
+	store.seedWorker(projA, w1)
+	store.seedWorker(projA, w2)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T1", State: board.StateWorking, WorkerID: &w1})
+	store.seedTicket(projA, board.Ticket{ID: "t2", Title: "T2", State: board.StateWorking, WorkerID: &w2})
+
+	if _, err := svc.AcceptToDone(ctx, projA, "t1", board.CompletionLink{}, "aaa1111"); err != nil {
+		t.Fatalf("t1 AcceptToDone: unexpected error: %v", err)
+	}
+	if _, err := svc.AcceptToDone(ctx, projA, "t2", board.CompletionLink{}, "bbb2222"); err != nil {
+		t.Fatalf("t2 AcceptToDone with a distinct commit must succeed, got: %v", err)
+	}
+}
+
 func TestAcceptToDone_FromBlocked_ClearsWorkerAndReason(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
@@ -507,7 +573,7 @@ func TestAcceptToDone_FromBlocked_ClearsWorkerAndReason(t *testing.T) {
 		WorkerID: &worker, BlockedReason: new("decision needed"),
 	})
 
-	got, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{})
+	got, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, "")
 	if err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
@@ -525,7 +591,7 @@ func TestAcceptToDone_FreesTheWorker(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	snap, err := svc.GetBoard(context.Background(), projA)
@@ -543,7 +609,7 @@ func TestAcceptToDone_EmitsPullEvaluateAndAgentRelease(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -571,7 +637,7 @@ func TestAcceptToDone_EmitsFeedCompletion(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Ship it", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -596,7 +662,7 @@ func TestAcceptToDone_EmitsNotifySend(t *testing.T) {
 	store.seedWorker(projA, worker)
 	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "Wrap it up", State: board.StateWorking, WorkerID: &worker})
 
-	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
 		t.Fatalf("AcceptToDone: unexpected error: %v", err)
 	}
 	ems := store.outboxSnapshot()
@@ -619,7 +685,7 @@ func TestAcceptToDone_AlreadyDone_Rejected(t *testing.T) {
 	svc, store := newTestService()
 	seedActiveOrDoneTicket(store, board.StateDone)
 
-	_, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{})
+	_, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, "")
 	requireInvalidTransition(t, err, board.StateDone, "AcceptToDone")
 }
 
@@ -630,7 +696,7 @@ func TestAcceptToDone_RejectsBacklogStates(t *testing.T) {
 			svc, store := newTestService()
 			seedActiveOrDoneTicket(store, state)
 
-			_, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{})
+			_, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, "")
 			requireInvalidTransition(t, err, state, "AcceptToDone")
 		})
 	}
@@ -638,7 +704,7 @@ func TestAcceptToDone_RejectsBacklogStates(t *testing.T) {
 
 func TestAcceptToDone_NotFound(t *testing.T) {
 	svc, _ := newTestService()
-	_, err := svc.AcceptToDone(context.Background(), projA, "missing", board.CompletionLink{})
+	_, err := svc.AcceptToDone(context.Background(), projA, "missing", board.CompletionLink{}, "")
 	if !errors.Is(err, board.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
@@ -705,7 +771,7 @@ func TestEveryMutation_EmitsBoardUpdated(t *testing.T) {
 			w := board.WorkerID("w1")
 			store.seedWorker(projA, w)
 			store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &w})
-			if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}); err != nil {
+			if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
 				return fmt.Errorf("AcceptToDone: %w", err)
 			}
 			return nil

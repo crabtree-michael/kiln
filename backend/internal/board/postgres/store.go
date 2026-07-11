@@ -26,7 +26,7 @@ import (
 // ticketColumns is the canonical projection for a ticket row, shared by every
 // SELECT/RETURNING so scanTicket can read them positionally.
 const ticketColumns = `id, title, body, state, priority, worker_id, blocked_reason, ready_at, ` +
-	`approval_requested, created_at, updated_at, state_changed_at, archived_at`
+	`approval_requested, created_at, updated_at, state_changed_at, archived_at, done_commit`
 
 // activeTicketExists is the correlated subquery that derives a worker's busy
 // state (03 D2): a worker is busy iff an active ticket references it. The
@@ -345,19 +345,39 @@ func (t *tx) UpdateTicket(ctx context.Context, projectID string, tk board.Ticket
 		`UPDATE tickets
 		 SET title = $2, body = $3, state = $4, priority = $5,
 		     worker_id = $6, blocked_reason = $7, ready_at = $8, approval_requested = $9,
-		     archived_at = $10, updated_at = now(),
+		     archived_at = $10, done_commit = $12, updated_at = now(),
 		     state_changed_at = CASE WHEN tickets.state IS DISTINCT FROM $4
 		                             THEN now() ELSE tickets.state_changed_at END
 		 WHERE id = $1 AND project_id = $11
 		 RETURNING `+ticketColumns,
 		string(tk.ID), tk.Title, tk.Body, string(tk.State), tk.Priority,
 		workerIDArg(tk.WorkerID), strArg(tk.BlockedReason), timeArg(tk.ReadyAt), tk.ApprovalRequested,
-		timeArg(tk.ArchivedAt), projectID)
+		timeArg(tk.ArchivedAt), projectID, strArg(tk.DoneCommit))
 	out, err := scanTicket(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return board.Ticket{}, board.ErrNotFound
 	}
 	return out, err
+}
+
+// TicketIDByDoneCommit finds the project's ticket already carrying done_commit
+// = sha, backing AcceptToDone's one-commit-one-ticket check (03 §4). ok is
+// false when no ticket owns the commit. Archived tickets count — a spent
+// commit stays spent — so the scan is not restricted by archived_at. The
+// caller holds the target ticket's row lock; the tickets_done_commit_unique
+// index (0010) is the race-free backstop.
+func (t *tx) TicketIDByDoneCommit(ctx context.Context, projectID, sha string) (board.TicketID, bool, error) {
+	var id string
+	err := t.sqltx.QueryRowContext(ctx,
+		`SELECT id FROM tickets WHERE project_id = $1 AND done_commit = $2 LIMIT 1`,
+		projectID, sha).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("board/postgres: ticket by done_commit: %w", err)
+	}
+	return board.TicketID(id), true, nil
 }
 
 // NextReadyTicket locks the project's next pullable ticket in pull order
@@ -486,10 +506,11 @@ func scanTicket(r pgutil.RowScanner) (board.Ticket, error) {
 		blocked    sql.NullString
 		readyAt    sql.NullTime
 		archivedAt sql.NullTime
+		doneCommit sql.NullString
 	)
 	if err := r.Scan(&id, &tk.Title, &tk.Body, &state, &tk.Priority,
 		&workerID, &blocked, &readyAt, &tk.ApprovalRequested, &tk.CreatedAt, &tk.UpdatedAt,
-		&tk.StateChangedAt, &archivedAt); err != nil {
+		&tk.StateChangedAt, &archivedAt, &doneCommit); err != nil {
 		return board.Ticket{}, fmt.Errorf("board/postgres: scan ticket: %w", err)
 	}
 	tk.ID = board.TicketID(id)
@@ -509,6 +530,10 @@ func scanTicket(r pgutil.RowScanner) (board.Ticket, error) {
 	if archivedAt.Valid {
 		at := archivedAt.Time
 		tk.ArchivedAt = &at
+	}
+	if doneCommit.Valid {
+		c := doneCommit.String
+		tk.DoneCommit = &c
 	}
 	return tk, nil
 }

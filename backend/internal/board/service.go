@@ -261,18 +261,33 @@ type CompletionLink struct {
 }
 
 // AcceptToDone moves working|blocked → done, clearing the worker binding
-// and blocked_reason (03 §4).
-// Precondition: state ∈ {working, blocked}. Emits pull.evaluate,
-// agent.release (recycle the freed worker — 05 §4), feed.updated, the ephemeral
-// finished activity.toast, and feed.completion (the persistent "done" card).
-// link is the GitHub reference to the accepted work, carried onto the completion
-// card so the feed can link to the commit or pull request that landed it.
+// and blocked_reason and recording doneCommit (03 §4).
+// Precondition: state ∈ {working, blocked}, and doneCommit — when non-empty —
+// must not already be linked to another ticket (ErrCommitAlreadyUsed), so one
+// commit maps to at most one ticket. An empty doneCommit records no commit
+// (direct board callers; the brain's merge gate always supplies one, 06 §7).
+// Emits pull.evaluate, agent.release (recycle the freed worker — 05 §4),
+// feed.updated, the ephemeral finished activity.toast, and feed.completion
+// (the persistent "done" card). link is the GitHub reference to the accepted
+// work, carried onto the completion card so the feed can link to the commit or
+// pull request that landed it.
 func (s *Service) AcceptToDone(
-	ctx context.Context, projectID string, id TicketID, link CompletionLink,
+	ctx context.Context, projectID string, id TicketID, link CompletionLink, doneCommit string,
 ) (Ticket, error) {
 	return s.mutate(ctx, projectID, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
 		if !t.State.Active() || t.WorkerID == nil {
 			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
+		}
+		if doneCommit != "" {
+			// Lock-then-check (03 §6): the target ticket is already locked, so a
+			// commit unspent here cannot be spent by a committed sibling. The
+			// partial unique index (0010) backstops the residual race.
+			if other, ok, err := tx.TicketIDByDoneCommit(ctx, projectID, doneCommit); err != nil {
+				return Ticket{}, fmt.Errorf("board: lookup done_commit: %w", err)
+			} else if ok && other != id {
+				return Ticket{}, &ErrCommitAlreadyUsed{SHA: doneCommit, OtherID: other}
+			}
+			t.DoneCommit = &doneCommit
 		}
 		worker := *t.WorkerID
 		t.State = StateDone

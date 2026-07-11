@@ -42,6 +42,12 @@ type Ticket struct {
 	// every read path (Snapshot, GetTicket) and to the pull, and every targeted
 	// operation treats it as ErrNotFound; the row is retained for history.
 	ArchivedAt *time.Time
+	// DoneCommit is the origin/main commit SHA that carried this ticket's work,
+	// recorded by AcceptToDone. Non-nil only once a ticket has been accepted with
+	// a commit. It is unique per project — one commit maps to at most one ticket
+	// — so a SHA already spent on another ticket cannot mark a second one done
+	// (ErrCommitAlreadyUsed).
+	DoneCommit *string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	// StateChangedAt is when the ticket last entered its current State (03

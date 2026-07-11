@@ -195,8 +195,8 @@ func TestHandleEvent_ConfirmBeforeDestructive_UnambiguousExecutesImmediately(t *
 	if len(calls) != 1 || calls[0].Method != methodAcceptToDone {
 		t.Fatalf("expected exactly one AcceptToDone call, got %v", calls)
 	}
-	if len(calls[0].Args) != 1 || calls[0].Args[0] != board.TicketID("t-3") {
-		t.Errorf("AcceptToDone args = %v, want [t-3]", calls[0].Args)
+	if len(calls[0].Args) != 2 || calls[0].Args[0] != board.TicketID("t-3") || calls[0].Args[1] != "abc1234" {
+		t.Errorf("AcceptToDone args = %v, want [t-3 abc1234]", calls[0].Args)
 	}
 	if got := fs.said(); len(got) != 1 || got[0] != "Accepted t-3." {
 		t.Errorf("fakeSay.said() = %v, want exactly [%q]", got, "Accepted t-3.")

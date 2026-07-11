@@ -144,7 +144,7 @@ func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {
 			},
 			// The shared fakeRepo (below) verifies OnMain, so the done proceeds.
 			wantMethod: methodAcceptToDone,
-			wantArgs:   []any{board.TicketID("t-5")},
+			wantArgs:   []any{board.TicketID("t-5"), "a1b2c3d"},
 		},
 		{
 			name: "update_ticket approval_requested -> RequestApproval",
@@ -625,7 +625,7 @@ func TestDispatch_BoardErrorFedBackVerbatim(t *testing.T) {
 // error (06 §8: "a typed Board API error ... fed back into the loop").
 func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
 	fb := &fakeBoard{
-		acceptToDoneFn: func(ctx context.Context, id board.TicketID) (board.Ticket, error) {
+		acceptToDoneFn: func(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error) {
 			return board.Ticket{}, board.ErrNotFound
 		},
 	}
@@ -643,6 +643,34 @@ func TestDispatch_NotFoundErrorFedBackVerbatim(t *testing.T) {
 	}
 	if result.Content != board.ErrNotFound.Error() {
 		t.Errorf("ToolResult.Content = %q, want verbatim %q", result.Content, board.ErrNotFound.Error())
+	}
+}
+
+// TestDispatch_CommitAlreadyUsedFedBackVerbatim pins that a done refused
+// because its commit is already linked to another ticket (ErrCommitAlreadyUsed)
+// reaches the model verbatim as a tool error (06 §6), not the user — so the
+// brain can pick a different commit or block the ticket.
+func TestDispatch_CommitAlreadyUsedFedBackVerbatim(t *testing.T) {
+	wantErr := &board.ErrCommitAlreadyUsed{SHA: "abc1234", OtherID: "t-9"}
+	fb := &fakeBoard{
+		acceptToDoneFn: func(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error) {
+			return board.Ticket{}, wantErr
+		},
+	}
+	// OnMain=true so the done clears the push gate and reaches the board, where
+	// the reuse error is what this test pins.
+	fr := &fakeRepo{verify: brain.RepoVerify{OnMain: true}}
+	svc := newTestServiceR(fb, &fakeSay{}, &fakeConvo{}, fr, &scriptedLLM{})
+
+	call := newToolCall(t, "err-3", brain.ToolUpdateTicket,
+		brain.UpdateTicketInput{ID: "t-8", State: new("done"), DoneCommit: new("abc1234")})
+	result := svc.Dispatch(context.Background(), call)
+
+	if !result.IsError {
+		t.Fatalf("ToolResult.IsError = false, want true")
+	}
+	if result.Content != wantErr.Error() {
+		t.Errorf("ToolResult.Content = %q, want verbatim %q", result.Content, wantErr.Error())
 	}
 }
 

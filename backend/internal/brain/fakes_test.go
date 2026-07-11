@@ -128,7 +128,7 @@ type fakeBoard struct {
 	markReadyFn       func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	sendToAgentFn     func(ctx context.Context, id board.TicketID, instruction string) (board.Ticket, error)
 	markBlockedFn     func(ctx context.Context, id board.TicketID, reason string) (board.Ticket, error)
-	acceptToDoneFn    func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	acceptToDoneFn    func(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error)
 	requestApprovalFn func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	archiveTicketFn   func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	getBoardFn        func(ctx context.Context) (board.Snapshot, error)
@@ -180,14 +180,14 @@ func (f *fakeBoard) MarkBlocked(ctx context.Context, id board.TicketID, reason s
 }
 
 func (f *fakeBoard) AcceptToDone(
-	ctx context.Context, id board.TicketID, link board.CompletionLink,
+	ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string,
 ) (board.Ticket, error) {
-	f.record(methodAcceptToDone, id)
+	f.record(methodAcceptToDone, id, doneCommit)
 	f.mu.Lock()
 	f.lastCompletionLink = link
 	f.mu.Unlock()
 	if f.acceptToDoneFn != nil {
-		return f.acceptToDoneFn(ctx, id)
+		return f.acceptToDoneFn(ctx, id, link, doneCommit)
 	}
 	return board.Ticket{ID: id, State: board.StateDone}, nil
 }

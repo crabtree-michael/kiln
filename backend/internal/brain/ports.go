@@ -36,8 +36,11 @@ type BoardAPI interface {
 	// AcceptToDone → update_ticket state="done". Always destructive — releases
 	// and recycles the worker (06 §7). link is the GitHub reference to the
 	// verified work (from the merge-gate check), carried onto the completion feed
-	// card so it can link to the commit or pull request.
-	AcceptToDone(ctx context.Context, id board.TicketID, link board.CompletionLink) (board.Ticket, error)
+	// card so it can link to the commit or pull request. doneCommit is the raw
+	// verified SHA the work landed under; the board records it and refuses
+	// (ErrCommitAlreadyUsed, fed back verbatim) a SHA already linked to another
+	// ticket.
+	AcceptToDone(ctx context.Context, id board.TicketID, link board.CompletionLink, doneCommit string) (board.Ticket, error)
 	// ArchiveTicket → tool delete_ticket (06 §4 amended). Soft-deletes a
 	// non-active ticket; an active (working/blocked) ticket is refused with a
 	// typed board error, fed back verbatim (06 §6, §8).

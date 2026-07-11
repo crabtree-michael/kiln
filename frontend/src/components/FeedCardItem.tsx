@@ -15,16 +15,18 @@
 // (right-aligned, with a tiny chevron) so the truncation reads as more, not as
 // text that just stops. The cue is decoration inside the body, not its own tap
 // target, and only appears while the body is actually clamped.
-// The *action* behind the tap differs by kind: blocker/preview cards — and
-// updates with no linked ticket — make the whole clamped body the tap target
-// that expands it in place (tap again to collapse). Proposal cards and
-// ticket-linked update cards instead make the clamped body a click-through
-// button (`feed-card-open`) that opens the full ticket detail overlay (08 §5) —
-// the whole ticket (title, full body, actions) is one tap away rather than
-// dumped in the feed, so a feed update is a shortcut into its ticket's context.
-// Either way the cue is the same; only where the tap lands changes. The inline
-// Accept stays a *sibling* of that button — never nested — so tapping Accept
-// accepts without also opening the detail.
+// The *action* behind the tap differs by kind: update/blocker/preview cards
+// make the whole clamped body the tap target that expands it in place (tap
+// again to collapse), or — when the body doesn't overflow — leave it inert so
+// the tap is a no-op. Update cards are always this expand-in-place kind, even
+// when they carry a linked ticket: a brain update is a self-contained note, not
+// a shortcut into a ticket, so it never opens the detail overlay. Proposal cards
+// instead make the clamped body a click-through button (`feed-card-open`) that
+// opens the full ticket detail overlay (08 §5) — the whole ticket (title, full
+// body, actions) is one tap away rather than dumped in the feed. Either way the
+// cue is the same; only where the tap lands changes. The inline Accept stays a
+// *sibling* of that button — never nested — so tapping Accept accepts without
+// also opening the detail.
 // Done and poke cards have no body to carry that click-through (they are just a
 // ✅/👉 + ticket title, 08 §7/§3), so when they are tagged to a ticket the *head*
 // row itself becomes the button that opens the same ticket detail overlay — the
@@ -156,8 +158,8 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
 }
 
 /**
- * The click-through card body for kinds that open the full ticket detail overlay
- * (08 §5) instead of expanding in place — proposals and ticket-linked updates. A
+ * The click-through card body for the proposal kind — the one body kind that
+ * opens the full ticket detail overlay (08 §5) instead of expanding in place. A
  * button (`feed-card-open`) whose body stays permanently clamped to three lines
  * (two when `seen`) — the full record lives in the overlay, not the feed — so it
  * wears the same "tap to see more" cue as every other kind whenever it overflows
@@ -232,16 +234,17 @@ export function FeedCardItem({
   const showTag = card.kind === 'preview';
   const ticketId = card.ticket_id;
   const canAccept = card.kind === 'proposal' && ticketId != null;
-  // A proposal card, and any activity update carrying a linked ticket, is a
-  // digest that opens the full ticket detail on tap (08 §5): the feed update is a
-  // shortcut into its ticket's context rather than a dead-end note. Updates with
-  // no linked ticket fall through to the expand-in-place body below. Narrow on the
-  // callback and id directly (not a derived boolean) so TypeScript knows both are
-  // defined inside the handler — no optional chain, which the lint gate rejects as
-  // unnecessary (mirrors TicketCard's onSelect).
-  const linksToTicket = card.kind === 'proposal' || card.kind === 'update';
+  // Only a proposal card is a digest that opens the full ticket detail on tap
+  // (08 §5): its clamped body is a shortcut into the ticket's context. Update
+  // cards — brain-authored notes — always fall through to the expand-in-place
+  // body below, whether or not they carry a linked ticket: a brain update
+  // expands its own description in place (or is an inert no-op when it doesn't
+  // overflow), it never opens the ticket. Narrow on the callback and id directly
+  // (not a derived boolean) so TypeScript knows both are defined inside the
+  // handler — no optional chain, which the lint gate rejects as unnecessary
+  // (mirrors TicketCard's onSelect).
   const openDetail =
-    linksToTicket && ticketId != null && onOpenDetail !== undefined
+    card.kind === 'proposal' && ticketId != null && onOpenDetail !== undefined
       ? () => {
           onOpenDetail(ticketId);
         }

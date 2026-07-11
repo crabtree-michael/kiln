@@ -540,9 +540,12 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('opens the linked ticket detail when a ticket-linked update card is tapped', () => {
-    // An activity update carrying a ticket_id is a shortcut into that ticket's
-    // context: tapping the body opens the same detail overlay as a proposal.
+  it('expands a ticket-linked update card in place instead of opening the ticket', () => {
+    // A brain update is a self-contained note, not a shortcut into a ticket: even
+    // when it carries a ticket_id (with that ticket live on the board), tapping it
+    // expands its own description in place and never opens the ticket detail
+    // overlay — the same affordance a ticket-less update wears.
+    fakeClampedOverflow();
     const update = makeFeedCard({
       kind: 'update',
       id: 'update:77',
@@ -561,34 +564,24 @@ describe('PrimaryScreenView', () => {
       createdAt: minutesAgo(30),
       updatedAt: minutesAgo(2),
     });
-    render(
-      <PrimaryScreenView
-        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] })}
-        board={makeBoard({ working: [ticket] })}
-        connectionState="connected"
-        thinking={false}
-        toasts={[]}
-        onDismiss={noop}
-        onAccept={noop}
-        now={NOW}
-      />,
-    );
-    // Nothing open until the card is tapped.
+    renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [update] }), {
+      board: makeBoard({ working: [ticket] }),
+    });
+
+    // No click-through: the update never wears the `feed-card-open` button, so a
+    // tap can't reach the ticket detail overlay.
+    expect(screen.queryByRole('button', { name: /Open ticket/ })).toBeNull();
+
+    // The body itself is the in-place toggle — tapping it expands the description
+    // and opens no dialog.
+    const body = document.querySelector('[data-role="feed-card-body"]');
+    if (!(body instanceof HTMLElement)) {
+      throw new Error('expected the update feed card body');
+    }
+    expect(body).toHaveAttribute('data-clickable', 'true');
+    fireEvent.click(body);
+    expect(body).toHaveAttribute('data-expanded', 'true');
     expect(screen.queryByRole('dialog')).toBeNull();
-
-    // The update body is a click-through button (`feed-card-open`), not an
-    // expand-in-place paragraph — the same affordance a proposal card wears.
-    const open = screen.getByRole('button', { name: 'Open ticket: Auth' });
-    expect(open).toHaveAttribute('data-role', 'feed-card-open');
-
-    fireEvent.click(open);
-
-    // The full ticket detail sheet opens, showing the whole ticket body the feed
-    // digest clamps away. The dialog is named by its visible title.
-    const dialog = screen.getByRole('dialog', { name: 'Auth' });
-    expect(
-      within(dialog).getByText(ticket.body).closest('[data-role="ticket-detail-body"]'),
-    ).not.toBeNull();
   });
 
   it('keeps a ticket-less update card expandable in place (no click-through)', () => {

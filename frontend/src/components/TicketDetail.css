@@ -354,8 +354,8 @@
 
 /* Poke action — a secondary nudge for a stalled agent, shown alongside the
  * state's primary action (Talk on blocked, Accept on working). Deliberately
- * quieter than those accent-filled pills: an outlined/ghost pill so "continue"
- * reads as the softer, optional prod it is, not a headline decision. */
+ * quieter than those accent-filled pills: an outlined/ghost pill (👉 + "Poke")
+ * so it reads as the softer, optional prod it is, not a headline decision. */
 [data-role='detail-poke'] {
   display: inline-flex;
   align-items: center;

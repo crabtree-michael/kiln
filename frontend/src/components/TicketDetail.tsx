@@ -314,21 +314,13 @@ export function TicketDetail({
                     onPoke(ticket.id);
                   }}
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
-                    aria-hidden="true"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M6 5l10 7-10 7z" />
-                    <path d="M20 5v14" />
-                  </svg>
-                  Poke to continue
+                  {/* The 👉 is the whole signal for a poke, mirroring the feed's
+                      poke card (08 §3). Decorative (aria-hidden) so the button's
+                      accessible name stays the plain word "Poke". */}
+                  <span data-role="detail-poke-emoji" aria-hidden="true">
+                    👉
+                  </span>
+                  Poke
                 </button>
               )}
               {isBlocked && onTalk !== undefined && (

@@ -219,16 +219,18 @@ describe('TicketDetail', () => {
   describe('Poke action', () => {
     it('is absent by default — read-only inspection has no Poke button', () => {
       render(<TicketDetail ticket={working} onClose={vi.fn()} />);
-      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
     });
 
     it('offers Poke on a working ticket with an idle agent, and fires it with the id', () => {
       const onPoke = vi.fn();
       render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} agentIdle />);
 
-      fireEvent.click(
-        within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke to continue' }),
-      );
+      const poke = within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke' });
+      // The 👉 is the poke's whole signal (matching the feed poke card), rendered
+      // decoratively alongside the "Poke" label.
+      expect(poke).toHaveTextContent('👉');
+      fireEvent.click(poke);
 
       expect(onPoke).toHaveBeenCalledWith('t-42');
     });
@@ -237,7 +239,7 @@ describe('TicketDetail', () => {
       // agentIdle defaults false — the agent is `building`, streaming progress, so
       // there is nothing to nudge and the button must not appear.
       render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={vi.fn()} />);
-      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
     });
 
     it('offers Poke alongside Talk on a blocked ticket (both actions coexist)', () => {
@@ -256,7 +258,7 @@ describe('TicketDetail', () => {
       const dialog = screen.getByRole('dialog');
 
       expect(within(dialog).getByRole('button', { name: 'Talk to unblock' })).toBeInTheDocument();
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Poke to continue' }));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Poke' }));
 
       expect(onPoke).toHaveBeenCalledWith('t-b');
     });
@@ -272,7 +274,7 @@ describe('TicketDetail', () => {
         updatedAt: '2026-07-02T00:00:00Z',
       });
       render(<TicketDetail ticket={done} onClose={vi.fn()} onPoke={vi.fn()} />);
-      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
     });
 
     it('never offers Poke on a shaping/ready ticket — no agent to nudge yet', () => {
@@ -286,7 +288,7 @@ describe('TicketDetail', () => {
         updatedAt: '2026-07-01T00:00:00Z',
       });
       render(<TicketDetail ticket={shaping} onClose={vi.fn()} onPoke={vi.fn()} />);
-      expect(screen.queryByRole('button', { name: 'Poke to continue' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
     });
   });
 

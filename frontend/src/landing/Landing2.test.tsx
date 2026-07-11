@@ -1,7 +1,7 @@
 // Smoke coverage for the marketing landing page (`/landing`): it renders
 // standalone (no stores/providers), states the product, funnels its beta CTAs to
-// the beta-signup modal (nothing links into the app), points the hero "See it
-// anywhere" CTA at the How It Works (#how) section, and embeds the captured app
+// the beta-signup modal (nothing links into the app), points its "How it works"
+// CTAs at the How It Works (#how) section, and embeds the captured app
 // screenshots (frontend/public/shots) as themed <picture>/<img>.
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -58,10 +58,14 @@ describe('Landing2', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('routes the hero "See it anywhere" CTA to the How It Works section', () => {
+  it('routes every "How it works" link (nav, hero, footer) to the #how section', () => {
     renderLanding();
 
-    expect(screen.getByRole('link', { name: /see it anywhere/i })).toHaveAttribute('href', '#how');
+    const links = screen.getAllByRole('link', { name: /how it works/i });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '#how');
+    }
   });
 
   it('shows the captured app screenshots (feed, board, dock)', () => {

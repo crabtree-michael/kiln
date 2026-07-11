@@ -359,38 +359,77 @@
   }
 }
 
-/* ── the loop ──────────────────────────────────────────────────── */
+/* ── how it works ──────────────────────────────────────────────── */
 
-.kiln-landing-2 .kiln-loop__grid {
+.kiln-landing-2 .kiln-how__grid {
   margin: clamp(32px, 5vw, 56px) 0 0;
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
 
-.kiln-landing-2 .kiln-loop__step {
+.kiln-landing-2 .kiln-how__step {
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  padding: 22px 20px;
+  padding: 24px 22px;
   box-shadow: var(--shadow-card);
 }
 
-.kiln-landing-2 .kiln-loop__num {
+.kiln-landing-2 .kiln-how__num {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
   color: var(--accent);
 }
 
-.kiln-landing-2 .kiln-loop__step h3 {
+/* The mark row holds each step's icon(s). A fixed min-height keeps the headings
+   below aligned across cards whether a step shows one glyph or a row of agent
+   logos. */
+.kiln-landing-2 .kiln-how__marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 16px 0 4px;
+  color: var(--text-body);
+}
+
+.kiln-landing-2 .kiln-how__logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-body);
+  background: var(--surface-subtle);
+}
+
+.kiln-landing-2 .kiln-how__monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kiln-landing-2 .kiln-how__step h3 {
   margin: 12px 0 6px;
   font: var(--type-heading);
 }
 
-.kiln-landing-2 .kiln-loop__step p {
+.kiln-landing-2 .kiln-how__step p {
   margin: 0;
   font-size: 14.5px;
   line-height: 1.55;
@@ -398,14 +437,10 @@
 }
 
 @media (max-width: 900px) {
-  .kiln-landing-2 .kiln-loop__grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 560px) {
-  .kiln-landing-2 .kiln-loop__grid {
+  .kiln-landing-2 .kiln-how__grid {
     grid-template-columns: 1fr;
+    max-width: 540px;
+    margin-inline: auto;
   }
 }
 

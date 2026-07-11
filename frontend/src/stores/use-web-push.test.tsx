@@ -7,6 +7,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { JSX } from 'react';
 import { useWebPush } from '@/stores/use-web-push';
 import * as transport from '@/transport/transport';
+// The static worker's source, read verbatim (Vite `?raw`) so we can run it
+// against a stub `self` — it isn't an importable module (see the SW suite below).
+import swSource from '../../public/push-sw.js?raw';
 
 vi.mock('@/transport/transport', () => ({
   fetchPushKey: vi.fn(),
@@ -262,5 +265,103 @@ describe('useWebPush', () => {
       expect(screen.getByTestId('status').textContent).toBe('denied');
     });
     expect(vi.mocked(transport.postPushSubscription)).not.toHaveBeenCalled();
+  });
+});
+
+// The static service worker (public/push-sw.js) is served verbatim and imports
+// nothing, so we exercise its `push` handler by evaluating the file against a
+// stub `self`. The behaviour under test is the iOS revocation guard: WebKit
+// permanently drops a push subscription after ~3 pushes that don't show a
+// notification, so the foreground-suppression shortcut must NOT run on iOS.
+describe('push service worker', () => {
+  interface FakeNavigator {
+    userAgent?: string;
+    platform?: string;
+    maxTouchPoints?: number;
+  }
+  interface PushLikeEvent {
+    data: { json: () => unknown };
+    waitUntil: (p: Promise<unknown>) => void;
+  }
+  type PushHandler = (event: PushLikeEvent) => void;
+
+  const PAYLOAD = { title: 'Blocked', body: 'A ticket needs you', url: '/app?ticket=1' };
+  const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
+  const CHROME_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0';
+
+  // Load push-sw.js against a stubbed worker global and return its `push`
+  // handler plus the showNotification spy. `foreground` controls whether a
+  // visible Kiln tab is reported to matchAll().
+  function loadServiceWorker(
+    navigator: FakeNavigator,
+    foreground: boolean,
+  ): { push: PushHandler; showNotification: ReturnType<typeof vi.fn> } {
+    const handlers = new Map<string, PushHandler>();
+    const showNotification = vi.fn(() => Promise.resolve());
+    const windows = foreground ? [{ focused: true, visibilityState: 'visible' }] : [];
+    const fakeSelf = {
+      navigator,
+      addEventListener: (type: string, handler: PushHandler) => {
+        handlers.set(type, handler);
+      },
+      skipWaiting: vi.fn(),
+      clients: {
+        claim: vi.fn(() => Promise.resolve()),
+        matchAll: vi.fn(() => Promise.resolve(windows)),
+      },
+      registration: { showNotification },
+    };
+    const fakeCaches = { keys: () => Promise.resolve([]), delete: () => Promise.resolve() };
+    // The worker is plain JS with free `self`/`caches` and registers its handlers
+    // at top level, so it can't be imported — bind the globals as parameters and
+    // run it once. eslint-disable: this eval is over trusted first-party source.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call
+    new Function('self', 'caches', swSource)(fakeSelf, fakeCaches);
+    const push = handlers.get('push');
+    if (push === undefined) throw new Error('worker registered no push handler');
+    return { push, showNotification };
+  }
+
+  // Fire the push handler and await the promise it hands to waitUntil.
+  async function dispatchPush(handler: PushHandler): Promise<void> {
+    let pending: Promise<unknown> = Promise.resolve();
+    handler({
+      data: { json: () => PAYLOAD },
+      waitUntil: (p) => {
+        pending = p;
+      },
+    });
+    await pending;
+  }
+
+  it('shows a notification when the app is backgrounded, on any engine', async () => {
+    const { push, showNotification } = loadServiceWorker({ userAgent: CHROME_UA }, false);
+    await dispatchPush(push);
+    expect(showNotification).toHaveBeenCalledOnce();
+  });
+
+  it('suppresses a foreground push on non-iOS engines (they grant a silent budget)', async () => {
+    const { push, showNotification } = loadServiceWorker({ userAgent: CHROME_UA }, true);
+    await dispatchPush(push);
+    expect(showNotification).not.toHaveBeenCalled();
+  });
+
+  it('still shows a foreground push on iPhone, so iOS never revokes the subscription', async () => {
+    const { push, showNotification } = loadServiceWorker({ userAgent: IPHONE_UA }, true);
+    await dispatchPush(push);
+    expect(showNotification).toHaveBeenCalledOnce();
+  });
+
+  it('still shows a foreground push on iPadOS (desktop UA masquerade + touch points)', async () => {
+    const { push, showNotification } = loadServiceWorker(
+      {
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15',
+        platform: 'MacIntel',
+        maxTouchPoints: 5,
+      },
+      true,
+    );
+    await dispatchPush(push);
+    expect(showNotification).toHaveBeenCalledOnce();
   });
 });

@@ -58,13 +58,32 @@ async function appIsInForeground() {
   return all.some((client) => client.focused || client.visibilityState === 'visible');
 }
 
+// iOS/iPadOS (WebKit) enforces the userVisibleOnly contract with no tolerance: a
+// `push` handler that finishes without calling showNotification() is treated as
+// a silent push, and after ~3 of those WebKit PERMANENTLY REVOKES the push
+// subscription — notifications "turn off" with no user action. So on iOS we must
+// always show, even for a foregrounded tab; the foreground-suppression shortcut
+// is only safe on engines that grant a silent-push budget (Chromium, Gecko).
+// iPadOS 13+ reports a desktop-Safari UA, so fall back to the touch-capable-Mac
+// signal (both userAgent and maxTouchPoints are exposed on WorkerNavigator).
+function isAppleWebKit() {
+  const nav = self.navigator;
+  if (!nav) return false;
+  const ua = nav.userAgent || '';
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  return nav.platform === 'MacIntel' && (nav.maxTouchPoints || 0) > 1;
+}
+
 self.addEventListener('push', function (event) {
   const message = parsePush(event.data);
   event.waitUntil(
     (async function () {
       // Don't interrupt the user with a push for something they're already
       // looking at — the open board (and its Blocked zone, 07 §6) is the surface.
-      if (await appIsInForeground()) return;
+      // But NEVER take that shortcut on iOS: a skipped notification there costs
+      // the whole subscription (see isAppleWebKit), so always show and accept the
+      // rare redundant banner over silently losing push entirely.
+      if (!isAppleWebKit() && (await appIsInForeground())) return;
       await self.registration.showNotification(message.title, {
         body: message.body,
         icon: '/kiln-mark.svg',

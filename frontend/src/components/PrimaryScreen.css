@@ -524,8 +524,18 @@
   list-style: none;
   margin: 0;
   padding: 0 6px 6px;
-  max-height: calc(60vh - 34px);
-  overflow-y: auto;
+  /* Cap the dropdown at six ticket rows, then scroll — a long board stays a
+     compact, thumb-reachable list instead of running most of the viewport. A
+     row is 56px (18px vertical padding + a 19.5px label line + 2px gap + a
+     16.5px age line at the base 1.5 line-height), rows sit 2px apart, and the
+     list carries 6px of bottom padding: 6·56 + 5·2 + 6 = 352px. The 60vh
+     ceiling still wins on short screens so the panel can't overrun the
+     viewport. */
+  max-height: min(352px, calc(60vh - 34px));
+  /* Always scrollable (reserve the gutter) so the list never reflows its width
+     as it crosses the six-row threshold and the overflow affordance stays
+     consistent whatever the ticket count. */
+  overflow-y: scroll;
 }
 
 [data-role='header-status-row'] {

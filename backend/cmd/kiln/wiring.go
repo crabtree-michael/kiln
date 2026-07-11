@@ -226,7 +226,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	agentSvc = agent.NewService(
 		agentpg.New(db), &providerResolver{registry: registry}, projects,
 		agentEvents, &slotsAdapter{store: boardStore}, clock,
-		&boardRefreshAdapter{hub: hub, projects: projects},
+		&boardRefreshAdapter{hub: hub, projects: projects, health: boardSvc},
 	)
 	hub.SetAgentInspector(&agentStatusAdapter{inner: agentSvc})
 

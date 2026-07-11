@@ -465,6 +465,18 @@ func (s *Service) GetBoard(ctx context.Context, projectID string) (Snapshot, err
 	return snap, nil
 }
 
+// SetWorkerHealth reconciles the project's worker health so the pull binds only
+// healthy sandboxes (03 §5 amended). erroredWorkerIDs are the workers currently
+// in a terminal failure state; every other worker of the project is set healthy.
+// A system action driven by the agent liveness reconciler, never a brain
+// decision.
+func (s *Service) SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error {
+	if err := s.store.SetWorkerHealth(ctx, projectID, erroredWorkerIDs); err != nil {
+		return fmt.Errorf("board: set worker health: %w", err)
+	}
+	return nil
+}
+
 // RunPull is the deterministic pull (03 §5) — a system action, never a brain
 // decision (03 I6). It works one project's board: it loops, one transaction
 // per binding (pullOnce), until no (ready ticket, free worker) pair remains

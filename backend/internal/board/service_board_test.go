@@ -123,3 +123,7 @@ func (s *errorStore) Snapshot(ctx context.Context, projectID string) (board.Snap
 func (s *errorStore) GetTicket(ctx context.Context, projectID string, id board.TicketID) (board.Ticket, error) {
 	return board.Ticket{}, s.err
 }
+
+func (s *errorStore) SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error {
+	return s.err
+}

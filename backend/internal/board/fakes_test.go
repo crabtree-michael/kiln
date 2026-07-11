@@ -46,12 +46,13 @@ type fakeEmission struct {
 // deliberate: test fixtures must not depend on the very Service behavior
 // under test (which, in the red phase, is all errNotImplemented stubs).
 type fakeStore struct {
-	mu         sync.Mutex
-	tickets    map[board.TicketID]board.Ticket
-	ticketProj map[board.TicketID]string // ticket id -> owning project
-	workers    map[board.WorkerID]board.Worker
-	workerProj map[board.WorkerID]string // worker id -> owning project
-	outbox     []fakeEmission
+	mu          sync.Mutex
+	tickets     map[board.TicketID]board.Ticket
+	ticketProj  map[board.TicketID]string // ticket id -> owning project
+	workers     map[board.WorkerID]board.Worker
+	workerProj  map[board.WorkerID]string // worker id -> owning project
+	workerError map[board.WorkerID]bool   // worker id -> errored (unhealthy); absent = healthy
+	outbox      []fakeEmission
 
 	seq      int
 	nextTime time.Time // monotonically-advancing fake clock for CreatedAt/UpdatedAt
@@ -59,11 +60,12 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		tickets:    map[board.TicketID]board.Ticket{},
-		ticketProj: map[board.TicketID]string{},
-		workers:    map[board.WorkerID]board.Worker{},
-		workerProj: map[board.WorkerID]string{},
-		nextTime:   time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
+		tickets:     map[board.TicketID]board.Ticket{},
+		ticketProj:  map[board.TicketID]string{},
+		workers:     map[board.WorkerID]board.Worker{},
+		workerProj:  map[board.WorkerID]string{},
+		workerError: map[board.WorkerID]bool{},
+		nextTime:    time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -147,7 +149,7 @@ func (s *fakeStore) Snapshot(ctx context.Context, projectID string) (board.Snaps
 			continue
 		}
 		total++
-		if !busy[id] {
+		if !busy[id] && !s.workerError[id] { // free = unbound AND healthy (03 §5 amended)
 			free++
 		}
 	}
@@ -167,6 +169,29 @@ func (s *fakeStore) GetTicket(_ context.Context, projectID string, id board.Tick
 		return board.Ticket{}, board.ErrNotFound
 	}
 	return t, nil
+}
+
+// SetWorkerHealth reconciles the project's worker health exactly like the
+// adapter's full-reconcile UPDATE: ids in erroredWorkerIDs become unhealthy,
+// every other of the project's workers becomes healthy.
+func (s *fakeStore) SetWorkerHealth(_ context.Context, projectID string, erroredWorkerIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	errset := make(map[board.WorkerID]bool, len(erroredWorkerIDs))
+	for _, id := range erroredWorkerIDs {
+		errset[board.WorkerID(id)] = true
+	}
+	for id := range s.workers {
+		if s.workerProj[id] != projectID {
+			continue
+		}
+		if errset[id] {
+			s.workerError[id] = true
+		} else {
+			delete(s.workerError, id)
+		}
+	}
+	return nil
 }
 
 // now returns a strictly-increasing timestamp, so CreatedAt/tie-break
@@ -359,7 +384,7 @@ func (t *fakeTx) FreeWorker(_ context.Context, projectID string) (board.Worker, 
 	sort.Strings(ids)
 	for _, id := range ids {
 		wid := board.WorkerID(id)
-		if !busy[wid] {
+		if !busy[wid] && !t.s.workerError[wid] { // pull binds only healthy free workers (03 §5 amended)
 			return t.s.workers[wid], true, nil
 		}
 	}

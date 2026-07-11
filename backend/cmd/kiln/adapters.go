@@ -464,6 +464,7 @@ var _ api.AgentInspector = (*agentStatusAdapter)(nil)
 type boardRefreshAdapter struct {
 	hub      *api.Hub
 	projects projectLister
+	health   workerHealthSetter
 }
 
 func (a *boardRefreshAdapter) RefreshBoard(ctx context.Context) error {
@@ -477,6 +478,23 @@ func (a *boardRefreshAdapter) RefreshBoard(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// SetWorkerHealth forwards the agent liveness loop's per-project errored-worker
+// set to the board so the pull skips failing sandboxes (03 §5 amended). The
+// board owns the workers row; this adapter only bridges the agent module's
+// outbound seam to it.
+func (a *boardRefreshAdapter) SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error {
+	if err := a.health.SetWorkerHealth(ctx, projectID, erroredWorkerIDs); err != nil {
+		return fmt.Errorf("kiln: set worker health %s: %w", projectID, err)
+	}
+	return nil
+}
+
+// workerHealthSetter is the board write the boardRefreshAdapter needs; satisfied
+// by *board.Service.
+type workerHealthSetter interface {
+	SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error
 }
 
 var _ agent.BoardRefresher = (*boardRefreshAdapter)(nil)

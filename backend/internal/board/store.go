@@ -26,6 +26,16 @@ type Store interface {
 	// exist within the project or the ticket has been archived (an archived
 	// ticket is gone from every read).
 	GetTicket(ctx context.Context, projectID string, id TicketID) (Ticket, error)
+
+	// SetWorkerHealth reconciles the health of every worker in the project in
+	// one write: each id in erroredWorkerIDs becomes 'errored', every other of
+	// the project's workers becomes 'ok' (03 §5 amended). A full reconcile (not
+	// an incremental set) means a recovered or provider-dropped worker flips
+	// back to healthy automatically. Called by the agent liveness reconciler
+	// through the composition root; a worker marked 'errored' is excluded from
+	// FreeWorker and the WorkerFree count, so the pull never binds a ticket to a
+	// failing sandbox. Ids not owned by the project are ignored.
+	SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error
 }
 
 // Tx is the transaction-scoped view of the store. The service works

@@ -619,6 +619,118 @@ func TestProjectIsolation_ReconcileWorkersAndWorkerIDs(t *testing.T) {
 	}
 }
 
+// Worker-health family (03 §5 amended): an errored worker is excluded from the
+// free count and never bound by the pull; SetWorkerHealth reconciles both ways
+// and stays project-scoped.
+
+// TestSetWorkerHealth_ErroredWorkerSkippedByPull proves FreeWorker's health
+// predicate: with one of two workers errored and two ready tickets, exactly one
+// ticket pulls, bound to the healthy worker.
+func TestSetWorkerHealth_ErroredWorkerSkippedByPull(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	errored := mustInsertWorker(ctx, t, db, projA)
+	healthy := mustInsertWorker(ctx, t, db, projA)
+	if err := store.SetWorkerHealth(ctx, projA, []string{errored}); err != nil {
+		t.Fatalf("SetWorkerHealth: %v", err)
+	}
+
+	ids := make([]board.TicketID, 0, 2)
+	for _, title := range []string{"t1", "t2"} {
+		tk, err := svc.CreateTicket(ctx, projA, title, "")
+		if err != nil {
+			t.Fatalf("CreateTicket: %v", err)
+		}
+		if _, err := svc.MarkReady(ctx, projA, tk.ID); err != nil {
+			t.Fatalf("MarkReady: %v", err)
+		}
+		ids = append(ids, tk.ID)
+	}
+
+	snap, err := svc.GetBoard(ctx, projA)
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if snap.WorkerTotal != 2 || snap.WorkerFree != 1 {
+		t.Errorf("WorkerTotal/WorkerFree = %d/%d, want 2/1 (errored worker in total, out of free)",
+			snap.WorkerTotal, snap.WorkerFree)
+	}
+
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+
+	working, ready := 0, 0
+	var boundWorker string
+	for _, id := range ids {
+		got, gerr := svc.GetTicket(ctx, projA, id)
+		if gerr != nil {
+			t.Fatalf("GetTicket: %v", gerr)
+		}
+		switch got.State {
+		case board.StateWorking:
+			working++
+			if got.WorkerID != nil {
+				boundWorker = string(*got.WorkerID)
+			}
+		case board.StateReady:
+			ready++
+		case board.StateShaping, board.StateBlocked, board.StateDone:
+			// never occur for these two just-pulled tickets
+		}
+	}
+	if working != 1 || ready != 1 {
+		t.Errorf("after pull: working=%d ready=%d, want 1/1 (only one healthy sandbox)", working, ready)
+	}
+	if boundWorker != healthy {
+		t.Errorf("bound worker = %q, want the healthy worker %q, never the errored %q",
+			boundWorker, healthy, errored)
+	}
+}
+
+// TestSetWorkerHealth_ReconcilesBothWaysAndPerProject proves the full reconcile
+// flips a worker errored→healthy and back, and never touches another project's
+// rows.
+func TestSetWorkerHealth_ReconcilesBothWaysAndPerProject(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	wA := mustInsertWorker(ctx, t, db, projA)
+	mustInsertWorker(ctx, t, db, projB) // must stay healthy through a projA reconcile
+
+	freeCount := func(proj string) int {
+		t.Helper()
+		snap, err := svc.GetBoard(ctx, proj)
+		if err != nil {
+			t.Fatalf("GetBoard(%s): %v", proj, err)
+		}
+		return snap.WorkerFree
+	}
+
+	if err := store.SetWorkerHealth(ctx, projA, []string{wA}); err != nil {
+		t.Fatalf("mark errored: %v", err)
+	}
+	if got := freeCount(projA); got != 0 {
+		t.Errorf("projA WorkerFree = %d after errored, want 0", got)
+	}
+	if got := freeCount(projB); got != 1 {
+		t.Errorf("projB WorkerFree = %d, want 1 — a projA reconcile must not touch projB", got)
+	}
+
+	// Recovery: an empty errored set flips projA's worker back to healthy.
+	if err := store.SetWorkerHealth(ctx, projA, nil); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if got := freeCount(projA); got != 1 {
+		t.Errorf("projA WorkerFree = %d after recovery, want 1", got)
+	}
+}
+
 // Outbox family: every emission is stamped with the project that produced it.
 func TestProjectIsolation_OutboxRowsCarryProjectID(t *testing.T) {
 	db := testDB(t)

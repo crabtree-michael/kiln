@@ -262,6 +262,82 @@ func TestRunPull_BusyWorkerIsDerivedNotStored(t *testing.T) {
 	}
 }
 
+// TestRunPull_SkipsErroredWorker_BindsOnlyHealthyCapacity pins the health-aware
+// pull (03 §5 amended): with one sandbox errored, the pull binds only as many
+// tickets as there are healthy free workers, and never to the failing worker.
+func TestRunPull_SkipsErroredWorker_BindsOnlyHealthyCapacity(t *testing.T) {
+	store := newFakeStore()
+	svc := board.NewService(store)
+	ctx := context.Background()
+	workers := store.seedWorkers(projA, 2)
+	// The liveness reconciler has marked the first sandbox errored.
+	if err := svc.SetWorkerHealth(ctx, projA, []string{string(workers[0])}); err != nil {
+		t.Fatalf("SetWorkerHealth: %v", err)
+	}
+	rt := store.now()
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateReady, Priority: 5, ReadyAt: &rt})
+	store.seedTicket(projA, board.Ticket{ID: "t2", Title: "T", State: board.StateReady, Priority: 1, ReadyAt: &rt})
+
+	// The displayed capacity reflects only the healthy free worker.
+	snap, err := svc.GetBoard(ctx, projA)
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if snap.WorkerFree != 1 || snap.WorkerTotal != 2 {
+		t.Errorf("WorkerFree/WorkerTotal = %d/%d, want 1/2 (errored worker excluded from free, kept in total)",
+			snap.WorkerFree, snap.WorkerTotal)
+	}
+
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+
+	// Exactly one ticket binds — the higher-priority one, to the healthy worker.
+	pulled := boundWorkingTicketID(t, store)
+	if pulled != "t1" {
+		t.Errorf("bound ticket = %q, want t1 (the healthy worker's single slot, highest priority)", pulled)
+	}
+	bound, _ := store.ticket(pulled)
+	if bound.WorkerID == nil || *bound.WorkerID != workers[1] {
+		t.Errorf("bound worker = %v, want healthy %q, never errored %q", bound.WorkerID, workers[1], workers[0])
+	}
+	if t2, _ := store.ticket("t2"); t2.State != board.StateReady {
+		t.Errorf("t2 state = %q, want left ready — only one healthy sandbox available", t2.State)
+	}
+}
+
+// TestSetWorkerHealth_RecoveryReopensWorkerToPull proves the full reconcile
+// flips a worker back to healthy: a recovered sandbox becomes pullable again.
+func TestSetWorkerHealth_RecoveryReopensWorkerToPull(t *testing.T) {
+	store := newFakeStore()
+	svc := board.NewService(store)
+	ctx := context.Background()
+	workers := store.seedWorkers(projA, 1)
+	if err := svc.SetWorkerHealth(ctx, projA, []string{string(workers[0])}); err != nil {
+		t.Fatalf("mark errored: %v", err)
+	}
+	rt := store.now()
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateReady, ReadyAt: &rt})
+
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull (errored): %v", err)
+	}
+	if tk, _ := store.ticket("t1"); tk.State != board.StateReady {
+		t.Fatalf("t1 state = %q, want still ready while the sole worker is errored", tk.State)
+	}
+
+	// Sandbox recovers: a reconcile with an empty errored set clears its health.
+	if err := svc.SetWorkerHealth(ctx, projA, nil); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull (recovered): %v", err)
+	}
+	if tk, _ := store.ticket("t1"); tk.State != board.StateWorking {
+		t.Errorf("t1 state = %q, want working after the worker recovered", tk.State)
+	}
+}
+
 // boundWorkingTicketID asserts exactly one ticket in the store transitioned
 // to working and returns its id.
 func boundWorkingTicketID(t *testing.T, store *fakeStore) board.TicketID {

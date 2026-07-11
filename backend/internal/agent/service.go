@@ -89,6 +89,14 @@ type Clock interface {
 // the SSE hub. Optional — a nil refresher just skips the nudge.
 type BoardRefresher interface {
 	RefreshBoard(ctx context.Context) error
+
+	// SetWorkerHealth reports the project's currently-errored worker ids to the
+	// board so the pull binds Ready tickets only to healthy sandboxes (03 §5
+	// amended). Full reconcile per project: ids not listed are treated healthy.
+	// The agent module detects the failure (terminal RunErrored liveness); the
+	// board owns the workers row and performs the write. Fire-and-forget like
+	// RefreshBoard — a missed write self-heals on the next liveness tick.
+	SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error
 }
 
 // Service is the provider-agnostic core (05 §9): it implements the
@@ -375,12 +383,36 @@ func (s *Service) refreshStatuses(ctx context.Context) {
 			continue
 		}
 		infos = append(infos, got...)
+		s.reconcileWorkerHealth(ctx, pid, got)
 	}
 	if !s.statusChanged(infos) || s.refresher == nil {
 		return
 	}
 	if err := s.refresher.RefreshBoard(ctx); err != nil {
 		slog.WarnContext(ctx, "agent: refresh board after liveness change", "err", err)
+	}
+}
+
+// reconcileWorkerHealth reports the project's currently-errored worker ids to
+// the board so the pull binds Ready tickets only to healthy sandboxes (03 §5
+// amended). Called every tick per project — the board write is an idempotent
+// full reconcile keyed on the project's own worker ids, so it must NOT ride the
+// aggregated statusChanged gate (which spans all projects and decides only
+// whether to re-push Streams). A nil refresher (test wiring that does not
+// exercise the board seam) skips it, exactly like the board nudge.
+func (s *Service) reconcileWorkerHealth(ctx context.Context, projectID string, infos []AgentInfo) {
+	if s.refresher == nil {
+		return
+	}
+	var errored []string
+	for _, in := range infos {
+		if in.Status == AgentErrored {
+			errored = append(errored, in.WorkerID)
+		}
+	}
+	if err := s.refresher.SetWorkerHealth(ctx, projectID, errored); err != nil {
+		slog.WarnContext(ctx, "agent: set worker health after liveness refresh",
+			"project", projectID, "err", err)
 	}
 }
 

@@ -17,6 +17,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/pgutil"
 )
@@ -75,7 +77,8 @@ func (s *Store) Snapshot(ctx context.Context, projectID string) (board.Snapshot,
 		return board.Snapshot{}, fmt.Errorf("board/postgres: count workers: %w", err)
 	}
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM workers s WHERE s.project_id = $1 AND NOT EXISTS (`+activeTicketExists+`)`,
+		`SELECT count(*) FROM workers s
+		 WHERE s.project_id = $1 AND s.health = 'ok' AND NOT EXISTS (`+activeTicketExists+`)`,
 		projectID).
 		Scan(&snap.WorkerFree); err != nil {
 		return board.Snapshot{}, fmt.Errorf("board/postgres: count free workers: %w", err)
@@ -96,6 +99,26 @@ func (s *Store) GetTicket(ctx context.Context, projectID string, id board.Ticket
 		return board.Ticket{}, board.ErrNotFound
 	}
 	return tk, err
+}
+
+// SetWorkerHealth reconciles the project's worker health in one statement (03 §5
+// amended): every worker whose id is in erroredWorkerIDs becomes 'errored', all
+// other workers of the project become 'ok'. A full reconcile — not an
+// incremental flip — so a recovered or provider-dropped worker returns to
+// healthy without a separate clear. An empty set (pq.Array yields an empty SQL
+// array) makes the ANY comparison false for every row, marking the whole pool
+// healthy. Ids are compared as text: workers.id is a uuid, the reported ids are
+// its canonical string form. A plain write outside any transaction — the pull's
+// FreeWorker re-checks health under its own row lock.
+func (s *Store) SetWorkerHealth(ctx context.Context, projectID string, erroredWorkerIDs []string) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE workers
+		 SET health = CASE WHEN id::text = ANY($2) THEN 'errored' ELSE 'ok' END
+		 WHERE project_id = $1`,
+		projectID, pq.Array(erroredWorkerIDs)); err != nil {
+		return fmt.Errorf("board/postgres: set worker health: %w", err)
+	}
+	return nil
 }
 
 // ReconcileWorkers brings the project's workers to exactly n rows at startup
@@ -390,7 +413,7 @@ func (t *tx) AppendOutbox(ctx context.Context, projectID string, e board.Emissio
 func (t *tx) lockFreeCandidates(ctx context.Context, projectID string, out *[]workerRow) (err error) {
 	rows, err := t.sqltx.QueryContext(ctx,
 		`SELECT s.id, s.created_at FROM workers s
-		 WHERE s.project_id = $1 AND NOT EXISTS (`+activeTicketExists+`)
+		 WHERE s.project_id = $1 AND s.health = 'ok' AND NOT EXISTS (`+activeTicketExists+`)
 		 ORDER BY s.id
 		 FOR UPDATE OF s SKIP LOCKED`, projectID)
 	if err != nil {

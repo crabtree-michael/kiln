@@ -731,3 +731,15 @@ export async function acceptTicket(id: string): Promise<MessagePostResponse> {
   }
   return payload;
 }
+
+/** `POST /api/tickets/{id}/delete` — routes a proposal deletion through the brain
+ * like `acceptTicket`: the brain archives the shaping ticket via delete_ticket, so
+ * the client never mutates the board directly (D5). */
+export async function deleteTicket(id: string): Promise<MessagePostResponse> {
+  const response = await fetch(`/api/tickets/${id}/delete`, { method: 'POST' });
+  const payload: unknown = await response.json();
+  if (!isMessagePostResponse(payload)) {
+    throw new Error('deleteTicket: unexpected response shape');
+  }
+  return payload;
+}

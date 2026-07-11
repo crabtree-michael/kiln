@@ -376,6 +376,31 @@
   transform: translateY(1px);
 }
 
+/* Delete action — discard a proposal that's no longer wanted, shown left of the
+ * Accept pill on a shaping ticket. A quiet, destructive ghost pill: outlined in
+ * the danger hue rather than accent-filled, so it reads as the secondary, undo-
+ * able-only-by-reproposing exit it is — never competing with Accept for the eye,
+ * but unmistakably the removing action (the trash glyph + danger tint). */
+[data-role='detail-delete'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--danger);
+  background: transparent;
+  border: 1.5px solid var(--danger-soft);
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+[data-role='detail-delete']:active {
+  transform: translateY(1px);
+}
+
 /* ---------------------------------------------------------------------------
  * Primary-screen skin (08 §5). The base rules above dress the sheet for the
  * /debug board's denser register; on the primary screen we repaint it in the
@@ -518,5 +543,28 @@
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke']:active {
+  transform: translateY(1px);
+}
+
+/* Delete keeps its quiet destructive register on the primary surface — a danger-
+ * outlined ghost pill that recedes behind the accent Accept beside it, and fills
+ * with the danger hue on hover to confirm it's the removing action. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete'] {
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--surface-card);
+  border: 1.5px solid var(--danger-soft);
+  border-radius: var(--radius-pill);
+  padding: 9px 16px;
+  box-shadow: none;
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete']:hover {
+  border-color: var(--danger);
+  color: var(--text-on-accent);
+  background: var(--danger);
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete']:active {
   transform: translateY(1px);
 }

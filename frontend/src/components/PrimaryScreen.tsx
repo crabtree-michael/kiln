@@ -13,7 +13,7 @@ import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
 import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
-import { acceptTicket, postMessage } from '@/transport/transport';
+import { acceptTicket, deleteTicket, postMessage } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
 
@@ -31,6 +31,7 @@ function PrimaryScreenBody(): JSX.Element {
     loadMoreHistory,
     refreshFeed,
     acceptProposal,
+    deleteProposal,
     dismissCard,
     dismissAll,
   } = useFeedStore();
@@ -49,6 +50,18 @@ function PrimaryScreenBody(): JSX.Element {
       void acceptTicket(ticketId);
     },
     [acceptProposal],
+  );
+
+  const onDelete = useCallback(
+    (ticketId: string): void => {
+      // Optimistically drop the proposal card so the tap feels instant; the hide
+      // is time-boxed and self-heals if the delete never lands (feed store).
+      deleteProposal(ticketId);
+      // Deleting routes through the brain (delete_ticket, D5), same as accept; the
+      // resulting board + feed removal comes back over the stream. Fire-and-forget.
+      void deleteTicket(ticketId);
+    },
+    [deleteProposal],
   );
 
   const onPoke = useCallback((ticketId: string): void => {
@@ -71,6 +84,7 @@ function PrimaryScreenBody(): JSX.Element {
       toasts={toasts}
       onDismiss={dismiss}
       onAccept={onAccept}
+      onDelete={onDelete}
       onPoke={onPoke}
       onDismissCard={dismissCard}
       onDismissAll={dismissAll}

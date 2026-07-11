@@ -29,6 +29,15 @@ export interface TicketDetailProps {
    * moves a shaped proposal into the pull, so every later state (ready, working,
    * blocked, done) has already passed that point and shows no button regardless. */
   onAccept?: (ticketId: string) => void;
+  /** When provided, a shaping proposal also shows a Delete action — the user can
+   * discard a proposal that is no longer relevant without leaving the detail
+   * sheet. Like Accept it only appears while the ticket is still shaping (a
+   * proposal); every later state (ready, working, blocked, done) is past the
+   * point where discarding a proposal makes sense and shows no button. The caller
+   * routes the deletion through the brain (D5), which archives the ticket via
+   * delete_ticket. Omitted → no Delete affordance (the debug board's read-only
+   * inspection, and non-shaping states). */
+  onDelete?: ((ticketId: string) => void) | undefined;
   /** When provided on a *blocked* ticket, the Accept action is replaced by a Talk
    * button — the blocked work can't be accepted, only discussed. Tapping it hands
    * off to the voice pipeline so the user can tell the brain how to unblock (the
@@ -110,6 +119,7 @@ export function TicketDetail({
   ticket,
   onClose,
   onAccept,
+  onDelete,
   onTalk,
   onPoke,
   agentIdle = false,
@@ -146,12 +156,13 @@ export function TicketDetail({
   const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
   const canTalk = isBlocked && onTalk !== undefined;
   const canAccept = isShaping && onAccept !== undefined;
-  // The bottom-left voice control is a proposal affordance, so it rides the same
-  // shaping-only gate as Accept: a proposal is only ever a shaping ticket, and the
-  // caller only wires it on the primary screen (the /debug board leaves it
-  // undefined). Rendered in its own lead cluster so a delete button can join it
-  // later without disturbing the trailing Accept/Talk/Poke.
+  // The bottom-left lead cluster holds the proposal's secondary affordances — the
+  // voice mic and the Delete button. Both ride the same shaping-only gate as
+  // Accept (a proposal is only ever a shaping ticket) and are wired only on the
+  // primary screen (the /debug board leaves both undefined). They sit left of the
+  // trailing Accept/Talk/Poke — the bottom-left pair 08 §5 calls for.
   const showVoice = isShaping && voiceControl !== undefined;
+  const canDelete = isShaping && onDelete !== undefined;
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -242,19 +253,59 @@ export function TicketDetail({
                           expresses intent — the caller routes it through the brain
                           (D5), never a direct agent command.
                • Talk   → blocked: hand off to voice to discuss the unblock.
+               • Delete → shaping-only: discard a proposal that's no longer wanted,
+                          routed through the brain (delete_ticket, D5). A
+                          destructive secondary sitting left of Accept.
                • Accept → the proposal click-through (08 §5), shaping-only (every
                           later state has already been accepted).
-              Poke sits first (left); the state's primary action (Talk/Accept) stays
-              rightmost, where flex-end makes it the most prominent. Each button
-              narrows on its callback directly inside the guard so TypeScript knows
-              it's defined in the handler — no optional chain (the lint gate). */}
-          {(showVoice || canPoke || canTalk || canAccept) && (
+              The lead cluster (mic + Delete) and Poke sit first (left); the state's
+              primary action (Talk/Accept) stays rightmost, where flex-end makes it
+              the most prominent. Each button narrows on its callback directly inside
+              the guard so TypeScript knows it's defined in the handler — no optional
+              chain (the lint gate). */}
+          {(showVoice || canPoke || canTalk || canDelete || canAccept) && (
             <div data-role="ticket-detail-actions">
-              {/* Bottom-left cluster: the mic (and, later, delete). `margin-right:
-                  auto` on it pushes the trailing state action (Accept/Talk/Poke)
-                  to the right, so when it's absent the row is byte-identical to the
-                  old flex-end footer. */}
-              {showVoice && <div data-role="ticket-detail-lead-actions">{voiceControl}</div>}
+              {/* Bottom-left cluster: the mic and the Delete button — the pair
+                  08 §5 calls for. `margin-right: auto` on it pushes the trailing
+                  state action (Accept/Talk/Poke) to the right; absent (every
+                  non-proposal sheet) the row is byte-identical to the old flex-end
+                  footer. */}
+              {(showVoice || canDelete) && (
+                <div data-role="ticket-detail-lead-actions">
+                  {showVoice && voiceControl}
+                  {/* isShaping is already guaranteed here (the cluster only renders
+                      when showVoice||canDelete, both shaping-only), so this narrows
+                      on the callback alone — TypeScript needs the direct !== check
+                      to know it's defined in onClick (a derived boolean wouldn't). */}
+                  {onDelete !== undefined && (
+                    <button
+                      type="button"
+                      data-role="detail-delete"
+                      onClick={() => {
+                        onDelete(ticket.id);
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M4 7h16" />
+                        <path d="M10 11v6M14 11v6" />
+                        <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+                        <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                      </svg>
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )}
               {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
                 <button
                   type="button"

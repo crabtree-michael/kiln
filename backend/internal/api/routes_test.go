@@ -881,6 +881,60 @@ func TestHandleAccept_UnknownTicketFallsBackToID(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteProposal_PostsSynthesizedMessageAndReturns202(t *testing.T) {
+	boards := &fakeBoardReader{snapshot: board.Snapshot{
+		Shaping: []board.Ticket{{ID: "t-42", Title: "Payment retries", State: board.StateShaping, ApprovalRequested: true}},
+	}}
+	poster := &fakeMessagePoster{messageID: 5, eventID: 9}
+	srv := api.NewServer(
+		boards, poster, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(enableSession(srv).Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/tickets/t-42/delete", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if poster.callCount() != 1 {
+		t.Fatalf("PostMessage called %d times, want 1", poster.callCount())
+	}
+	want := `The user tapped Delete on the proposal "Payment retries" (ticket t-42). ` +
+		`Delete that ticket now; do not ask for confirmation.`
+	if got := poster.lastText(); got != want {
+		t.Errorf("posted text =\n  %q\nwant\n  %q", got, want)
+	}
+	var out wire.MessagePostResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.MessageId != 5 || out.EventId != 9 {
+		t.Errorf("response = %+v, want message_id=5 event_id=9", out)
+	}
+}
+
+func TestHandleDeleteProposal_UnknownTicketFallsBackToID(t *testing.T) {
+	boards := &fakeBoardReader{} // empty snapshot: no ticket matches.
+	poster := &fakeMessagePoster{}
+	srv := api.NewServer(
+		boards, poster, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
+	)
+	ts := httptest.NewServer(enableSession(srv).Handler())
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/tickets/t-unknown/delete", nil)
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	if got := poster.lastText(); !strings.Contains(got, `"t-unknown"`) || !strings.Contains(got, "ticket t-unknown") {
+		t.Errorf("posted text = %q, want it to fall back to the id for both title and ticket", got)
+	}
+}
+
 // ---- POST /api/voice/token (09 §2, §6) -------------------------------------
 
 func TestVoiceToken_HappyPath(t *testing.T) {

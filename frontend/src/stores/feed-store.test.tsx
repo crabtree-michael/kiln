@@ -45,7 +45,15 @@ function update(id: number, body: string): ReturnType<typeof makeFeedCard> {
   });
 }
 
-function Probe({ acceptId, dismissId }: { acceptId?: string; dismissId?: number }): JSX.Element {
+function Probe({
+  acceptId,
+  deleteId,
+  dismissId,
+}: {
+  acceptId?: string;
+  deleteId?: string;
+  dismissId?: number;
+}): JSX.Element {
   const {
     feed,
     connectionState,
@@ -54,6 +62,7 @@ function Probe({ acceptId, dismissId }: { acceptId?: string; dismissId?: number 
     loadingMoreHistory,
     loadMoreHistory,
     acceptProposal,
+    deleteProposal,
     dismissCard,
     dismissAll,
   } = useFeedStore();
@@ -80,6 +89,17 @@ function Probe({ acceptId, dismissId }: { acceptId?: string; dismissId?: number 
         }}
       >
         accept
+      </button>
+      <button
+        data-testid="delete"
+        type="button"
+        onClick={() => {
+          if (deleteId !== undefined) {
+            deleteProposal(deleteId);
+          }
+        }}
+      >
+        delete
       </button>
       <button
         data-testid="dismiss"
@@ -550,6 +570,42 @@ describe('FeedProvider', () => {
     // blocker card is untouched.
     act(() => {
       screen.getByTestId('accept').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1');
+    });
+  });
+
+  it('optimistically drops a deleted proposal card immediately (tap-delete)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'blocker',
+            id: 'blocker:b1',
+            label: 'B1',
+            body: 'stuck',
+            createdAt: '2026-07-01T00:00:00Z',
+            ticketId: 'b1',
+          }),
+          proposal('p1'),
+        ],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe deleteId="p1" />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1,proposal:p1');
+    });
+
+    // Delete hides the proposal at once, without waiting on the backend; the
+    // blocker card is untouched.
+    act(() => {
+      screen.getByTestId('delete').click();
     });
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('blocker:b1');

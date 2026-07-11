@@ -1,9 +1,10 @@
 // Unit tests for the ticket-list derivation behind the header dropdown (amended
-// 2026-07-06: only working, blocked, and ready tickets — done and shaping are
-// excluded entirely). Active tickets (working/blocked) come first, then the
-// ready backlog, each newest-ticket first (by created_at). Active rows still
-// join their worker's real session status from board.agents by ticket id,
-// falling back to the column default before a status has arrived.
+// 2026-07-11: only working, blocked, and ready tickets — done and shaping are
+// excluded entirely). Active tickets (working/blocked) come first, newest-ticket
+// first; then the ready backlog, oldest-ticket first so the next item to pick up
+// is at the top (both by created_at). Active rows still join their worker's real
+// session status from board.agents by ticket id, falling back to the column
+// default before a status has arrived.
 import { describe, expect, it } from 'vitest';
 import { ticketStatuses } from '@/components/feed-format';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
@@ -93,7 +94,7 @@ describe('ticketStatuses', () => {
     expect(ticketStatuses(board)).toEqual([]);
   });
 
-  it('orders same-rank tickets newest-ticket first (by created_at)', () => {
+  it('orders the ready backlog oldest-ticket first (by created_at)', () => {
     const ready = (id: string, createdAt: string) =>
       makeTicket({
         ...baseFields,
@@ -109,6 +110,20 @@ describe('ticketStatuses', () => {
         ready('old', '2026-07-01T00:00:00Z'),
         ready('new', '2026-07-05T00:00:00Z'),
         ready('mid', '2026-07-03T00:00:00Z'),
+      ],
+    });
+    // The next item to pick up sits at the top of the backlog.
+    expect(ticketStatuses(board).map((t) => t.id)).toEqual(['old', 'mid', 'new']);
+  });
+
+  it('orders same-state active tickets newest-ticket first (by created_at)', () => {
+    const at = (id: string, createdAt: string) =>
+      makeTicket({ ...baseFields, id, title: id, body: '', state: 'working', priority: 0, createdAt });
+    const board = makeBoard({
+      working: [
+        at('old', '2026-07-01T00:00:00Z'),
+        at('new', '2026-07-05T00:00:00Z'),
+        at('mid', '2026-07-03T00:00:00Z'),
       ],
     });
     expect(ticketStatuses(board).map((t) => t.id)).toEqual(['new', 'mid', 'old']);

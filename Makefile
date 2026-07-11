@@ -65,7 +65,13 @@ test: test-backend test-frontend ## Unit + integration tests both surfaces
 .PHONY: test-backend
 test-backend:
 	cd $(BACKEND) && go test ./...
-	cd $(BACKEND) && go test -tags=integration ./...
+	# Integration tests share one mutable kiln_test DB and reset it with
+	# TRUNCATE (board, runtime, api-tenancy, cmd/kiln all clear overlapping
+	# tables — e.g. outbox, tickets, workers). `go test ./...` runs packages
+	# concurrently by default, so those resets race and wipe each other's rows
+	# mid-test. -p 1 runs the integration packages one at a time (02 §14: the DB
+	# is shared, never isolated per package), which is the only safe order.
+	cd $(BACKEND) && go test -tags=integration -p 1 ./...
 
 .PHONY: test-frontend
 test-frontend:

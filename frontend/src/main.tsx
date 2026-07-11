@@ -20,6 +20,7 @@ import * as Sentry from '@sentry/react';
 import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { DefaultRoute } from '@/components/DefaultRoute';
+import { NotFound } from '@/components/NotFound';
 import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
 import { Guide } from '@/guide/Guide';
@@ -126,6 +127,9 @@ createRoot(root).render(
               </SessionProvider>
             }
           />
+          {/* Catch-all last: every real route above wins first; any other path
+              lands on the standalone 404 page instead of rendering nothing. */}
+          <Route path="*" element={<NotFound />} />
         </SentryRoutes>
       </BrowserRouter>
     </Sentry.ErrorBoundary>

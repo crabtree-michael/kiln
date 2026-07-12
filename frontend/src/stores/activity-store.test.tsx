@@ -24,7 +24,9 @@ vi.mock('@/transport/transport', () => ({
   fetchActivityStatus: vi.fn(),
 }));
 
-const TOAST_MS = 20000;
+// A `say` pill dwells longer (read time); a board `toast` clears fast.
+const SAY_MS = 30000;
+const TOAST_MS = 5000;
 
 function makeSay(text: string): SayEvent {
   return { message_id: 1, text, at: '2026-07-01T00:00:00Z' };
@@ -213,7 +215,7 @@ describe('ActivityProvider', () => {
     expect(thinkingAttr()).toBe('true');
   });
 
-  it('shows a say pill and auto-dismisses it after 20s', () => {
+  it('shows a say pill and auto-dismisses it after 30s', () => {
     mount();
     act(() => {
       capturedHandlers?.onSay(makeSay('working on it'));
@@ -221,7 +223,7 @@ describe('ActivityProvider', () => {
     expect(pills()).toBe('say:working on it');
 
     act(() => {
-      vi.advanceTimersByTime(TOAST_MS - 1);
+      vi.advanceTimersByTime(SAY_MS - 1);
     });
     expect(pills()).toBe('say:working on it');
 
@@ -231,7 +233,7 @@ describe('ActivityProvider', () => {
     expect(pills()).toBe('');
   });
 
-  it('shows a toast and auto-dismisses it after 20s', () => {
+  it('shows a toast and auto-dismisses it after 5s', () => {
     mount();
     act(() => {
       capturedHandlers?.onActivity?.(
@@ -293,13 +295,13 @@ describe('ActivityProvider', () => {
     const [id] = capturedIds;
 
     act(() => {
-      vi.advanceTimersByTime(TOAST_MS - 1000);
+      vi.advanceTimersByTime(SAY_MS - 1000);
       capturedSetToastExpanded?.(id!, true);
     });
-    // Collapsed again — a full fresh 20s starts from here, not the remaining 1s.
+    // Collapsed again — a full fresh 30s starts from here, not the remaining 1s.
     act(() => {
       capturedSetToastExpanded?.(id!, false);
-      vi.advanceTimersByTime(TOAST_MS - 1);
+      vi.advanceTimersByTime(SAY_MS - 1);
     });
     expect(pills()).toBe('say:a long utterance');
 
@@ -337,16 +339,16 @@ describe('ActivityProvider', () => {
     expect(pills()).toBe('toast:started:A|toast:nudged:B|toast:finished:C');
   });
 
-  it('dismisses each stacked toast independently on its own 20s clock', () => {
+  it('dismisses each stacked toast independently on its own 5s clock', () => {
     mount();
     act(() => {
       capturedHandlers?.onActivity?.(
         makeActivityEvent({ kind: 'toast', verb: 'started', ticketTitle: 'A' }),
       );
     });
-    // B arrives 5s after A, so their timers are offset.
+    // B arrives 2s after A, so their timers are offset.
     act(() => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(2000);
     });
     act(() => {
       capturedHandlers?.onActivity?.(
@@ -355,15 +357,15 @@ describe('ActivityProvider', () => {
     });
     expect(pills()).toBe('toast:started:A|toast:nudged:B');
 
-    // A expires 20s after it arrived; B outlives it and the stack reflows.
+    // A expires 5s after it arrived; B outlives it and the stack reflows.
     act(() => {
-      vi.advanceTimersByTime(15000);
+      vi.advanceTimersByTime(3000);
     });
     expect(pills()).toBe('toast:nudged:B');
 
-    // B expires 20s after its own arrival.
+    // B expires 5s after its own arrival.
     act(() => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(2000);
     });
     expect(pills()).toBe('');
   });

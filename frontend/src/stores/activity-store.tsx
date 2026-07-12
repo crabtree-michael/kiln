@@ -12,7 +12,8 @@
 //   - every source pushes onto the stack rather than overwriting — `say` (brain
 //     utterance, reused via onSay) and `toast` (`activity` kind=toast, a board
 //     side-effect) share one surface and stack when several are live at once;
-//   - each toast auto-dismisses independently after 20s (its own timer); opening
+//   - each pill auto-dismisses independently on its own timer (a `say` dwells
+//     30s so it can be read; a board `toast` clears fast at 5s); opening
 //     a toast (to read its full content) pauses that timer so it can't vanish
 //     mid-read, and closing an open toast dismisses it outright (the manual way
 //     out, replacing the old always-on ×). The pause/resume API still resumes a
@@ -39,8 +40,18 @@ export interface ActivityProviderProps {
   children: ReactNode;
 }
 
-/** How long each toast dwells before it auto-dismisses itself (08 §4). */
-const TOAST_MS = 20000;
+/**
+ * How long each pill dwells before it auto-dismisses itself (08 §4). A `say`
+ * (brain utterance) lingers so it can be read; a `toast` (board side-effect
+ * confirmation) is more incidental, so it clears fast to keep the row responsive.
+ */
+const SAY_MS = 30000;
+const TOAST_MS = 5000;
+
+/** Dwell for one pill, keyed off its kind. */
+function dwellMs(pill: ActivityPill): number {
+  return pill.kind === 'say' ? SAY_MS : TOAST_MS;
+}
 
 export function ActivityProvider({ children }: ActivityProviderProps): JSX.Element {
   const [thinking, setThinking] = useState(false);
@@ -55,6 +66,9 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
   // One live auto-dismiss timer per toast id, so each entry expires on its own
   // clock independent of its neighbours.
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // Each toast's dwell, kept by id so a resume (collapse) restarts the same
+  // clock the pill was pushed with rather than a one-size-fits-all default.
+  const dwellsRef = useRef<Map<number, number>>(new Map());
   const nextIdRef = useRef(0);
 
   const dismiss = useCallback((id: number): void => {
@@ -63,6 +77,7 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
       clearTimeout(timer);
       timersRef.current.delete(id);
     }
+    dwellsRef.current.delete(id);
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
@@ -71,11 +86,13 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
       nextIdRef.current += 1;
       const id = nextIdRef.current;
       setToasts((prev) => [...prev, { id, pill }]);
+      const dwell = dwellMs(pill);
+      dwellsRef.current.set(id, dwell);
       timersRef.current.set(
         id,
         setTimeout(() => {
           dismiss(id);
-        }, TOAST_MS),
+        }, dwell),
       );
     },
     [dismiss],
@@ -95,6 +112,7 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
             clearTimeout(timer);
             timersRef.current.delete(toast.id);
           }
+          dwellsRef.current.delete(toast.id);
         }
       }
       return prev.filter((toast) => toast.pill.kind !== 'toast');
@@ -119,7 +137,7 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
           id,
           setTimeout(() => {
             dismiss(id);
-          }, TOAST_MS),
+          }, dwellsRef.current.get(id) ?? TOAST_MS),
         );
       }
     },
@@ -216,11 +234,13 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
   // Cancel every pending auto-dismiss on unmount.
   useEffect(() => {
     const timers = timersRef.current;
+    const dwells = dwellsRef.current;
     return () => {
       for (const timer of timers.values()) {
         clearTimeout(timer);
       }
       timers.clear();
+      dwells.clear();
     };
   }, []);
 

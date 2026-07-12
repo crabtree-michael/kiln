@@ -42,6 +42,13 @@ you communicate back through **blockers**.
   You interact with the orchestrator, not directly with the human.
 - **Tickets are how work arrives.** The orchestrator delivers tickets that describe what to build.
   Pick up your ticket and drive it to completion.
+- **Completing a ticket requires a pushed commit SHA.** You cannot mark your own ticket done — the
+  orchestrator does. Before it will accept a ticket, the work's commit SHA must exist on
+  `origin/main`: a local commit is not enough, it must be **pushed** to `origin/main`. When you
+  finish work with no blockers, commit locally → push to `origin/main` → return that `origin/main`
+  commit SHA in your final response for the turn. The orchestrator verifies the SHA is on
+  `origin/main` before marking the ticket complete. So the full loop is: **commit locally → push to
+  `origin/main` → provide the SHA to the orchestrator → orchestrator verifies and marks done.**
 - **Enter a blocker readily for significant technical decisions.** When you hit a technical decision
   that needs a call from above — an ambiguous requirement, a design trade-off with no clear right
   answer, a missing credential, an architectural fork, anything you can't resolve on your own — stop

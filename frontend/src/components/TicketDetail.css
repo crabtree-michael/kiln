@@ -426,23 +426,21 @@
 }
 
 /* Delete action — discard a proposal that's no longer wanted, shown left of the
- * Accept pill on a shaping ticket. A quiet, destructive ghost pill: outlined in
- * the danger hue rather than accent-filled, so it reads as the secondary, undo-
- * able-only-by-reproposing exit it is — never competing with Accept for the eye,
- * but unmistakably the removing action (the trash glyph + danger tint). */
+ * Accept pill on a shaping ticket. An icon-only circular button (trash glyph, no
+ * label): outlined in the danger hue rather than accent-filled, so it reads as
+ * the secondary, undo-able-only-by-reproposing exit it is — never competing with
+ * Accept for the eye, but unmistakably the removing action. */
 [data-role='detail-delete'] {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-family: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
   color: var(--danger);
   background: transparent;
   border: 1.5px solid var(--danger-soft);
-  border-radius: var(--radius-pill);
-  padding: 0.5rem 1.1rem;
+  border-radius: 50%;
+  padding: 0;
   cursor: pointer;
 }
 
@@ -582,15 +580,16 @@
 }
 
 /* Delete keeps its quiet destructive register on the primary surface — a danger-
- * outlined ghost pill that recedes behind the accent Accept beside it, and fills
- * with the danger hue on hover to confirm it's the removing action. */
+ * outlined circular icon button that recedes behind the accent Accept beside it,
+ * and fills with the danger hue on hover to confirm it's the removing action. */
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete'] {
-  font-size: 13px;
+  width: 40px;
+  height: 40px;
   color: var(--danger);
   background: var(--surface-card);
   border: 1.5px solid var(--danger-soft);
-  border-radius: var(--radius-pill);
-  padding: 9px 16px;
+  border-radius: 50%;
+  padding: 0;
   box-shadow: none;
 }
 

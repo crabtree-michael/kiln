@@ -4,7 +4,7 @@
    reads the shared semantic tokens (src/styles/tokens.css) rather than
    redefining the paper/ember/font vocabulary, so both themes come for free.
    Scoped entirely under [data-role="dashboard"] so it never leaks onto the
-   `/` or `/debug` screens. Desktop-first (this is a settings surface visited
+   `/` or `/app` screens. Desktop-first (this is a settings surface visited
    from a laptop as often as a phone), with a single-column mobile fallback. */
 
 [data-role='dashboard'] {

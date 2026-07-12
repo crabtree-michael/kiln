@@ -1,17 +1,12 @@
-// Route + system preference → data-theme (design spec 2026-07-05 §3):
-// /debug always renders "Kiln at night"; / follows the OS.
+// System preference → data-theme (design spec 2026-07-05 §3): every route
+// follows the OS preference.
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyTheme, resolveTheme, THEME_COLORS } from '@/theme';
 
 describe('resolveTheme', () => {
-  it('follows the system preference on /', () => {
-    expect(resolveTheme('/', false)).toBe('light');
-    expect(resolveTheme('/', true)).toBe('dark');
-  });
-
-  it('forces dark on /debug regardless of preference', () => {
-    expect(resolveTheme('/debug', false)).toBe('dark');
-    expect(resolveTheme('/debug', true)).toBe('dark');
+  it('follows the system preference', () => {
+    expect(resolveTheme(false)).toBe('light');
+    expect(resolveTheme(true)).toBe('dark');
   });
 });
 

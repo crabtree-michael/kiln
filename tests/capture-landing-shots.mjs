@@ -3,9 +3,7 @@
 // These are REAL captures of the running app, driven headlessly against a
 // locally seeded stack (no fakes beyond the seed) — the same dev endpoints the
 // e2e suite uses (KILN_DEV_ENDPOINTS=1). Shots that appear in both themes are
-// captured twice (light + dark) and the page swaps them by prefers-color-scheme;
-// the board is the developer view, which the app renders dark-only, so it is a
-// single dark capture.
+// captured twice (light + dark) and the page swaps them by prefers-color-scheme.
 //
 // Prerequisites (see docs/specs/02 §1, §4 and tests/README.md):
 //   1. Postgres:  docker compose up -d db
@@ -208,28 +206,8 @@ async function capturePacman() {
   await pacman('dark');
 }
 
-async function board() {
-  // /debug is dark-only; tall viewport so the board fits its region without an
-  // internal scroll (which would stitch a sibling panel into the element shot).
-  const ctx = await browser.newContext({
-    viewport: { width: 1200, height: 1500 },
-    deviceScaleFactor: 2,
-    colorScheme: 'dark',
-    baseURL: BASE,
-  });
-  await ctx.addCookies([sessionCookie]); // authed before the app's boot GET /api/me
-  const page = await ctx.newPage();
-  await page.goto('/debug');
-  await page.locator('[data-role="ticket-card"]').first().waitFor();
-  await page.waitForTimeout(700);
-  await page.locator('[data-role="board"]').screenshot({ path: `${OUT}board-dark.png` });
-  console.log('captured board (dark)');
-  await ctx.close();
-}
-
 await primary('light');
 await primary('dark');
-await board();
 // Last: the pacman phase resets the board, so run it after the shots above are
 // already on disk.
 await capturePacman();

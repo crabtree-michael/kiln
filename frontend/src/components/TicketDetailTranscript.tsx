@@ -14,8 +14,8 @@
 // the moment the utterance is sent or cleared.
 //
 // Requires a `VoiceProvider` ancestor, so — like the sheet's mic (`voiceControl`) —
-// only the primary screen wires it in; the /debug board opens the same sheet
-// without one and passes nothing, so this never mounts there.
+// only the primary screen wires it in; a read-only sheet opens without one and
+// passes nothing, so this never mounts there.
 import { useEffect, useRef, type JSX } from 'react';
 import { useVoice } from '@/voice/voice-context';
 

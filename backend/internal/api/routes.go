@@ -156,9 +156,9 @@ type NotificationPoster interface {
 // Resetter is the port behind POST /api/dev/reset: return the whole system to a
 // fresh agent session — wipe the state tables and tear down the live agent
 // sandboxes (docs/superpowers/specs/2026-07-04-debug-reset-session-design.md).
-// A developer/debug affordance driven from the /debug client's "Reset session"
-// button; NOT part of the wire contract (/schema). Satisfied by the composition
-// root's reset coordinator, which spans the DB and the agent service.
+// A developer-only affordance (used by the local seed/capture tooling); NOT part
+// of the wire contract (/schema). Satisfied by the composition root's reset
+// coordinator, which spans the DB and the agent service.
 type Resetter interface {
 	Reset(ctx context.Context, projectID string) error
 }
@@ -319,7 +319,7 @@ func (s *Server) EnableDevNotifications(poster NotificationPoster) { s.devNotes 
 
 // EnableReset turns on POST /api/dev/reset (call before Handler). Unlike the
 // dev seed routes it is wired unconditionally at the composition root — the
-// /debug "Reset session" button relies on it always being present.
+// local seed/capture tooling relies on it always being present.
 func (s *Server) EnableReset(r Resetter) { s.resetter = r }
 
 // EnablePush turns on the Web Push registration routes (call before Handler):
@@ -487,8 +487,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleReset returns the system to a fresh agent session (204). The reset is
-// destructive and irreversible; the /debug client guards it behind a confirm
-// dialog. No request body.
+// destructive and irreversible, so callers are expected to guard it behind a
+// confirm. No request body.
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project) {
 	if err := s.resetter.Reset(r.Context(), project.ID); err != nil {
 		slog.Error("api: reset", "err", err)

@@ -77,7 +77,7 @@ describe('Landing2', () => {
     }
   });
 
-  it('shows the captured app screenshots (hero pacman feed, feature feed, board, dock)', () => {
+  it('shows the captured app screenshots (hero pacman feed, feature feed, dock)', () => {
     renderLanding();
 
     // The hero is the finished-Pac-Man feed (all-✅), a distinct shot from the
@@ -88,9 +88,6 @@ describe('Landing2', () => {
 
     const feed = screen.getByRole('img', { name: /blocker pinned/i });
     expect(feed).toHaveAttribute('src', '/shots/feed-light.png');
-
-    const board = screen.getByRole('img', { name: /the kiln board/i });
-    expect(board).toHaveAttribute('src', '/shots/board-dark.png');
 
     expect(screen.getByRole('img', { name: /microphone button/i })).toHaveAttribute(
       'src',

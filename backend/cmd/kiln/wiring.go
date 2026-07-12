@@ -665,7 +665,7 @@ func enableServerRoutes(
 	// posts an email to POST /api/beta-signup, always mounted (the store always
 	// exists) since the marketing page depends on it.
 	server.EnableBeta(&betaRegistrarAdapter{store: betaStore})
-	// The /debug "Reset session" button's endpoint (POST /api/dev/reset) is wired
+	// The dev "fresh session" reset endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
 	// It re-seeds the worker pool to the project's configured worker count (so a
 	// fresh session mirrors the dashboard setting, not the deployment default),

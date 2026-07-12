@@ -132,7 +132,7 @@ describe('transport', () => {
     // guard once omitted it, so a single poke card made `fetchFeed` reject the
     // whole snapshot as malformed — the feed then stayed null and the primary
     // screen was stuck on its empty "0 building" state while /api/board (which
-    // never carries a poke) kept the debug view working. The guard must accept
+    // never carries a poke) stayed valid. The guard must accept
     // every schema kind, `poke` included.
     it('accepts a snapshot containing a poke card', async () => {
       const snapshot: FeedSnapshot = {

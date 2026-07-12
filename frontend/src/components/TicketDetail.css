@@ -123,7 +123,7 @@
  * so its dot pulses (the same tell as the streams dropdown's `building` dot),
  * ember-lit. Its own keyframe rather than PrimaryScreen's `kiln-status-pulse`:
  * that one pulses a fire ring (clashes with the ember dot) and lives in a
- * stylesheet the /debug board doesn't load — this keeps the sheet self-contained. */
+ * stylesheet the sheet doesn't load — this keeps it self-contained. */
 [data-role='ticket-detail-status'][data-state='working'] [data-role='ticket-detail-status-dot'] {
   background: var(--warn);
   box-shadow: 0 0 0 3px var(--warn-soft);
@@ -163,30 +163,6 @@
   background: var(--surface-raised);
   color: var(--text-body);
   cursor: pointer;
-}
-
-[data-role='ticket-detail-meta'] {
-  margin: 0.6rem 0 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.15rem 0.75rem;
-  font-size: 0.8rem;
-}
-
-[data-role='detail-row'] {
-  display: contents;
-}
-
-[data-role='ticket-detail-meta'] dt {
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
-  font-size: 0.7rem;
-}
-
-[data-role='ticket-detail-meta'] dd {
-  margin: 0;
-  word-break: break-word;
 }
 
 [data-role='detail-blocked-reason'] {
@@ -383,8 +359,8 @@
  * 08 §5 calls for. The mic now rides here on every ticket state (the unified
  * communication surface). `margin-right: auto` pins the cluster to the row's left
  * edge and shoves the trailing state action (Accept/Poke) to the right, so the
- * footer reads as left-group / right-group. Absent (a /debug sheet with no mic or
- * delete) the row is exactly the old flex-end footer, unchanged. */
+ * footer reads as left-group / right-group. Absent (a read-only sheet with no mic
+ * or delete) the row is exactly the old flex-end footer, unchanged. */
 [data-role='ticket-detail-lead-actions'] {
   margin-right: auto;
   display: flex;
@@ -458,14 +434,14 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Primary-screen skin (08 §5). The base rules above dress the sheet for the
- * /debug board's denser register; on the primary screen we repaint it in the
+ * Primary-screen skin (08 §5). The base rules above dress the sheet in a denser
+ * register; on the primary screen we repaint it in the
  * app's own — larger type, pill Accept — so it reads as a first-class Kiln
  * surface, consistent with the feed cards, toasts and dock. The skin is keyed
  * off data-surface='primary' on the panel itself (not DOM ancestry: the sheet
  * portals to document.body, out of the [data-role='primary-screen'] subtree).
  * The extra attribute lifts specificity above the base rules, so these win here
- * without touching the /debug look. All colors are the global semantic tokens
+ * without touching the base look. All colors are the global semantic tokens
  * (src/styles/tokens.css), so both themes render both usages correctly. The base
  * geometry (bottom-anchored, full-width, top-rounded) carries through; the skin
  * only overrides padding, color and the inner typography. */
@@ -500,23 +476,6 @@
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close']:hover {
   color: var(--text-body);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-meta'] {
-  margin-top: 16px;
-  gap: 8px 16px;
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-meta'] dt {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--text-faint);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-meta'] dd {
-  font-size: 13px;
-  color: var(--text-secondary);
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-blocked-reason'] {

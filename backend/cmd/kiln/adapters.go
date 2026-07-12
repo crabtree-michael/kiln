@@ -820,7 +820,7 @@ var (
 
 // resetCoordinator satisfies api.Resetter (docs/superpowers/specs/
 // 2026-07-04-debug-reset-session-design.md): the developer "fresh session"
-// reset the /debug client fires, now scoped to one project (11 §3). It spans two
+// reset (POST /api/dev/reset), scoped to one project (11 §3). It spans two
 // modules — a DB state truncate and the agent service's worker teardown —
 // neither of which owns the other's state, so it lives at the composition root.
 type resetCoordinator struct {

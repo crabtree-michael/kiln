@@ -10,8 +10,7 @@
 // The product shots are the same real captures of the running app
 // (frontend/public/shots/*.png) that `/landing` frames; the ones with a light
 // and a dark capture are served through <picture> with a prefers-color-scheme
-// source so each screenshot matches the page theme. The board is captured from
-// `/debug`, which the app renders dark-only, so it ships a single dark shot.
+// source so each screenshot matches the page theme.
 import { useState, type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import { BetaSignupForm } from '@/landing/BetaSignupForm';
@@ -113,25 +112,6 @@ function PacmanFeedShot(): JSX.Element {
   );
 }
 
-/** The board, captured from `/debug` (dark-only), framed as a screen. */
-function BoardShot(): JSX.Element {
-  return (
-    <figure className="shot-window">
-      <div className="shot-window__bar" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-      <img
-        src="/shots/board-dark.png"
-        alt="The Kiln board: three columns — Backlog (Shaping, Ready), Developing (a fire-red Blocked card above Working), and Done."
-        loading="lazy"
-        decoding="async"
-      />
-    </figure>
-  );
-}
-
 /** The voice dock, close up — the mic control captured from the running app. */
 function DockShot(): JSX.Element {
   return (
@@ -184,12 +164,6 @@ const FEATURES: {
   shot: JSX.Element;
   flip?: boolean;
 }[] = [
-  {
-    eyebrow: 'The board',
-    title: 'Your whole operation, in your pocket.',
-    body: 'Every ticket moves through Backlog, Developing, and Done on one live board that fits a phone screen. Work-in-progress is hard-capped at the number of free workers, so the queue can never run away from you — no matter where you are watching it from.',
-    shot: <BoardShot />,
-  },
   {
     eyebrow: 'The activity feed',
     title: 'Catch up in ten seconds, anywhere.',

@@ -76,7 +76,7 @@ func TestSPA_FallsBackToIndexForClientRoute(t *testing.T) {
 	defer ts.Close()
 
 	// A client route with no matching asset must render the SPA shell, not 404.
-	resp := doGet(t, ts.URL+"/debug")
+	resp := doGet(t, ts.URL+"/app")
 	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (SPA fallback)", resp.StatusCode)

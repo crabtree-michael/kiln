@@ -1,5 +1,5 @@
 /* Landing page variant styling (`/landing-2`). Plain CSS, no framework — same
-   discipline as Landing.css / App.css. Every value reads a Kiln design token
+   discipline as PrimaryScreen.css. Every value reads a Kiln design token
    (src/styles/tokens.css), so light/dark comes for free: the page follows the
    OS theme via resolveTheme (src/theme.ts). Everything is scoped under
    `.kiln-landing-2` so it is fully self-contained and never touches the app
@@ -678,42 +678,6 @@
 }
 
 .kiln-landing-2 .shot-phone img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* Board: the /debug capture (dark-only) framed as a screen with a window bar. */
-.kiln-landing-2 .shot-window {
-  display: block;
-  width: 100%;
-  margin: 0;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
-  overflow: hidden;
-  line-height: 0;
-  /* Fixed dark chrome — the board is the night-only developer view, shown as a
-     screen regardless of the surrounding page theme. */
-  background: #211a13;
-}
-
-.kiln-landing-2 .shot-window__bar {
-  display: flex;
-  gap: 7px;
-  padding: 12px 16px;
-  background: #2a211a;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.kiln-landing-2 .shot-window__bar span {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-}
-
-.kiln-landing-2 .shot-window img {
   display: block;
   width: 100%;
   height: auto;

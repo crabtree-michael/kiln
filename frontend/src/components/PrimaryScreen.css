@@ -1,12 +1,12 @@
 /* Primary screen styling (08 §F). Plain CSS keyed off `data-role`/`data-*` —
-   never classNames — same discipline as App.css, so this file can change freely
-   without touching component markup or the DOM snapshots. Palette, type and
+   never classNames — so this file can change freely without touching component
+   markup or the DOM snapshots. Palette, type and
    surfaces come from the Kiln design system (docs/ui/Kiln Colors.html; tokens
    in src/styles/tokens.css): flat paper surfaces, fire accent, Hanken Grotesk /
    Spline Sans Mono / Newsreader (self-hosted, imported in main.tsx). Rendered
    full-viewport and mobile-first. Scoped under [data-role="primary-screen"] so
-   it never clobbers the /debug (07) client. Both themes come for free: every
-   rule reads semantic tokens, which [data-theme='dark'] re-points. */
+   it stays self-contained. Both themes come for free: every rule reads semantic
+   tokens, which [data-theme='dark'] re-points. */
 
 [data-role='primary-screen'] {
   box-sizing: border-box;

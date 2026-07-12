@@ -1,8 +1,7 @@
 // Primary screen (08 §6). Composes the feed + activity providers and bridges
-// their stores into the presentational `PrimaryScreenView` — the same shape as
-// `App` bridging its stores into `Board`/`ChatPanel`. All markup, CSS, and the
-// 08 §F selector surface live in the presentational tree; this file is only the
-// wiring seam (stores → props, Accept → transport).
+// their stores into the presentational `PrimaryScreenView`. All markup, CSS, and
+// the 08 §F selector surface live in the presentational tree; this file is only
+// the wiring seam (stores → props, Accept → transport).
 import { useCallback, type JSX } from 'react';
 import { BoardProvider } from '@/stores/board-store';
 import { FeedProvider } from '@/stores/feed-store';

@@ -36,14 +36,6 @@ describe('TicketDetail', () => {
     expect(screen.queryByText('ID')).toBeNull();
   });
 
-  it('shows the full internal record when showInternalMeta is set (/debug inspection, D5)', () => {
-    render(<TicketDetail ticket={working} onClose={vi.fn()} showInternalMeta />);
-
-    expect(screen.getByText('t-42')).toBeInTheDocument();
-    expect(screen.getByText('3')).toBeInTheDocument();
-    expect(screen.getByText('working')).toBeInTheDocument();
-  });
-
   it('renders the description as Markdown', () => {
     const markdown = makeTicket({
       id: 't-md',
@@ -280,7 +272,7 @@ describe('TicketDetail', () => {
       expect(lead).not.toBeNull();
     });
 
-    it('renders no lead cluster when the caller wires no voice control (/debug inspection)', () => {
+    it('renders no lead cluster when the caller wires no voice control (read-only inspection)', () => {
       render(<TicketDetail ticket={proposal} onClose={vi.fn()} onAccept={vi.fn()} />);
       expect(within(screen.getByRole('dialog')).queryByText('mic')).toBeNull();
       expect(document.querySelector('[data-role="ticket-detail-lead-actions"]')).toBeNull();
@@ -464,7 +456,7 @@ describe('TicketDetail', () => {
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
     });
 
-    it('shows no action when nothing is wired (read-only /debug inspection)', () => {
+    it('shows no action when nothing is wired (read-only inspection)', () => {
       render(<TicketDetail ticket={blocked} onClose={vi.fn()} />);
       expect(screen.queryByText('mic')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();

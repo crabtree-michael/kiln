@@ -40,7 +40,7 @@ test('@keyless a new user connects a project and the board comes alive', async (
     })
     .toBe(200);
 
-  // …and the board client renders the live board for this new user.
-  await page.goto('/debug');
-  await expect(page.getByRole('region', { name: 'Board' })).toBeVisible();
+  // …and the primary screen renders the live feed for this new user.
+  await page.goto('/app');
+  await expect(page.getByRole('region', { name: 'Feed' })).toBeVisible();
 });

@@ -3,7 +3,7 @@
 package main
 
 // Cross-tenant isolation for the session reset (11 §3, final-review Finding 1).
-// The /debug "Reset session" button is mounted unconditionally in prod behind
+// POST /api/dev/reset is mounted unconditionally in prod behind
 // withProject, so ANY authenticated tenant can fire it — a reset MUST therefore
 // touch only the caller's project. This test seeds two tenants A and B with rows
 // in every one of the eight state tables (including a worker plus a Working

@@ -1,8 +1,7 @@
 // The primary screen, presentational (08 §2–§5). Pure props in → the whole
 // selector surface out, so the DOM-snapshot tests render it directly with
 // fixture data and never touch the live stores. `PrimaryScreen` (the composing
-// wrapper) bridges the feed + activity stores into these props, mirroring how
-// `App` bridges its stores into `Board`/`ChatPanel`.
+// wrapper) bridges the feed + activity stores into these props.
 import { useCallback, useRef, useState, type JSX } from 'react';
 import type {
   Board,

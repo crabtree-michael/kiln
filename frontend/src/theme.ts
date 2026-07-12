@@ -1,7 +1,6 @@
 // One theme mechanism: `data-theme` on <html>, consumed by styles/tokens.css.
-// `/debug` is always "Kiln at night" (07's developer shell); `/` follows the
-// system preference. ThemeColorSync owns the matchMedia subscription and
-// calls these on route / preference changes.
+// Every route follows the system preference. ThemeColorSync owns the matchMedia
+// subscription and calls these on route / preference changes.
 export type Theme = 'light' | 'dark';
 
 // Must match the two `--surface-page` values in styles/tokens.css — this is
@@ -11,10 +10,7 @@ export const THEME_COLORS: Record<Theme, string> = {
   dark: '#16110d',
 };
 
-export function resolveTheme(pathname: string, prefersDark: boolean): Theme {
-  if (pathname.startsWith('/debug')) {
-    return 'dark';
-  }
+export function resolveTheme(prefersDark: boolean): Theme {
   return prefersDark ? 'dark' : 'light';
 }
 

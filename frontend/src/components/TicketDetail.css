@@ -40,7 +40,11 @@
   border-bottom: none;
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
-  padding: 0.5rem 0.9rem 1rem;
+  /* The sheet is fixed to the viewport bottom and portals to document.body, so
+   * its own bottom padding must clear the iPhone home-indicator inset — mirror
+   * the dock's pattern (PrimaryScreen.css [data-role='dock']) and collapse to
+   * the plain value on non-notched devices via the 0px fallback. */
+  padding: 0.5rem 0.9rem calc(1rem + env(safe-area-inset-bottom, 0px));
   box-shadow: var(--shadow-overlay);
 }
 
@@ -466,7 +470,9 @@
  * only overrides padding, color and the inner typography. */
 
 [data-role='ticket-detail'][data-surface='primary'] {
-  padding: 0.5rem 22px 22px;
+  /* Add the home-indicator inset to the base 22px bottom padding (see the base
+   * rule's note) so the dock/controls region clears the iPhone safe area. */
+  padding: 0.5rem 22px calc(22px + env(safe-area-inset-bottom, 0px));
   color: var(--text-body);
 }
 

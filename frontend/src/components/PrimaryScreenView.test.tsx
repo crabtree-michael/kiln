@@ -711,23 +711,32 @@ describe('PrimaryScreenView', () => {
     expect(screen.getByRole('dialog', { name: 'Auth' })).toBeInTheDocument();
   });
 
-  it('opens a board toast in place and dismisses it via Close, without any overlay (08 §4)', () => {
-    // A board `toast` opens INLINE on the activity row now (like a say pill) — it
-    // no longer jumps into the ticket detail overlay. Tapping reveals its content
-    // and a Close control, and closing dismisses the toast entirely by id.
+  it("opens a board toast's ticket in the detail overlay and dismisses the toast (08 §4)", () => {
+    // Tapping a board `toast` jumps straight to its linked ticket's detail overlay
+    // and dismisses the toast by id, so it doesn't linger over the sheet it opened.
     const onDismiss = vi.fn();
+    const ticket = makeTicket({
+      id: 't-auth',
+      title: 'Auth',
+      body: 'The toast-linked ticket.',
+      state: 'done',
+      priority: 1,
+      createdAt: minutesAgo(120),
+      updatedAt: minutesAgo(10),
+    });
     const toasts: ActivityToast[] = [
       { id: 5, pill: { kind: 'toast', verb: 'finished', ticketTitle: 'Auth', ticketId: 't-auth' } },
     ];
     renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [] }), {
+      board: makeBoard({ done: [ticket] }),
       toasts,
       onDismiss,
     });
-    // Opening the toast reveals it in place — no ticket dialog is mounted...
-    fireEvent.click(screen.getByRole('button', { name: 'Open update: Auth' }));
+    // No dialog until the toast is tapped.
     expect(screen.queryByRole('dialog')).toBeNull();
-    // ...and its own Close control dismisses the toast.
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open update: Auth' }));
+    // Tapping opens the ticket's detail overlay AND dismisses the toast by id.
+    expect(screen.getByRole('dialog', { name: 'Auth' })).toBeInTheDocument();
     expect(onDismiss).toHaveBeenCalledWith(5);
   });
 

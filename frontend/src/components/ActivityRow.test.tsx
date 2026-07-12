@@ -4,9 +4,11 @@
 // down. Multiple live toasts stack. DOM-structure snapshots stand in for pixel
 // snapshots (07 §9 D4).
 //
-// Interaction (08 §4): neither pill carries an always-on ×. BOTH kinds open in
-// place on tap (full content + a Close control), and closing dismisses the pill
-// entirely; opening pauses the pill's auto-dismiss timer.
+// Interaction (08 §4): neither pill carries an always-on ×. A board `toast` taps
+// straight through to its linked ticket's detail view and dismisses itself. A
+// `say` pill — and an orphan toast with no ticket to route to — instead opens in
+// place on tap (full content + a Close control), closing dismisses it entirely,
+// and opening pauses its auto-dismiss timer.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ActivityRow } from '@/components/ActivityRow';
@@ -127,69 +129,71 @@ describe('ActivityRow', () => {
     expect(onToastExpandedChange).toHaveBeenCalledWith(4, true);
   });
 
-  it('opens a ticket-activity toast in place on tap, revealing its title and a Close control', () => {
-    const toasts = [
-      toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-1' }),
-    ];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
-
-    // Collapsed: one Open button, the title clamped, no dismiss control — tapping
-    // opens the pill in place (not a ticket overlay).
-    const openButton = screen.getByRole('button', { name: 'Open update: Login Redesign' });
-    expect(openButton).toHaveAttribute('aria-expanded', 'false');
-    expect(document.querySelector('[data-role="toast-text"]')).not.toHaveAttribute('data-expanded');
-    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
-
-    fireEvent.click(openButton);
-
-    // Open: the title's clamp drops and a Close control appears.
-    expect(document.querySelector('[data-role="toast-text"]')).toHaveAttribute(
-      'data-expanded',
-      'true',
-    );
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open update/ })).toBeNull();
-  });
-
-  it('closing an open ticket-activity toast dismisses it entirely with its id', () => {
+  it("opens a ticket toast's linked ticket on tap and dismisses the toast in one move", () => {
+    const onOpenTicket = vi.fn();
     const onDismiss = vi.fn();
     const toasts = [
       toast(5, { kind: 'toast', verb: 'finished', ticketTitle: 'Auth', ticketId: 't-5' }),
-    ];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={onDismiss} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Open update: Auth' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-    expect(onDismiss).toHaveBeenCalledWith(5);
-  });
-
-  it("pauses a ticket toast's auto-dismiss timer when it is opened", () => {
-    const onToastExpandedChange = vi.fn();
-    const toasts = [
-      toast(3, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-3' }),
     ];
     render(
       <ActivityRow
         thinking={false}
         toasts={toasts}
-        onDismiss={noop}
+        onDismiss={onDismiss}
+        onOpenTicket={onOpenTicket}
+      />,
+    );
+
+    // The whole pill is one tap target — no inline-expand flag, no separate Close.
+    const openButton = screen.getByRole('button', { name: 'Open update: Auth' });
+    expect(openButton).not.toHaveAttribute('aria-expanded');
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+
+    fireEvent.click(openButton);
+
+    // Tapping routes to the ticket AND clears the toast so it doesn't linger over
+    // the detail view it just opened.
+    expect(onOpenTicket).toHaveBeenCalledTimes(1);
+    expect(onOpenTicket).toHaveBeenCalledWith('t-5');
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith(5);
+  });
+
+  it('falls back to opening in place when a toast has no ticket to route to', () => {
+    // An orphan toast (no ticket id) has nowhere to jump, so tapping opens it in
+    // place — revealing the full title, a Close control that dismisses it by id,
+    // and pausing its auto-dismiss timer while open, just like a say pill.
+    const onOpenTicket = vi.fn();
+    const onDismiss = vi.fn();
+    const onToastExpandedChange = vi.fn();
+    const toasts = [
+      toast(3, { kind: 'toast', verb: 'started', ticketTitle: 'Orphan', ticketId: '' }),
+    ];
+    render(
+      <ActivityRow
+        thinking={false}
+        toasts={toasts}
+        onDismiss={onDismiss}
+        onOpenTicket={onOpenTicket}
         onToastExpandedChange={onToastExpandedChange}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Open update: Login Redesign' }));
-    expect(onToastExpandedChange).toHaveBeenCalledTimes(1);
-    expect(onToastExpandedChange).toHaveBeenCalledWith(3, true);
-  });
 
-  it('opens a toast with no linked ticket id (inline expand needs no ticket)', () => {
-    const toasts = [
-      toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Orphan', ticketId: '' }),
-    ];
-    render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
-    // Opening is inline expand now, not a ticket jump, so a toast with no ticket id
-    // is still fully interactive.
-    fireEvent.click(screen.getByRole('button', { name: 'Open update: Orphan' }));
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    const openButton = screen.getByRole('button', { name: 'Open update: Orphan' });
+    expect(openButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(openButton);
+
+    // No ticket routing — it expanded in place and paused its timer.
+    expect(onOpenTicket).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-role="toast-text"]')).toHaveAttribute(
+      'data-expanded',
+      'true',
+    );
+    expect(onToastExpandedChange).toHaveBeenCalledWith(3, true);
+
+    // Close dismisses it entirely by id.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onDismiss).toHaveBeenCalledWith(3);
   });
 
   it('renders an empty row when idle (nothing needs the activity surface)', () => {

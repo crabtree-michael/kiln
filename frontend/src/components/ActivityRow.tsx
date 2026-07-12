@@ -5,11 +5,13 @@
 // Multiple live toasts stack into a list; the spinner shows only when the stack
 // is empty.
 //
-// Both pill kinds — a `say` and a board `toast` — share ONE interaction and carry
-// no always-on × any more (08 §4): tapping a pill OPENS it in place, dropping the
-// 2-line clamp to reveal the full content and swapping in a Close control; closing
-// dismisses the pill entirely (there is no collapse-back). Opening pauses the
-// pill's auto-dismiss timer so it can't vanish mid-read.
+// Neither pill carries an always-on × any more (08 §4). A board `toast` points at
+// a ticket: tapping anywhere on it opens that ticket's detail view and dismisses
+// the toast in one move. A `say` pill (and an orphan toast with no ticket id) has
+// nowhere to route, so tapping OPENS it in place instead — dropping the 2-line
+// clamp to reveal the full content and swapping in a Close control, which
+// dismisses it entirely (there is no collapse-back); opening pauses that pill's
+// auto-dismiss timer so it can't vanish mid-read.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { ActivityToast, ToastVerb } from '@/stores/activity-context';
@@ -19,9 +21,17 @@ import { pickKilnWord } from '@/components/kiln-words';
 export interface ActivityRowProps {
   thinking: boolean;
   toasts: ActivityToast[];
-  /** Dismisses one pill by id — fired when an open pill's Close control is tapped
-   * (08 §4). This is the only manual dismiss now that the always-on × is gone. */
+  /** Dismisses one pill by id — fired when an open pill's Close control is tapped,
+   * or when a board toast is tapped to open its ticket (08 §4). The always-on × is
+   * gone; these are the manual dismisses. */
   onDismiss: (id: number) => void;
+  /** Opens a board toast's linked ticket in the detail overlay — fired when the
+   * toast is tapped (08 §4). Given a non-empty ticket id, tapping opens the ticket
+   * and dismisses the toast (via `onDismiss`); without it — a say pill, an orphan
+   * toast with no id, or a presentational render that omits this handler — the pill
+   * opens in place instead. Optional so presentational tests can render the row
+   * without routing. */
+  onOpenTicket?: ((ticketId: string) => void) | undefined;
   /** Pauses (`true`) a pill's auto-dismiss timer when it is opened, so it can't
    * vanish while the user reads the full content. Optional so presentational tests
    * can render the row without the store. Closing dismisses the pill outright, so
@@ -87,29 +97,47 @@ function SayPill({
   );
 }
 
-/** A board `toast`: opens in place to reveal its full title (the status emoji beside
- * it), and its Close control dismisses it entirely (there is no collapse-back). */
+/** A board `toast`: tapping it opens its linked ticket's detail view and dismisses
+ * the toast (08 §4). Only an orphan toast — no ticket id, or no `onOpenTicket`
+ * handler wired — falls back to opening in place to read its full title, with a
+ * Close control that dismisses it (there is no collapse-back). */
 function ToastPill({
   id,
   verb,
   ticketTitle,
+  ticketId,
   onDismiss,
+  onOpenTicket,
   onExpandedChange,
 }: {
   id: number;
   verb: ToastVerb;
   ticketTitle: string;
+  ticketId: string;
   onDismiss: (id: number) => void;
+  onOpenTicket?: ((ticketId: string) => void) | undefined;
   onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
 
-  // Opening reveals the full title and pauses the auto-dismiss timer so it can't
-  // disappear mid-read; Close is the only way back out and dismisses the pill
-  // (there is no collapse-in-place, so the timer is never resumed).
+  // A board toast points at a ticket, so tapping anywhere on it jumps to that
+  // ticket's detail view and dismisses the toast in one move. Only when there's
+  // no ticket to route to — an orphan toast with no id, or a presentational render
+  // with no handler — does it fall back to opening in place.
+  const canOpenTicket = onOpenTicket !== undefined && ticketId !== '';
+
+  // Opening in place reveals the full title and pauses the auto-dismiss timer so
+  // it can't disappear mid-read; Close is the only way back out and dismisses the
+  // pill (there is no collapse-in-place, so the timer is never resumed).
   const openPill = (): void => {
     setOpen(true);
     onExpandedChange?.(id, true);
+  };
+  // Tap-to-open: route to the ticket, then dismiss the toast so it doesn't linger
+  // over the detail view it just opened.
+  const openTicket = (): void => {
+    onOpenTicket?.(ticketId);
+    onDismiss(id);
   };
   const openLabel = ticketTitle !== '' ? `Open update: ${ticketTitle}` : 'Open update';
   const content = (
@@ -122,6 +150,16 @@ function ToastPill({
       </span>
     </>
   );
+
+  if (canOpenTicket) {
+    return (
+      <div data-role="toast-pill" data-verb={verb}>
+        <button type="button" data-role="toast-open" aria-label={openLabel} onClick={openTicket}>
+          {content}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div data-role="toast-pill" data-verb={verb}>
@@ -157,10 +195,12 @@ function ToastPill({
 function ActivityToastPill({
   toast,
   onDismiss,
+  onOpenTicket,
   onExpandedChange,
 }: {
   toast: ActivityToast;
   onDismiss: (id: number) => void;
+  onOpenTicket?: ((ticketId: string) => void) | undefined;
   onExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
 }): JSX.Element {
   const { id, pill } = toast;
@@ -174,7 +214,9 @@ function ActivityToastPill({
       id={id}
       verb={pill.verb}
       ticketTitle={pill.ticketTitle}
+      ticketId={pill.ticketId}
       onDismiss={onDismiss}
+      onOpenTicket={onOpenTicket}
       onExpandedChange={onExpandedChange}
     />
   );
@@ -184,6 +226,7 @@ export function ActivityRow({
   thinking,
   toasts,
   onDismiss,
+  onOpenTicket,
   onToastExpandedChange,
 }: ActivityRowProps): JSX.Element {
   const empty = toasts.length === 0;
@@ -254,6 +297,7 @@ export function ActivityRow({
               key={toast.id}
               toast={toast}
               onDismiss={onDismiss}
+              onOpenTicket={onOpenTicket}
               onExpandedChange={onToastExpandedChange}
             />
           ))}

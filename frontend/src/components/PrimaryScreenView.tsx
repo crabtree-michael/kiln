@@ -230,11 +230,11 @@ export function PrimaryScreenView({
   // ticket. The id is resolved against the live board each render, so the overlay
   // drains on its own if the ticket leaves the board (e.g. after Accept).
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
-  // The ticket detail overlay is opened from a feed card, the header menu, or a
-  // push-notification deep link. Board `toast` pills no longer route here — they
-  // open in place on the activity row and dismiss via their own Close control
-  // (08 §4) — so opening/closing the overlay is a plain setter with no toast to
-  // reconcile. `closeTicket` is a stable callback because the sheet + several
+  // The ticket detail overlay is opened from a feed card, the header menu, a
+  // push-notification deep link, or a tapped board `toast` on the activity row
+  // (08 §4) — the toast dismisses itself through its own auto-dismiss/`onDismiss`
+  // path, so opening the overlay is a plain setter with no toast state to
+  // reconcile here. `closeTicket` is a stable callback because the sheet + several
   // in-sheet actions all close through it.
   const closeTicket = useCallback((): void => {
     setOpenTicketId(null);
@@ -432,6 +432,7 @@ export function PrimaryScreenView({
           thinking={thinking}
           toasts={toasts}
           onDismiss={onDismiss}
+          onOpenTicket={setOpenTicketId}
           onToastExpandedChange={onToastExpandedChange}
         />
         {/* The permanent error band is rendered INSIDE the dock (as its first

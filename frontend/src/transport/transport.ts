@@ -445,16 +445,6 @@ export async function dismissAllFeedCards(): Promise<void> {
   }
 }
 
-/** `POST /api/dev/reset` — wipe the board, chat, and live agent sandboxes for a
- * fresh agent session. Drives the /debug "Reset session" button; not part of the
- * wire schema. Throws on a non-2xx so the caller can skip the reload. */
-export async function postReset(): Promise<void> {
-  const response = await fetch('/api/dev/reset', { method: 'POST' });
-  if (!response.ok) {
-    throw new Error('postReset: reset failed');
-  }
-}
-
 function isVoiceToken(value: unknown): value is VoiceToken {
   return isRecord(value) && typeof value.token === 'string' && typeof value.expires_at === 'string';
 }
@@ -758,8 +748,8 @@ export async function postVerify(): Promise<VerifyResponse> {
 }
 
 /** `POST /auth/logout` — ends the signed-in session. Not part of the wire
- * schema (like `postReset`); the caller re-fetches `/api/me` afterward to
- * observe the resulting signed-out state. */
+ * schema; the caller re-fetches `/api/me` afterward to observe the resulting
+ * signed-out state. */
 export async function postLogout(): Promise<void> {
   const response = await fetch('/auth/logout', { method: 'POST' });
   if (!response.ok) {

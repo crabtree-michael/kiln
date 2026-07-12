@@ -36,7 +36,7 @@ func Handler() http.Handler {
 
 // HandlerFS serves the SPA out of fsys: an existing file (hashed JS/CSS under
 // /assets, images, the manifest) is served directly by the file server; every
-// other path falls back to index.html so client-side routes ("/", "/debug")
+// other path falls back to index.html so client-side routes ("/", "/app")
 // render. It is mounted as the api mux's "/" catch-all, so /api/* and /healthz
 // are matched by their own patterns first; the explicit guard here is
 // belt-and-suspenders.
@@ -85,7 +85,7 @@ func HandlerFS(fsys fs.FS) http.Handler {
 		// missing `.css`/`.js` makes the browser reject it on MIME mismatch and
 		// silently drop the stylesheet — the page renders fully unstyled — or fail
 		// the entry module script outright. A 404 lets the client/SW fail cleanly
-		// and re-fetch the current shell. Client routes ("/", "/debug") are
+		// and re-fetch the current shell. Client routes ("/", "/app") are
 		// extensionless, so they still fall through to the SPA entry below.
 		if path.Ext(upath) != "" {
 			http.NotFound(w, r)

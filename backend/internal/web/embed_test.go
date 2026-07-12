@@ -37,7 +37,7 @@ func TestHandler_ServesEmbeddedIndex(t *testing.T) {
 	ts := httptest.NewServer(web.Handler())
 	defer ts.Close()
 
-	for _, path := range []string{"/", "/debug"} {
+	for _, path := range []string{"/", "/app"} {
 		resp := getURL(t, ts.URL+path)
 		body := readAll(t, resp)
 		if err := resp.Body.Close(); err != nil {

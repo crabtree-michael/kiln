@@ -1,6 +1,6 @@
 // Primary-screen view tests (08 §F image-snapshot targets + the Accept seam).
 // DOM-structure snapshots stand in for pixel snapshots (same deferral as
-// TicketCard/ChatPanel, 07 §9 D4). A fixed `now` is threaded through so the
+// TicketCard, 07 §9 D4). A fixed `now` is threaded through so the
 // relative-age labels ("now", "2m", "1h") are deterministic across runs.
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';

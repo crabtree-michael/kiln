@@ -24,7 +24,7 @@ export interface TicketDetailProps {
   onClose: () => void;
   /** When provided, the detail is a proposal reached via click-through and shows
    * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
-   * the overlay stays strictly read-only (the debug board's inspection use, D5).
+   * the overlay stays strictly read-only (D5).
    * Accept only appears while the ticket is still shaping: accepting is what
    * moves a shaped proposal into the pull, so every later state (ready, working,
    * blocked, done) has already passed that point and shows no button regardless. */
@@ -36,7 +36,7 @@ export interface TicketDetailProps {
    * ready/done are out of this first pass. The caller routes the deletion through
    * the brain (D5), which archives the ticket via delete_ticket — and for a
    * blocked ticket the board also releases the worker it held. Omitted → no Delete
-   * affordance (the debug board's read-only inspection). */
+   * affordance (read-only inspection). */
   onDelete?: ((ticketId: string) => void) | undefined;
   /** When provided on a *working* or *blocked* ticket, a "Poke to continue" button
    * appears — a manual nudge for a stalled agent, mirroring the steward's own
@@ -46,7 +46,7 @@ export interface TicketDetailProps {
    * (D5). On a *working* ticket the nudge only makes sense once the agent has gone
    * quiet, so it's further gated on `agentIdle` (below); on a *blocked* ticket the
    * work is stalled by definition, so Poke shows whenever wired. Omitted → no Poke
-   * affordance (the debug board's read-only inspection). */
+   * affordance (read-only inspection). */
   onPoke?: ((ticketId: string) => void) | undefined;
   /** The live session status of this ticket's bound agent, from the board
    * snapshot's `agents` join (`AgentStatus.status === 'idle'`). A *working* ticket
@@ -63,8 +63,8 @@ export interface TicketDetailProps {
    * it starts a voice recording session and the transcript lands in the sheet's own
    * dock (see `transcript`). Passed in rather than rendered here so this component
    * stays free of the voice store: it is a live `useVoice()` consumer and only the
-   * primary screen (under a `VoiceProvider`) wires it — the /debug board opens the
-   * same sheet without one, so the mic stays omitted (read-only inspection) there. */
+   * primary screen (under a `VoiceProvider`) wires it — a sheet opened without one
+   * keeps the mic omitted (read-only inspection). */
   voiceControl?: ReactNode;
   /** The live voice transcript, rendered in the sheet's dock directly above the
    * action buttons — the on-screen feedback for `voiceControl`, so it rides the
@@ -75,18 +75,14 @@ export interface TicketDetailProps {
    * component stays free of the voice store; only the primary screen (under a
    * `VoiceProvider`) wires it. The node self-gates — it renders nothing unless there
    * is transcript text on screen — so the dock only grows while the user is actually
-   * speaking. Omitted on the /debug board (no voice there). */
+   * speaking. Omitted on any sheet opened without voice. */
   transcript?: ReactNode;
-  /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
-   * default: the main app view shows only the title and description. The /debug
-   * board opts in to inspect a ticket's full record (D5). */
-  showInternalMeta?: boolean;
   /** Which surface's skin to wear. The sheet portals to `document.body` (so its
    * fixed positioning escapes any transformed/clipping ancestor), which lifts it
    * out of the `[data-role='primary-screen']` subtree the skin CSS used to key
    * off — so the surface is now carried explicitly on the panel as
-   * `data-surface`. Defaults to the /debug board's denser register; the primary
-   * screen passes `'primary'` for the app's first-class card skin (08 §5). */
+   * `data-surface`. Defaults to the base/denser register; the primary screen
+   * passes `'primary'` for the app's first-class card skin (08 §5). */
   surface?: 'debug' | 'primary';
 }
 
@@ -123,19 +119,6 @@ const DELETABLE_STATES = new Set<Ticket['state']>(['shaping', 'blocked']);
 const DELETE_BLOCKED_CONFIRM =
   "Delete this blocked ticket? Its in-progress work will be discarded and can't be recovered here.";
 
-/** A labelled row in the metadata list, omitted entirely when the value is null. */
-function MetaRow({ label, value }: { label: string; value: string | null }): JSX.Element | null {
-  if (value === null) {
-    return null;
-  }
-  return (
-    <div data-role="detail-row">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}
-
 export function TicketDetail({
   ticket,
   onClose,
@@ -145,7 +128,6 @@ export function TicketDetail({
   agentIdle = false,
   voiceControl,
   transcript,
-  showInternalMeta = false,
   surface = 'debug',
 }: TicketDetailProps): JSX.Element {
   // Which affordances the sheet's footer carries is decided purely by lifecycle
@@ -179,8 +161,8 @@ export function TicketDetail({
   const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
   const canAccept = isShaping && onAccept !== undefined;
   // The bottom-left lead cluster holds the sheet's secondary affordances — the
-  // voice mic and the Delete button — wired only on the primary screen (the
-  // /debug board leaves both undefined). They sit left of the trailing
+  // voice mic and the Delete button — wired only on the primary screen (a
+  // read-only sheet leaves both undefined). They sit left of the trailing
   // Accept/Poke — the bottom-left pair 08 §5 calls for. The mic now shows on every
   // ticket state (the unified communication surface — start talking from any
   // ticket), so it is gated only on being wired; Delete shows in any
@@ -257,17 +239,6 @@ export function TicketDetail({
               ×
             </button>
           </header>
-
-          {showInternalMeta && (
-            <dl data-role="ticket-detail-meta">
-              <MetaRow label="State" value={ticket.state} />
-              <MetaRow label="Priority" value={String(ticket.priority)} />
-              <MetaRow label="ID" value={ticket.id} />
-              <MetaRow label="Created" value={ticket.created_at} />
-              <MetaRow label="Updated" value={ticket.updated_at} />
-              <MetaRow label="Ready" value={ticket.ready_at ?? null} />
-            </dl>
-          )}
 
           {/* The scroll region: the block message and the Markdown body live
               together inside the one overflowing area, so a long block message

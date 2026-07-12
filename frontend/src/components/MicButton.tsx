@@ -4,8 +4,8 @@
 // Presentational consumer of `useVoice()`: it renders `{ micState, connecting }`,
 // samples `getLevel()` each frame to colour the glow, and toggles `pause`/`resume`
 // on tap. Requires a `VoiceProvider` ancestor, so it is only mounted on the
-// primary screen — the /debug board opens the detail sheet without one and never
-// passes it in.
+// primary screen — a read-only detail sheet opens without one and never passes
+// it in.
 //
 // By default it is mic-only (the dock renders its own send/cancel around it). The
 // opt-in `sendable` prop makes it send-aware for compact placements (the ticket

@@ -206,9 +206,9 @@
    per-route `html:has(...)` background hacks. */
 html {
   background: var(--surface-page);
-  /* Kill the document-level rubber-band. Both app shells (primary screen, /debug)
-     are 100dvh columns with their OWN inner overflow regions — the page/body is
-     never meant to scroll — so any drag past a shell's edge otherwise bounces the
+  /* Kill the document-level rubber-band. The primary-screen shell is a 100dvh
+     column with its OWN inner overflow regions — the page/body is never meant to
+     scroll — so any drag past a shell's edge otherwise bounces the
      whole document (moving the pinned header/dock on iOS Safari). Disabling
      overscroll on the viewport scroller here confines the elastic bounce to the
      inner scrollers: a feed overscroll that chains up to this level finds a locked
@@ -235,7 +235,7 @@ body {
    input is focused, so it can't drag the pinned nav bar off the top; that's what
    lets `use-keyboard-viewport` ride the keyboard with a transform instead of
    fighting a document scroll. Scoped via `:has()` so the ordinary scrolling pages
-   (the /dashboard settings surface, /debug) still scroll the document normally when
+   (the /dashboard settings surface) still scroll the document normally when
    their content exceeds the viewport. */
 html:has([data-role='primary-screen']),
 html:has([data-role='primary-screen']) body {

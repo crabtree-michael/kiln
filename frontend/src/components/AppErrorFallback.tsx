@@ -2,7 +2,7 @@ import type { JSX } from 'react';
 
 // The app's crash fallback, rendered by the top-level Sentry `ErrorBoundary`
 // (main.tsx) when the React tree throws (spec-10 §3). Minimal and on-brand: the
-// Kiln dark palette from App.css, expressed with inline styles so it stays
+// Kiln dark palette, expressed with inline styles so it stays
 // self-contained — it must render even when the app's CSS or a route chunk is
 // what failed. `resetError` re-mounts the tree; the reload button is the sturdier
 // escape hatch for a session that stays broken.

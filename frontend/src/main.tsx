@@ -17,7 +17,6 @@ import {
   useNavigationType,
 } from 'react-router-dom';
 import * as Sentry from '@sentry/react';
-import { App } from '@/App';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
 import { DefaultRoute } from '@/components/DefaultRoute';
 import { NotFound } from '@/components/NotFound';
@@ -52,7 +51,7 @@ Sentry.init({
   release: import.meta.env.VITE_RELEASE,
   integrations: [
     // React Router (this repo is on v7) tracing: parameterises navigation
-    // transactions by route (`/`, `/debug`) instead of raw URLs. Wired to the
+    // transactions by route (`/`, `/app`) instead of raw URLs. Wired to the
     // component `<Routes>` pattern used below via the router hooks.
     Sentry.reactRouterBrowserTracingIntegration({
       useEffect,
@@ -85,11 +84,10 @@ if (root === null) {
 // landing page is a stateless, scrolling page reusing the design system and real
 // presentational components. `/landing` and `/landing-2` stay pinned to it as
 // aliases for everyone.
-// `/app` is the primary (08) screen; `/debug` keeps the original board+chat
-// client (07) whole and unchanged as a developer view. Both sit behind the
-// session gate (11 phase 2): every `/api/*` call now requires a session cookie,
-// so the gate resolves `GET /api/me` before either screen mounts its data
-// providers (which immediately open SSE + fetch board/feed). `/dashboard`
+// `/app` is the primary (08) screen. It sits behind the session gate (11 phase
+// 2): every `/api/*` call now requires a session cookie, so the gate resolves
+// `GET /api/me` before the screen mounts its data providers (which immediately
+// open SSE + fetch board/feed). `/dashboard`
 // keeps its own existing gate. `/onboarding` is the onboarding guide
 // (docs/onboarding.md) as a standalone, stateless styled page in the same
 // design-system chrome. `/beta/thanks` is the confirmation page the beta-signup
@@ -117,16 +115,6 @@ createRoot(root).render(
           <Route path="/onboarding" element={<Guide />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
-          <Route
-            path="/debug"
-            element={
-              <SessionProvider>
-                <SessionGate>
-                  <App />
-                </SessionGate>
-              </SessionProvider>
-            }
-          />
           {/* Catch-all last: every real route above wins first; any other path
               lands on the standalone 404 page instead of rendering nothing. */}
           <Route path="*" element={<NotFound />} />

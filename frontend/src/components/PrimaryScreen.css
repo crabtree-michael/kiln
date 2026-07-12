@@ -1598,7 +1598,7 @@ button[data-role='toast-open']:focus-visible {
 }
 
 /* Auto-send imminent: the "+10" bubble floats up into the bottom of this overlay
-   (it is anchored to the controls row just below — see dock-delay). Reserve room
+   (it is anchored to the mic group just below — see dock-delay). Reserve room
    for it by growing the panel's bottom padding, which lifts the transcript text
    clear of the bubble instead of letting the bubble land on top of the words. The
    panel stays opaque all the way down (padding, not a margin gap) so no feed shows
@@ -1633,9 +1633,21 @@ button[data-role='toast-open']:focus-visible {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   width: 100%;
-  /* Positioning context for the "+10" bubble, which floats centred above the mic
-     (below) rather than sitting in the flanking grid. */
+}
+
+/* Mic component: the mic orb + label and its "+10" auto-send-delay bubble, grouped
+   as ONE unit in the grid's centre column so they move together. The group is the
+   positioning context for the bubble (below), which floats centred above the mic
+   rather than anchoring to the whole controls row — so the bubble stays pinned to
+   the mic and the pair expand/contract as one when a toast or the transcript
+   overlay shifts the mic's surroundings, instead of the dock misaligning. Centres
+   the mic in the column so the bubble's left:50% lands on the mic's own centre. */
+[data-role='dock-mic-group'] {
+  grid-column: 2;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* Send button: mirrors the cancel (X) box exactly — same 40px circle, border,
@@ -1664,14 +1676,15 @@ button[data-role='toast-open']:focus-visible {
 
 /* "+10" delay control: extends the auto-send grace window by 10s (09 §4). Same
    40px circle as the flanking send/cancel controls so it reads as a peer button,
-   but floated OUT of the grid to hover centred above the mic — the button it
+   but floated OUT of the flow to hover centred above the mic — the button it
    defers the send of — rather than flanking it. Absolutely positioned against the
-   controls row (position:relative above): centred horizontally on the mic
-   (left:50% + translateX) and lifted just above the top of the row (bottom:100%),
-   with z-index over the transcript overlay (z-index 5) so it stays visible and
-   tappable while a transcript is up. Neutral like the cancel (×) — a "hold on"
-   affordance, not the affirmative send. Shown only in the final stretch before the
-   send fires (`sendImminent`). */
+   mic GROUP (dock-mic-group, position:relative above): centred horizontally on the
+   mic (left:50% + translateX) and lifted just above the top of the group
+   (bottom:100%), with z-index over the transcript overlay (z-index 5) so it stays
+   visible and tappable while a transcript is up. Anchoring to the group (not the
+   controls row) keeps it glued to the mic as one component. Neutral like the
+   cancel (×) — a "hold on" affordance, not the affirmative send. Shown only in the
+   final stretch before the send fires (`sendImminent`). */
 [data-role='dock-delay'] {
   position: absolute;
   left: 50%;
@@ -1718,7 +1731,9 @@ button[data-role='toast-open']:focus-visible {
 }
 
 [data-role='dock-talk'] {
-  grid-column: 2;
+  /* Centred within its wrapper (dock-mic-group), which holds the grid-column: 2
+     slot; elsewhere (the ticket detail sheet) the mic is placed by its own
+     container, so it carries no grid placement of its own. */
   display: flex;
   flex-direction: column;
   align-items: center;

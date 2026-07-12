@@ -336,20 +336,6 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
           </>
         ) : (
           <>
-            {showDelay && (
-              // "+10": push the armed auto-send 10s further out. Floats as a bubble
-              // centred above the mic (CSS), surfacing only in the final stretch of
-              // the countdown; tapping it defers the send and withdraws the bubble.
-              <button
-                type="button"
-                data-role="dock-delay"
-                aria-label="Delay auto-send 10 seconds"
-                onClick={delaySend}
-              >
-                <span aria-hidden="true">+10</span>
-              </button>
-            )}
-
             {showSend && (
               <button type="button" data-role="dock-send" aria-label="Send" onClick={sendNow}>
                 <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -358,7 +344,28 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
               </button>
             )}
 
-            <MicButton showLabel />
+            {/* The mic and its "+10" bubble are ONE dock component. The bubble is a
+                child of this group (not a free-floating child of the controls row),
+                so it is anchored to the mic itself: the two share a grid cell and
+                expand/contract together, staying aligned when a toast or the growing
+                transcript overlay changes the mic's surroundings — no dock shift. */}
+            <div data-role="dock-mic-group">
+              {showDelay && (
+                // "+10": push the armed auto-send 10s further out. Floats as a bubble
+                // centred above the mic (CSS), surfacing only in the final stretch of
+                // the countdown; tapping it defers the send and withdraws the bubble.
+                <button
+                  type="button"
+                  data-role="dock-delay"
+                  aria-label="Delay auto-send 10 seconds"
+                  onClick={delaySend}
+                >
+                  <span aria-hidden="true">+10</span>
+                </button>
+              )}
+
+              <MicButton showLabel />
+            </div>
 
             {showCancel && (
               <button type="button" data-role="dock-cancel" aria-label="Cancel" onClick={cancel}>

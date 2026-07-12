@@ -10,36 +10,40 @@ exports[`Dock snapshots > Denied 1`] = `
       data-mode="voice"
       data-role="dock-controls"
     >
-      <button
-        aria-label="Talk"
-        aria-pressed="false"
-        data-dock-state="denied"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-mic-group"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="false"
+          data-dock-state="denied"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-orb"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-orb"
+            />
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-capsule"
-          />
-          <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to enable mic
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Tap to enable mic
+          </span>
+        </button>
+      </div>
       <button
         aria-label="Type a message"
         data-role="dock-keyboard"
@@ -244,36 +248,40 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
           />
         </svg>
       </button>
-      <button
-        aria-label="Talk"
-        aria-pressed="true"
-        data-dock-state="listening"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-mic-group"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-orb"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-orb"
+            />
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-capsule"
-          />
-          <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Listening…
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
       <button
         aria-label="Cancel"
         data-role="dock-cancel"
@@ -333,36 +341,40 @@ exports[`Dock snapshots > Listening with settled ink only (send + X flank the mi
           />
         </svg>
       </button>
-      <button
-        aria-label="Talk"
-        aria-pressed="true"
-        data-dock-state="listening"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-mic-group"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="true"
+          data-dock-state="listening"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-orb"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-orb"
+            />
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-capsule"
-          />
-          <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Listening…
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Listening…
+          </span>
+        </button>
+      </div>
       <button
         aria-label="Cancel"
         data-role="dock-cancel"
@@ -389,36 +401,40 @@ exports[`Dock snapshots > Paused 1`] = `
       data-mode="voice"
       data-role="dock-controls"
     >
-      <button
-        aria-label="Talk"
-        aria-pressed="false"
-        data-dock-state="paused"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-mic-group"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="false"
+          data-dock-state="paused"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-orb"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-orb"
+            />
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-capsule"
-          />
-          <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to talk
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Tap to talk
+          </span>
+        </button>
+      </div>
       <button
         aria-label="Type a message"
         data-role="dock-keyboard"
@@ -499,36 +515,40 @@ exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §
           />
         </svg>
       </button>
-      <button
-        aria-label="Talk"
-        aria-pressed="false"
-        data-dock-state="retry"
-        data-role="dock-talk"
-        type="button"
+      <div
+        data-role="dock-mic-group"
       >
-        <span
-          aria-hidden="true"
-          data-role="dock-mic"
+        <button
+          aria-label="Talk"
+          aria-pressed="false"
+          data-dock-state="retry"
+          data-role="dock-talk"
+          type="button"
         >
           <span
-            data-role="dock-mic-orb"
-          />
+            aria-hidden="true"
+            data-role="dock-mic"
+          >
+            <span
+              data-role="dock-mic-orb"
+            />
+            <span
+              data-role="dock-mic-capsule"
+            />
+            <span
+              data-role="dock-mic-arc"
+            />
+            <span
+              data-role="dock-mic-stem"
+            />
+          </span>
           <span
-            data-role="dock-mic-capsule"
-          />
-          <span
-            data-role="dock-mic-arc"
-          />
-          <span
-            data-role="dock-mic-stem"
-          />
-        </span>
-        <span
-          data-role="dock-label"
-        >
-          Tap to retry
-        </span>
-      </button>
+            data-role="dock-label"
+          >
+            Tap to retry
+          </span>
+        </button>
+      </div>
       <button
         aria-label="Cancel"
         data-role="dock-cancel"

@@ -35,6 +35,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request, user 
 	upd := identity.SettingsUpdate{
 		AnthropicKey:      derefOr(req.AnthropicApiKey, ""),
 		AmikaKey:          derefOr(req.AmikaApiKey, ""),
+		DevinKey:          derefOr(req.DevinApiKey, ""),
 		GitHubToken:       derefOr(req.GithubAuthToken, ""),
 		AmikaClaudeCredID: derefOr(req.AmikaClaudeCredId, ""),
 	}
@@ -79,7 +80,7 @@ func (s *Server) handlePutProject(w http.ResponseWriter, r *http.Request, user i
 
 // handleVerify runs the live connection checks over the caller's stored
 // credentials (11 §4) and returns them in the service's order
-// (anthropic, amika, repo). No request body.
+// (anthropic, amika, devin, repo). No request body.
 func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request, user identity.User) {
 	checks, err := s.account.Verify(r.Context(), user.ID)
 	if err != nil {
@@ -164,6 +165,7 @@ func meToWire(me identity.Me) wire.Me {
 		Settings: wire.MeSettings{
 			AnthropicApiKey:   secretToWire(me.Settings.AnthropicKey),
 			AmikaApiKey:       secretToWire(me.Settings.AmikaKey),
+			DevinApiKey:       secretToWire(me.Settings.DevinKey),
 			GithubAuthToken:   secretToWire(me.Settings.GitHubToken),
 			AmikaClaudeCredId: me.Settings.AmikaClaudeCredID,
 		},

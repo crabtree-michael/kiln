@@ -30,6 +30,10 @@ func (Mock) VerifyAmika(_ context.Context, _ string) identity.CheckResult {
 	return ok(nameAmika)
 }
 
+func (Mock) VerifyDevin(_ context.Context, _ string) identity.CheckResult {
+	return ok(nameDevin)
+}
+
 func (Mock) VerifyRepo(_ context.Context, _, _ string) identity.CheckResult {
 	return ok(nameRepo)
 }

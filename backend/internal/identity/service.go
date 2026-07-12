@@ -29,8 +29,8 @@ const (
 	maxPositiveInt63 = 0x7fffffffffffffff
 
 	// verifyCheckCount is the fixed number of checks Verify always returns
-	// (anthropic, amika, repo — 11 §4).
-	verifyCheckCount = 3
+	// (anthropic, amika, devin, repo — 11 §4).
+	verifyCheckCount = 4
 
 	// statusSkipped is the CheckResult.Status for an unconfigured credential
 	// group (no verifier wired in, or the group has no secret/repo set).
@@ -51,6 +51,7 @@ type GitHub interface {
 type Verifier interface {
 	VerifyAnthropic(ctx context.Context, apiKey string) CheckResult
 	VerifyAmika(ctx context.Context, apiKey string) CheckResult
+	VerifyDevin(ctx context.Context, apiKey string) CheckResult
 	VerifyRepo(ctx context.Context, repoURL, token string) CheckResult
 }
 
@@ -189,6 +190,7 @@ func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
 	me := Me{User: user, Settings: MeSettings{
 		AnthropicKey:      s.secretStatus(cfg.AnthropicKeyEnc),
 		AmikaKey:          s.secretStatus(cfg.AmikaKeyEnc),
+		DevinKey:          s.secretStatus(cfg.DevinKeyEnc),
 		GitHubToken:       s.secretStatus(cfg.GitHubTokenEnc),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 	}}
@@ -212,14 +214,21 @@ func (s *Service) UpdateSettings(ctx context.Context, userID string, upd Setting
 		return fmt.Errorf("identity: update settings: %w", err)
 	}
 	cfg.UserID = userID
-	if err := s.mergeSecret(&cfg.AnthropicKeyEnc, upd.AnthropicKey); err != nil {
-		return err
+	// Each write-only secret merges in place: a non-empty inbound value replaces
+	// the stored ciphertext, an empty one leaves it unchanged (11 §3 D7).
+	secrets := []struct {
+		dst   *[]byte
+		value string
+	}{
+		{&cfg.AnthropicKeyEnc, upd.AnthropicKey},
+		{&cfg.AmikaKeyEnc, upd.AmikaKey},
+		{&cfg.DevinKeyEnc, upd.DevinKey},
+		{&cfg.GitHubTokenEnc, upd.GitHubToken},
 	}
-	if err := s.mergeSecret(&cfg.AmikaKeyEnc, upd.AmikaKey); err != nil {
-		return err
-	}
-	if err := s.mergeSecret(&cfg.GitHubTokenEnc, upd.GitHubToken); err != nil {
-		return err
+	for _, sec := range secrets {
+		if err := s.mergeSecret(sec.dst, sec.value); err != nil {
+			return err
+		}
 	}
 	if upd.AmikaClaudeCredID != "" {
 		cfg.AmikaClaudeCredID = upd.AmikaClaudeCredID
@@ -371,8 +380,12 @@ type RuntimeConfig struct {
 	// deployment-global ANTHROPIC_API_KEY env setting, not this per-user value
 	// (see UserConfig.AnthropicKeyEnc). Still resolved so re-enabling a
 	// per-user path is a one-line change at the composition root.
-	AnthropicAPIKey   string
-	AmikaAPIKey       string
+	AnthropicAPIKey string
+	AmikaAPIKey     string
+	// DevinAPIKey is the owner's decrypted Devin bearer, empty when unset. The
+	// composition root's buildDevinProvider prefers it over the deployment
+	// DEVIN_API_KEY env (multi-provider design §8). Plaintext — in-process only.
+	DevinAPIKey       string
 	AmikaClaudeCredID string
 	GitHubAuthToken   string
 	// AmikaSecrets is the project's decrypted secrets (name + value) to inject
@@ -411,6 +424,7 @@ func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeC
 		OwnerUserID:       proj.OwnerUserID,
 		AnthropicAPIKey:   s.decrypt(cfg.AnthropicKeyEnc),
 		AmikaAPIKey:       s.decrypt(cfg.AmikaKeyEnc),
+		DevinAPIKey:       s.decrypt(cfg.DevinKeyEnc),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 		GitHubAuthToken:   s.decrypt(cfg.GitHubTokenEnc),
 		AmikaSecrets:      s.resolveAmikaSecrets(proj.AmikaSecrets),
@@ -423,7 +437,7 @@ func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeC
 func (s *Service) SetVerifier(v Verifier) { s.verifier = v }
 
 // Verify runs live checks for each configured credential group; unconfigured
-// groups report "skipped" (11 §4). Order is fixed: anthropic, amika, repo.
+// groups report "skipped" (11 §4). Order is fixed: anthropic, amika, devin, repo.
 func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, error) {
 	cfg, err := s.store.GetUserConfig(ctx, userID)
 	if err != nil {
@@ -431,6 +445,7 @@ func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, err
 	}
 	anthropicKey := s.decrypt(cfg.AnthropicKeyEnc)
 	amikaKey := s.decrypt(cfg.AmikaKeyEnc)
+	devinKey := s.decrypt(cfg.DevinKeyEnc)
 	ghToken := s.decrypt(cfg.GitHubTokenEnc)
 	repoURL := ""
 	if p, err := s.store.GetProjectByOwner(ctx, userID); err == nil {
@@ -442,6 +457,9 @@ func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, err
 	}))
 	checks = append(checks, s.check(ctx, "amika", amikaKey != "", func(ctx context.Context) CheckResult {
 		return s.verifier.VerifyAmika(ctx, amikaKey)
+	}))
+	checks = append(checks, s.check(ctx, "devin", devinKey != "", func(ctx context.Context) CheckResult {
+		return s.verifier.VerifyDevin(ctx, devinKey)
 	}))
 	checks = append(checks, s.check(ctx, "repo", repoURL != "", func(ctx context.Context) CheckResult {
 		return s.verifier.VerifyRepo(ctx, repoURL, ghToken)

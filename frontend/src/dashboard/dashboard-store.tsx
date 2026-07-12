@@ -27,6 +27,7 @@ import {
 const CREDENTIAL_KEYS: readonly CredentialName[] = [
   'anthropic_api_key',
   'amika_api_key',
+  'devin_api_key',
   'github_auth_token',
 ];
 

@@ -304,6 +304,7 @@ type fakeVerifier struct {
 
 	gotAnthropicKey string
 	gotAmikaKey     string
+	gotDevinKey     string
 	gotRepoURL      string
 	gotRepoToken    string
 }
@@ -319,6 +320,13 @@ func (v *fakeVerifier) VerifyAmika(_ context.Context, apiKey string) identity.Ch
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.gotAmikaKey = apiKey
+	return identity.CheckResult{Status: "ok"}
+}
+
+func (v *fakeVerifier) VerifyDevin(_ context.Context, apiKey string) identity.CheckResult {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.gotDevinKey = apiKey
 	return identity.CheckResult{Status: "ok"}
 }
 

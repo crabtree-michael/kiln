@@ -312,7 +312,7 @@ func TestUserConfigZeroThenUpsert(t *testing.T) {
 		t.Fatalf("GetUserConfig before any write: %v", err)
 	}
 	if zero.UserID != user.ID || zero.AnthropicKeyEnc != nil || zero.AmikaKeyEnc != nil ||
-		zero.GitHubTokenEnc != nil || zero.AmikaClaudeCredID != "" {
+		zero.DevinKeyEnc != nil || zero.GitHubTokenEnc != nil || zero.AmikaClaudeCredID != "" {
 		t.Fatalf("GetUserConfig before any write = %+v, want zero value with UserID set", zero)
 	}
 
@@ -320,6 +320,7 @@ func TestUserConfigZeroThenUpsert(t *testing.T) {
 		UserID:            user.ID,
 		AnthropicKeyEnc:   []byte{0x01, 0x02, 0x03},
 		AmikaKeyEnc:       []byte{0xAA, 0xBB},
+		DevinKeyEnc:       []byte{0xDE, 0x71},
 		GitHubTokenEnc:    []byte{0xFF},
 		AmikaClaudeCredID: "cred-1",
 	}
@@ -333,6 +334,7 @@ func TestUserConfigZeroThenUpsert(t *testing.T) {
 	}
 	if !bytes.Equal(got.AnthropicKeyEnc, cfg.AnthropicKeyEnc) ||
 		!bytes.Equal(got.AmikaKeyEnc, cfg.AmikaKeyEnc) ||
+		!bytes.Equal(got.DevinKeyEnc, cfg.DevinKeyEnc) ||
 		!bytes.Equal(got.GitHubTokenEnc, cfg.GitHubTokenEnc) ||
 		got.AmikaClaudeCredID != cfg.AmikaClaudeCredID {
 		t.Fatalf("GetUserConfig after upsert = %+v, want %+v", got, cfg)
@@ -351,7 +353,7 @@ func TestUserConfigZeroThenUpsert(t *testing.T) {
 		t.Fatalf("GetUserConfig after second upsert: %v", err)
 	}
 	if !bytes.Equal(got2.AnthropicKeyEnc, cfg2.AnthropicKeyEnc) || got2.AmikaKeyEnc != nil ||
-		got2.AmikaClaudeCredID != cfg2.AmikaClaudeCredID {
+		got2.DevinKeyEnc != nil || got2.AmikaClaudeCredID != cfg2.AmikaClaudeCredID {
 		t.Fatalf("GetUserConfig after second upsert = %+v, want overwritten %+v", got2, cfg2)
 	}
 }

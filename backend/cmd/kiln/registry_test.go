@@ -78,6 +78,25 @@ func TestFactoriesBuildProviders(t *testing.T) {
 	}
 }
 
+// TestDevinAPIKeySource covers the per-project credential precedence (multi-provider
+// design §8): the owner's dashboard-stored key wins, the deployment DEVIN_API_KEY env
+// is the fallback when the owner set none.
+func TestDevinAPIKeySource(t *testing.T) {
+	const envKey = "cog-env"
+	cases := []struct {
+		name, runtime, env, want string
+	}{
+		{"owner key preferred over env", "cog-owner", envKey, "cog-owner"},
+		{"env fallback when owner unset", "", envKey, envKey},
+		{"empty when neither set", "", "", ""},
+	}
+	for _, c := range cases {
+		if got := devinAPIKey(c.runtime, c.env); got != c.want {
+			t.Errorf("%s: devinAPIKey(%q, %q) = %q, want %q", c.name, c.runtime, c.env, got, c.want)
+		}
+	}
+}
+
 // TestProviderDescriptors covers the dashboard data source (multi-provider design
 // §8, D6): one descriptor per registered provider, labelled, with the capability
 // shape the UI gates affordances on — Amika a managed sandbox, Devin not.

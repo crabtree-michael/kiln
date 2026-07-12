@@ -30,6 +30,7 @@ function makeMe(overrides: Partial<Me> = {}): Me {
     settings: {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
+      devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: false, tail: '' },
       amika_claude_cred_id: '',
     },
@@ -109,6 +110,7 @@ describe('Dashboard', () => {
         settings: {
           anthropic_api_key: { set: false, tail: '' },
           amika_api_key: { set: true, tail: 'x4Kd' },
+          devin_api_key: { set: false, tail: '' },
           github_auth_token: { set: true, tail: 'abcd' },
           amika_claude_cred_id: 'cred-1',
         },
@@ -208,6 +210,63 @@ describe('Dashboard', () => {
     const indicator = await screen.findByText('✓');
     expect(indicator).toHaveAttribute('data-role', 'credential-status');
     expect(indicator).toHaveAttribute('data-name', 'amika_api_key');
+    expect(indicator).toHaveAttribute('data-status', 'ok');
+  });
+
+  it('blurring the Devin API key auto-saves it and reads its own verify check', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: 'devin',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+          merge_gate_mode: 'main',
+          amika_secrets: [],
+        },
+      }),
+    );
+    vi.mocked(transport.putSettings).mockResolvedValue(
+      makeMe({
+        project: {
+          name: 'kiln',
+          repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: 'devin',
+          amika_snapshot: '',
+          brain_model: '',
+          worker_count: 1,
+          merge_gate_mode: 'main',
+          amika_secrets: [],
+        },
+      }),
+    );
+    const response: VerifyResponse = {
+      checks: [
+        { name: 'devin', status: 'ok', message: 'reachable' },
+        { name: 'repo', status: 'skipped', message: 'not configured' },
+      ],
+    };
+    vi.mocked(transport.postVerify).mockResolvedValue(response);
+    renderDashboard();
+
+    const input = await screen.findByLabelText('Devin API key');
+    fireEvent.change(input, { target: { value: 'cog-new-xy' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(transport.putSettings).toHaveBeenCalledWith({ devin_api_key: 'cog-new-xy' });
+    });
+    expect(transport.putSettings).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(transport.postVerify).toHaveBeenCalledTimes(1);
+    });
+
+    const indicator = await screen.findByText('✓');
+    expect(indicator).toHaveAttribute('data-role', 'credential-status');
+    expect(indicator).toHaveAttribute('data-name', 'devin_api_key');
     expect(indicator).toHaveAttribute('data-status', 'ok');
   });
 
@@ -409,6 +468,7 @@ describe('Dashboard', () => {
         settings: {
           anthropic_api_key: { set: true, tail: 'x4Kd' },
           amika_api_key: { set: true, tail: 'y7Bc' },
+          devin_api_key: { set: false, tail: '' },
           github_auth_token: { set: true, tail: 'abcd' },
           amika_claude_cred_id: 'cred-1',
         },
@@ -438,6 +498,7 @@ describe('Dashboard', () => {
         settings: {
           anthropic_api_key: { set: true, tail: 'x4Kd' },
           amika_api_key: { set: false, tail: '' },
+          devin_api_key: { set: false, tail: '' },
           github_auth_token: { set: true, tail: 'abcd' },
           amika_claude_cred_id: 'cred-1',
         },

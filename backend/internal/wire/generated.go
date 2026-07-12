@@ -224,6 +224,7 @@ func (e TicketState) Valid() bool {
 const (
 	Amika     VerifyCheckName = "amika"
 	Anthropic VerifyCheckName = "anthropic"
+	Devin     VerifyCheckName = "devin"
 	Repo      VerifyCheckName = "repo"
 )
 
@@ -233,6 +234,8 @@ func (e VerifyCheckName) Valid() bool {
 	case Amika:
 		return true
 	case Anthropic:
+		return true
+	case Devin:
 		return true
 	case Repo:
 		return true
@@ -472,6 +475,7 @@ type MeSettings struct {
 	AmikaApiKey       SecretStatus `json:"amika_api_key"`
 	AmikaClaudeCredId string       `json:"amika_claude_cred_id"`
 	AnthropicApiKey   SecretStatus `json:"anthropic_api_key"`
+	DevinApiKey       SecretStatus `json:"devin_api_key"`
 	GithubAuthToken   SecretStatus `json:"github_auth_token"`
 }
 
@@ -598,6 +602,7 @@ type SettingsUpdateRequest struct {
 	AmikaApiKey       *string `json:"amika_api_key,omitempty"`
 	AmikaClaudeCredId *string `json:"amika_claude_cred_id,omitempty"`
 	AnthropicApiKey   *string `json:"anthropic_api_key,omitempty"`
+	DevinApiKey       *string `json:"devin_api_key,omitempty"`
 	GithubAuthToken   *string `json:"github_auth_token,omitempty"`
 }
 

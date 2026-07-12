@@ -1091,10 +1091,11 @@ components:
     MeSettings:
       type: object
       description: Config status — secrets as presence+fingerprint only (11 §3 D7).
-      required: [anthropic_api_key, amika_api_key, github_auth_token, amika_claude_cred_id]
+      required: [anthropic_api_key, amika_api_key, devin_api_key, github_auth_token, amika_claude_cred_id]
       properties:
         anthropic_api_key: { $ref: '#/components/schemas/SecretStatus' }
         amika_api_key: { $ref: '#/components/schemas/SecretStatus' }
+        devin_api_key: { $ref: '#/components/schemas/SecretStatus' }
         github_auth_token: { $ref: '#/components/schemas/SecretStatus' }
         amika_claude_cred_id: { type: string }
     SecretStatus:
@@ -1111,6 +1112,7 @@ components:
       properties:
         anthropic_api_key: { type: string }
         amika_api_key: { type: string }
+        devin_api_key: { type: string }
         github_auth_token: { type: string }
         amika_claude_cred_id: { type: string }
     ProjectUpdateRequest:
@@ -1148,7 +1150,7 @@ components:
       type: object
       required: [name, status, message]
       properties:
-        name: { type: string, enum: [anthropic, amika, repo] }
+        name: { type: string, enum: [anthropic, amika, devin, repo] }
         status: { type: string, enum: [ok, failed, skipped] }
         message: { type: string }
     VerifyResponse:

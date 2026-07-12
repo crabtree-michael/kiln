@@ -764,7 +764,10 @@ describe('PrimaryScreenView', () => {
       createdAt: minutesAgo(0),
     });
     const toasts: ActivityToast[] = [
-      { id: 7, pill: { kind: 'toast', verb: 'started', ticketTitle: 'Other', ticketId: 't-other' } },
+      {
+        id: 7,
+        pill: { kind: 'toast', verb: 'started', ticketTitle: 'Other', ticketId: 't-other' },
+      },
     ];
     renderView(makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [done] }), {
       board: makeBoard({ done: [ticket] }),

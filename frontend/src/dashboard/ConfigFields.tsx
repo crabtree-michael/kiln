@@ -77,6 +77,7 @@ function SecretStatusRow({ name, status }: SecretStatusRowProps): JSX.Element {
 const CHECK_NAME_FOR_CREDENTIAL: Record<CredentialName, VerifyCheck['name']> = {
   anthropic_api_key: 'anthropic',
   amika_api_key: 'amika',
+  devin_api_key: 'devin',
   github_auth_token: 'repo',
 };
 
@@ -430,6 +431,7 @@ export function CredentialFields({
 }: CredentialFieldsProps): JSX.Element {
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [amikaApiKey, setAmikaApiKey] = useState('');
+  const [devinApiKey, setDevinApiKey] = useState('');
   const [githubAuthToken, setGithubAuthToken] = useState('');
   const [amikaClaudeCredId, setAmikaClaudeCredId] = useState(settings.amika_claude_cred_id);
 
@@ -486,6 +488,16 @@ export function CredentialFields({
     }
     commit('amika_api_key', { amika_api_key: trimmed }, () => {
       setAmikaApiKey('');
+    });
+  };
+
+  const commitDevin = (): void => {
+    const trimmed = devinApiKey.trim();
+    if (trimmed === '') {
+      return;
+    }
+    commit('devin_api_key', { devin_api_key: trimmed }, () => {
+      setDevinApiKey('');
     });
   };
 
@@ -581,6 +593,34 @@ export function CredentialFields({
         </span>
       </label>
       <SecretStatusRow name="amika_api_key" status={settings.amika_api_key} />
+
+      <label>
+        Devin API key
+        <span data-role="credential-input-row">
+          <input
+            type="password"
+            value={devinApiKey}
+            placeholder={settings.devin_api_key.set ? secretStatusText(settings.devin_api_key) : ''}
+            disabled={pendingCredentials.has('devin_api_key')}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              setDevinApiKey(event.target.value);
+            }}
+            onBlur={commitDevin}
+            onKeyDown={onEnter(commitDevin)}
+          />
+          <CredentialStatusIndicator
+            name="devin_api_key"
+            status={credentialIndicatorStatus(
+              'devin_api_key',
+              pendingCredentials,
+              verifying,
+              checkFor('devin_api_key'),
+            )}
+            message={checkFor('devin_api_key')?.message}
+          />
+        </span>
+      </label>
+      <SecretStatusRow name="devin_api_key" status={settings.devin_api_key} />
 
       <label>
         GitHub token

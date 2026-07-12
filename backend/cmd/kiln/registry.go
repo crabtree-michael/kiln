@@ -85,17 +85,32 @@ func buildAmikaProvider(d ProviderDeps) (agent.Provider, error) {
 // session-based virtual-worker adapter over its per-tenant HTTP client, so each
 // project's connection pool is isolated and tenant.Providers.Close can release it
 // on a credential rebuild (11 §3). Its config is sourced from the deployment-global
-// composition-root Config — the opt-in path; per-project Devin config via the
-// dashboard descriptor is a later phase (§3). The adapter sends the idempotent
+// composition-root Config for the deployment-global knobs (base URL, snapshot,
+// ACU cap). The API key is per-project: it prefers the project owner's stored
+// Devin credential (RuntimeConfig.DevinAPIKey, set from the dashboard —
+// multi-provider design §8), falling back to the deployment-global
+// DEVIN_API_KEY env when the owner hasn't configured one, so an existing
+// env-only opt-in deployment is unchanged. The adapter sends the idempotent
 // create flag itself, so a replayed StartTurn(fresh) reuses the same session
 // rather than opening a duplicate (design §4).
 func buildDevinProvider(d ProviderDeps) (agent.Provider, error) {
 	return devin.New(devin.Config{
 		BaseURL:     d.Config.DevinBaseURL,
-		APIKey:      d.Config.DevinAPIKey,
+		APIKey:      devinAPIKey(d.Runtime.DevinAPIKey, d.Config.DevinAPIKey),
 		Snapshot:    d.Config.DevinSnapshot,
 		MaxACULimit: d.Config.DevinMaxACULimit,
 	}, d.HTTPClient), nil
+}
+
+// devinAPIKey resolves which Devin bearer authenticates a project's sessions
+// (multi-provider design §8): the project owner's dashboard-stored key (runtime)
+// wins, falling back to the deployment-global DEVIN_API_KEY env (config) when the
+// owner set none — so an existing env-only opt-in deployment is unchanged.
+func devinAPIKey(runtime, env string) string {
+	if runtime != "" {
+		return runtime
+	}
+	return env
 }
 
 // resolveTenantProvider builds one project's coding-agent Provider through the

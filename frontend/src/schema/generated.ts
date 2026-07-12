@@ -690,6 +690,7 @@ export interface components {
         MeSettings: {
             anthropic_api_key: components["schemas"]["SecretStatus"];
             amika_api_key: components["schemas"]["SecretStatus"];
+            devin_api_key: components["schemas"]["SecretStatus"];
             github_auth_token: components["schemas"]["SecretStatus"];
             amika_claude_cred_id: string;
         };
@@ -702,6 +703,7 @@ export interface components {
         SettingsUpdateRequest: {
             anthropic_api_key?: string;
             amika_api_key?: string;
+            devin_api_key?: string;
             github_auth_token?: string;
             amika_claude_cred_id?: string;
         };
@@ -723,7 +725,7 @@ export interface components {
         };
         VerifyCheck: {
             /** @enum {string} */
-            name: "anthropic" | "amika" | "repo";
+            name: "anthropic" | "amika" | "devin" | "repo";
             /** @enum {string} */
             status: "ok" | "failed" | "skipped";
             message: string;

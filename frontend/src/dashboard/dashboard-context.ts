@@ -23,7 +23,8 @@ export type DashboardPhase = 'loading' | 'signed-out' | 'ready';
  * each drive their own right-of-input validity indicator (dashboard UX
  * update: auto-save + auto-verify, superseding the old "Save credentials" /
  * "Test connections" buttons). */
-export type CredentialName = 'anthropic_api_key' | 'amika_api_key' | 'github_auth_token';
+export type CredentialName =
+  'anthropic_api_key' | 'amika_api_key' | 'devin_api_key' | 'github_auth_token';
 
 export interface DashboardStoreValue {
   phase: DashboardPhase;

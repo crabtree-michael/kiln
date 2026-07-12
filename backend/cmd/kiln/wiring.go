@@ -414,7 +414,7 @@ func newVerifier(cfg Config) identity.Verifier {
 	if cfg.VerifyMode == modeMock {
 		return verify.NewMock()
 	}
-	return verify.New(resolveAmikaBaseURL(cfg))
+	return verify.New(resolveAmikaBaseURL(cfg), cfg.DevinBaseURL)
 }
 
 // loadScriptedBrain resolves KILN_BRAIN_MODE (design §3.1): "scripted" loads the

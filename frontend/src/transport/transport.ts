@@ -487,6 +487,7 @@ function isMeSettings(value: unknown): value is MeSettings {
     isRecord(value) &&
     isSecretStatus(value.anthropic_api_key) &&
     isSecretStatus(value.amika_api_key) &&
+    isSecretStatus(value.devin_api_key) &&
     isSecretStatus(value.github_auth_token) &&
     typeof value.amika_claude_cred_id === 'string'
   );

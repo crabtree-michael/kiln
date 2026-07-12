@@ -356,6 +356,7 @@ func TestMeEmpty(t *testing.T) {
 	for name, got := range map[string]identity.SecretStatus{
 		"AnthropicKey": me.Settings.AnthropicKey,
 		"AmikaKey":     me.Settings.AmikaKey,
+		"DevinKey":     me.Settings.DevinKey,
 		"GitHubToken":  me.Settings.GitHubToken,
 	} {
 		if got != (identity.SecretStatus{}) {
@@ -374,6 +375,7 @@ func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 
 	err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
 		AnthropicKey: "sk-ant-abcx4Kd",
+		DevinKey:     "cog-secretV1nE",
 	})
 	if err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
@@ -386,6 +388,9 @@ func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 	if want := (identity.SecretStatus{Set: true, Tail: "x4Kd"}); me.Settings.AnthropicKey != want {
 		t.Fatalf("AnthropicKey = %+v, want %+v", me.Settings.AnthropicKey, want)
 	}
+	if want := (identity.SecretStatus{Set: true, Tail: "V1nE"}); me.Settings.DevinKey != want {
+		t.Fatalf("DevinKey = %+v, want %+v", me.Settings.DevinKey, want)
+	}
 	if me.Settings.AmikaKey != (identity.SecretStatus{}) {
 		t.Fatalf("AmikaKey = %+v, want unset", me.Settings.AmikaKey)
 	}
@@ -396,6 +401,9 @@ func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 	}
 	if bytes.Contains(cfg.AnthropicKeyEnc, []byte("sk-ant-abcx4Kd")) {
 		t.Fatal("stored bytes contain the plaintext secret — must be encrypted")
+	}
+	if bytes.Contains(cfg.DevinKeyEnc, []byte("cog-secretV1nE")) {
+		t.Fatal("stored bytes contain the plaintext devin secret — must be encrypted")
 	}
 }
 
@@ -515,6 +523,7 @@ func TestVerifySkipsUnconfigured(t *testing.T) {
 	want := []identity.CheckResult{
 		{Name: "anthropic", Status: wantSkippedStatus, Message: wantSkipped},
 		{Name: "amika", Status: wantSkippedStatus, Message: wantSkipped},
+		{Name: "devin", Status: wantSkippedStatus, Message: wantSkipped},
 		{Name: "repo", Status: wantSkippedStatus, Message: wantSkipped},
 	}
 	if len(checks) != len(want) {
@@ -535,8 +544,10 @@ func TestVerifyRunsConfigured(t *testing.T) {
 	u := mustDevSignIn(t, svc, "verify-configured-user")
 
 	const anthropicKey = "sk-ant-liveKey1"
+	const devinKey = "cog-liveKey1"
 	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
 		AnthropicKey: anthropicKey,
+		DevinKey:     devinKey,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -551,8 +562,8 @@ func TestVerifyRunsConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if len(checks) != 3 {
-		t.Fatalf("checks = %+v, want 3 entries", checks)
+	if len(checks) != 4 {
+		t.Fatalf("checks = %+v, want 4 entries", checks)
 	}
 	if checks[0].Name != "anthropic" || checks[0].Status != "ok" {
 		t.Fatalf("anthropic check = %+v, want {Name:anthropic Status:ok}", checks[0])
@@ -560,12 +571,18 @@ func TestVerifyRunsConfigured(t *testing.T) {
 	if checks[1].Name != "amika" || checks[1].Status != wantSkippedStatus {
 		t.Fatalf("amika check = %+v, want skipped (no amika key set)", checks[1])
 	}
-	if checks[2].Name != "repo" || checks[2].Status != "ok" {
-		t.Fatalf("repo check = %+v, want {Name:repo Status:ok}", checks[2])
+	if checks[2].Name != "devin" || checks[2].Status != "ok" {
+		t.Fatalf("devin check = %+v, want {Name:devin Status:ok}", checks[2])
+	}
+	if checks[3].Name != "repo" || checks[3].Status != "ok" {
+		t.Fatalf("repo check = %+v, want {Name:repo Status:ok}", checks[3])
 	}
 
 	if verifier.gotAnthropicKey != anthropicKey {
 		t.Fatalf("verifier got anthropic key %q, want the decrypted %q", verifier.gotAnthropicKey, anthropicKey)
+	}
+	if verifier.gotDevinKey != devinKey {
+		t.Fatalf("verifier got devin key %q, want the decrypted %q", verifier.gotDevinKey, devinKey)
 	}
 	if verifier.gotRepoURL != testProjectRepoURL {
 		t.Fatalf("verifier got repo URL %q, want %q", verifier.gotRepoURL, testProjectRepoURL)

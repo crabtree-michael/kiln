@@ -16,6 +16,7 @@ func TestMockVerifierReportsOK(t *testing.T) {
 	}{
 		{"anthropic", m.VerifyAnthropic(ctx, "any").Status},
 		{"amika", m.VerifyAmika(ctx, "any").Status},
+		{"devin", m.VerifyDevin(ctx, "any").Status},
 		{"repo", m.VerifyRepo(ctx, "repo", "token").Status},
 	} {
 		if got.result != "ok" {

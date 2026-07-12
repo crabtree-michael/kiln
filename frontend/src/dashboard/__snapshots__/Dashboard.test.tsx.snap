@@ -77,6 +77,30 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
           not configured
         </span>
         <label>
+          Devin API key
+          <span
+            data-role="credential-input-row"
+          >
+            <input
+              placeholder=""
+              type="password"
+              value=""
+            />
+            <span
+              data-name="devin_api_key"
+              data-role="credential-status"
+              data-status="skipped"
+            />
+          </span>
+        </label>
+        <span
+          data-name="devin_api_key"
+          data-role="secret-status"
+          data-set="false"
+        >
+          not configured
+        </span>
+        <label>
           GitHub token
           <span
             data-role="credential-input-row"

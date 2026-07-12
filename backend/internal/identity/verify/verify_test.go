@@ -37,7 +37,7 @@ func TestVerifyAnthropicOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New("")
+	v := verify.New("", "")
 	v.AnthropicBaseURL = srv.URL
 
 	res := v.VerifyAnthropic(context.Background(), "sk-ant-test")
@@ -62,7 +62,7 @@ func TestVerifyAnthropicBadKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New("")
+	v := verify.New("", "")
 	v.AnthropicBaseURL = srv.URL
 
 	res := v.VerifyAnthropic(context.Background(), "bad-key")
@@ -83,7 +83,7 @@ func TestVerifyAmikaOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New(srv.URL)
+	v := verify.New(srv.URL, "")
 	res := v.VerifyAmika(context.Background(), "amk-test")
 
 	if gotPath != "/sandboxes" {
@@ -103,7 +103,7 @@ func TestVerifyAmikaBadKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := verify.New(srv.URL)
+	v := verify.New(srv.URL, "")
 	res := v.VerifyAmika(context.Background(), "bad-key")
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)
@@ -114,13 +114,62 @@ func TestVerifyAmikaBadKey(t *testing.T) {
 }
 
 func TestVerifyAmikaNoBaseURL(t *testing.T) {
-	v := verify.New("")
+	v := verify.New("", "")
 	res := v.VerifyAmika(context.Background(), "amk-test")
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)
 	}
 	if !strings.Contains(res.Message, "amika base url not configured") {
 		t.Fatalf("message = %q, want to contain amika base url not configured", res.Message)
+	}
+}
+
+func TestVerifyDevinOK(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	v := verify.New("", srv.URL)
+	res := v.VerifyDevin(context.Background(), "cog-test")
+
+	if gotPath != "/v1/sessions" {
+		t.Fatalf("request path = %q, want /v1/sessions", gotPath)
+	}
+	if gotAuth != "Bearer cog-test" {
+		t.Fatalf("Authorization header = %q, want Bearer cog-test", gotAuth)
+	}
+	if res.Name != "devin" || res.Status != wantOK {
+		t.Fatalf("res = %+v, want {Name:devin Status:ok}", res)
+	}
+}
+
+func TestVerifyDevinBadKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	v := verify.New("", srv.URL)
+	res := v.VerifyDevin(context.Background(), "bad-key")
+	if res.Status != wantFailed {
+		t.Fatalf("status = %q, want failed", res.Status)
+	}
+	if !strings.Contains(res.Message, "401") {
+		t.Fatalf("message = %q, want to contain 401", res.Message)
+	}
+}
+
+// TestVerifyDevinDefaultBaseURL asserts an empty devinBaseURL falls back to the
+// hosted default rather than leaving the probe unconfigured (the Devin key is
+// per-user config; its base URL is a deployment default).
+func TestVerifyDevinDefaultBaseURL(t *testing.T) {
+	v := verify.New("", "")
+	if v.DevinBaseURL != verify.DefaultDevinBaseURL {
+		t.Fatalf("DevinBaseURL = %q, want %q", v.DevinBaseURL, verify.DefaultDevinBaseURL)
 	}
 }
 
@@ -165,7 +214,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 func TestVerifyRepoOK(t *testing.T) {
 	bare := newBareRepo(t)
 
-	v := verify.New("")
+	v := verify.New("", "")
 	res := v.VerifyRepo(context.Background(), "file://"+bare, "")
 	if res.Status != wantOK {
 		t.Fatalf("status = %q message = %q, want ok", res.Status, res.Message)
@@ -181,7 +230,7 @@ func TestVerifyRepoMissing(t *testing.T) {
 	}
 	empty := t.TempDir() // no repo here at all
 
-	v := verify.New("")
+	v := verify.New("", "")
 	res := v.VerifyRepo(context.Background(), "file://"+empty, "")
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)

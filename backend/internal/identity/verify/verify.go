@@ -34,10 +34,20 @@ const (
 	statusOK     = "ok"
 	statusFailed = "failed"
 
+	// msgBuildRequestFailed is the shared failure message when an outbound probe
+	// request can't even be constructed (never carries a secret).
+	msgBuildRequestFailed = "build request failed"
+
 	nameAnthropic = "anthropic"
 	nameAmika     = "amika"
+	nameDevin     = "devin"
 	nameRepo      = "repo"
 )
+
+// DefaultDevinBaseURL is Devin's hosted API root; the auth probe hangs off /v1
+// (mirrors internal/agent/devin.DefaultBaseURL). Verifier.DevinBaseURL overrides
+// it for tests.
+const DefaultDevinBaseURL = "https://api.devin.ai"
 
 // Verifier is the live connection-check adapter satisfying identity.Verifier.
 type Verifier struct {
@@ -50,17 +60,27 @@ type Verifier struct {
 	// platform itself is misconfigured, not a user error, so VerifyAmika
 	// reports that distinctly.
 	AmikaBaseURL string
+	// DevinBaseURL is the Devin API root (DEVIN_BASE_URL, default
+	// DefaultDevinBaseURL); the auth probe hits {DevinBaseURL}/v1/sessions.
+	// Exported so tests can point it at an httptest server.
+	DevinBaseURL string
 }
 
 var _ identity.Verifier = (*Verifier)(nil)
 
 // New builds a Verifier with a 10s HTTP client timeout, the default
-// Anthropic base URL, and the platform's Amika base URL.
-func New(amikaBaseURL string) *Verifier {
+// Anthropic base URL, the platform's Amika base URL, and the Devin API root
+// (empty devinBaseURL falls back to DefaultDevinBaseURL, since the Devin key is
+// per-user config while its base URL is a deployment default).
+func New(amikaBaseURL, devinBaseURL string) *Verifier {
+	if devinBaseURL == "" {
+		devinBaseURL = DefaultDevinBaseURL
+	}
 	return &Verifier{
 		hc:               &http.Client{Timeout: httpTimeout},
 		AnthropicBaseURL: DefaultAnthropicBaseURL,
 		AmikaBaseURL:     amikaBaseURL,
+		DevinBaseURL:     devinBaseURL,
 	}
 }
 
@@ -73,7 +93,7 @@ func (v *Verifier) VerifyAnthropic(ctx context.Context, apiKey string) identity.
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/models", nil)
 	if err != nil {
-		return identity.CheckResult{Name: nameAnthropic, Status: statusFailed, Message: "build request failed"}
+		return identity.CheckResult{Name: nameAnthropic, Status: statusFailed, Message: msgBuildRequestFailed}
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 	req.Header.Set("Anthropic-Version", anthropicVersion)
@@ -90,10 +110,28 @@ func (v *Verifier) VerifyAmika(ctx context.Context, apiKey string) identity.Chec
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.AmikaBaseURL+"/sandboxes", nil)
 	if err != nil {
-		return identity.CheckResult{Name: nameAmika, Status: statusFailed, Message: "build request failed"}
+		return identity.CheckResult{Name: nameAmika, Status: statusFailed, Message: msgBuildRequestFailed}
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	return v.request(nameAmika, req)
+}
+
+// VerifyDevin hits GET {DevinBaseURL}/v1/sessions — Devin's session-list
+// endpoint — as a bearer-token auth probe (design §8: "for Devin a
+// session-list/auth call"). The key is a `cog_…` service key or PAT, both
+// authenticated as Authorization: Bearer, exactly as the agent adapter sends it.
+// DevinBaseURL defaults to DefaultDevinBaseURL, so a deployment need not set it.
+func (v *Verifier) VerifyDevin(ctx context.Context, apiKey string) identity.CheckResult {
+	base := v.DevinBaseURL
+	if base == "" {
+		base = DefaultDevinBaseURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/sessions", nil)
+	if err != nil {
+		return identity.CheckResult{Name: nameDevin, Status: statusFailed, Message: msgBuildRequestFailed}
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	return v.request(nameDevin, req)
 }
 
 // VerifyRepo runs `git ls-remote` against repoURL (optionally authenticated

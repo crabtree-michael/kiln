@@ -284,7 +284,7 @@ func TestPutSettings(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	body := []byte(`{"anthropic_api_key":"sk-x"}`)
+	body := []byte(`{"anthropic_api_key":"sk-x","devin_api_key":"cog-y"}`)
 	resp := doPut(t, ts.URL+"/api/settings", body, sessionCookieFor())
 	defer closeBody(t, resp)
 
@@ -294,6 +294,9 @@ func TestPutSettings(t *testing.T) {
 	got := account.lastSettingsUpdate()
 	if got.AnthropicKey != "sk-x" {
 		t.Errorf("SettingsUpdate.AnthropicKey = %q, want sk-x", got.AnthropicKey)
+	}
+	if got.DevinKey != "cog-y" {
+		t.Errorf("SettingsUpdate.DevinKey = %q, want cog-y", got.DevinKey)
 	}
 
 	var refreshed map[string]any

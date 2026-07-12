@@ -30,8 +30,14 @@ type UserConfig struct {
 	// no longer consumed at runtime. Kept (not dropped) so per-user Anthropic
 	// keys can be brought back when user management expands — re-enabling needs
 	// no migration.
-	AnthropicKeyEnc   []byte
-	AmikaKeyEnc       []byte
+	AnthropicKeyEnc []byte
+	AmikaKeyEnc     []byte
+	// DevinKeyEnc is the Devin bearer token (a `cog_…` service key or PAT),
+	// AES-GCM ciphertext (nil = unset). Per-user like AmikaKeyEnc: a project
+	// that selects the Devin provider authenticates with its owner's stored key
+	// (multi-provider design §8), falling back to the deployment DEVIN_API_KEY
+	// env when unset so existing opt-in deployments are unchanged.
+	DevinKeyEnc       []byte
 	GitHubTokenEnc    []byte
 	AmikaClaudeCredID string
 }
@@ -113,6 +119,7 @@ type SecretStatus struct {
 type MeSettings struct {
 	AnthropicKey      SecretStatus
 	AmikaKey          SecretStatus
+	DevinKey          SecretStatus
 	GitHubToken       SecretStatus
 	AmikaClaudeCredID string
 }
@@ -133,6 +140,7 @@ type Me struct {
 type SettingsUpdate struct {
 	AnthropicKey      string
 	AmikaKey          string
+	DevinKey          string
 	GitHubToken       string
 	AmikaClaudeCredID string
 }
@@ -153,7 +161,7 @@ type ProjectUpdate struct {
 
 // CheckResult is one live connection check (POST /api/settings/verify, 11 §4).
 type CheckResult struct {
-	Name    string // "anthropic" | "amika" | "repo"
+	Name    string // "anthropic" | "amika" | "devin" | "repo"
 	Status  string // "ok" | "failed" | "skipped"
 	Message string
 }

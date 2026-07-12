@@ -25,6 +25,7 @@ function makeMe(overrides: Partial<Me> = {}): Me {
     settings: {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
+      devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: true, tail: 'abcd' },
       amika_claude_cred_id: '',
     },

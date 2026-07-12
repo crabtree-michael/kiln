@@ -21,7 +21,7 @@ import (
 const userColumns = `id, github_id, github_login, display_name, avatar_url, created_at`
 
 // projectColumns is the canonical projection for a project row.
-const projectColumns = `id, owner_user_id, name, repo_url, amika_snapshot, ` +
+const projectColumns = `id, owner_user_id, name, repo_url, agent_provider, amika_snapshot, ` +
 	`brain_model, worker_count, merge_gate_mode, amika_secrets, created_at`
 
 // Store implements identity.Store over Postgres.
@@ -302,17 +302,19 @@ func (s *Store) UpsertProject(ctx context.Context, p identity.Project) (identity
 	}
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO projects (
-			owner_user_id, name, repo_url, amika_snapshot,
+			owner_user_id, name, repo_url, agent_provider, amika_snapshot,
 			brain_model, worker_count, merge_gate_mode, amika_secrets)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (owner_user_id) DO UPDATE
 		  SET name = EXCLUDED.name, repo_url = EXCLUDED.repo_url,
+		      agent_provider = EXCLUDED.agent_provider,
 		      amika_snapshot = EXCLUDED.amika_snapshot,
 		      brain_model = EXCLUDED.brain_model, worker_count = EXCLUDED.worker_count,
 		      merge_gate_mode = EXCLUDED.merge_gate_mode,
 		      amika_secrets = EXCLUDED.amika_secrets
 		RETURNING `+projectColumns,
-		p.OwnerUserID, p.Name, p.RepoURL, p.AmikaSnapshot, p.BrainModel, p.WorkerCount, gateMode, secrets)
+		p.OwnerUserID, p.Name, p.RepoURL, p.AgentProvider, p.AmikaSnapshot,
+		p.BrainModel, p.WorkerCount, gateMode, secrets)
 	out, err := scanProject(row)
 	if err != nil {
 		return identity.Project{}, fmt.Errorf("identity/postgres: upsert project: %w", err)
@@ -352,7 +354,7 @@ func scanProject(r rowScanner) (identity.Project, error) {
 	var p identity.Project
 	var secrets []byte
 	var gateMode string
-	if err := r.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.RepoURL, &p.AmikaSnapshot,
+	if err := r.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.RepoURL, &p.AgentProvider, &p.AmikaSnapshot,
 		&p.BrainModel, &p.WorkerCount, &gateMode, &secrets, &p.CreatedAt); err != nil {
 		return identity.Project{}, fmt.Errorf("identity/postgres: scan project: %w", err)
 	}

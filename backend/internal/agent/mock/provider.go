@@ -72,6 +72,12 @@ type Provider struct {
 	// stopped/errored/starting states without a real sandbox.
 	StatusByName map[string]agent.RunStatus
 
+	// Caps is what Capabilities reports (multi-provider design §5). The zero value
+	// is the conservative default the mock ships with — no sandbox, no cost, no
+	// snapshots, no secret injection — so a capability-driven test can set it to
+	// any provider shape without a real adapter.
+	Caps agent.Capabilities
+
 	mu         sync.Mutex
 	workers    map[string]bool             // live worker names
 	convs      map[string]map[string]bool  // worker name → live conversation ids
@@ -87,10 +93,18 @@ type scriptedJob struct {
 	doneAt  time.Time
 }
 
-var _ agent.Provider = (*Provider)(nil)
+var (
+	_ agent.Provider           = (*Provider)(nil)
+	_ agent.CapabilityReporter = (*Provider)(nil)
+)
 
 // New returns a mock with no script: every turn is the canned success.
 func New() *Provider { return &Provider{} }
+
+// Capabilities reports the mock's configured shape (multi-provider design §5),
+// defaulting to the conservative zero value. A test sets Caps to drive
+// capability-dependent core affordances without a real provider adapter.
+func (p *Provider) Capabilities() agent.Capabilities { return p.Caps }
 
 func (p *Provider) ListWorkers(_ context.Context) ([]agent.ProviderWorker, error) {
 	p.mu.Lock()

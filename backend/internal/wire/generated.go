@@ -439,6 +439,9 @@ type Me struct {
 	// Project Absent until the user creates their project.
 	Project *MeProject `json:"project,omitempty"`
 
+	// Providers The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider. The project form renders its provider select from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface.
+	Providers *[]ProviderDescriptor `json:"providers,omitempty"`
+
 	// Settings Config status — secrets as presence+fingerprint only (11 §3 D7).
 	Settings MeSettings `json:"settings"`
 	User     MeUser     `json:"user"`
@@ -446,6 +449,9 @@ type Me struct {
 
 // MeProject defines model for MeProject.
 type MeProject struct {
+	// AgentProvider The registry key selecting which coding-agent provider this project's turns run on (multi-provider design §9): `amika`, `devin`, `mock`, … Empty means "use the deployment default" (AGENT_MODE) — the back-compat behavior every existing project keeps.
+	AgentProvider string `json:"agent_provider"`
+
 	// AmikaSecrets Amika secrets injected into every sandbox this project starts (02 §8).
 	AmikaSecrets  []AmikaSecret `json:"amika_secrets"`
 	AmikaSnapshot string        `json:"amika_snapshot"`
@@ -509,6 +515,9 @@ type NotificationModeMode string
 
 // ProjectUpdateRequest defines model for ProjectUpdateRequest.
 type ProjectUpdateRequest struct {
+	// AgentProvider The registry key selecting this project's coding-agent provider (multi-provider design §9). Omitted or empty selects the deployment default (AGENT_MODE). The composition root validates the key against the registered provider set; an unregistered key pauses the project's board loud rather than silently falling back (D7).
+	AgentProvider *string `json:"agent_provider,omitempty"`
+
 	// AmikaSecrets The project's full Amika secret list. Like the other optional project fields on this wholesale upsert, omitted or [] clears it; a name kept with an empty value keeps its stored (encrypted) value (02 §8).
 	AmikaSecrets  *[]AmikaSecretInput `json:"amika_secrets,omitempty"`
 	AmikaSnapshot *string             `json:"amika_snapshot,omitempty"`
@@ -523,6 +532,26 @@ type ProjectUpdateRequest struct {
 
 // ProjectUpdateRequestMergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` (done when the commit is on origin/main) or `pr` (done when the work is in a pull request). Omitted or empty keeps/defaults to `main`.
 type ProjectUpdateRequestMergeGateMode string
+
+// ProviderCapabilities A provider's declared shape (multi-provider design §5), read by the dashboard to light up or hide capability-gated affordances (e.g. a workspace-reset button only for a managed-sandbox provider) without naming the provider.
+type ProviderCapabilities struct {
+	ManagedSandbox bool `json:"managed_sandbox"`
+	ReportsCost    bool `json:"reports_cost"`
+	SecretsInject  bool `json:"secrets_inject"`
+	Snapshots      bool `json:"snapshots"`
+}
+
+// ProviderDescriptor A registered coding-agent provider the dashboard can offer (multi-provider design §8, D6). Data-driven so the generic dashboard names no provider: the select is rendered from these, not from hard-coded Amika/Devin inputs.
+type ProviderDescriptor struct {
+	// Capabilities A provider's declared shape (multi-provider design §5), read by the dashboard to light up or hide capability-gated affordances (e.g. a workspace-reset button only for a managed-sandbox provider) without naming the provider.
+	Capabilities ProviderCapabilities `json:"capabilities"`
+
+	// Key The registry key stored as a project's agent_provider (amika, devin, mock, …).
+	Key string `json:"key"`
+
+	// Label Human-facing name shown in the provider select (e.g. "Amika", "Devin").
+	Label string `json:"label"`
+}
 
 // PushKey The VAPID public key for pushManager.subscribe (02 §10).
 type PushKey struct {

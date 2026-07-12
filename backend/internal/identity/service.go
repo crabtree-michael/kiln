@@ -290,6 +290,7 @@ func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectU
 		OwnerUserID:   userID,
 		Name:          upd.Name,
 		RepoURL:       upd.RepoURL,
+		AgentProvider: upd.AgentProvider,
 		AmikaSnapshot: upd.AmikaSnapshot,
 		BrainModel:    upd.BrainModel,
 		WorkerCount:   upd.WorkerCount,

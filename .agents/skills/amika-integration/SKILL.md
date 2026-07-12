@@ -180,3 +180,31 @@ is deliberately defensive; these are the hardening points to confirm against the
   `errors.As`/`statusIs` (404 on delete = success, 409 on start = already-starting).
 - Tests are pure `httptest` (`client_test.go`) — no live calls, no recorded fixtures yet;
   the manual smoke checklist (05 §10) still gates the first real-Amika run.
+
+## Multi-provider runtime (2026-07-12, design `docs/superpowers/specs/2026-07-11-multi-provider-agent-runtime-design.md`)
+
+Amika is now **one registered provider among several**, not *the* provider. What changed:
+
+- **Capability descriptor (Phase 0).** `agent.Capabilities` + `agent.CapabilityReporter`, read
+  by the core via `agent.CapabilitiesOf(p)` — the ONE leak-free way the core varies a
+  core-visible affordance without naming a provider. Amika reports
+  `{ManagedSandbox, ReportsCost, Snapshots, SecretsInject: true}`; a provider that omits the
+  interface gets the conservative zero value. Never type-switch on a concrete provider.
+- **Provider registry (Phase 1, D3).** `cmd/kiln/registry.go` — `providerRegistry` maps a key
+  (`amika`/`mock`/`devin`) to a `ProviderFactory(ProviderDeps) (agent.Provider, error)`.
+  Adding a provider = one map entry + its adapter package; `validateConfig`/`resolveTenantProvider`
+  are "is the key registered", never an if-ladder. `AGENT_MODE` is the deployment default.
+- **Per-project provider (Phase 1/3, D7).** `identity.Project.AgentProvider` (migration
+  `0005`, empty ⇒ deployment default). `resolveTenantProvider` resolves the key per build;
+  an unregistered key fails LOUD with `agent.ErrProviderUnavailable` (never silent fallback).
+- **Devin adapter (Phase 2).** `internal/agent/devin` — the *virtual-worker* provider: no
+  managed sandbox, `ListWorkers`→empty, `CreateWorker`→synthetic (empty Ref), session created
+  lazily on `StartTurn(fresh)` via `POST /v1/sessions`, `status_enum` classified in `states.go`,
+  ACU→USD best-effort cost. Sourced from `DEVIN_*` env at the composition root (per-project
+  config blob is a later phase). Pure `httptest` in `client_test.go`.
+- **Dashboard descriptor (Phase 3, D6).** `providerDescriptors(cfg)` (registry → `wire.ProviderDescriptor`)
+  is served inside `GET /api/me` (`me.providers`); `ProjectFields` renders a provider `<select>`
+  from it (hidden when ≤1 provider), storing `agent_provider`. The generic dashboard names no provider.
+- **Still frozen (the whole point):** `AgentRuntime{Send,Release}`, the `agent.turn_completed`
+  payload, the `agent_turns` dedupe, the reconciler/poller. A provider addition that touches
+  board/brain/runtime/wire (beyond the descriptor) means the abstraction is leaking.

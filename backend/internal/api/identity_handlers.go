@@ -58,6 +58,7 @@ func (s *Server) handlePutProject(w http.ResponseWriter, r *http.Request, user i
 	upd := identity.ProjectUpdate{
 		Name:          req.Name,
 		RepoURL:       req.RepoUrl,
+		AgentProvider: derefOr(req.AgentProvider, ""),
 		AmikaSnapshot: derefOr(req.AmikaSnapshot, ""),
 		BrainModel:    derefOr(req.BrainModel, ""),
 		WorkerCount:   derefOr(req.WorkerCount, 0),
@@ -137,7 +138,15 @@ func (s *Server) writeMe(w http.ResponseWriter, r *http.Request, userID string) 
 		http.Error(w, "read account", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, meToWire(me))
+	out := meToWire(me)
+	// The provider descriptors are deployment-global composition-root data, not
+	// part of the identity account view — the dashboard reads them to render its
+	// provider select (multi-provider design §8). Omitted when none were enabled.
+	if len(s.providers) > 0 {
+		descriptors := s.providers
+		out.Providers = &descriptors
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // meToWire maps an identity.Me onto the generated wire.Me (11 §4) — the
@@ -163,6 +172,7 @@ func meToWire(me identity.Me) wire.Me {
 		out.Project = &wire.MeProject{
 			Name:          p.Name,
 			RepoUrl:       p.RepoURL,
+			AgentProvider: p.AgentProvider,
 			AmikaSnapshot: p.AmikaSnapshot,
 			BrainModel:    p.BrainModel,
 			WorkerCount:   p.WorkerCount,

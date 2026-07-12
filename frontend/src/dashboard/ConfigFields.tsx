@@ -22,6 +22,7 @@ import {
 import type {
   MeProject,
   ProjectUpdateRequest,
+  ProviderDescriptor,
   SettingsUpdateRequest,
   VerifyCheck,
 } from '@/transport/transport';
@@ -141,13 +142,27 @@ function CredentialStatusIndicator({
 export interface ProjectFieldsProps {
   /** Absent in onboarding (no project yet) — every field starts blank. */
   project?: MeProject;
+  /** The coding-agent providers this deployment offers (multi-provider design
+   * §8, §9). The provider select renders from these; with 0–1 offered it is
+   * hidden — a single-provider deployment is unchanged. */
+  providers?: ProviderDescriptor[];
   saving: boolean;
   onSave: (body: ProjectUpdateRequest) => Promise<void>;
 }
 
-export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): JSX.Element {
+export function ProjectFields({
+  project,
+  providers,
+  saving,
+  onSave,
+}: ProjectFieldsProps): JSX.Element {
   const [name, setName] = useState(project?.name ?? '');
   const [repoUrl, setRepoUrl] = useState(project?.repo_url ?? '');
+  // The per-project coding-agent provider (multi-provider design §9): the stored
+  // registry key, or '' meaning "deployment default". The select below only shows
+  // when the deployment offers more than one provider.
+  const providerOptions = providers ?? [];
+  const [agentProvider, setAgentProvider] = useState(project?.agent_provider ?? '');
   const [amikaSnapshot, setAmikaSnapshot] = useState(project?.amika_snapshot ?? '');
   const [brainModel, setBrainModel] = useState(project?.brain_model ?? '');
   const [workerCount, setWorkerCount] = useState(
@@ -188,6 +203,13 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const body: ProjectUpdateRequest = { name: name.trim(), repo_url: repoUrl.trim() };
+    // Send the provider choice only when the deployment offers a real choice; a
+    // single-provider deployment leaves it empty so the project keeps resolving to
+    // the deployment default (multi-provider design §9). '' is a valid value — it
+    // is the "use the deployment default" sentinel — so it is sent explicitly.
+    if (providerOptions.length > 1) {
+      body.agent_provider = agentProvider;
+    }
     const trimmedSnapshot = amikaSnapshot.trim();
     if (trimmedSnapshot !== '') {
       body.amika_snapshot = trimmedSnapshot;
@@ -244,6 +266,26 @@ export function ProjectFields({ project, saving, onSave }: ProjectFieldsProps): 
           required
         />
       </label>
+      {providerOptions.length > 1 && (
+        <label>
+          Agent provider
+          <select
+            data-role="agent-provider"
+            value={agentProvider}
+            onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+              setAgentProvider(event.target.value);
+            }}
+          >
+            {/* Empty value = the deployment default (design §9), always offered. */}
+            <option value="">Default</option>
+            {providerOptions.map((provider) => (
+              <option key={provider.key} value={provider.key}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         Amika snapshot
         <input

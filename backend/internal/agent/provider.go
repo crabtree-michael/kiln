@@ -41,6 +41,66 @@ var ErrConversationLost = errors.New("agent: provider lost the conversation")
 // (05 §5). Adapters wrap it (fmt.Errorf("…: %w", …)) so errors.Is still matches.
 var ErrOutOfCredits = errors.New("agent: provider credits exhausted")
 
+// ErrProviderUnavailable is the sentinel the ProviderResolver returns when a
+// project's configured provider cannot be built — most often because its
+// registry key names no registered constructor (a rolled-back or dropped
+// integration). Per D7 the resolver fails LOUD and CONTAINED rather than
+// silently falling back to the deployment default, which would run the
+// project's tickets on a different agent with different credentials and a
+// different billing model, invisibly. The reconciler/poller already isolate a
+// resolve failure per project (spec §6), so a project whose provider is
+// unavailable pauses while the others keep running. Callers wrap it
+// (fmt.Errorf("…: %w", …)) so errors.Is still matches.
+var ErrProviderUnavailable = errors.New("agent: project provider unavailable")
+
+// Capabilities is an adapter's self-description of provider shape (design §5,
+// D2). The core reads these booleans to vary core-visible affordances WITHOUT
+// naming a provider (05 abstraction rule) — the same leak-free pattern as
+// reading TurnStatus.CostUSD == 0. It never asks "is this Amika?". An adapter
+// that does not implement CapabilityReporter gets the zero value — the
+// conservative, no-managed-sandbox Devin-shaped default — so a provider only
+// declares what it genuinely supports.
+type Capabilities struct {
+	// ManagedSandbox reports that the caller creates and destroys a real,
+	// long-lived remote workspace (Amika: true; a session-only provider like
+	// Devin: false). Operator affordances that only mean something for a real
+	// workspace — force-reset, inspect sandbox state — read this, never the
+	// provider name (design §5, Phase 4).
+	ManagedSandbox bool
+	// ReportsCost reports that TurnStatus.CostUSD carries a meaningful figure
+	// (Amika's job cost; Devin's ACU→USD estimate). A provider that reports
+	// nothing leaves the field 0 and this false.
+	ReportsCost bool
+	// Snapshots reports that the provider accepts a base-image/snapshot handle
+	// to seed a workspace/session (Amika's snapshot; Devin's snapshot_id).
+	Snapshots bool
+	// SecretsInject reports that the provider accepts caller-supplied secret
+	// refs injected into the workspace (Amika's secret_env_vars). A provider
+	// with no such mechanism leaves this false, and the dashboard hides the
+	// secret-injection affordance for it (design §8).
+	SecretsInject bool
+}
+
+// CapabilityReporter is optionally implemented by a Provider to declare its
+// Capabilities (design §5). Absent ⇒ the zero-value (conservative) defaults —
+// see CapabilitiesOf, the single core-side reader.
+type CapabilityReporter interface {
+	Capabilities() Capabilities
+}
+
+// CapabilitiesOf is the core's leak-free read of a provider's shape (design §5,
+// D2): a provider that implements CapabilityReporter has its declaration
+// returned; one that does not gets the conservative zero-value default. This is
+// the ONLY place the core inspects provider shape, and it does so through a
+// declared capability — never a type switch on the concrete adapter, never a
+// provider name.
+func CapabilitiesOf(p Provider) Capabilities {
+	if r, ok := p.(CapabilityReporter); ok {
+		return r.Capabilities()
+	}
+	return Capabilities{}
+}
+
 // ProviderErrorFields is optionally implemented by a provider adapter's returned
 // error to expose scrub-safe, structured diagnostics — the transport status, the
 // provider's error code, and a trace id — carrying no secret values. The
@@ -111,7 +171,8 @@ type TurnStatus struct {
 // poller, dedupe table, and mock are written once against this port; Amika
 // (./amika) is one implementation, a future provider is another. Calls may
 // be transient-retried by the machine (05 §5); adapters map their platform's
-// errors, nothing more.
+// errors, nothing more. An adapter may also implement CapabilityReporter to
+// declare its shape (see Capabilities); the core reads it via CapabilitiesOf.
 type Provider interface {
 	// ListWorkers returns every live worker this module owns (WorkerNamePrefix
 	// scoped) — adoption at startup and each reconciler sweep (05 §4). Each

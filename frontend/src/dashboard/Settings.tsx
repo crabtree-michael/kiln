@@ -69,7 +69,12 @@ export function Settings(): JSX.Element {
 
       <NotificationsField />
 
-      <ProjectFields project={project} saving={saving} onSave={saveProject} />
+      <ProjectFields
+        project={project}
+        providers={me.providers ?? []}
+        saving={saving}
+        onSave={saveProject}
+      />
 
       {error !== null ? (
         <p data-role="dashboard-error" role="alert">

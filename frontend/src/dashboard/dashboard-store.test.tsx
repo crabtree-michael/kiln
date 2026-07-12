@@ -222,6 +222,7 @@ describe('DashboardProvider', () => {
       project: {
         name: 'proj',
         repo_url: 'https://github.com/a/b',
+        agent_provider: '',
         amika_snapshot: '',
         brain_model: '',
         worker_count: 1,
@@ -347,6 +348,7 @@ describe('DashboardProvider', () => {
       project: {
         name: 'proj',
         repo_url: 'https://github.com/a/b',
+        agent_provider: '',
         amika_snapshot: '',
         brain_model: '',
         worker_count: 1,

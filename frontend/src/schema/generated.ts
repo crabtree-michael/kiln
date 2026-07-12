@@ -637,6 +637,23 @@ export interface components {
             /** @description Absent until the user creates their project. */
             project?: components["schemas"]["MeProject"];
             settings: components["schemas"]["MeSettings"];
+            /** @description The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider. The project form renders its provider select from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface. */
+            providers?: components["schemas"]["ProviderDescriptor"][];
+        };
+        /** @description A registered coding-agent provider the dashboard can offer (multi-provider design §8, D6). Data-driven so the generic dashboard names no provider: the select is rendered from these, not from hard-coded Amika/Devin inputs. */
+        ProviderDescriptor: {
+            /** @description The registry key stored as a project's agent_provider (amika, devin, mock, …). */
+            key: string;
+            /** @description Human-facing name shown in the provider select (e.g. "Amika", "Devin"). */
+            label: string;
+            capabilities: components["schemas"]["ProviderCapabilities"];
+        };
+        /** @description A provider's declared shape (multi-provider design §5), read by the dashboard to light up or hide capability-gated affordances (e.g. a workspace-reset button only for a managed-sandbox provider) without naming the provider. */
+        ProviderCapabilities: {
+            managed_sandbox: boolean;
+            reports_cost: boolean;
+            snapshots: boolean;
+            secrets_inject: boolean;
         };
         MeUser: {
             github_login: string;
@@ -646,6 +663,8 @@ export interface components {
         MeProject: {
             name: string;
             repo_url: string;
+            /** @description The registry key selecting which coding-agent provider this project's turns run on (multi-provider design §9): `amika`, `devin`, `mock`, … Empty means "use the deployment default" (AGENT_MODE) — the back-compat behavior every existing project keeps. */
+            agent_provider: string;
             amika_snapshot: string;
             brain_model: string;
             worker_count: number;
@@ -689,6 +708,8 @@ export interface components {
         ProjectUpdateRequest: {
             name: string;
             repo_url: string;
+            /** @description The registry key selecting this project's coding-agent provider (multi-provider design §9). Omitted or empty selects the deployment default (AGENT_MODE). The composition root validates the key against the registered provider set; an unregistered key pauses the project's board loud rather than silently falling back (D7). */
+            agent_provider?: string;
             amika_snapshot?: string;
             brain_model?: string;
             worker_count?: number;

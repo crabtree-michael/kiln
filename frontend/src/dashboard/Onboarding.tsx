@@ -19,7 +19,7 @@ export function Onboarding(): JSX.Element {
   return (
     <div data-role="onboarding">
       <h1>Set up your project</h1>
-      <ProjectFields saving={saving} onSave={saveProject} />
+      <ProjectFields providers={me.providers ?? []} saving={saving} onSave={saveProject} />
       {error !== null ? (
         <p data-role="dashboard-error" role="alert">
           {error}

@@ -52,10 +52,16 @@ const (
 // Project parameterizes one brain/board (11 §3 D5): the repo it works on and
 // the brain-shaped knobs. One per user in phase 1.
 type Project struct {
-	ID            string
-	OwnerUserID   string
-	Name          string
-	RepoURL       string
+	ID          string
+	OwnerUserID string
+	Name        string
+	RepoURL     string
+	// AgentProvider is the registry key (amika, devin, mock, …) that selects which
+	// coding-agent provider this project's turns run on (multi-provider design §9,
+	// D7). Empty means "use the deployment default" (AGENT_MODE) — the back-compat
+	// behavior every existing project keeps with no backfill. Identity stores it
+	// opaquely; the composition root validates it against the registered set.
+	AgentProvider string
 	AmikaSnapshot string
 	BrainModel    string
 	WorkerCount   int
@@ -137,6 +143,7 @@ type SettingsUpdate struct {
 type ProjectUpdate struct {
 	Name          string
 	RepoURL       string
+	AgentProvider string // registry key selecting the project's provider; empty ⇒ deployment default (design §9)
 	AmikaSnapshot string
 	BrainModel    string
 	WorkerCount   int

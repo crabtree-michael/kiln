@@ -99,6 +99,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: 'snap-1',
           brain_model: 'claude-sonnet',
           worker_count: 3,
@@ -127,6 +128,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -152,6 +154,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -167,6 +170,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -213,6 +217,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -240,6 +245,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -253,6 +259,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -291,6 +298,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -304,6 +312,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -338,6 +347,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -351,6 +361,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: '',
           brain_model: '',
           worker_count: 1,
@@ -388,6 +399,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: 'snap-1',
           brain_model: 'claude-sonnet',
           worker_count: 3,
@@ -416,6 +428,7 @@ describe('Dashboard', () => {
         project: {
           name: 'kiln',
           repo_url: 'https://github.com/crabtree-michael/kiln',
+          agent_provider: '',
           amika_snapshot: 'snap-1',
           brain_model: 'claude-sonnet',
           worker_count: 3,

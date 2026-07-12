@@ -48,11 +48,19 @@ var version = "dev"
 // wiring logic; the shape is fixed here so it can be reviewed alongside the
 // schema and the ports it feeds.
 type Config struct {
-	DatabaseURL     string // DATABASE_URL — board + runtime + agent tables (02 §3)
-	AgentMode       string // AGENT_MODE: "amika" (default) or "mock" (05 §9)
-	AmikaBaseURL    string // AMIKA_BASE_URL, when AgentMode == "amika" (05 §9)
-	AnthropicAPIKey string // ANTHROPIC_API_KEY — the brain's LLM adapter (06 §2)
-	BrainModel      string // KILN_BRAIN_MODEL, default brain.DefaultModel (06 §2)
+	DatabaseURL  string // DATABASE_URL — board + runtime + agent tables (02 §3)
+	AgentMode    string // AGENT_MODE: a registered provider key — "amika" (default), "mock", or "devin" (design §6)
+	AmikaBaseURL string // AMIKA_BASE_URL, when AgentMode == "amika" (05 §9)
+
+	// Devin provider (multi-provider design §6, Phase 2). Deployment-global for
+	// the AGENT_MODE=devin opt-in; the per-project config blob (§7) that moves
+	// these onto the project entity is Phase 3. Unused unless AGENT_MODE=devin.
+	DevinAPIKey      string // DEVIN_API_KEY — the cog_ bearer (service key or PAT)
+	DevinBaseURL     string // DEVIN_BASE_URL — override the hosted API root
+	DevinSnapshot    string // DEVIN_SNAPSHOT — snapshot_id every created session starts from
+	DevinMaxACULimit int    // DEVIN_MAX_ACU_LIMIT — per-session ACU cap; 0 leaves Devin's default
+	AnthropicAPIKey  string // ANTHROPIC_API_KEY — the brain's LLM adapter (06 §2)
+	BrainModel       string // KILN_BRAIN_MODEL, default brain.DefaultModel (06 §2)
 	// Keyless-e2e brain (design docs/keyless-e2e-tests-design.md §3.1): the
 	// counterpart to AGENT_MODE=mock. "scripted" swaps the Anthropic adapter for
 	// a fixture-driven LLM so the whole loop runs with no Anthropic key; "" (or
@@ -152,18 +160,23 @@ func resolveHTTPAddr() string {
 // used (newProvider, serve).
 func loadConfig() Config {
 	return Config{
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		AgentMode:       getenvDefault("AGENT_MODE", defaultAgentMode),
-		AmikaBaseURL:    os.Getenv("AMIKA_BASE_URL"),
-		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
-		BrainModel:      os.Getenv("KILN_BRAIN_MODEL"),
-		BrainMode:       os.Getenv("KILN_BRAIN_MODE"),
-		BrainScript:     os.Getenv("KILN_BRAIN_SCRIPT"),
-		HTTPAddr:        resolveHTTPAddr(),
-		LogLevel:        getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
-		WorkerCount:     getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
-		WorkerPrefix:    resolveWorkerPrefix(),
-		DevEndpoints:    os.Getenv("KILN_DEV_ENDPOINTS") == "1",
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
+		AgentMode:    getenvDefault("AGENT_MODE", defaultAgentMode),
+		AmikaBaseURL: os.Getenv("AMIKA_BASE_URL"),
+
+		DevinAPIKey:      os.Getenv("DEVIN_API_KEY"),
+		DevinBaseURL:     os.Getenv("DEVIN_BASE_URL"),
+		DevinSnapshot:    os.Getenv("DEVIN_SNAPSHOT"),
+		DevinMaxACULimit: getenvInt("DEVIN_MAX_ACU_LIMIT", 0),
+		AnthropicAPIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+		BrainModel:       os.Getenv("KILN_BRAIN_MODEL"),
+		BrainMode:        os.Getenv("KILN_BRAIN_MODE"),
+		BrainScript:      os.Getenv("KILN_BRAIN_SCRIPT"),
+		HTTPAddr:         resolveHTTPAddr(),
+		LogLevel:         getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
+		WorkerCount:      getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
+		WorkerPrefix:     resolveWorkerPrefix(),
+		DevEndpoints:     os.Getenv("KILN_DEV_ENDPOINTS") == "1",
 
 		PokeStall:    getenvDuration("KILN_POKE_STALL", steward.DefaultStall),
 		PokeInterval: getenvDuration("KILN_POKE_INTERVAL", steward.DefaultInterval),

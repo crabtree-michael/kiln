@@ -277,6 +277,14 @@ type Server struct {
 	account  AccountService     // the signed-in account surface (11 §4); set together with auth
 	projects ProjectResolver    // resolves the caller's project; withProject-guarded routes require it (11 phase 2)
 
+	// providers is the deployment's coding-agent provider descriptors (multi-provider
+	// design §8), served inside GET /api/me so the dashboard renders its provider
+	// select from data, not hard-coded fields (D6). Built at the composition root
+	// (the one place naming a provider is legal) and injected via EnableProviders;
+	// nil/empty leaves the wire field omitted, so a deployment that never enabled it
+	// behaves exactly as before.
+	providers []wire.ProviderDescriptor
+
 	devSession DevSessionMinter // dev-only; non-nil (AND auth enabled) ⇒ POST /api/dev/session is mounted (11 §7)
 
 	version    string                      // release string surfaced by GET /healthz
@@ -334,6 +342,15 @@ func (s *Server) EnableBeta(registrar BetaRegistrar) { s.beta = registrar }
 func (s *Server) EnableIdentity(auth Authenticator, account AccountService) {
 	s.auth = auth
 	s.account = account
+}
+
+// EnableProviders injects the deployment's coding-agent provider descriptors
+// (multi-provider design §8), served inside GET /api/me so the dashboard renders
+// its provider select from data (D6). Call before Handler, alongside
+// EnableIdentity. An empty list leaves the wire field omitted — a single-provider
+// deployment is unchanged.
+func (s *Server) EnableProviders(descriptors []wire.ProviderDescriptor) {
+	s.providers = descriptors
 }
 
 // EnableTenancy turns on per-project scoping for the whole app surface (11

@@ -373,6 +373,7 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		OwnerUserID:   user.ID,
 		Name:          "my-project",
 		RepoURL:       "https://github.com/o/r",
+		AgentProvider: "devin",
 		AmikaSnapshot: "snap-1",
 		BrainModel:    "claude-x",
 		WorkerCount:   3,
@@ -394,6 +395,10 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 	}
 	if got.ID != created.ID || got.Name != "my-project" || got.WorkerCount != 3 {
 		t.Fatalf("GetProjectByOwner after create = %+v, want %+v", got, created)
+	}
+	// The per-project provider key round-trips (multi-provider design §9).
+	if got.AgentProvider != "devin" {
+		t.Fatalf("AgentProvider after create = %q, want devin", got.AgentProvider)
 	}
 	// The jsonb amika_secrets column round-trips the encrypted bytes through
 	// GetProjectByOwner (the store persists ciphertext verbatim; encryption is
@@ -428,6 +433,11 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 	}
 	if updated.Name != "renamed-project" || updated.WorkerCount != 5 {
 		t.Fatalf("UpsertProject update did not persist changes: %+v", updated)
+	}
+	// An update that leaves AgentProvider empty clears it back to "" — the
+	// deployment-default sentinel (design §9), not a stuck prior value.
+	if updated.AgentProvider != "" {
+		t.Fatalf("AgentProvider after empty update = %q, want empty", updated.AgentProvider)
 	}
 	// An update with no secrets clears the column back to empty.
 	if len(updated.AmikaSecrets) != 0 {

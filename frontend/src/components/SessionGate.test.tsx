@@ -36,6 +36,7 @@ function makeProject(): NonNullable<Me['project']> {
   return {
     name: 'proj',
     repo_url: 'https://github.com/a/b',
+    agent_provider: '',
     amika_snapshot: 'snap',
     brain_model: 'model',
     worker_count: 1,

@@ -132,7 +132,23 @@ type Client struct {
 	hc  *http.Client
 }
 
-var _ agent.Provider = (*Client)(nil)
+var (
+	_ agent.Provider           = (*Client)(nil)
+	_ agent.CapabilityReporter = (*Client)(nil)
+)
+
+// Capabilities declares Amika's shape to the provider-neutral core (multi-provider
+// design §5): a caller-managed sandbox that reports cost, starts from a snapshot,
+// and injects caller-supplied secrets. The core reads these to light up sandbox-only
+// affordances without naming Amika (05 abstraction rule).
+func (c *Client) Capabilities() agent.Capabilities {
+	return agent.Capabilities{
+		ManagedSandbox: true,
+		ReportsCost:    true,
+		Snapshots:      true,
+		SecretsInject:  true,
+	}
+}
 
 // New builds the adapter; hc nil means http.DefaultClient. Empty
 // BaseURL/Agent/AutoStop fall back to the defaults (auto_stop stays on per

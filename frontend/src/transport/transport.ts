@@ -39,6 +39,7 @@ export type SettingsUpdateRequest = components['schemas']['SettingsUpdateRequest
 export type ProjectUpdateRequest = components['schemas']['ProjectUpdateRequest'];
 export type VerifyResponse = components['schemas']['VerifyResponse'];
 export type VerifyCheck = components['schemas']['VerifyCheck'];
+export type ProviderDescriptor = components['schemas']['ProviderDescriptor'];
 
 type MeUser = components['schemas']['MeUser'];
 type MeSettings = components['schemas']['MeSettings'];
@@ -491,12 +492,27 @@ function isMeSettings(value: unknown): value is MeSettings {
   );
 }
 
+function isProviderDescriptor(value: unknown): value is ProviderDescriptor {
+  return (
+    isRecord(value) &&
+    typeof value.key === 'string' &&
+    typeof value.label === 'string' &&
+    isRecord(value.capabilities) &&
+    typeof value.capabilities.managed_sandbox === 'boolean' &&
+    typeof value.capabilities.reports_cost === 'boolean' &&
+    typeof value.capabilities.snapshots === 'boolean' &&
+    typeof value.capabilities.secrets_inject === 'boolean'
+  );
+}
+
 function isMe(value: unknown): value is Me {
   return (
     isRecord(value) &&
     isMeUser(value.user) &&
     (value.project === undefined || isMeProject(value.project)) &&
-    isMeSettings(value.settings)
+    isMeSettings(value.settings) &&
+    (value.providers === undefined ||
+      (Array.isArray(value.providers) && value.providers.every(isProviderDescriptor)))
   );
 }
 

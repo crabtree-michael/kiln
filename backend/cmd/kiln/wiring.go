@@ -19,7 +19,6 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
 	"github.com/crabtree-michael/kiln/backend/internal/agent/amika"
-	"github.com/crabtree-michael/kiln/backend/internal/agent/mock"
 	agentpg "github.com/crabtree-michael/kiln/backend/internal/agent/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/api"
 	"github.com/crabtree-michael/kiln/backend/internal/beta"
@@ -316,25 +315,9 @@ func buildTenantProviders(
 
 	prefix := cfg.WorkerPrefix + workerPrefixScope(pid) + "-"
 
-	// The coding-agent provider: the in-memory mock, or the Amika HTTP client
-	// built from this project's owner credentials (11 §3). AGENT_MODE is
-	// validated once in buildGraph, so a non-mock mode here is always amika.
-	var provider agent.Provider
-	if cfg.AgentMode == modeMock {
-		provider = mock.New()
-	} else {
-		// A per-tenant HTTP client so each project's connection pool is isolated
-		// and tenant.Providers.Close can release it on a credential rebuild
-		// (11 §3) without touching the shared http.DefaultClient.
-		provider = amika.New(amika.Config{
-			BaseURL:      cfg.AmikaBaseURL,
-			APIKey:       rc.AmikaAPIKey,
-			RepoURL:      rc.Project.RepoURL,
-			Snapshot:     rc.Project.AmikaSnapshot,
-			ClaudeCredID: rc.AmikaClaudeCredID,
-			WorkerPrefix: prefix,
-			Secrets:      amikaSecretRefs(rc.AmikaSecrets),
-		}, &http.Client{})
+	provider, err := resolveTenantProvider(cfg, rc, prefix)
+	if err != nil {
+		return nil, err
 	}
 
 	// The brain's repo-inspection shell: a maintained clone under a per-project
@@ -398,10 +381,14 @@ func newBrainLLM(cfg Config, model string, scriptedBrain brain.LLM) brain.LLM {
 // validateConfig checks the composition-root mode switches once at startup and
 // resolves the keyless-e2e scripted brain (design §3.1). It returns a nil
 // brain.LLM in the default real-Anthropic case (the per-project adapter is built
-// later), or the loaded fixture when KILN_BRAIN_MODE=scripted.
+// later), or the loaded fixture when KILN_BRAIN_MODE=scripted. The AGENT_MODE
+// check is now registry-driven (multi-provider design §6, D3): a deployment
+// default that names no registered provider fails fast rather than surviving to a
+// per-project build error.
 func validateConfig(cfg Config) (brain.LLM, error) {
-	if cfg.AgentMode != modeMock && cfg.AgentMode != "amika" {
-		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q", errBadConfig, cfg.AgentMode)
+	if _, ok := lookupProvider(cfg.AgentMode); !ok {
+		return nil, fmt.Errorf("%w: unknown AGENT_MODE %q (registered: %v)",
+			errBadConfig, cfg.AgentMode, providerKeys())
 	}
 	return loadScriptedBrain(cfg)
 }
@@ -681,6 +668,10 @@ func enableServerRoutes(
 	// boot leaves /auth/* and /api/me absent (dark-when-unconfigured).
 	if idSvc != nil {
 		server.EnableIdentity(idSvc, idSvc)
+		// The provider descriptors the dashboard renders its provider select from
+		// (multi-provider design §8): built from the registry here — the one place
+		// naming a provider is legal — and served inside GET /api/me (D6).
+		server.EnableProviders(providerDescriptors(cfg))
 		// Every app route is project-scoped (11 phase 2): withProject resolves the
 		// caller's single project through identity's ProjectFor. Mounted with
 		// identity — unconfigured boots leave s.projects nil, and the app routes

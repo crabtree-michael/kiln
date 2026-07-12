@@ -45,18 +45,17 @@ describe('Dock', () => {
     mockVoiceValue = stubVoice({});
   });
 
-  it('Listening: shows "Listening…" and the listening state', () => {
+  it('Listening: shows the listening state', () => {
     mockVoiceValue = stubVoice({ micState: 'listening' });
     render(<Dock />);
     expect(screen.getByRole('button', { name: 'Talk' })).toHaveAttribute(
       'data-dock-state',
       'listening',
     );
-    expect(screen.getByText('Listening…')).toHaveAttribute('data-role', 'dock-label');
     expect(screen.getByRole('button', { name: 'Talk' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('Connecting: shows a spinner around the mic and "Connecting…" copy', () => {
+  it('Connecting: shows a spinner around the mic', () => {
     // The mic is tapped on (listening) but the socket isn't recording yet: the
     // dock flags the setup window and swaps the live glow for a spinner so the
     // user waits to speak (09 §3).
@@ -65,17 +64,15 @@ describe('Dock', () => {
     const talk = screen.getByRole('button', { name: 'Talk' });
     expect(talk).toHaveAttribute('data-dock-connecting', 'true');
     expect(container.querySelector('[data-role="dock-mic-spinner"]')).not.toBeNull();
-    expect(screen.getByText('Connecting…')).toHaveAttribute('data-role', 'dock-label');
   });
 
-  it('not connecting: no spinner and the resting mic copy', () => {
+  it('not connecting: no spinner', () => {
     mockVoiceValue = stubVoice({ micState: 'listening', connecting: false });
     const { container } = render(<Dock />);
     expect(screen.getByRole('button', { name: 'Talk' })).not.toHaveAttribute(
       'data-dock-connecting',
     );
     expect(container.querySelector('[data-role="dock-mic-spinner"]')).toBeNull();
-    expect(screen.getByText('Listening…')).toHaveAttribute('data-role', 'dock-label');
   });
 
   it('tapping the mic while listening calls pause', () => {
@@ -86,11 +83,10 @@ describe('Dock', () => {
     expect(pause).toHaveBeenCalledTimes(1);
   });
 
-  it('Paused: shows "Tap to talk" and tapping the mic calls resume', () => {
+  it('Paused: tapping the mic calls resume', () => {
     const resume = vi.fn();
     mockVoiceValue = stubVoice({ micState: 'paused', resume });
     render(<Dock />);
-    expect(screen.getByText('Tap to talk')).toHaveAttribute('data-role', 'dock-label');
     expect(screen.getByRole('button', { name: 'Talk' })).toHaveAttribute(
       'data-dock-state',
       'paused',
@@ -99,21 +95,23 @@ describe('Dock', () => {
     expect(resume).toHaveBeenCalledTimes(1);
   });
 
-  it('Denied: shows the enable-mic copy in the denied state', () => {
+  it('Denied: reflects the denied state on the mic', () => {
     mockVoiceValue = stubVoice({ micState: 'denied' });
     render(<Dock />);
-    expect(screen.getByText('Tap to enable mic')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Talk' })).toHaveAttribute(
       'data-dock-state',
       'denied',
     );
   });
 
-  it('Retry: shows "Tap to retry" and tapping the mic calls resume', () => {
+  it('Retry: tapping the mic calls resume', () => {
     const resume = vi.fn();
     mockVoiceValue = stubVoice({ micState: 'retry', resume });
     render(<Dock />);
-    expect(screen.getByText('Tap to retry')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Talk' })).toHaveAttribute(
+      'data-dock-state',
+      'retry',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
     expect(resume).toHaveBeenCalledTimes(1);
   });
@@ -215,14 +213,13 @@ describe('Dock', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 
-  it('idle after send: back to Paused ("Tap to talk"), no transcript, mic controls intact', () => {
+  it('idle after send: back to Paused, no transcript, mic controls intact', () => {
     // Post-send state: sending stops the mic, so the store cleared settledText +
     // tailText and dropped to Paused. The dock shows an empty transcript and the
-    // resting "Tap to talk" mic — the user taps to speak the next message.
+    // resting mic — the user taps to speak the next message.
     mockVoiceValue = stubVoice({ micState: 'paused', settledText: '', tailText: '' });
     const { container } = render(<Dock />);
     expect(container.querySelector('[data-role="dock-transcript"]')).toBeNull();
-    expect(screen.getByText('Tap to talk')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Talk' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });

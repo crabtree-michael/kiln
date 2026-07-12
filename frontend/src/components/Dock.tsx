@@ -432,7 +432,7 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
                 </button>
               )}
 
-              <MicButton showLabel />
+              <MicButton />
             </div>
 
             {showCancel && (

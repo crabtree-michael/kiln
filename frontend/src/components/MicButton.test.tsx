@@ -1,8 +1,7 @@
 // MicButton tests (09 §3): the shared mic-orb button is a presentational consumer
 // of the voice store, so `useVoice` is mocked to a fixed value per case —
 // deterministic, no mic/socket I/O. Covers the mic tap (pause while listening /
-// resume otherwise), the connecting spinner, and the optional state-copy label
-// (shown in the dock, omitted in compact placements like the proposal sheet).
+// resume otherwise) and the connecting spinner.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MicButton } from '@/components/MicButton';
@@ -80,23 +79,12 @@ describe('MicButton', () => {
     expect(container.querySelector('[data-role="dock-mic-spinner"]')).not.toBeNull();
   });
 
-  it('omits the state-copy label by default (compact placement)', () => {
+  it('renders no state-copy label (mic orb only)', () => {
     mockVoiceValue = stubVoice({ micState: 'paused' });
     const { container } = render(<MicButton />);
     expect(container.querySelector('[data-role="dock-label"]')).toBeNull();
     expect(screen.queryByText('Tap to talk')).toBeNull();
-  });
-
-  it('shows the state-copy label when asked (the dock)', () => {
-    mockVoiceValue = stubVoice({ micState: 'paused' });
-    render(<MicButton showLabel />);
-    expect(screen.getByText('Tap to talk')).toHaveAttribute('data-role', 'dock-label');
-  });
-
-  it('shows the connecting copy over the state label while connecting', () => {
-    mockVoiceValue = stubVoice({ micState: 'listening', connecting: true });
-    render(<MicButton showLabel />);
-    expect(screen.getByText('Connecting…')).toHaveAttribute('data-role', 'dock-label');
+    expect(screen.queryByText('Listening…')).toBeNull();
   });
 
   it('stays a mic orb when send-aware but no transcript is on screen', () => {

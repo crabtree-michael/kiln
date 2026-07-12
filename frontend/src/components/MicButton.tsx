@@ -19,23 +19,9 @@
 // styles it identically wherever it is placed — no per-surface mic CSS.
 import { useEffect, useRef, type JSX } from 'react';
 import { useVoice } from '@/voice/voice-context';
-import type { MicState } from '@/voice/commit-machine';
 import { VolumeSmoother, toDisplayLevel, toGlowResponse } from '@/voice/volume-meter';
 
-// The mic-button copy per state (09 §3 table). Listening is the amber resting
-// state; the rest are grey and tap-to-act.
-const LABELS: Record<MicState, string> = {
-  listening: 'Listening…',
-  paused: 'Tap to talk',
-  denied: 'Tap to enable mic',
-  retry: 'Tap to retry',
-};
-
 export interface MicButtonProps {
-  /** Whether to show the state-copy label beneath the orb (09 §3). The dock shows
-   *  it (`Listening…` / `Tap to talk` / …); compact placements like the proposal
-   *  sheet's footer render just the orb and omit it. Defaults off. */
-  showLabel?: boolean;
   /** Make the button send-aware: while a transcript is on screen (recording or
    *  paused-with-text) the mic orb is REPLACED by a send button + a small clear
    *  (×), so a compact placement (the ticket detail sheet) can commit or reset the
@@ -50,7 +36,6 @@ export interface MicButtonProps {
 }
 
 export function MicButton({
-  showLabel = false,
   sendable = false,
   ticketContext,
 }: MicButtonProps): JSX.Element {
@@ -170,9 +155,6 @@ export function MicButton({
         <span data-role="dock-mic-arc" />
         <span data-role="dock-mic-stem" />
       </span>
-      {showLabel && (
-        <span data-role="dock-label">{connecting ? 'Connecting…' : LABELS[micState]}</span>
-      )}
     </button>
   );
 }

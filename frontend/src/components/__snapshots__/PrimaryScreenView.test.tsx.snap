@@ -282,11 +282,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                   data-role="dock-mic-stem"
                 />
               </span>
-              <span
-                data-role="dock-label"
-              >
-                Listening…
-              </span>
             </button>
           </div>
           <button
@@ -725,11 +720,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                   data-role="dock-mic-stem"
                 />
               </span>
-              <span
-                data-role="dock-label"
-              >
-                Listening…
-              </span>
             </button>
           </div>
           <button
@@ -1102,11 +1092,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                   data-role="dock-mic-stem"
                 />
               </span>
-              <span
-                data-role="dock-label"
-              >
-                Listening…
-              </span>
             </button>
           </div>
           <button
@@ -1456,11 +1441,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                 <span
                   data-role="dock-mic-stem"
                 />
-              </span>
-              <span
-                data-role="dock-label"
-              >
-                Listening…
               </span>
             </button>
           </div>
@@ -1851,11 +1831,6 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                 <span
                   data-role="dock-mic-stem"
                 />
-              </span>
-              <span
-                data-role="dock-label"
-              >
-                Listening…
               </span>
             </button>
           </div>

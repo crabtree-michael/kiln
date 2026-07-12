@@ -37,11 +37,6 @@ exports[`Dock snapshots > Denied 1`] = `
               data-role="dock-mic-stem"
             />
           </span>
-          <span
-            data-role="dock-label"
-          >
-            Tap to enable mic
-          </span>
         </button>
       </div>
       <button
@@ -275,11 +270,6 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
               data-role="dock-mic-stem"
             />
           </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
         </button>
       </div>
       <button
@@ -368,11 +358,6 @@ exports[`Dock snapshots > Listening with settled ink only (send + X flank the mi
               data-role="dock-mic-stem"
             />
           </span>
-          <span
-            data-role="dock-label"
-          >
-            Listening…
-          </span>
         </button>
       </div>
       <button
@@ -427,11 +412,6 @@ exports[`Dock snapshots > Paused 1`] = `
             <span
               data-role="dock-mic-stem"
             />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Tap to talk
           </span>
         </button>
       </div>
@@ -541,11 +521,6 @@ exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §
             <span
               data-role="dock-mic-stem"
             />
-          </span>
-          <span
-            data-role="dock-label"
-          >
-            Tap to retry
           </span>
         </button>
       </div>

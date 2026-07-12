@@ -18,6 +18,7 @@ import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import { TicketDetail } from '@/components/TicketDetail';
+import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
 import { MicButton } from '@/components/MicButton';
@@ -458,6 +459,12 @@ export function PrimaryScreenView({
           // behind the sheet. Safe to always pass — it only mounts (and touches the
           // voice store) when the sheet renders it.
           voiceControl={<MicButton sendable />}
+          // The live transcript for that mic, shown in the sheet's dock above the
+          // controls so the user watches their words land without leaving the sheet
+          // (08 §5). Self-gating (renders nothing until there is text) and rides the
+          // same shaping-only gate as the mic, so it is safe to always pass — it
+          // only touches the voice store while the sheet renders it.
+          transcript={<TicketDetailTranscript />}
           onClose={closeTicket}
           // Accept is a proposal action; TicketDetail only surfaces it while the
           // ticket is still shaping, so it's safe to always wire — the sheet decides.

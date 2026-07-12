@@ -293,10 +293,78 @@
   text-align: left;
 }
 
-/* Accept action — only present when the overlay is a proposal reached via the
- * feed click-through (08 §5); the read-only board usage omits it entirely. */
-[data-role='ticket-detail-actions'] {
+/* The dock — the sheet's bottom region, the mirror of the primary screen's own
+ * dock (08 §5): one surface carrying BOTH the action controls and the live voice
+ * transcript, not a separate area for either. A flex column so the transcript
+ * stacks above the controls row and the dock grows upward to fit it as words
+ * stream in. Its top margin is the footer's gap from the body above (moved off the
+ * controls row so the transcript, when present, doesn't add a second gap); when
+ * there is no transcript the dock holds only the controls row and reads exactly
+ * like the old flex-end footer. */
+[data-role='ticket-detail-dock'] {
   margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  /* Cap the dock so a long transcript can't push the controls off a short sheet;
+   * the transcript itself scrolls inside its own bound (below). */
+  min-height: 0;
+}
+
+/* Live transcript (09 §4) inside the sheet's dock: settled words in ink, the
+ * still-forming tail ghosted, a blinking caret while listening — the spans flow
+ * inline as one centred line. Unlike the primary screen's dock (where the
+ * transcript is an upward overlay), here it sits IN FLOW above the controls and
+ * grows the dock; bounded so it scrolls internally rather than shoving the
+ * controls off the sheet, and the newest words are pinned into view from JS. */
+[data-role='ticket-detail-transcript'] {
+  max-height: 22vh;
+  overflow-y: auto;
+  padding: 2px 2px 6px;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-body);
+  border-bottom: 1px solid var(--border-default);
+}
+
+[data-role='ticket-detail-settled'] {
+  color: var(--text-body);
+}
+
+[data-role='ticket-detail-tail'] {
+  color: var(--text-faint);
+}
+
+[data-role='ticket-detail-caret'] {
+  color: var(--accent);
+  animation: kiln-detail-caret-blink 1.1s step-end infinite;
+}
+
+/* Local copy of the dock's caret blink, kept self-contained like the status-dot
+ * pulse above so the sheet doesn't depend on PrimaryScreen.css's keyframes. */
+@keyframes kiln-detail-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='ticket-detail-caret'] {
+    animation: none;
+  }
+}
+
+/* Accept action — only present when the overlay is a proposal reached via the
+ * feed click-through (08 §5); the read-only board usage omits it entirely. The
+ * controls row lives inside the dock (above); its own top gap comes from the
+ * dock, so it carries none. */
+[data-role='ticket-detail-actions'] {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -483,8 +551,14 @@
   color: var(--text-body);
 }
 
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-actions'] {
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-dock'] {
   margin-top: 20px;
+}
+
+/* On the primary skin the transcript reads at the app's larger body size, matching
+ * the feed/message register the dock's own transcript uses. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-transcript'] {
+  font-size: 15px;
 }
 
 /* Match the feed's proposal Accept button exactly, so accepting from the detail

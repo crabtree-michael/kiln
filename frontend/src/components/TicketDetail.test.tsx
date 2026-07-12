@@ -279,6 +279,38 @@ describe('TicketDetail', () => {
       expect(within(screen.getByRole('dialog')).queryByText('mic')).toBeNull();
       expect(document.querySelector('[data-role="ticket-detail-lead-actions"]')).toBeNull();
     });
+
+    // The live transcript slot. TicketDetail is voice-store-agnostic, so a plain
+    // stand-in stands in for the real TicketDetailTranscript. It rides the same
+    // shaping-only gate as the mic and lands inside the dock, above the controls.
+    const transcript = <div data-role="mock-transcript">move the button</div>;
+
+    it('renders the transcript inside the dock, above the action controls, on a shaping proposal', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          voiceControl={mic}
+          transcript={transcript}
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      const slot = within(dialog).getByText('move the button');
+      // The transcript lives inside the sheet's dock (the unified controls +
+      // transcript region), not in a separate area.
+      expect(slot.closest('[data-role="ticket-detail-dock"]')).not.toBeNull();
+      // …and it stacks ABOVE the controls: it precedes the Accept button (which
+      // lives in the controls row) in document order. slot and Accept sit in
+      // sibling subtrees, so compareDocumentPosition is exactly FOLLOWING.
+      const accept = within(dialog).getByRole('button', { name: 'Accept' });
+      expect(slot.compareDocumentPosition(accept)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+
+    it('never renders the transcript past shaping — not a proposal anymore', () => {
+      render(<TicketDetail ticket={working} onClose={vi.fn()} transcript={transcript} />);
+      expect(screen.queryByText('move the button')).toBeNull();
+    });
   });
 
   describe('Poke action', () => {

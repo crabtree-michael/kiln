@@ -33,18 +33,24 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
 
 ## Working with the orchestrator
 
-You run inside a sandbox created for development. A human orchestrator hands you work as tickets and
-communicates with you through **blockers**.
+You run inside a sandbox created for development. Work reaches you through an **orchestrator**, and
+you communicate back through **blockers**.
 
-- **Tickets are how work arrives.** The human provides tickets that describe what to build. Pick up
-  your ticket and drive it to completion.
-- **Enter a blocker when you need a decision.** When you hit a technical decision that needs the
-  orchestrator's input — an ambiguous requirement, a design trade-off with no clear right answer, a
-  missing credential, anything you can't resolve on your own — stop and return to the orchestrator
-  in a **blocker** state rather than guessing.
-- **The orchestrator understands "blocker".** Surfacing a blocker is the expected way to ask for
-  input; the orchestrator recognizes the blocker state and responds. Blockers are the two-way
-  channel: the human reaches you through them, and you reach the human through them.
+- **The orchestrator is an agent, not a human.** It is an agent whose job is to orchestrate other
+  agents. The human works with the orchestrator to create tickets; the orchestrator then hands those
+  tickets to you for implementation. The chain is three tiers: **Human → Orchestrator → Agents.**
+  You interact with the orchestrator, not directly with the human.
+- **Tickets are how work arrives.** The orchestrator delivers tickets that describe what to build.
+  Pick up your ticket and drive it to completion.
+- **Enter a blocker readily for significant technical decisions.** When you hit a technical decision
+  that needs a call from above — an ambiguous requirement, a design trade-off with no clear right
+  answer, a missing credential, an architectural fork, anything you can't resolve on your own — stop
+  and return in a **blocker** state rather than guessing. Blocking is normal and expected; reach for
+  it readily rather than pressing ahead on a major decision.
+- **The orchestrator understands "blocker".** Surfacing a blocker is the expected way to ask for a
+  decision. The orchestrator recognizes the blocker state and will return to make the call (looping
+  in the human when it needs to). This is the primary channel for agent–orchestrator collaboration:
+  it's how work and decisions flow down to you, and how questions flow back up.
 
 ## Useful Context
 

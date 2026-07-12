@@ -26,12 +26,29 @@ This repo is built largely by coding agents. See `docs/specs/01-initial.md` (pro
   app — LLM, Amika, and database credentials. Let the app/config loader read it; never print its
   contents to the transcript.
 
-- **Multiple agents in the same worktree**. You may be working with other agents. Only commit your work.
+- **Commit directly to main.** You work in a development sandbox created for you. `main` is
+  intentionally open on this repo — you are free to, and expected to, commit your work directly to
+  `main`. There is no protected-branch or PR-review step to wait on. Just make sure the hard gate
+  is green first.
+
+## Working with the orchestrator
+
+You run inside a sandbox created for development. A human orchestrator hands you work as tickets and
+communicates with you through **blockers**.
+
+- **Tickets are how work arrives.** The human provides tickets that describe what to build. Pick up
+  your ticket and drive it to completion.
+- **Enter a blocker when you need a decision.** When you hit a technical decision that needs the
+  orchestrator's input — an ambiguous requirement, a design trade-off with no clear right answer, a
+  missing credential, anything you can't resolve on your own — stop and return to the orchestrator
+  in a **blocker** state rather than guessing.
+- **The orchestrator understands "blocker".** Surfacing a blocker is the expected way to ask for
+  input; the orchestrator recognizes the blocker state and responds. Blockers are the two-way
+  channel: the human reaches you through them, and you reach the human through them.
 
 ## Useful Context
 
 - **Not in production** This app is not used by anyone. No need to add feature flags or support backward comptability at this stage
-- **Commit to main** Because the app is light in development committing to main is OK. 
 
 ## Skills
 

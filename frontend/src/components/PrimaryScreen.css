@@ -1592,6 +1592,20 @@ button[data-role='toast-open']:focus-visible {
      up — above). As the utterance grows the transcript rises and carries this line
      up over the feed, so the whole surface reads as one dock topped by one line. */
   border-top: 1px solid var(--border-default);
+  /* Eased so the text glides up (padding-bottom, below) when the auto-send bubble
+     arms and settles back down when it withdraws — no jump under the "+10". */
+  transition: padding-bottom var(--duration-base, 240ms) ease;
+}
+
+/* Auto-send imminent: the "+10" bubble floats up into the bottom of this overlay
+   (it is anchored to the controls row just below — see dock-delay). Reserve room
+   for it by growing the panel's bottom padding, which lifts the transcript text
+   clear of the bubble instead of letting the bubble land on top of the words. The
+   panel stays opaque all the way down (padding, not a margin gap) so no feed shows
+   through behind the bubble, and the reserved height flows into --dock-overlay-height
+   (offsetHeight includes padding) so the activity row keeps its clearance too. */
+[data-role='dock-transcript'][data-send-imminent='true'] {
+  padding-bottom: 52px;
 }
 
 [data-role='dock-settled'] {
@@ -1679,6 +1693,23 @@ button[data-role='toast-open']:focus-visible {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
+  /* Pop in as a small bubble when the send arms, rather than blinking into place.
+     Scale + fade from a shrunken dot with a slight overshoot (back-out easing) for
+     the bubble "settle"; both keyframes keep the translateX(-50%) that centres the
+     button on the mic, so the growth stays anchored and never drifts sideways. */
+  transform-origin: center bottom;
+  animation: kiln-delay-in var(--duration-base, 240ms) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes kiln-delay-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
 }
 
 [data-role='dock-delay']:hover {
@@ -2101,6 +2132,14 @@ button[data-role='toast-open']:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   [data-role='dock-caret'] {
+    animation: none;
+  }
+
+  /* Reduced motion: the "+10" bubble simply appears — no pop/scale — but the
+     transcript still eases its padding (a slow, non-vestibular shift) so the text
+     never jumps under it. The base rule keeps translateX(-50%), so dropping the
+     animation leaves the button correctly centred on the mic. */
+  [data-role='dock-delay'] {
     animation: none;
   }
 

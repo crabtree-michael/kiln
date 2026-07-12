@@ -204,6 +204,10 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
         <div
           data-role="dock-transcript"
           data-dock-state={keyboardMode ? 'keyboard' : micState}
+          // When the auto-send bubble is imminent it floats up into the bottom of
+          // this overlay; the flag reserves matching bottom padding (CSS) so the
+          // transcript text lifts clear rather than the bubble landing on top of it.
+          data-send-imminent={showDelay ? 'true' : undefined}
           ref={transcriptRef}
         >
           {keyboardMode ? (

@@ -41,9 +41,10 @@ import (
 )
 
 // ownerLookup resolves a project to its owning user id (11 §3) — the
-// notification path's tenant→recipient hop. Its shape matches runtime.Owner;
-// the composition root's ownerResolver (wiring.go, over the tenant registry)
-// satisfies both.
+// notification path's tenant→recipient hop. It is the Owner half of
+// runtime.Owner (the notifier needs only the resolution, not the mode); the
+// composition root's ownerResolver (wiring.go, over the tenant registry)
+// satisfies both this and runtime.Owner.
 type ownerLookup interface {
 	Owner(ctx context.Context, projectID string) (string, error)
 }

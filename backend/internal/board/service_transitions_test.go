@@ -434,7 +434,8 @@ func TestMarkBlocked_EmitsNotifySend(t *testing.T) {
 	if !ok {
 		t.Fatalf("notify.send payload type = %T, want board.NotifyPayload", notifies[0].Payload)
 	}
-	if payload.TicketID != "t1" || payload.Reason != "dispatch failure: timeout" {
+	if payload.TicketID != "t1" || payload.Reason != "dispatch failure: timeout" ||
+		payload.Kind != board.NotifyKindBlocked {
 		t.Errorf("notify.send payload = %+v", payload)
 	}
 }
@@ -685,7 +686,7 @@ func TestAcceptToDone_EmitsNotifySend(t *testing.T) {
 	if !ok {
 		t.Fatalf("notify.send payload type = %T, want board.NotifyPayload", notifies[0].Payload)
 	}
-	if payload.TicketID != "t1" || payload.Title != "Wrap it up" {
+	if payload.TicketID != "t1" || payload.Title != "Wrap it up" || payload.Kind != board.NotifyKindDone {
 		t.Errorf("notify.send payload = %+v", payload)
 	}
 }

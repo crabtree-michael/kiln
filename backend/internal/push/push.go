@@ -34,11 +34,14 @@ type Subscription struct {
 	LastSeenForegroundAt *time.Time
 }
 
-// Notification frequency modes (02 §10). ModeBlocked is the default and
-// preserves the pre-existing behavior — a push only when a ticket needs a human
-// decision. ModeAll fans a push out on every feed update, a testing aid. The set
-// is deliberately small and extensible (more modes may be added later).
+// Notification frequency modes (02 §10). ModeDefault is the recommended setting
+// and the store default: a push on the genuine ticket milestones — blocked,
+// completed, and started. ModeBlocked narrows that to only the blocked
+// transition (a push only when a ticket needs a human decision). ModeAll fans a
+// push out on every feed update, a testing aid. The set is deliberately small
+// and extensible (more modes may be added later).
 const (
+	ModeDefault = "default"
 	ModeBlocked = "blocked"
 	ModeAll     = "all"
 )
@@ -55,7 +58,7 @@ const (
 // notifications removes its own subscription immediately, scoped to the owner so
 // one user can never drop another's row. Both are idempotent — deleting an absent
 // endpoint is a no-op. Mode is per user (push_user_settings); a user who never
-// set one gets ModeBlocked, not an error.
+// set one gets ModeDefault, not an error.
 // TouchForeground records a device's foreground-presence lease (02 §10 push
 // dedup): visible=true stamps last_seen_foreground_at=now() on the row matching
 // that endpoint AND owned by userID, visible=false clears it. Scoped by user_id

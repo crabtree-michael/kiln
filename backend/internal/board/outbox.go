@@ -46,12 +46,24 @@ type ReleasePayload struct {
 // ticket transitions (02 §10): start (RunPull ready→working), blocked
 // (MarkBlocked), and done (AcceptToDone). Title is the ticket title; Reason
 // becomes the push body — the actual blocker text for blocked, or a fixed
-// phrase for the start/done transitions that carry no free-text reason.
+// phrase for the start/done transitions that carry no free-text reason. Kind
+// names the transition (NotifyKind*) so the runtime can gate the push against
+// the user's notification mode (02 §10): the "blocked" mode delivers only
+// NotifyKindBlocked, "default" all three, "all" everything.
 type NotifyPayload struct {
 	TicketID TicketID `json:"ticket_id"`
 	Title    string   `json:"title"`
 	Reason   string   `json:"reason"`
+	Kind     string   `json:"kind"`
 }
+
+// Notify transition kinds (02 §10) carried on NotifyPayload.Kind, the runtime's
+// gate against the per-user notification mode. The three genuine milestones.
+const (
+	NotifyKindStarted = "started"
+	NotifyKindBlocked = "blocked"
+	NotifyKindDone    = "done"
+)
 
 // Push bodies for the start/done transitions (02 §10). MarkBlocked carries the
 // real blocker reason instead; only these two transitions need a fixed phrase.

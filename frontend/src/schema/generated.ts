@@ -314,7 +314,7 @@ export interface paths {
         };
         /**
          * The current push-notification frequency mode (02 §10).
-         * @description Returns the global notification mode that gates when the runtime emits a Web Push message. `blocked` (the default) notifies only when a ticket needs a human decision; `all` notifies on every feed update (a testing aid). Single user in v1, so the mode is a single global value.
+         * @description Returns the global notification mode that gates when the runtime emits a Web Push message. `default` (the recommended setting) notifies on the genuine ticket milestones — blocked, completed, started; `blocked` narrows that to only when a ticket needs a human decision; `all` notifies on every feed update (a testing aid). Single user in v1, so the mode is a single global value.
          */
         get: operations["getPushMode"];
         /**
@@ -758,13 +758,13 @@ export interface components {
             /** @description Base64url-encoded VAPID application server key. */
             key: string;
         };
-        /** @description The global push-notification frequency (02 §10). `blocked` — the default, preserving prior behavior — sends a push only when a ticket needs a human decision; `all` sends a push on every feed update, a testing aid for confirming push delivery. Extensible: more modes may be added later. */
+        /** @description The global push-notification frequency (02 §10). `default` — the recommended setting — sends a push on the genuine ticket milestones (blocked, completed, started); `blocked` narrows that to only the blocked transition (a push only when a ticket needs a human decision); `all` sends a push on every feed update, a testing aid for confirming push delivery. Extensible: more modes may be added later. */
         NotificationMode: {
             /**
-             * @description Which feed updates fire a push notification.
+             * @description Which ticket events fire a push notification.
              * @enum {string}
              */
-            mode: "all" | "blocked";
+            mode: "default" | "blocked" | "all";
         };
         /** @description A browser PushSubscription as produced by `PushSubscription.toJSON()` — the endpoint URL plus the p256dh and auth keys used to encrypt Web Push payloads (RFC 8291). */
         PushSubscription: {

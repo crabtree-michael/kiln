@@ -459,11 +459,11 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 	}
 }
 
-// A signal-only feed.updated (empty payload) carries no state transition — it is
-// the runtime's own re-render trigger for progress narration, edits, and
-// mark-seen. It must never push: only a real status change may reach the user
-// (design 2026-07-07). There is no generic "board was updated" fallback anymore.
-func TestService_Outbox_FeedUpdatedGenericPayloadDoesNotNotify(t *testing.T) {
+// A signal-only feed.updated (empty payload) carries no verb — it is the
+// runtime's own re-render trigger for progress narration, edits, and mark-seen.
+// It must never push, in any mode: with the notification mode set to "all" (the
+// firehose), the empty payload still resolves to no push (02 §10).
+func TestService_Outbox_FeedUpdatedNarrationNeverNotifies(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	notifier := &fakeNotifier{}
@@ -473,7 +473,7 @@ func TestService_Outbox_FeedUpdatedGenericPayloadDoesNotNotify(t *testing.T) {
 		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
 		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
 		&fakeActivityPusher{},
-		&fakeOwner{},
+		&fakeOwner{mode: modeAll},
 	)
 
 	_, outboxWorker := svc.Workers(clock)
@@ -483,19 +483,19 @@ func TestService_Outbox_FeedUpdatedGenericPayloadDoesNotNotify(t *testing.T) {
 	defer stop()
 
 	// The feed push confirms the entry was handled; the notifier must stay
-	// untouched — narration is silent even in all mode.
+	// untouched — narration has no verb, so it is silent even in "all" mode.
 	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
 	if got := notifier.count("Send"); got != 0 {
-		t.Errorf("Send calls = %d, want 0 — a payload with no state transition must not push", got)
+		t.Errorf("Send calls = %d, want 0 — a payload with no verb must not push", got)
 	}
 }
 
-// "nudged" (blocked→working) is a real state change, but it is driven by sending
-// the agent an instruction — which never notifies the user (design 2026-07-07).
-// "reshaped" (editing a proposal's fields) is not a state change at all. Neither
-// pushes.
-func TestService_Outbox_FeedUpdatedNonTransitionVerbsDoNotNotify(t *testing.T) {
-	for _, verb := range []string{"nudged", "reshaped"} {
+// Feed-update activity (a proposal, a queue, a reshape, a nudge, an archive) is
+// the broad stream only "all" mode delivers (02 §10). Under the recommended
+// "default" mode it is suppressed — those pushes are chatter next to the genuine
+// milestones, which arrive on their own dedicated notify.send.
+func TestService_Outbox_FeedUpdatedActivitySilentInDefaultMode(t *testing.T) {
+	for _, verb := range []string{verbProposal, "reshaped", "queued", "nudged", "archived"} {
 		t.Run(verb, func(t *testing.T) {
 			clock := testutil.NewFakeClock()
 			store := newFakeStore(clock)
@@ -506,7 +506,7 @@ func TestService_Outbox_FeedUpdatedNonTransitionVerbsDoNotNotify(t *testing.T) {
 				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
 				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
 				&fakeActivityPusher{},
-				&fakeOwner{},
+				&fakeOwner{mode: modeDefault},
 			)
 
 			_, outboxWorker := svc.Workers(clock)
@@ -518,110 +518,146 @@ func TestService_Outbox_FeedUpdatedNonTransitionVerbsDoNotNotify(t *testing.T) {
 
 			testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
 			if got := notifier.count("Send"); got != 0 {
-				t.Errorf("Send calls = %d, want 0 — %q is not a notifying state transition", got, verb)
+				t.Errorf("Send calls = %d, want 0 — %q is feed activity, silent under the default mode", got, verb)
 			}
 		})
 	}
 }
 
-// A descriptive feed.updated payload drives a specific push (Title = ticket,
-// Body = what changed) rather than the generic "board was updated" placeholder.
-func TestService_Outbox_FeedUpdatedNotifiesWithChangeDescription(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	store := newFakeStore(clock)
-	notifier := &fakeNotifier{}
-	svc := runtime.NewService(
-		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
-		&fakeActivityPusher{},
-		&fakeOwner{},
-	)
-
-	_, outboxWorker := svc.Workers(clock)
-	store.seed(runtime.QueueOutbox, "feed.updated",
-		[]byte(`{"title":"Login Redesign","verb":"finished"}`), 0)
-
-	stop := runWorker(t, outboxWorker)
-	defer stop()
-
-	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
-	calls := notifier.callsFor("Send")
-	if len(calls) != 1 {
-		t.Fatalf("Send calls = %d, want exactly 1", len(calls))
+// Under "all" mode every feed-update verb drives a specific push (Title = ticket,
+// Body = what changed) rather than a generic "board was updated" placeholder.
+func TestService_Outbox_FeedUpdatedActivityNotifiesInAllMode(t *testing.T) {
+	cases := []struct{ verb, body string }{
+		{verbProposal, "New proposal"},
+		{"reshaped", "Proposal updated"},
+		{"queued", "Queued for work"},
+		{"nudged", "Nudged"},
+		{"archived", "Archived"},
 	}
-	var got struct {
-		Title  string `json:"title"`
-		Reason string `json:"reason"`
-	}
-	payload, ok := calls[0].Args[1].([]byte)
-	if !ok {
-		t.Fatalf("Send payload arg type = %T, want []byte", calls[0].Args[1])
-	}
-	if err := json.Unmarshal(payload, &got); err != nil {
-		t.Fatalf("decode push payload: %v", err)
-	}
-	if got.Title != "Login Redesign" || got.Reason != "Finished" {
-		t.Errorf("push payload = %+v, want title=Login Redesign reason=Finished (not a generic placeholder)", got)
-	}
-}
+	for _, tc := range cases {
+		t.Run(tc.verb, func(t *testing.T) {
+			clock := testutil.NewFakeClock()
+			store := newFakeStore(clock)
+			notifier := &fakeNotifier{}
+			svc := runtime.NewService(
+				store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
+				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
+				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
+				&fakeActivityPusher{},
+				&fakeOwner{mode: modeAll},
+			)
 
-// A block emits its own, more-specific notify.send; the feed.updated it also
-// emits must not fire a second, vaguer push (verb "blocked" is suppressed).
-func TestService_Outbox_FeedUpdatedBlockedVerbSkipsGenericPush(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	store := newFakeStore(clock)
-	notifier := &fakeNotifier{}
-	feed := &fakeFeedPusher{}
-	svc := runtime.NewService(
-		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
-		&fakeActivityPusher{},
-		&fakeOwner{},
-	)
+			_, outboxWorker := svc.Workers(clock)
+			store.seed(runtime.QueueOutbox, "feed.updated",
+				[]byte(`{"title":"Login Redesign","verb":"`+tc.verb+`"}`), 0)
 
-	_, outboxWorker := svc.Workers(clock)
-	store.seed(runtime.QueueOutbox, "feed.updated",
-		[]byte(`{"title":"Login Redesign","verb":"blocked"}`), 0)
+			stop := runWorker(t, outboxWorker)
+			defer stop()
 
-	stop := runWorker(t, outboxWorker)
-	defer stop()
-
-	// The feed push confirms the entry was handled; the notifier must stay
-	// untouched — the dedicated notify.send is the block's push.
-	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
-	if got := notifier.count("Send"); got != 0 {
-		t.Errorf("Send calls = %d, want 0 — a block's push comes from notify.send, not feed.updated", got)
+			testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
+			calls := notifier.callsFor("Send")
+			if len(calls) != 1 {
+				t.Fatalf("Send calls = %d, want exactly 1", len(calls))
+			}
+			var got struct {
+				Title  string `json:"title"`
+				Reason string `json:"reason"`
+			}
+			payload, ok := calls[0].Args[1].([]byte)
+			if !ok {
+				t.Fatalf("Send payload arg type = %T, want []byte", calls[0].Args[1])
+			}
+			if err := json.Unmarshal(payload, &got); err != nil {
+				t.Fatalf("decode push payload: %v", err)
+			}
+			if got.Title != "Login Redesign" || got.Reason != tc.body {
+				t.Errorf("push payload = %+v, want title=Login Redesign reason=%q", got, tc.body)
+			}
+		})
 	}
 }
 
-// A genuine state transition pushes unconditionally — there is no
-// notification-frequency gate anymore, so "done" and every other real transition
-// reach the user by default (design 2026-07-07). "queued" (shaping→ready) stands
-// in for the transition set.
-func TestService_Outbox_FeedUpdatedTransitionNotifiesByDefault(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	store := newFakeStore(clock)
-	notifier := &fakeNotifier{}
-	svc := runtime.NewService(
-		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
-		&fakeActivityPusher{},
-		&fakeOwner{},
-	)
+// The milestones (blocked, finished) each emit their own dedicated board
+// notify.send; the feed.updated they also emit must not fire a second, vaguer
+// push — even in "all" mode. Both verbs are absent from feedUpdateVerbBody so
+// the feed path stays silent and the completion/block push is never doubled.
+func TestService_Outbox_FeedUpdatedMilestoneVerbsNeverNotify(t *testing.T) {
+	for _, verb := range []string{"blocked", "finished"} {
+		t.Run(verb, func(t *testing.T) {
+			clock := testutil.NewFakeClock()
+			store := newFakeStore(clock)
+			notifier := &fakeNotifier{}
+			feed := &fakeFeedPusher{}
+			svc := runtime.NewService(
+				store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
+				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
+				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
+				&fakeActivityPusher{},
+				&fakeOwner{mode: modeAll},
+			)
 
-	_, outboxWorker := svc.Workers(clock)
-	store.seed(runtime.QueueOutbox, "feed.updated",
-		[]byte(`{"title":"Login Redesign","verb":"queued"}`), 0)
+			_, outboxWorker := svc.Workers(clock)
+			store.seed(runtime.QueueOutbox, "feed.updated",
+				[]byte(`{"title":"Login Redesign","verb":"`+verb+`"}`), 0)
 
-	stop := runWorker(t, outboxWorker)
-	defer stop()
+			stop := runWorker(t, outboxWorker)
+			defer stop()
 
-	testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
-	if got := notifier.count("Send"); got != 1 {
-		t.Fatalf("Send calls = %d, want exactly 1 — a state transition must push by default", got)
+			// The feed push confirms the entry was handled; the notifier must stay
+			// untouched — the milestone's dedicated notify.send is its only push.
+			testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
+			if got := notifier.count("Send"); got != 0 {
+				t.Errorf("Send calls = %d, want 0 — %q's push comes from notify.send, not feed.updated", got, verb)
+			}
+		})
+	}
+}
+
+// The board's dedicated notify.send milestones (blocked/started/done) are gated
+// by the owner's notification mode (02 §10): "blocked" mode delivers only the
+// blocked milestone, "default" all three, "all" all three. This pins each cell.
+func TestService_Outbox_NotifySendMilestonesGatedByMode(t *testing.T) {
+	cases := []struct {
+		mode, kind string
+		wantSend   int
+	}{
+		{modeDefault, kindBlocked, 1},
+		{modeDefault, kindStarted, 1},
+		{modeDefault, kindDone, 1},
+		{modeBlocked, kindBlocked, 1},
+		{modeBlocked, kindStarted, 0},
+		{modeBlocked, kindDone, 0},
+		{modeAll, kindStarted, 1},
+		{modeAll, kindDone, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode+"/"+tc.kind, func(t *testing.T) {
+			clock := testutil.NewFakeClock()
+			store := newFakeStore(clock)
+			notifier := &fakeNotifier{}
+			sayer := &fakeSayPusher{}
+			svc := runtime.NewService(
+				store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
+				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
+				sayer, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
+				&fakeActivityPusher{},
+				&fakeOwner{mode: tc.mode},
+			)
+
+			_, outboxWorker := svc.Workers(clock)
+			id := store.seed(runtime.QueueOutbox, "notify.send",
+				[]byte(`{"ticket_id":"tk-1","title":"t","reason":"r","kind":"`+tc.kind+`"}`), 0)
+
+			stop := runWorker(t, outboxWorker)
+			defer stop()
+
+			// The entry always reaches "done" (a suppressed push is a successful
+			// no-op, not a failure); then the Send count reflects the gate.
+			testutil.Eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == "done" })
+			if got := notifier.count("Send"); got != tc.wantSend {
+				t.Errorf("Send calls = %d, want %d for mode=%q kind=%q", got, tc.wantSend, tc.mode, tc.kind)
+			}
+		})
 	}
 }
 

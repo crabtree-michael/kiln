@@ -108,7 +108,7 @@ func TestRunPull_EmitsNotifySend(t *testing.T) {
 	if !ok {
 		t.Fatalf("notify.send payload type = %T, want board.NotifyPayload", notifies[0].Payload)
 	}
-	if payload.TicketID != "t1" || payload.Title != "Start pushing" {
+	if payload.TicketID != "t1" || payload.Title != "Start pushing" || payload.Kind != board.NotifyKindStarted {
 		t.Errorf("notify.send payload = %+v", payload)
 	}
 }

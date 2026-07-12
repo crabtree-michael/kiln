@@ -74,7 +74,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                   aria-pressed="false"
                   data-role="notify-settings-option"
                   data-selected="false"
-                  data-value="all"
+                  data-value="default"
                   disabled=""
                   type="button"
                 >
@@ -88,12 +88,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                     <span
                       data-role="notify-option-label"
                     >
-                      All updates
+                      Default
                     </span>
                     <span
                       data-role="notify-option-detail"
                     >
-                      Notify on every feed update.
+                      Notify when a ticket is blocked, completed, or started.
                     </span>
                   </span>
                 </button>
@@ -123,6 +123,35 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                       data-role="notify-option-detail"
                     >
                       Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
                     </span>
                   </span>
                 </button>
@@ -378,7 +407,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                   aria-pressed="false"
                   data-role="notify-settings-option"
                   data-selected="false"
-                  data-value="all"
+                  data-value="default"
                   disabled=""
                   type="button"
                 >
@@ -392,12 +421,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                     <span
                       data-role="notify-option-label"
                     >
-                      All updates
+                      Default
                     </span>
                     <span
                       data-role="notify-option-detail"
                     >
-                      Notify on every feed update.
+                      Notify when a ticket is blocked, completed, or started.
                     </span>
                   </span>
                 </button>
@@ -427,6 +456,35 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                       data-role="notify-option-detail"
                     >
                       Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
                     </span>
                   </span>
                 </button>
@@ -792,7 +850,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                   aria-pressed="false"
                   data-role="notify-settings-option"
                   data-selected="false"
-                  data-value="all"
+                  data-value="default"
                   disabled=""
                   type="button"
                 >
@@ -806,12 +864,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                     <span
                       data-role="notify-option-label"
                     >
-                      All updates
+                      Default
                     </span>
                     <span
                       data-role="notify-option-detail"
                     >
-                      Notify on every feed update.
+                      Notify when a ticket is blocked, completed, or started.
                     </span>
                   </span>
                 </button>
@@ -841,6 +899,35 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                       data-role="notify-option-detail"
                     >
                       Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
                     </span>
                   </span>
                 </button>
@@ -1140,7 +1227,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                   aria-pressed="false"
                   data-role="notify-settings-option"
                   data-selected="false"
-                  data-value="all"
+                  data-value="default"
                   disabled=""
                   type="button"
                 >
@@ -1154,12 +1241,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                     <span
                       data-role="notify-option-label"
                     >
-                      All updates
+                      Default
                     </span>
                     <span
                       data-role="notify-option-detail"
                     >
-                      Notify on every feed update.
+                      Notify when a ticket is blocked, completed, or started.
                     </span>
                   </span>
                 </button>
@@ -1189,6 +1276,35 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                       data-role="notify-option-detail"
                     >
                       Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
                     </span>
                   </span>
                 </button>
@@ -1466,7 +1582,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                   aria-pressed="false"
                   data-role="notify-settings-option"
                   data-selected="false"
-                  data-value="all"
+                  data-value="default"
                   disabled=""
                   type="button"
                 >
@@ -1480,12 +1596,12 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                     <span
                       data-role="notify-option-label"
                     >
-                      All updates
+                      Default
                     </span>
                     <span
                       data-role="notify-option-detail"
                     >
-                      Notify on every feed update.
+                      Notify when a ticket is blocked, completed, or started.
                     </span>
                   </span>
                 </button>
@@ -1515,6 +1631,35 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                       data-role="notify-option-detail"
                     >
                       Notify only when a ticket needs you.
+                    </span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  aria-pressed="false"
+                  data-role="notify-settings-option"
+                  data-selected="false"
+                  data-value="all"
+                  disabled=""
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    data-role="notify-option-check"
+                  />
+                  <span
+                    data-role="notify-option-text"
+                  >
+                    <span
+                      data-role="notify-option-label"
+                    >
+                      All updates
+                    </span>
+                    <span
+                      data-role="notify-option-detail"
+                    >
+                      Notify on every feed update.
                     </span>
                   </span>
                 </button>

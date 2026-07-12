@@ -22,6 +22,23 @@ import (
 // (04 §3), shared across the runtime unit tests.
 const statusDone = "done"
 
+// Notification modes and transition kinds (02 §10), hoisted so the mode/kind
+// matrix in the notification tests names them once rather than repeating string
+// literals (goconst). Modes gate delivery; kinds label a notify.send milestone.
+const (
+	modeDefault = "default"
+	modeBlocked = "blocked"
+	modeAll     = "all"
+
+	kindBlocked = "blocked"
+	kindStarted = "started"
+	kindDone    = "done"
+
+	// verbProposal is the one feed-update verb that recurs across the
+	// notification tables often enough to trip goconst.
+	verbProposal = "proposal"
+)
+
 // defaultTestProject is the tenant every single-project test seeds under
 // (11 §3) — unit fakes don't require uuid syntax, only equality.
 const defaultTestProject = "proj-default"
@@ -397,11 +414,15 @@ func resolverFor(b *fakeBrain) *fakeBrainResolver { return &fakeBrainResolver{br
 
 var _ runtime.BrainResolver = (*fakeBrainResolver)(nil)
 
-// fakeOwner resolves every project to one test user unless ownerFn overrides.
+// fakeOwner resolves every project to one test user unless ownerFn overrides,
+// and reports a notification mode — modeDefault unless mode/modeFn overrides
+// (the recommended milestone set, matching the production default).
 type fakeOwner struct {
 	callRecorder
 
 	ownerFn func(ctx context.Context, projectID string) (string, error)
+	mode    string
+	modeFn  func(ctx context.Context, projectID string) (string, error)
 }
 
 func (f *fakeOwner) Owner(ctx context.Context, projectID string) (string, error) {
@@ -410,6 +431,17 @@ func (f *fakeOwner) Owner(ctx context.Context, projectID string) (string, error)
 		return f.ownerFn(ctx, projectID)
 	}
 	return "user-owner", nil
+}
+
+func (f *fakeOwner) Mode(ctx context.Context, projectID string) (string, error) {
+	f.record("Mode", projectID)
+	if f.modeFn != nil {
+		return f.modeFn(ctx, projectID)
+	}
+	if f.mode != "" {
+		return f.mode, nil
+	}
+	return modeDefault, nil
 }
 
 var _ runtime.Owner = (*fakeOwner)(nil)

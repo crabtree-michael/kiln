@@ -136,7 +136,7 @@ func truncatePushTables(ctx context.Context, t *testing.T, db *sql.DB) {
 	}
 }
 
-func TestModeDefaultsToBlockedAndRoundTrips(t *testing.T) {
+func TestModeDefaultsToDefaultAndRoundTrips(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
@@ -146,8 +146,8 @@ func TestModeDefaultsToBlockedAndRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mode (default): %v", err)
 	}
-	if got != push.ModeBlocked {
-		t.Errorf("default mode = %q, want %q", got, push.ModeBlocked)
+	if got != push.ModeDefault {
+		t.Errorf("default mode = %q, want %q", got, push.ModeDefault)
 	}
 
 	if err := store.SetMode(ctx, userA, push.ModeAll); err != nil {

@@ -499,6 +499,14 @@ describe('transport', () => {
       expect(mode).toBe('all');
     });
 
+    it('accepts the default mode', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(JSON.stringify({ mode: 'default' })))),
+      );
+      expect(await fetchNotificationMode()).toBe('default');
+    });
+
     it('throws on an unexpected read shape', async () => {
       vi.stubGlobal(
         'fetch',

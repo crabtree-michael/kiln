@@ -161,6 +161,7 @@ func (e MessageRole) Valid() bool {
 const (
 	All     NotificationModeMode = "all"
 	Blocked NotificationModeMode = "blocked"
+	Default NotificationModeMode = "default"
 )
 
 // Valid indicates whether the value is a known member of the NotificationModeMode enum.
@@ -169,6 +170,8 @@ func (e NotificationModeMode) Valid() bool {
 	case All:
 		return true
 	case Blocked:
+		return true
+	case Default:
 		return true
 	default:
 		return false
@@ -508,13 +511,13 @@ type MessageRequest struct {
 	Text string `json:"text"`
 }
 
-// NotificationMode The global push-notification frequency (02 §10). `blocked` — the default, preserving prior behavior — sends a push only when a ticket needs a human decision; `all` sends a push on every feed update, a testing aid for confirming push delivery. Extensible: more modes may be added later.
+// NotificationMode The global push-notification frequency (02 §10). `default` — the recommended setting — sends a push on the genuine ticket milestones (blocked, completed, started); `blocked` narrows that to only the blocked transition (a push only when a ticket needs a human decision); `all` sends a push on every feed update, a testing aid for confirming push delivery. Extensible: more modes may be added later.
 type NotificationMode struct {
-	// Mode Which feed updates fire a push notification.
+	// Mode Which ticket events fire a push notification.
 	Mode NotificationModeMode `json:"mode"`
 }
 
-// NotificationModeMode Which feed updates fire a push notification.
+// NotificationModeMode Which ticket events fire a push notification.
 type NotificationModeMode string
 
 // PresenceUpdate One device's foreground-presence report (02 §10 push dedup): whether the app is currently visible, plus the device's own push-subscription endpoint so the server stamps the right row. The server uses its own clock, so no timestamp is carried.

@@ -23,7 +23,7 @@ var errFakeRegistrarFailed = errors.New("fakePushRegistrar: synthetic failure")
 const endpointA = "https://push.example/a"
 
 // fakePushRegistrar records the subscriptions it is asked to store and holds the
-// global notification mode (defaulting to "blocked", as a fresh store would).
+// global notification mode (defaulting to "default", as a fresh store would).
 type fakePushRegistrar struct {
 	mu           sync.Mutex
 	subs         []api.PushSubscription
@@ -81,7 +81,7 @@ func (f *fakePushRegistrar) Mode(_ context.Context, userID string) (string, erro
 	defer f.mu.Unlock()
 	f.lastUserID = userID
 	if f.mode == "" {
-		return "blocked", nil
+		return "default", nil
 	}
 	return f.mode, nil
 }
@@ -358,7 +358,7 @@ func TestHandlePresence(t *testing.T) {
 }
 
 func TestHandlePushMode(t *testing.T) {
-	t.Run("GET returns the current mode, defaulting to blocked", func(t *testing.T) {
+	t.Run("GET returns the current mode, defaulting to default", func(t *testing.T) {
 		ts := newPushServer(t, &fakePushRegistrar{}, "BPUB")
 		defer ts.Close()
 		resp := doGet(t, ts.URL+"/api/push/mode")
@@ -370,8 +370,8 @@ func TestHandlePushMode(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if got.Mode != wire.Blocked {
-			t.Errorf("mode = %q, want blocked", got.Mode)
+		if got.Mode != wire.Default {
+			t.Errorf("mode = %q, want default", got.Mode)
 		}
 	})
 

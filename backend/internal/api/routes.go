@@ -1018,7 +1018,7 @@ func (s *Server) handlePushModeSet(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 	if !req.Mode.Valid() {
-		http.Error(w, "mode must be one of: all, blocked", http.StatusBadRequest)
+		http.Error(w, "mode must be one of: default, blocked, all", http.StatusBadRequest)
 		return
 	}
 	if err := s.push.SetMode(r.Context(), user.ID, string(req.Mode)); err != nil {

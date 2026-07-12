@@ -374,7 +374,8 @@ func TestService_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 	)
 	releaseID := store.seed(runtime.QueueOutbox, topicAgentRelease, []byte(`{"worker_id":"w-1"}`), 0)
 	store.seed(runtime.QueueOutbox, topicPullEvaluate, []byte(`{}`), 0)
-	store.seed(runtime.QueueOutbox, topicNotifySend, []byte(`{"ticket_id":"tk-2","title":"t","reason":"r"}`), 0)
+	store.seed(runtime.QueueOutbox, topicNotifySend,
+		[]byte(`{"ticket_id":"tk-2","title":"t","reason":"r","kind":"blocked"}`), 0)
 	store.seed(runtime.QueueOutbox, topicBoardUpdated, []byte(`{}`), 0)
 
 	stop := runWorker(t, outboxWorker)
@@ -498,7 +499,7 @@ func TestService_Workers_ExhaustedNonAgentSendTopics_DoNotMarkBlocked(t *testing
 	}
 
 	id := store.seed(
-		runtime.QueueOutbox, topicNotifySend, []byte(`{"ticket_id":"tk-3","title":"t","reason":"r"}`), 0,
+		runtime.QueueOutbox, topicNotifySend, []byte(`{"ticket_id":"tk-3","title":"t","reason":"r","kind":"blocked"}`), 0,
 	)
 
 	stop := runWorker(t, outboxWorker)

@@ -4,11 +4,12 @@
 // It mirrors HeaderStatusMenu's dropdown mechanics (click-outside / Escape to
 // dismiss, panel stays mounted so it animates both ways).
 //
-// Two selectable frequencies — "All updates" (a push on every feed update, a
-// testing aid) and "Blocked" (the default: a push only when a ticket needs a
-// human decision) — plus a button that requests OS notification permission and
-// registers the browser for push, for verifying delivery is wired up. The menu
-// is deliberately simple; more modes may be added later.
+// Three selectable frequencies — "Default" (the recommended setting: a push on
+// the genuine milestones, blocked/completed/started), "Blocked" (only when a
+// ticket needs a human decision), and "All updates" (a push on every feed
+// update, a testing aid) — plus a button that requests OS notification
+// permission and registers the browser for push, for verifying delivery is
+// wired up. The menu is deliberately simple; more modes may be added later.
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { NotificationModeValue } from '@/transport/transport';
 import type { WebPushStatus } from '@/stores/use-web-push';
@@ -34,11 +35,13 @@ interface ModeOption {
   detail: string;
 }
 
-// Order intentionally leads with "All updates" — the frequency a tester reaches
-// for — but "Blocked" is the default selection unless the user changes it.
+// Ordered least-to-most noisy: "Default" (the recommended selection) leads,
+// "All updates" (the tester's firehose) trails. "Default" is the selection
+// unless the user changes it.
 const MODE_OPTIONS: ModeOption[] = [
-  { value: 'all', label: 'All updates', detail: 'Notify on every feed update.' },
+  { value: 'default', label: 'Default', detail: 'Notify when a ticket is blocked, completed, or started.' },
   { value: 'blocked', label: 'Blocked', detail: 'Notify only when a ticket needs you.' },
+  { value: 'all', label: 'All updates', detail: 'Notify on every feed update.' },
 ];
 
 // The permission button's label per push state. `default`/`error` invite

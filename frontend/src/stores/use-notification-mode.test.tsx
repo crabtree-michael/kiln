@@ -69,13 +69,13 @@ describe('useNotificationMode', () => {
     expect(putMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to blocked when the read fails', async () => {
+  it('falls back to default when the read fails', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
     render(<Probe />);
     await waitFor(() => {
       expect(screen.getByTestId('ready')).toHaveTextContent('ready');
     });
-    expect(screen.getByTestId('mode')).toHaveTextContent('blocked');
+    expect(screen.getByTestId('mode')).toHaveTextContent('default');
   });
 
   it('optimistically applies a selection and persists it', async () => {

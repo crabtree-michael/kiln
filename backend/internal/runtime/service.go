@@ -43,8 +43,15 @@ type BrainResolver interface {
 // pick the actual subscriptions. nil when identity is unconfigured
 // (single-user boot) — then the check is skipped and the notifier targets the
 // one local user.
+//
+// Mode returns the owning user's notification frequency (02 §10 — one of the
+// mode* values), which gates whether a given push reaches the user: "blocked"
+// delivers only the blocked milestone, "default" all three milestones, "all"
+// every feed update. It resolves the owner internally, so a resolution failure
+// surfaces the same retryable error Owner does.
 type Owner interface {
 	Owner(ctx context.Context, projectID string) (string, error)
+	Mode(ctx context.Context, projectID string) (string, error)
 }
 
 // Puller is the runtime's port onto the board's deterministic pull, the
@@ -112,6 +119,43 @@ const (
 	// remembering to post a completion update.
 	topicFeedCompletion = "feed.completion"
 )
+
+// Notification frequency modes (02 §10), mirroring push.Mode* by value — this
+// module never imports internal/push. The user's mode gates which pushes reach
+// them (see notifyModeAllows). modeDefault is the recommended setting and the
+// fallback when no owner/mode can be resolved (fail-safe toward the milestones,
+// never toward silence).
+const (
+	modeDefault = "default"
+	modeBlocked = "blocked"
+	modeAll     = "all"
+)
+
+// Notification kinds (02 §10) carried on a push and matched against the mode.
+// The three milestones mirror board.NotifyKind* by value; notifyKindUpdate tags
+// a feed-update push (proposal/queued/… — every non-milestone activity), which
+// only "all" mode delivers.
+const (
+	notifyKindBlocked = "blocked"
+	notifyKindStarted = "started"
+	notifyKindDone    = "done"
+	notifyKindUpdate  = "update"
+)
+
+// notifyModeAllows decides whether a push of the given kind reaches a user on
+// the given mode (02 §10). "all" delivers everything; "blocked" only the blocked
+// milestone; "default" (and any unrecognized mode, fail-safe) the three genuine
+// milestones — blocked, started, done — but not the broader feed-update chatter.
+func notifyModeAllows(mode, kind string) bool {
+	switch mode {
+	case modeAll:
+		return true
+	case modeBlocked:
+		return kind == notifyKindBlocked
+	default: // modeDefault, plus any unknown value (fail-safe to the milestones)
+		return kind == notifyKindBlocked || kind == notifyKindStarted || kind == notifyKindDone
+	}
+}
 
 // systemErrorMessage is the user-visible reply when a brain pass exhausts its
 // retries (04 §3's last dead-letter row): the ticket keeps its state and the
@@ -594,7 +638,7 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 	case topicPullEvaluate:
 		return wrapOutbox("run pull", s.puller.RunPull(ctx, e.ProjectID))
 	case topicNotifySend:
-		return wrapOutbox("notify send", s.notifyOwner(ctx, e.ProjectID, e.Payload))
+		return wrapOutbox("notify send", s.handleNotifySend(ctx, e))
 	case topicBoardUpdated:
 		return wrapOutbox("push board", s.pusher.PushBoard(ctx, e.ProjectID))
 	case topicFeedUpdated:
@@ -608,6 +652,50 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 	default:
 		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
 	}
+}
+
+// handleNotifySend routes a board-emitted notify.send (blocked/started/done
+// milestone) through the mode gate: decode the transition Kind, then deliver
+// only when the owner's notification mode admits it (02 §10). A malformed
+// payload is a contract violation by the emitter, surfaced as a retryable error.
+func (s *Service) handleNotifySend(ctx context.Context, e Entry) error {
+	var p notifyPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		return fmt.Errorf("decode notify payload: %w", err)
+	}
+	return s.deliverNotification(ctx, e.ProjectID, p.Kind, e.Payload)
+}
+
+// deliverNotification is the mode gate in front of the notifier (02 §10):
+// resolve the owning user's notification mode, drop the push when the mode does
+// not admit this kind, otherwise hand it to notifyOwner. A mode-resolution
+// failure is returned (retry/dead-letter, like any owner-resolution failure) —
+// only an admitted-but-undeliverable push is a real send error; a suppressed one
+// is a successful no-op.
+func (s *Service) deliverNotification(ctx context.Context, projectID, kind string, payload []byte) error {
+	mode, err := s.notifyMode(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !notifyModeAllows(mode, kind) {
+		slog.InfoContext(ctx, "runtime.notify.suppressed", "project_id", projectID, "kind", kind, "mode", mode)
+		return nil
+	}
+	return s.notifyOwner(ctx, projectID, payload)
+}
+
+// notifyMode resolves the owning user's notification frequency (02 §10). With no
+// Owner wired (single-user boot, identity off) there is no per-user mode to read,
+// so it falls back to modeDefault — the recommended milestone set, never silence.
+func (s *Service) notifyMode(ctx context.Context, projectID string) (string, error) {
+	if s.owner == nil {
+		return modeDefault, nil
+	}
+	mode, err := s.owner.Mode(ctx, projectID)
+	if err != nil {
+		return "", fmt.Errorf("resolve owner mode: %w", err)
+	}
+	return mode, nil
 }
 
 // notifyOwner is the single choke point for Notifier.Send (11 §3): resolve
@@ -666,12 +754,13 @@ func (s *Service) blockOnDeliveryFailure(ctx context.Context, e Entry, cause err
 
 // notifyPayload is the notify.send payload the Notifier decodes (a
 // board.NotifyPayload — Title/Reason → Title/Body), mirrored by value so this
-// module keeps not importing internal/board. Built here only for the
-// transition feed-update notification; the block path's payload is minted by the
-// board.
+// module keeps not importing internal/board. Kind names the transition (mirrors
+// board.NotifyKind*) so the mode gate can decide delivery; a feed-update push
+// built here carries notifyKindUpdate.
 type notifyPayload struct {
 	Title  string `json:"title"`
 	Reason string `json:"reason"`
+	Kind   string `json:"kind"`
 }
 
 // toastPayload is the activity.toast outbox payload (08 §4, §7), mirroring the
@@ -731,28 +820,26 @@ func (s *Service) handleFeedUpdated(ctx context.Context, e Entry) {
 	s.pushFeedUpdateNotification(ctx, e.ProjectID, p)
 }
 
-// pushFeedUpdateNotification fires a Web Push on a feed update, but ONLY when the
-// update is a genuine ticket state transition — the sole event allowed to reach
-// the user (design 2026-07-07, per the user's standing rule: "the only
-// notifications I should get are actual ticket status changes"). Progress
-// narration, edits, mark-seen, a proposal being reshaped, and an instruction
-// resuming a blocked ticket are all silent: feedUpdateNotification returns
-// ok=false for each. There is no notification-frequency gate anymore — every
-// real status change pushes, and nothing else ever does, so the old
-// "blocked"-vs-"all" mode is no longer the right shape and does not participate
-// here. The push names the ticket and what happened, so it is informative at a
-// glance rather than a generic "board was updated". The push still routes to the
-// right tenant: notifyOwner resolves the project's owning user before delivery
-// (11 §3), so projectID is threaded through from the emitting feed.updated entry.
-// Self-heals like the feed push itself: a send failure logs-and-drops rather than
-// wedging the outbox (the notification is best-effort, 04 §3). A block emits its
-// own, more-specific notify.send, so its feed-update push is skipped here too
-// (ok=false) to avoid a duplicate.
+// pushFeedUpdateNotification fires a Web Push describing a feed update — the
+// broad "activity" stream (a new proposal, a queue, a reshape, a nudge, an
+// archive) that only the "all" notification mode delivers (02 §10). The mode
+// gate lives in deliverNotification: the push carries notifyKindUpdate, which
+// notifyModeAllows admits only under "all" and drops under "default"/"blocked".
+// The genuine milestones (blocked/started/done) do NOT ride this path — they
+// each emit their own dedicated board notify.send with a milestone Kind, so
+// their feed-update twins are suppressed here (verb "blocked"/"finished" absent
+// from feedUpdateVerbBody) to avoid a duplicate push. Progress narration, edits,
+// and mark-seen carry no verb and stay silent in every mode. The push names the
+// ticket and what happened, so it reads at a glance rather than as a generic
+// "board was updated". It routes to the right tenant (notifyOwner resolves the
+// owning user, 11 §3) and self-heals: a send failure logs-and-drops rather than
+// wedging the outbox (best-effort, 04 §3).
 func (s *Service) pushFeedUpdateNotification(ctx context.Context, projectID string, p feedUpdatedPayload) {
 	note, ok := feedUpdateNotification(p)
 	if !ok {
 		return
 	}
+	note.Kind = notifyKindUpdate
 	// The notifier decodes a board.NotifyPayload (Title/Reason → Title/Body);
 	// this marshals the same shape by value so this module keeps not importing
 	// internal/board.
@@ -761,42 +848,42 @@ func (s *Service) pushFeedUpdateNotification(ctx context.Context, projectID stri
 		slog.Error("runtime: feed.updated notify marshal", "err", err)
 		return
 	}
-	if err := s.notifyOwner(ctx, projectID, payload); err != nil {
+	if err := s.deliverNotification(ctx, projectID, notifyKindUpdate, payload); err != nil {
 		slog.Error("runtime: feed.updated notify send", "project_id", projectID, "err", err)
 	}
 }
 
 // feedUpdateVerbBody maps a feed.updated change verb (board.FeedUpdatedPayload)
-// to the push body describing what happened, keeping the push copy in sync with
-// the board's feed-update verbs (03 §7.1) and the feed's own verb vocabulary
-// (08 §5). ONLY genuine ticket state transitions have an entry — the
-// sole events allowed to push (design 2026-07-07). Deliberately absent, so they
-// resolve to ok=false in feedUpdateNotification and stay silent:
-//   - "reshaped": editing a proposal's fields is not a state change.
-//   - "nudged":   blocked→working is driven by sending the agent an instruction,
-//     which never notifies the user.
-//   - "blocked":  a state change, but it emits its own dedicated notify.send
-//     carrying the actual blocker question, so a second, vaguer push is skipped.
+// to the push body describing what happened, keeping the "all"-mode push copy in
+// sync with the board's feed-update verbs (03 §7.1) and the feed's own verb
+// vocabulary (08 §5). These are the broad "activity" pushes only "all" mode
+// delivers (02 §10) — a new proposal, a queue, a reshape, a nudge, an archive.
+// Deliberately absent, so they resolve to ok=false and never push from this
+// path — each has a dedicated board notify.send carrying a milestone Kind, and a
+// second, vaguer push here would duplicate it:
+//   - "blocked":  MarkBlocked emits notify.send with the actual blocker question.
+//   - "finished": AcceptToDone emits notify.send for the completion.
 //
 // An empty/unknown verb (progress narration, edits, mark-seen — the runtime's own
-// signal-only feed.updated rows) is likewise absent and stays silent.
+// signal-only feed.updated rows) is likewise absent and stays silent everywhere.
 var feedUpdateVerbBody = map[string]string{
 	"proposal": "New proposal",
+	"reshaped": "Proposal updated",
 	"queued":   "Queued for work",
-	"finished": "Finished",
+	"nudged":   "Nudged",
 	"archived": "Archived",
 }
 
-// feedUpdateNotification builds the push payload for a feed change, naming the
-// ticket (Title) and what happened (Body). ok is false whenever the
-// change is not a genuine ticket state transition and so must not reach the user:
-// an unrecognized/empty verb (narration, edits, mark-seen), a reshaped proposal,
-// a nudge, or a block (all absent from feedUpdateVerbBody). There is no generic
-// "board was updated" fallback — a change with no descriptive verb is, by
-// definition, not a status change.
+// feedUpdateNotification builds the "all"-mode push payload for a feed change,
+// naming the ticket (Title) and what happened (Body). ok is false whenever the
+// change carries no push copy — an unrecognized/empty verb (narration, edits,
+// mark-seen), or a milestone verb (blocked/finished) whose dedicated notify.send
+// already covers it. There is no generic "board was updated" fallback — a change
+// with no descriptive verb is not something to notify about. Whether an ok push
+// actually reaches the user is the mode gate's call (only "all" admits it).
 func feedUpdateNotification(p feedUpdatedPayload) (notifyPayload, bool) {
-	body, isTransition := feedUpdateVerbBody[p.Verb]
-	if !isTransition || p.Title == "" {
+	body, known := feedUpdateVerbBody[p.Verb]
+	if !known || p.Title == "" {
 		return notifyPayload{}, false
 	}
 	return notifyPayload{Title: p.Title, Reason: body}, true

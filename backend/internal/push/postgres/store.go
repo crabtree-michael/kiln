@@ -121,15 +121,15 @@ func (s *Store) TouchForeground(ctx context.Context, userID, endpoint string, vi
 }
 
 // Mode reads the user's notification frequency (their push_user_settings row).
-// A missing row is treated as the default (push.ModeBlocked) rather than an
-// error, so a user who never set a mode behaves exactly like the pre-mode
-// deployment did.
+// A missing row is treated as the default (push.ModeDefault) rather than an
+// error, so a user who never set a mode gets the recommended milestone pushes
+// (blocked, completed, started).
 func (s *Store) Mode(ctx context.Context, userID string) (string, error) {
 	var mode string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT mode FROM push_user_settings WHERE user_id = $1`, userID).Scan(&mode)
 	if errors.Is(err, sql.ErrNoRows) {
-		return push.ModeBlocked, nil
+		return push.ModeDefault, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("push/postgres: read mode: %w", err)

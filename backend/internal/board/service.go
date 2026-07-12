@@ -235,6 +235,7 @@ func (s *Service) MarkBlocked(ctx context.Context, projectID string, id TicketID
 			TicketID: updated.ID,
 			Title:    updated.Title,
 			Reason:   reason,
+			Kind:     NotifyKindBlocked,
 		}}); err != nil {
 			return Ticket{}, fmt.Errorf("board: append notify.send: %w", err)
 		}
@@ -311,7 +312,7 @@ func (s *Service) AcceptToDone(
 				GitHubURL: link.URL, GitHubLabel: link.Label, Summary: link.Summary,
 			}},
 			{Topic: TopicNotifySend, Payload: NotifyPayload{
-				TicketID: updated.ID, Title: updated.Title, Reason: notifyReasonDone,
+				TicketID: updated.ID, Title: updated.Title, Reason: notifyReasonDone, Kind: NotifyKindDone,
 			}},
 		}
 		for _, e := range emissions {
@@ -632,6 +633,7 @@ func emitPullEffects(ctx context.Context, tx Tx, projectID string, t Ticket, wid
 		TicketID: t.ID,
 		Title:    t.Title,
 		Reason:   notifyReasonStarted,
+		Kind:     NotifyKindStarted,
 	}}); err != nil {
 		return fmt.Errorf("board: append notify.send: %w", err)
 	}

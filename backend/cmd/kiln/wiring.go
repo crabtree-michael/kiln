@@ -228,9 +228,12 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 		idSvc.SetInvalidator(registry.Invalidate)
 	}
 
-	// Resolvers over the registry/identity the singleton services depend on.
+	// Resolvers over the registry/identity the singleton services depend on. The
+	// owner resolver also reads the owning user's notification mode (02 §10), so
+	// it holds the push store the mode lives in.
+	pushStore := pushpg.New(db)
 	projects := &projectsResolver{idSvc: idSvc}
-	owner := &ownerResolver{idSvc: idSvc}
+	owner := &ownerResolver{idSvc: idSvc, push: pushStore}
 
 	// The agent runtime resolves each project's provider + worker prefix per
 	// sweep/turn (11 §3); its cross-project liveness loop nudges the hub to
@@ -247,7 +250,6 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	// configured a VAPID key pair, else the log-only fallback. The runtime asks
 	// per project; the notifier and mode reader resolve owner→user via the
 	// registry (11 §3).
-	pushStore := pushpg.New(db)
 	rtSvc = runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), &brainResolver{registry: registry}, boardSvc,
 		&blockerAdapter{inner: boardSvc}, &agentRuntimeAdapter{inner: agentSvc},
@@ -535,7 +537,10 @@ var _ runtime.BrainResolver = (*brainResolver)(nil)
 // projectID→owner without triggering a full provider build (repo clone,
 // ReconcileWorkers, client construction). Satisfies both runtime.Owner and the
 // adapters' ownerLookup.
-type ownerResolver struct{ idSvc *identity.Service }
+type ownerResolver struct {
+	idSvc *identity.Service
+	push  push.Store
+}
 
 // errIdentityUnconfigured is returned when an owner lookup is attempted with no
 // identity service — an unconfigured boot has no tenants, so a notifier path
@@ -551,6 +556,21 @@ func (r *ownerResolver) Owner(ctx context.Context, projectID string) (string, er
 		return "", fmt.Errorf("kiln: resolve owner for project %s: %w", projectID, err)
 	}
 	return p.OwnerUserID, nil
+}
+
+// Mode resolves the project's owning user, then reads that user's notification
+// frequency (02 §10) from the push store — the mode the runtime gates delivery
+// on. An owner-resolution failure surfaces the same retryable error Owner does.
+func (r *ownerResolver) Mode(ctx context.Context, projectID string) (string, error) {
+	userID, err := r.Owner(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	mode, err := r.push.Mode(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("kiln: resolve mode for project %s: %w", projectID, err)
+	}
+	return mode, nil
 }
 
 var (

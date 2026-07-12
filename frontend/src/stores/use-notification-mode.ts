@@ -1,19 +1,20 @@
 // Push-notification frequency (02 §10). A small self-contained hook — the bell
 // menu is the only surface for it — that reads the global mode on mount and
 // writes changes back. The mode gates when the runtime fires a Web Push: the
-// default `blocked` notifies only when a ticket needs a human decision; `all`
-// notifies on every feed update (a testing aid). Single user in v1, so the mode
-// is one global value.
+// recommended `default` notifies on the genuine milestones (blocked, completed,
+// started); `blocked` narrows that to only when a ticket needs a human decision;
+// `all` notifies on every feed update (a testing aid). Single user in v1, so the
+// mode is one global value.
 //
 // It degrades gracefully: while the initial read is in flight, or if it fails,
-// the hook reports the `blocked` default so the menu renders the current
+// the hook reports the `default` mode so the menu renders the recommended
 // behavior rather than erroring.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchNotificationMode, putNotificationMode } from '@/transport/transport';
 import type { NotificationModeValue } from '@/transport/transport';
 
 export interface NotificationModeControl {
-  /** The current frequency; `blocked` until the initial read resolves. */
+  /** The current frequency; `default` until the initial read resolves. */
   mode: NotificationModeValue;
   /** True once the initial read has resolved (success or failure). */
   ready: boolean;
@@ -22,7 +23,7 @@ export interface NotificationModeControl {
 }
 
 export function useNotificationMode(): NotificationModeControl {
-  const [mode, setModeState] = useState<NotificationModeValue>('blocked');
+  const [mode, setModeState] = useState<NotificationModeValue>('default');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -46,7 +47,7 @@ export function useNotificationMode(): NotificationModeControl {
 
   // The value shown at the moment a write starts, so a failed write can roll
   // the optimistic change back to exactly what the user saw before.
-  const previousRef = useRef<NotificationModeValue>('blocked');
+  const previousRef = useRef<NotificationModeValue>('default');
 
   const setMode = useCallback((next: NotificationModeValue): void => {
     setModeState((current) => {

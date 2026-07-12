@@ -669,7 +669,10 @@ export async function postBetaSignup(email: string): Promise<void> {
 }
 
 function isNotificationMode(value: unknown): value is NotificationMode {
-  return isRecord(value) && (value.mode === 'all' || value.mode === 'blocked');
+  return (
+    isRecord(value) &&
+    (value.mode === 'default' || value.mode === 'blocked' || value.mode === 'all')
+  );
 }
 
 /** `GET /api/push/mode` — the current push-notification frequency (02 §10). */

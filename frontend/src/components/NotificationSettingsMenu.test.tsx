@@ -5,10 +5,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 
-function option(value: 'all' | 'blocked'): HTMLElement {
-  return screen.getByRole('button', {
-    name: new RegExp(value === 'all' ? 'All updates' : 'Blocked'),
-  });
+const OPTION_NAME = {
+  default: '^Default',
+  blocked: '^Blocked',
+  all: '^All updates',
+} as const;
+
+function option(value: 'default' | 'all' | 'blocked'): HTMLElement {
+  return screen.getByRole('button', { name: new RegExp(OPTION_NAME[value]) });
 }
 
 describe('NotificationSettingsMenu', () => {
@@ -20,11 +24,20 @@ describe('NotificationSettingsMenu', () => {
     expect(panel).toHaveAttribute('data-open', 'true');
   });
 
-  it('marks the current mode as selected', () => {
-    render(<NotificationSettingsMenu mode="all" onSelectMode={vi.fn()} />);
+  it('offers all three modes and marks the current one as selected', () => {
+    render(<NotificationSettingsMenu mode="default" onSelectMode={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Notification settings' }));
-    expect(option('all')).toHaveAttribute('data-selected', 'true');
+    expect(option('default')).toHaveAttribute('data-selected', 'true');
     expect(option('blocked')).toHaveAttribute('data-selected', 'false');
+    expect(option('all')).toHaveAttribute('data-selected', 'false');
+  });
+
+  it('calls onSelectMode with the default mode when chosen', () => {
+    const onSelectMode = vi.fn();
+    render(<NotificationSettingsMenu mode="all" onSelectMode={onSelectMode} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Notification settings' }));
+    fireEvent.click(option('default'));
+    expect(onSelectMode).toHaveBeenCalledWith('default');
   });
 
   it('calls onSelectMode and closes when an option is chosen', () => {

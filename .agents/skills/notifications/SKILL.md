@@ -87,6 +87,23 @@ Frontend flow: mock `navigator.serviceWorker`/`PushManager`/`Notification` + the
 - Send is **best-effort per subscription** — one dead endpoint must not fail the outbox
   entry (a duplicate is benign, 04 §3). `Send` returns nil on per-device failures.
 
+## Persistent tests
+
+Run these every time you touch this area, not just the change in front of you.
+
+- **The bell settings panel must fit on screen — check it whenever you touch notification
+  UI.** The dropdown (`NotificationSettingsMenu.tsx`, styled in `PrimaryScreen.css` under
+  `[data-role='notify-settings-panel']`) is a flex column: a fixed heading, a
+  `flex: 1; min-height: 0; overflow-y: auto` options **list**, and a fixed permission
+  button. That structure caps the whole panel at `max-height` and keeps the permission
+  button reachable no matter how many mode options the list carries. It regressed once when
+  a mode option was added and the panel — then one `overflow: hidden` block — clipped its
+  bottom off-screen. So: whenever you **add, remove, or reword a mode option** (or change
+  option copy, padding, or the panel's `max-height`), open the bell on a short viewport and
+  confirm all options + the permission button stay visible and the list scrolls instead of
+  the panel overflowing. Keep the heading and permission button `flex-shrink: 0` and the
+  scroll region on the list, not the panel.
+
 ## Potential gotchas
 
 - **Per-user routing (11 phase 2):** subscriptions and the notification mode are keyed by

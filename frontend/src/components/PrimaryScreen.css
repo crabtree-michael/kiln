@@ -290,12 +290,24 @@
  * sits to the bell's right with a 12px gap. Subtracting that chrome (~148px)
  * plus a 12px left gutter (160px total) keeps the panel's left edge on-screen
  * on every viewport; a bare `100vw - 24px` assumed a 12px right inset and let
- * the panel run off the left on phones. */
+ * the panel run off the left on phones.
+ *
+ * Height overflow (02 §10 persistent test — see the notifications skill): the
+ * panel is a flex column whose heading and permission button never shrink, while
+ * the options LIST is the scroll region (`flex: 1; min-height: 0; overflow-y`).
+ * This caps the whole panel at `max-height` and keeps the permission button on
+ * screen no matter how many mode options the list carries or how short the
+ * viewport is — before this the panel was a single `overflow: hidden` block, so
+ * content past `max-height` (a third option, a short landscape phone) was
+ * silently clipped and the permission button became unreachable. Whenever you
+ * add or reword a mode option, re-check that the panel still fits and scrolls. */
 [data-role='notify-settings-panel'] {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
+  display: flex;
+  flex-direction: column;
   width: 264px;
   max-width: calc(100vw - 160px);
   background: var(--surface-card);
@@ -322,6 +334,7 @@
 }
 
 [data-role='notify-settings-heading'] {
+  flex-shrink: 0;
   padding: 11px 14px 7px;
   font-size: 10.5px;
   font-weight: 700;
@@ -330,10 +343,16 @@
   color: var(--text-faint);
 }
 
+/* The only flexible/scrolling region: it soaks up the panel's overflow so the
+ * heading above and the permission button below stay pinned and visible. */
 [data-role='notify-settings-list'] {
   list-style: none;
   margin: 0;
   padding: 0 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 [data-role='notify-settings-option'] {
@@ -396,9 +415,11 @@
   color: var(--text-muted);
 }
 
-/* The permission / test button sits below the options, separated by a hairline. */
+/* The permission / test button sits below the options, separated by a hairline.
+ * It never shrinks, so the scrolling options list can never push it off-panel. */
 [data-role='notify-settings-permission'] {
   display: block;
+  flex-shrink: 0;
   width: calc(100% - 12px);
   margin: 6px;
   padding: 9px 10px;

@@ -371,11 +371,12 @@
   gap: 0.5rem;
 }
 
-/* Bottom-left affordance cluster (the mic now; delete later) — the first of the
- * pair 08 §5 calls for. `margin-right: auto` pins it to the row's left edge and
- * shoves the trailing state action (Accept/Talk/Poke) to the right, so the footer
- * reads as left-group / right-group. Absent (every non-proposal sheet) the row is
- * exactly the old flex-end footer, unchanged. */
+/* Bottom-left affordance cluster (the mic and Delete) — the first of the pair
+ * 08 §5 calls for. The mic now rides here on every ticket state (the unified
+ * communication surface). `margin-right: auto` pins the cluster to the row's left
+ * edge and shoves the trailing state action (Accept/Poke) to the right, so the
+ * footer reads as left-group / right-group. Absent (a /debug sheet with no mic or
+ * delete) the row is exactly the old flex-end footer, unchanged. */
 [data-role='ticket-detail-lead-actions'] {
   margin-right: auto;
   display: flex;
@@ -400,33 +401,10 @@
   transform: translateY(1px);
 }
 
-/* Talk action — the blocked ticket's stand-in for Accept (a blocked ticket
- * can't be accepted, only discussed). Same pill geometry as Accept so the footer
- * reads consistently, with a mic glyph marking it as the voice hand-off. */
-[data-role='detail-talk'] {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-family: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--text-on-accent);
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-pill);
-  padding: 0.55rem 1.4rem;
-  cursor: pointer;
-}
-
-[data-role='detail-talk']:active {
-  transform: translateY(1px);
-}
-
-/* Poke action — a secondary nudge for a stalled agent, shown alongside the
- * state's primary action (Talk on blocked, Accept on working). Deliberately
- * quieter than those accent-filled pills: an outlined/ghost pill (👉 + "Poke")
- * so it reads as the softer, optional prod it is, not a headline decision. */
+/* Poke action — a secondary nudge for a stalled agent, shown alongside the mic
+ * (and, on a shaping ticket, Accept). Deliberately quieter than the accent-filled
+ * Accept pill: an outlined/ghost pill (👉 + "Poke") so it reads as the softer,
+ * optional prod it is, not a headline decision. */
 [data-role='detail-poke'] {
   display: inline-flex;
   align-items: center;
@@ -581,29 +559,9 @@
   transform: translateY(1px);
 }
 
-/* Talk wears the same primary-surface skin as Accept — same pill, same fire —
- * so the blocked ticket's action reads as a first-class Kiln control. */
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk'] {
-  font-size: 13px;
-  color: var(--text-on-accent);
-  background: var(--accent);
-  border-radius: var(--radius-pill);
-  padding: 9px 18px;
-  box-shadow: var(--shadow-raised);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk']:hover {
-  background: var(--accent-hover);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-talk']:active {
-  background: var(--accent-press);
-  transform: translateY(1px);
-}
-
 /* Poke keeps its quiet outlined register on the primary surface too — a card-
- * colored ghost pill that recedes behind the accent Talk/Accept beside it, and
- * warms to the accent on hover to show it's live. */
+ * colored ghost pill that recedes behind the accent Accept beside it, and warms
+ * to the accent on hover to show it's live. */
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke'] {
   font-size: 13px;
   color: var(--text-body);

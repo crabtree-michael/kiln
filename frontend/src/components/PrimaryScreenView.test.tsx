@@ -32,15 +32,11 @@ vi.mock('@/transport/transport', async (importOriginal) => {
   return { ...actual, acceptTicket: vi.fn() };
 });
 
-// The dock is a live voice-store consumer (09), and the screen itself now reads
-// `resume` off the voice store to hand a blocked ticket's Talk button off to the
-// mic. These presentational tests render `PrimaryScreenView` directly (no
+// The dock and the in-sheet mic (`MicButton`) are live voice-store consumers
+// (09). These presentational tests render `PrimaryScreenView` directly (no
 // `VoiceProvider`), so `useVoice` is mocked to a static resting state —
-// deterministic, and no mic/socket I/O. `resume` is a hoisted spy shared across
-// renders so the Talk hand-off can be asserted. The dock's own state rendering
-// is covered by Dock.test.tsx / Dock.snapshot.test.tsx.
-const { voiceResume } = vi.hoisted(() => ({ voiceResume: vi.fn() }));
-
+// deterministic, and no mic/socket I/O. The dock's own state rendering is covered
+// by Dock.test.tsx / Dock.snapshot.test.tsx.
 vi.mock('@/voice/voice-context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/voice/voice-context')>();
   return {
@@ -51,7 +47,7 @@ vi.mock('@/voice/voice-context', async (importOriginal) => {
       settledText: '',
       tailText: '',
       pause: vi.fn(),
-      resume: voiceResume,
+      resume: vi.fn(),
       cancel: vi.fn(),
       sendNow: vi.fn(),
       countingDown: false,
@@ -131,7 +127,6 @@ function renderView(feed: ViewProps['feed'], extra: Partial<ViewProps> = {}) {
 describe('PrimaryScreenView', () => {
   beforeEach(() => {
     vi.mocked(acceptTicket).mockReset();
-    voiceResume.mockReset();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -885,7 +880,7 @@ describe('PrimaryScreenView', () => {
       window.history.replaceState(null, '', `/?ticket=${id}`);
     };
 
-    it('opens a blocked ticket with a Talk button (no Accept) and hands off to the mic on tap', () => {
+    it('opens a blocked ticket with the mic (no Accept, no old Talk button)', () => {
       const blocked = makeTicket({
         id: 't-stuck',
         title: 'Stuck ticket',
@@ -902,14 +897,12 @@ describe('PrimaryScreenView', () => {
       });
 
       const dialog = screen.getByRole('dialog', { name: 'Stuck ticket' });
-      // A blocked ticket is discussed, not accepted.
+      // A blocked ticket is discussed, not accepted — and the old "Talk to unblock"
+      // button is gone, replaced by the same mic every ticket type now shows (the
+      // MicButton's own accessible name is "Talk").
       expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
-      const talk = within(dialog).getByRole('button', { name: 'Talk to unblock' });
-
-      fireEvent.click(talk);
-      // Talk closes the sheet (uncovering the dock) and turns the mic on.
-      expect(voiceResume).toHaveBeenCalledTimes(1);
-      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(within(dialog).queryByRole('button', { name: 'Talk to unblock' })).toBeNull();
+      expect(within(dialog).getByRole('button', { name: 'Talk' })).toBeInTheDocument();
     });
 
     it('opens a done ticket with a "done" status indicator and no Accept', () => {

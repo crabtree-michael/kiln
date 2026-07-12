@@ -38,12 +38,6 @@ export interface TicketDetailProps {
    * blocked ticket the board also releases the worker it held. Omitted → no Delete
    * affordance (the debug board's read-only inspection). */
   onDelete?: ((ticketId: string) => void) | undefined;
-  /** When provided on a *blocked* ticket, the Accept action is replaced by a Talk
-   * button — the blocked work can't be accepted, only discussed. Tapping it hands
-   * off to the voice pipeline so the user can tell the brain how to unblock (the
-   * caller closes the sheet and turns the mic on). Omitted → no Talk affordance
-   * (the debug board's read-only inspection, and non-blocked states). */
-  onTalk?: () => void;
   /** When provided on a *working* or *blocked* ticket, a "Poke to continue" button
    * appears — a manual nudge for a stalled agent, mirroring the steward's own
    * mechanical poke. Tapping it expresses the user's "continue" intent for this
@@ -61,28 +55,27 @@ export interface TicketDetailProps {
    * hidden, so the user isn't invited to nudge an agent that's already moving.
    * Defaults false (unknown / no bound agent → treat as not-idle, so no Poke). */
   agentIdle?: boolean;
-  /** A voice control rendered at the footer's bottom-left on a *proposal*
-   * (shaping) sheet — the first of the pair of bottom-left affordances (delete
-   * joins it later). It is the same mic-orb button as the main screen's dock
-   * (`MicButton`); tapping it starts a voice recording session so the user can
-   * talk to the brain about the proposal without leaving the sheet (the transcript
-   * lands in the dock behind — they don't need to watch it). Passed in rather than
-   * rendered here so this component stays free of the voice store: it is a live
-   * `useVoice()` consumer and only the primary screen (under a `VoiceProvider`)
-   * wires it — the /debug board opens the same sheet without one, so it stays
-   * omitted there. Shown only while shaping, mirroring Accept: once accepted the
-   * proposal is gone. */
+  /** The mic control rendered at the footer's bottom-left on *every* ticket state
+   * — the unified communication surface (08 §5). It replaces the old blocked-only
+   * "Talk to unblock" button so all ticket types share one interface: the user can
+   * start talking to the brain directly from any ticket without leaving the sheet.
+   * It is the same mic-orb button as the main screen's dock (`MicButton`); tapping
+   * it starts a voice recording session and the transcript lands in the sheet's own
+   * dock (see `transcript`). Passed in rather than rendered here so this component
+   * stays free of the voice store: it is a live `useVoice()` consumer and only the
+   * primary screen (under a `VoiceProvider`) wires it — the /debug board opens the
+   * same sheet without one, so the mic stays omitted (read-only inspection) there. */
   voiceControl?: ReactNode;
   /** The live voice transcript, rendered in the sheet's dock directly above the
-   * action buttons on a *proposal* (shaping) sheet — the same shaping-only gate as
-   * `voiceControl`, since it is that mic's on-screen feedback. It shows the words
-   * as the user speaks to the brain about the proposal, so they never have to leave
-   * the sheet to watch the transcript land. Like `voiceControl` it is passed in
-   * rather than rendered here (it is a live `useVoice()` consumer) so this component
-   * stays free of the voice store; only the primary screen (under a `VoiceProvider`)
-   * wires it. The node self-gates — it renders nothing unless there is transcript
-   * text on screen — so the dock only grows while the user is actually speaking.
-   * Omitted on the /debug board (no voice there). */
+   * action buttons — the on-screen feedback for `voiceControl`, so it rides the
+   * same gate (shown whenever the mic is wired, i.e. any state on the primary
+   * screen). It shows the words as the user speaks to the brain, so they never
+   * have to leave the sheet to watch the transcript land. Like `voiceControl` it is
+   * passed in rather than rendered here (it is a live `useVoice()` consumer) so this
+   * component stays free of the voice store; only the primary screen (under a
+   * `VoiceProvider`) wires it. The node self-gates — it renders nothing unless there
+   * is transcript text on screen — so the dock only grows while the user is actually
+   * speaking. Omitted on the /debug board (no voice there). */
   transcript?: ReactNode;
   /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
    * default: the main app view shows only the title and description. The /debug
@@ -148,7 +141,6 @@ export function TicketDetail({
   onClose,
   onAccept,
   onDelete,
-  onTalk,
   onPoke,
   agentIdle = false,
   voiceControl,
@@ -158,18 +150,20 @@ export function TicketDetail({
 }: TicketDetailProps): JSX.Element {
   // Which affordances the sheet's footer carries is decided purely by lifecycle
   // state, so the caller can't wire a nonsensical one:
+  //  • every state     → the mic (when wired): the unified communication surface
+  //                      (08 §5) — the user can start talking to the brain from any
+  //                      ticket. Replaces the old blocked-only "Talk to unblock"
+  //                      button so all ticket types share one interface.
   //  • shaping         → Accept (when wired): the proposal click-through (08 §5) —
   //                      accepting is what moves a shaped proposal into the pull,
   //                      so it only makes sense here. Every later state has already
   //                      been accepted, so the button is gone.
-  //  • blocked         → Talk (when wired): the work can't be accepted, only
-  //                      unblocked through a conversation with the brain.
   //  • working|blocked → Poke (when wired): a manual nudge to continue for a
   //                      stalled agent, routed through the brain (never a direct
   //                      agent command, D5). On a working ticket it only shows once
   //                      the agent is idle (`agentIdle`) — never mid-turn; on a
-  //                      blocked ticket it always shows and coexists with Talk.
-  //  • done            → no action; the header badge already says "Done".
+  //                      blocked ticket it always shows.
+  //  • done            → no action but the mic; the header badge already says "Done".
   // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
   // optional chain, which the lint gate rejects (mirrors FeedCardItem).
@@ -183,24 +177,23 @@ export function TicketDetail({
   // TypeScript narrows it to defined (a derived boolean wouldn't narrow, and the
   // lint gate rejects the optional chain the alternative would need).
   const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
-  const canTalk = isBlocked && onTalk !== undefined;
   const canAccept = isShaping && onAccept !== undefined;
   // The bottom-left lead cluster holds the sheet's secondary affordances — the
   // voice mic and the Delete button — wired only on the primary screen (the
   // /debug board leaves both undefined). They sit left of the trailing
-  // Accept/Talk/Poke — the bottom-left pair 08 §5 calls for. The mic stays
-  // shaping-only (a proposal is the only place voice-shaping applies); Delete now
-  // shows in any DELETABLE_STATES state (shaping or blocked), so on a blocked
-  // sheet the cluster renders holding just Delete, left of the trailing Talk/Poke.
-  const showVoice = isShaping && voiceControl !== undefined;
+  // Accept/Poke — the bottom-left pair 08 §5 calls for. The mic now shows on every
+  // ticket state (the unified communication surface — start talking from any
+  // ticket), so it is gated only on being wired; Delete shows in any
+  // DELETABLE_STATES state (shaping or blocked).
+  const showVoice = voiceControl !== undefined;
   const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
   // The dock is the sheet's bottom region — the unified home for the action
   // controls AND the live voice transcript (08 §5), the mirror of the primary
   // screen's own dock. It renders whenever any footer affordance does; the
   // transcript, when present, stacks above the controls inside it and grows the
-  // dock upward as words stream in. The transcript rides the same shaping-only gate
-  // as the mic (`showVoice`) — it is that mic's on-screen feedback.
-  const showDock = showVoice || canPoke || canTalk || canDelete || canAccept;
+  // dock upward as words stream in. The transcript rides the same gate as the mic
+  // (`showVoice`) — it is that mic's on-screen feedback.
+  const showDock = showVoice || canPoke || canDelete || canAccept;
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -290,28 +283,31 @@ export function TicketDetail({
           {/* Footer actions. Which affordances appear is decided purely by the
               ticket's lifecycle state and which callbacks the caller wired, so a
               nonsensical action can't be shown:
+               • Mic    → every state: the unified communication surface (08 §5) —
+                          start talking to the brain from any ticket. Lives in the
+                          bottom-left lead cluster; replaces the old blocked-only
+                          "Talk to unblock" button.
                • Poke   → working|blocked: nudge a stalled agent to continue. Only
                           expresses intent — the caller routes it through the brain
                           (D5), never a direct agent command.
-               • Talk   → blocked: hand off to voice to discuss the unblock.
-               • Delete → shaping-only: discard a proposal that's no longer wanted,
+               • Delete → shaping|blocked: discard a ticket that's no longer wanted,
                           routed through the brain (delete_ticket, D5). A
                           destructive secondary sitting left of Accept.
                • Accept → the proposal click-through (08 §5), shaping-only (every
                           later state has already been accepted).
               The lead cluster (mic + Delete) and Poke sit first (left); the state's
-              primary action (Talk/Accept) stays rightmost, where flex-end makes it
-              the most prominent. Each button narrows on its callback directly inside
-              the guard so TypeScript knows it's defined in the handler — no optional
+              primary action (Accept) stays rightmost, where flex-end makes it the
+              most prominent. Each button narrows on its callback directly inside the
+              guard so TypeScript knows it's defined in the handler — no optional
               chain (the lint gate). */}
           {showDock && (
             <div data-role="ticket-detail-dock">
               {/* The live voice transcript, above the controls (08 §5): the sheet's
                   dock, like the primary screen's, carries both the controls and the
-                  transcript, growing upward as the words stream in. Gated to the
-                  shaping proposal (where the mic lives); the node self-gates further
-                  on there being transcript text, so it takes no room until the user
-                  speaks. */}
+                  transcript, growing upward as the words stream in. Rides the same
+                  gate as the mic (`showVoice`, wired on every state); the node
+                  self-gates further on there being transcript text, so it takes no
+                  room until the user speaks. */}
               {showVoice && transcript}
               <div data-role="ticket-detail-actions">
                 {/* Bottom-left cluster: the mic and the Delete button — the pair
@@ -380,32 +376,6 @@ export function TicketDetail({
                       👉
                     </span>
                     Poke
-                  </button>
-                )}
-                {isBlocked && onTalk !== undefined && (
-                  <button
-                    type="button"
-                    data-role="detail-talk"
-                    onClick={() => {
-                      onTalk();
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="18"
-                      height="18"
-                      aria-hidden="true"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="9" y="3" width="6" height="11" rx="3" />
-                      <path d="M5 11a7 7 0 0 0 14 0" />
-                      <path d="M12 18v3" />
-                    </svg>
-                    Talk to unblock
                   </button>
                 )}
                 {isShaping && onAccept !== undefined && (

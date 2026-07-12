@@ -27,7 +27,6 @@ import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu'
 import { streamDetail } from '@/components/feed-format';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { usePullToRefresh } from '@/components/use-pull-to-refresh';
-import { useVoice } from '@/voice/voice-context';
 import '@/components/PrimaryScreen.css';
 
 const EMPTY_SUMMARY: FeedSummary = {
@@ -253,12 +252,6 @@ export function PrimaryScreenView({
   const openAgentIdle =
     openTicket !== null &&
     board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status === 'idle';
-  // The mic control, shared with the dock. A blocked ticket's detail hands off
-  // to it: tapping Talk closes the sheet (so the single dock voice surface is no
-  // longer covered) and turns the mic on, dropping the user straight into a
-  // spoken exchange with the brain about how to unblock the work.
-  const { resume } = useVoice();
-
   // Pull-to-refresh: the feed section is the scroll container, so the gesture
   // reads its scrollTop off this ref. Only wired when `onRefreshFeed` is provided
   // (the composing screen passes it; presentational tests omit it, leaving the
@@ -451,19 +444,21 @@ export function PrimaryScreenView({
           // Only a working ticket whose agent has gone idle offers Poke; while the
           // agent is mid-turn (progress streaming) the button stays hidden.
           agentIdle={openAgentIdle}
-          // The bottom-left mic on a proposal sheet (TicketDetail gates it to
-          // shaping): the same dock orb, tapped to start a voice session about the
-          // proposal without leaving the sheet. `sendable` makes it transform into
-          // a send button + clear (×) the moment a transcript is on screen, so the
-          // user can commit or reset the utterance without reaching for the dock
-          // behind the sheet. Safe to always pass — it only mounts (and touches the
-          // voice store) when the sheet renders it.
+          // The bottom-left mic, now shown on every ticket state — the unified
+          // communication surface (08 §5) that replaces the old blocked-only "Talk
+          // to unblock" button, so the user can start talking to the brain directly
+          // from any ticket. The same dock orb, tapped to start a voice session
+          // without leaving the sheet. `sendable` makes it transform into a send
+          // button + clear (×) the moment a transcript is on screen, so the user can
+          // commit or reset the utterance without reaching for the dock behind the
+          // sheet. Safe to always pass — it only mounts (and touches the voice store)
+          // when the sheet renders it.
           voiceControl={<MicButton sendable />}
           // The live transcript for that mic, shown in the sheet's dock above the
           // controls so the user watches their words land without leaving the sheet
           // (08 §5). Self-gating (renders nothing until there is text) and rides the
-          // same shaping-only gate as the mic, so it is safe to always pass — it
-          // only touches the voice store while the sheet renders it.
+          // same gate as the mic (any state), so it is safe to always pass — it only
+          // touches the voice store while the sheet renders it.
           transcript={<TicketDetailTranscript />}
           onClose={closeTicket}
           // Accept is a proposal action; TicketDetail only surfaces it while the
@@ -484,12 +479,6 @@ export function PrimaryScreenView({
                   closeTicket();
                 }
           }
-          // Talk only surfaces on a blocked ticket (TicketDetail gates it):
-          // close the sheet to uncover the dock and open the mic for unblocking.
-          onTalk={() => {
-            closeTicket();
-            resume();
-          }}
           // Poke surfaces on working/blocked tickets (TicketDetail gates it):
           // route the "continue" intent through the brain, then close the sheet
           // like Accept — the resulting agent activity comes back over the stream.

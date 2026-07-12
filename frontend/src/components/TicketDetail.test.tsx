@@ -239,11 +239,12 @@ describe('TicketDetail', () => {
     expect(status?.querySelector('[data-role="ticket-detail-status-dot"]')).not.toBeNull();
   });
 
-  // The bottom-left voice control (the mic) on a proposal sheet. TicketDetail is
-  // voice-store-agnostic — it renders whatever node the caller passes — so a plain
-  // stand-in stands in for the real MicButton here. It rides the same shaping-only
-  // gate as Accept: a proposal is only ever a shaping ticket.
-  describe('proposal voice control', () => {
+  // The bottom-left voice control (the mic). TicketDetail is voice-store-agnostic
+  // — it renders whatever node the caller passes — so a plain stand-in stands in
+  // for the real MicButton here. It is the unified communication surface: shown on
+  // every ticket state whenever the caller wires it (only its presence is gated,
+  // not the ticket's lifecycle state).
+  describe('voice control', () => {
     const proposal = makeTicket({
       id: 't-prop',
       title: 'A shaped proposal',
@@ -269,9 +270,14 @@ describe('TicketDetail', () => {
       ).toBeInTheDocument();
     });
 
-    it('never renders the voice control past shaping — not a proposal anymore', () => {
+    it('renders the voice control on a non-shaping ticket too (the unified surface)', () => {
+      // The mic is no longer shaping-only: it is the one communication surface
+      // shared across every ticket state, so a working ticket shows it as well.
       render(<TicketDetail ticket={working} onClose={vi.fn()} voiceControl={mic} />);
-      expect(screen.queryByText('mic')).toBeNull();
+      const lead = within(screen.getByRole('dialog'))
+        .getByText('mic')
+        .closest('[data-role="ticket-detail-lead-actions"]');
+      expect(lead).not.toBeNull();
     });
 
     it('renders no lead cluster when the caller wires no voice control (/debug inspection)', () => {
@@ -282,7 +288,8 @@ describe('TicketDetail', () => {
 
     // The live transcript slot. TicketDetail is voice-store-agnostic, so a plain
     // stand-in stands in for the real TicketDetailTranscript. It rides the same
-    // shaping-only gate as the mic and lands inside the dock, above the controls.
+    // gate as the mic (shown on any state when wired) and lands inside the dock,
+    // above the controls.
     const transcript = <div data-role="mock-transcript">move the button</div>;
 
     it('renders the transcript inside the dock, above the action controls, on a shaping proposal', () => {
@@ -307,9 +314,20 @@ describe('TicketDetail', () => {
       expect(slot.compareDocumentPosition(accept)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     });
 
-    it('never renders the transcript past shaping — not a proposal anymore', () => {
-      render(<TicketDetail ticket={working} onClose={vi.fn()} transcript={transcript} />);
-      expect(screen.queryByText('move the button')).toBeNull();
+    it('renders the transcript on a non-shaping ticket too (rides the mic gate)', () => {
+      // The transcript is the mic's on-screen feedback, so it follows the same
+      // unified gate — present on a working ticket, not just a shaping proposal.
+      // It renders alongside the wired mic (`showVoice`), so pass both.
+      render(
+        <TicketDetail
+          ticket={working}
+          onClose={vi.fn()}
+          voiceControl={mic}
+          transcript={transcript}
+        />,
+      );
+      const slot = within(screen.getByRole('dialog')).getByText('move the button');
+      expect(slot.closest('[data-role="ticket-detail-dock"]')).not.toBeNull();
     });
   });
 
@@ -339,7 +357,7 @@ describe('TicketDetail', () => {
       expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
     });
 
-    it('offers Poke alongside Talk on a blocked ticket (both actions coexist)', () => {
+    it('offers Poke on a blocked ticket and fires it with the id', () => {
       const blocked = makeTicket({
         id: 't-b',
         title: 'Stuck',
@@ -351,10 +369,9 @@ describe('TicketDetail', () => {
         blockedReason: 'Needs a decision.',
       });
       const onPoke = vi.fn();
-      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} onPoke={onPoke} />);
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onPoke={onPoke} />);
       const dialog = screen.getByRole('dialog');
 
-      expect(within(dialog).getByRole('button', { name: 'Talk to unblock' })).toBeInTheDocument();
       fireEvent.click(within(dialog).getByRole('button', { name: 'Poke' }));
 
       expect(onPoke).toHaveBeenCalledWith('t-b');
@@ -428,13 +445,18 @@ describe('TicketDetail', () => {
       blockedReason: 'Needs a decision on the auth scheme.',
     });
 
-    it('offers Talk (not Accept) when onTalk is wired, and fires it on tap', () => {
-      const onTalk = vi.fn();
-      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={onTalk} />);
+    // The mic (voiceControl) is the unified communication surface, replacing the
+    // old blocked-only "Talk to unblock" button — a blocked ticket now shows the
+    // same mic every other ticket type does. A plain stand-in stands in for the
+    // real MicButton (TicketDetail is voice-store-agnostic).
+    const mic = <button data-role="mock-mic">mic</button>;
+
+    it('shows the mic (not the old Talk button, and never Accept) when voiceControl is wired', () => {
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} voiceControl={mic} />);
       const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText('mic')).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Talk to unblock' })).toBeNull();
       expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Talk to unblock' }));
-      expect(onTalk).toHaveBeenCalledTimes(1);
     });
 
     it('never offers Accept even when onAccept is wired — a block is discussed, not accepted', () => {
@@ -442,14 +464,14 @@ describe('TicketDetail', () => {
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
     });
 
-    it('shows no action when neither onTalk nor onAccept is wired (read-only inspection)', () => {
+    it('shows no action when nothing is wired (read-only /debug inspection)', () => {
       render(<TicketDetail ticket={blocked} onClose={vi.fn()} />);
-      expect(screen.queryByRole('button', { name: 'Talk to unblock' })).toBeNull();
+      expect(screen.queryByText('mic')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
     });
 
     it('shows a "blocked" status indicator (with the reason below), not a "done" one', () => {
-      render(<TicketDetail ticket={blocked} onClose={vi.fn()} onTalk={vi.fn()} />);
+      render(<TicketDetail ticket={blocked} onClose={vi.fn()} />);
       const dialog = screen.getByRole('dialog');
       const status = within(dialog)
         .getByText('Blocked')

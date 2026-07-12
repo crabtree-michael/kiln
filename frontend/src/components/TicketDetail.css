@@ -318,7 +318,11 @@
  * grows the dock; bounded so it scrolls internally rather than shoving the
  * controls off the sheet, and the newest words are pinned into view from JS. */
 [data-role='ticket-detail-transcript'] {
-  max-height: 22vh;
+  /* Give the transcript generous vertical room so the full content reads at a
+   * glance instead of being pinched to a line or two. Still bounded (and
+   * internally scrolling, below) so a runaway utterance can't shove the controls
+   * off a short sheet — the body above yields its flex space as the dock grows. */
+  max-height: 45vh;
   overflow-y: auto;
   padding: 2px 2px 6px;
   text-align: center;

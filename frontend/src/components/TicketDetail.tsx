@@ -257,11 +257,14 @@ export function TicketDetail({
             </dl>
           )}
 
-          {ticket.state === 'blocked' && ticket.blocked_reason != null && (
-            <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
-          )}
-
+          {/* The scroll region: the block message and the Markdown body live
+              together inside the one overflowing area, so a long block message
+              scrolls with the body instead of being clipped by the panel's
+              overflow: hidden. Both sit under the pinned header/meta. */}
           <div data-role="ticket-detail-body">
+            {ticket.state === 'blocked' && ticket.blocked_reason != null && (
+              <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
+            )}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{ticket.body}</ReactMarkdown>
           </div>
 

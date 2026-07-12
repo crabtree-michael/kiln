@@ -186,7 +186,10 @@
 }
 
 [data-role='detail-blocked-reason'] {
-  margin: 0.6rem 0 0;
+  /* First child of the scrolling body, so the body's own padding-top provides
+   * the gap under the divider; only a bottom margin is needed to separate it
+   * from the Markdown below. */
+  margin: 0 0 0.7rem;
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
@@ -462,7 +465,7 @@
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-blocked-reason'] {
-  margin-top: 14px;
+  margin: 0 0 16px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
   background: var(--accent-faint);

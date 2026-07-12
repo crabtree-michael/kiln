@@ -156,7 +156,6 @@ func bootstrapInputFromConfig(cfg Config) bootstrapInput {
 		GitHubUser:        cfg.BootstrapGitHubUser,
 		RepoURL:           repoURL,
 		AmikaSnapshot:     os.Getenv("AMIKA_SNAPSHOT"),
-		BrainModel:        cfg.BrainModel,
 		WorkerCount:       cfg.WorkerCount,
 		AnthropicAPIKey:   cfg.AnthropicAPIKey,
 		AmikaAPIKey:       os.Getenv("AMIKA_API_KEY"),
@@ -331,7 +330,11 @@ func buildTenantProviders(
 		Dir:       cfg.RepoDir + "/" + pid,
 	})
 
-	model := rc.Project.BrainModel
+	// The brain model is a backend-only setting (06 §2): KILN_BRAIN_MODEL
+	// (parsed into cfg.BrainModel) when set, else brain.DefaultModel. It is no
+	// longer a per-project/user knob — every project's brain runs the deployment
+	// default model.
+	model := cfg.BrainModel
 	if model == "" {
 		model = brain.DefaultModel
 	}

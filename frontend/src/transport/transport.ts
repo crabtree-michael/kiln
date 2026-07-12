@@ -474,7 +474,6 @@ function isMeProject(value: unknown): value is MeProject {
     typeof value.name === 'string' &&
     typeof value.repo_url === 'string' &&
     typeof value.amika_snapshot === 'string' &&
-    typeof value.brain_model === 'string' &&
     typeof value.worker_count === 'number'
   );
 }

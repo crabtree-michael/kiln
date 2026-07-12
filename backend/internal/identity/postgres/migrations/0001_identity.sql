@@ -36,7 +36,6 @@ CREATE TABLE projects (
   name           text NOT NULL CHECK (name <> ''),
   repo_url       text NOT NULL DEFAULT '',
   amika_snapshot text NOT NULL DEFAULT '',
-  brain_model    text NOT NULL DEFAULT '',
   worker_count   int  NOT NULL DEFAULT 3 CHECK (worker_count BETWEEN 1 AND 10),
   created_at     timestamptz NOT NULL DEFAULT now()
 );

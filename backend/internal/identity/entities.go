@@ -69,7 +69,6 @@ type Project struct {
 	// opaquely; the composition root validates it against the registered set.
 	AgentProvider string
 	AmikaSnapshot string
-	BrainModel    string
 	WorkerCount   int
 	MergeGateMode MergeGateMode
 	AmikaSecrets  []AmikaSecret
@@ -153,7 +152,6 @@ type ProjectUpdate struct {
 	RepoURL       string
 	AgentProvider string // registry key selecting the project's provider; empty ⇒ deployment default (design §9)
 	AmikaSnapshot string
-	BrainModel    string
 	WorkerCount   int
 	MergeGateMode MergeGateMode
 	AmikaSecrets  []AmikaSecretInput

@@ -20,7 +20,6 @@ function baseProject(overrides: Partial<MeProject> = {}): MeProject {
     repo_url: 'https://github.com/acme/demo',
     agent_provider: '',
     amika_snapshot: '',
-    brain_model: '',
     worker_count: 3,
     merge_gate_mode: 'main',
     amika_secrets: [],

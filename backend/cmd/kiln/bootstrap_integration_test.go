@@ -147,7 +147,6 @@ func TestBootstrapAdoptsAndFinalizes(t *testing.T) {
 		GitHubUser:        "Owner", // mixed case → stored lower-cased
 		RepoURL:           testRepoURL,
 		AmikaSnapshot:     "snap-1",
-		BrainModel:        "claude-test-model",
 		WorkerCount:       25, // out of range → clamped to 10
 		AnthropicAPIKey:   "anthropic-env-key",
 		AmikaClaudeCredID: "cred-env-1",
@@ -173,9 +172,6 @@ func TestBootstrapAdoptsAndFinalizes(t *testing.T) {
 	}
 	if proj.WorkerCount != 10 {
 		t.Errorf("worker_count = %d, want 10 (clamped)", proj.WorkerCount)
-	}
-	if proj.BrainModel != "claude-test-model" {
-		t.Errorf("brain_model = %q", proj.BrainModel)
 	}
 
 	// Unset config seeded (fingerprint only, never the value).

@@ -22,7 +22,7 @@ const userColumns = `id, github_id, github_login, display_name, avatar_url, crea
 
 // projectColumns is the canonical projection for a project row.
 const projectColumns = `id, owner_user_id, name, repo_url, agent_provider, amika_snapshot, ` +
-	`brain_model, worker_count, merge_gate_mode, amika_secrets, created_at`
+	`worker_count, merge_gate_mode, amika_secrets, created_at`
 
 // Store implements identity.Store over Postgres.
 type Store struct {
@@ -305,18 +305,18 @@ func (s *Store) UpsertProject(ctx context.Context, p identity.Project) (identity
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO projects (
 			owner_user_id, name, repo_url, agent_provider, amika_snapshot,
-			brain_model, worker_count, merge_gate_mode, amika_secrets)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			worker_count, merge_gate_mode, amika_secrets)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (owner_user_id) DO UPDATE
 		  SET name = EXCLUDED.name, repo_url = EXCLUDED.repo_url,
 		      agent_provider = EXCLUDED.agent_provider,
 		      amika_snapshot = EXCLUDED.amika_snapshot,
-		      brain_model = EXCLUDED.brain_model, worker_count = EXCLUDED.worker_count,
+		      worker_count = EXCLUDED.worker_count,
 		      merge_gate_mode = EXCLUDED.merge_gate_mode,
 		      amika_secrets = EXCLUDED.amika_secrets
 		RETURNING `+projectColumns,
 		p.OwnerUserID, p.Name, p.RepoURL, p.AgentProvider, p.AmikaSnapshot,
-		p.BrainModel, p.WorkerCount, gateMode, secrets)
+		p.WorkerCount, gateMode, secrets)
 	out, err := scanProject(row)
 	if err != nil {
 		return identity.Project{}, fmt.Errorf("identity/postgres: upsert project: %w", err)
@@ -357,7 +357,7 @@ func scanProject(r rowScanner) (identity.Project, error) {
 	var secrets []byte
 	var gateMode string
 	if err := r.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.RepoURL, &p.AgentProvider, &p.AmikaSnapshot,
-		&p.BrainModel, &p.WorkerCount, &gateMode, &secrets, &p.CreatedAt); err != nil {
+		&p.WorkerCount, &gateMode, &secrets, &p.CreatedAt); err != nil {
 		return identity.Project{}, fmt.Errorf("identity/postgres: scan project: %w", err)
 	}
 	p.MergeGateMode = identity.MergeGateMode(gateMode)

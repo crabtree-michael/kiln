@@ -1,5 +1,5 @@
 // Controlled forms for the dashboard's two config surfaces (11 §5): project
-// (name/repo/snapshot/model/workers + the Amika sandbox secrets, 02 §8) and
+// (name/repo/snapshot/workers + the Amika sandbox secrets, 02 §8) and
 // credentials (secrets + Amika config).
 // Both are seeded from the current `Me`. Project still submits explicitly via
 // its "Save project" button; credentials auto-save per field instead (
@@ -165,7 +165,6 @@ export function ProjectFields({
   const providerOptions = providers ?? [];
   const [agentProvider, setAgentProvider] = useState(project?.agent_provider ?? '');
   const [amikaSnapshot, setAmikaSnapshot] = useState(project?.amika_snapshot ?? '');
-  const [brainModel, setBrainModel] = useState(project?.brain_model ?? '');
   const [workerCount, setWorkerCount] = useState(
     project?.worker_count === undefined ? '' : String(project.worker_count),
   );
@@ -214,10 +213,6 @@ export function ProjectFields({
     const trimmedSnapshot = amikaSnapshot.trim();
     if (trimmedSnapshot !== '') {
       body.amika_snapshot = trimmedSnapshot;
-    }
-    const trimmedModel = brainModel.trim();
-    if (trimmedModel !== '') {
-      body.brain_model = trimmedModel;
     }
     const trimmedWorkerCount = workerCount.trim();
     if (trimmedWorkerCount !== '') {
@@ -294,21 +289,6 @@ export function ProjectFields({
           value={amikaSnapshot}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
             setAmikaSnapshot(event.target.value);
-          }}
-        />
-      </label>
-      {/* The brain model is fixed via the KILN_BRAIN_MODEL environment variable
-          (defaulting to Claude Haiku), so this control is hidden for now (remove
-          `hidden` to restore it). The state + submit wiring are kept intact; with
-          the input blank no `brain_model` is sent and the backend falls back to
-          the env var / default. */}
-      <label hidden>
-        Brain model
-        <input
-          type="text"
-          value={brainModel}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setBrainModel(event.target.value);
           }}
         />
       </label>

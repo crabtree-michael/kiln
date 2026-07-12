@@ -182,15 +182,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
             value="snap-1"
           />
         </label>
-        <label
-          hidden=""
-        >
-          Brain model
-          <input
-            type="text"
-            value="claude-sonnet"
-          />
-        </label>
         <label>
           Worker count
           <input

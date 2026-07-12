@@ -342,8 +342,8 @@ describe('TicketDetail', () => {
       render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} agentIdle />);
 
       const poke = within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke' });
-      // The 👉 is the poke's whole signal (matching the feed poke card), rendered
-      // decoratively alongside the "Poke" label.
+      // Icon-only: the 👉 is the poke's whole visible signal (matching the feed poke
+      // card), with no text label — the accessible name comes from aria-label="Poke".
       expect(poke).toHaveTextContent('👉');
       fireEvent.click(poke);
 

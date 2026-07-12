@@ -297,9 +297,12 @@ export function TicketDetail({
                           later state has already been accepted).
               The lead cluster (mic + Delete) and Poke sit first (left); the state's
               primary action (Accept) stays rightmost, where flex-end makes it the
-              most prominent. Each button narrows on its callback directly inside the
-              guard so TypeScript knows it's defined in the handler — no optional
-              chain (the lint gate). */}
+              most prominent. The quiet affordances here read as icons only — the mic
+              glyph, the 👉 for Poke, the trash for Delete — with no text label around
+              them; Accept alone carries a word, so the one headline decision is the
+              only thing spelled out. Each button narrows on its callback directly
+              inside the guard so TypeScript knows it's defined in the handler — no
+              optional chain (the lint gate). */}
           {showDock && (
             <div data-role="ticket-detail-dock">
               {/* The live voice transcript, above the controls (08 §5): the sheet's
@@ -314,24 +317,23 @@ export function TicketDetail({
                   the trailing state actions (Delete/Accept/Poke) to the right;
                   absent (a sheet without voice) the row is byte-identical to the
                   old flex-end footer. */}
-                {showVoice && (
-                  <div data-role="ticket-detail-lead-actions">{voiceControl}</div>
-                )}
+                {showVoice && <div data-role="ticket-detail-lead-actions">{voiceControl}</div>}
                 {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
                   <button
                     type="button"
                     data-role="detail-poke"
+                    aria-label="Poke"
                     onClick={() => {
                       onPoke(ticket.id);
                     }}
                   >
-                    {/* The 👉 is the whole signal for a poke, mirroring the feed's
-                      poke card (08 §3). Decorative (aria-hidden) so the button's
-                      accessible name stays the plain word "Poke". */}
+                    {/* Icon-only, matching Delete: the 👉 is the whole visible
+                      signal for a poke (mirroring the feed's poke card, 08 §3),
+                      with no text label around it. The glyph is aria-hidden and the
+                      button's accessible name comes from aria-label="Poke". */}
                     <span data-role="detail-poke-emoji" aria-hidden="true">
                       👉
                     </span>
-                    Poke
                   </button>
                 )}
                 {/* Delete shows for a DELETABLE_STATES ticket with onDelete wired,
@@ -350,10 +352,7 @@ export function TicketDetail({
                       // worker, with no un-archive — so confirm it (D4). A shaping
                       // proposal is cheap and re-proposable: delete it immediately,
                       // no confirm.
-                      if (
-                        ticket.state === 'blocked' &&
-                        !window.confirm(DELETE_BLOCKED_CONFIRM)
-                      ) {
+                      if (ticket.state === 'blocked' && !window.confirm(DELETE_BLOCKED_CONFIRM)) {
                         return;
                       }
                       onDelete(ticket.id);

@@ -73,6 +73,17 @@ export interface TicketDetailProps {
    * omitted there. Shown only while shaping, mirroring Accept: once accepted the
    * proposal is gone. */
   voiceControl?: ReactNode;
+  /** The live voice transcript, rendered in the sheet's dock directly above the
+   * action buttons on a *proposal* (shaping) sheet — the same shaping-only gate as
+   * `voiceControl`, since it is that mic's on-screen feedback. It shows the words
+   * as the user speaks to the brain about the proposal, so they never have to leave
+   * the sheet to watch the transcript land. Like `voiceControl` it is passed in
+   * rather than rendered here (it is a live `useVoice()` consumer) so this component
+   * stays free of the voice store; only the primary screen (under a `VoiceProvider`)
+   * wires it. The node self-gates — it renders nothing unless there is transcript
+   * text on screen — so the dock only grows while the user is actually speaking.
+   * Omitted on the /debug board (no voice there). */
+  transcript?: ReactNode;
   /** Show the internal bookkeeping rows (state, priority, id, timestamps). Off by
    * default: the main app view shows only the title and description. The /debug
    * board opts in to inspect a ticket's full record (D5). */
@@ -141,6 +152,7 @@ export function TicketDetail({
   onPoke,
   agentIdle = false,
   voiceControl,
+  transcript,
   showInternalMeta = false,
   surface = 'debug',
 }: TicketDetailProps): JSX.Element {
@@ -182,6 +194,13 @@ export function TicketDetail({
   // sheet the cluster renders holding just Delete, left of the trailing Talk/Poke.
   const showVoice = isShaping && voiceControl !== undefined;
   const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
+  // The dock is the sheet's bottom region — the unified home for the action
+  // controls AND the live voice transcript (08 §5), the mirror of the primary
+  // screen's own dock. It renders whenever any footer affordance does; the
+  // transcript, when present, stacks above the controls inside it and grows the
+  // dock upward as words stream in. The transcript rides the same shaping-only gate
+  // as the mic (`showVoice`) — it is that mic's on-screen feedback.
+  const showDock = showVoice || canPoke || canTalk || canDelete || canAccept;
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -285,110 +304,122 @@ export function TicketDetail({
               the most prominent. Each button narrows on its callback directly inside
               the guard so TypeScript knows it's defined in the handler — no optional
               chain (the lint gate). */}
-          {(showVoice || canPoke || canTalk || canDelete || canAccept) && (
-            <div data-role="ticket-detail-actions">
-              {/* Bottom-left cluster: the mic and the Delete button — the pair
+          {showDock && (
+            <div data-role="ticket-detail-dock">
+              {/* The live voice transcript, above the controls (08 §5): the sheet's
+                  dock, like the primary screen's, carries both the controls and the
+                  transcript, growing upward as the words stream in. Gated to the
+                  shaping proposal (where the mic lives); the node self-gates further
+                  on there being transcript text, so it takes no room until the user
+                  speaks. */}
+              {showVoice && transcript}
+              <div data-role="ticket-detail-actions">
+                {/* Bottom-left cluster: the mic and the Delete button — the pair
                   08 §5 calls for. `margin-right: auto` on it pushes the trailing
                   state action (Accept/Talk/Poke) to the right; absent (a sheet with
                   neither voice nor delete) the row is byte-identical to the old
                   flex-end footer. */}
-              {(showVoice || canDelete) && (
-                <div data-role="ticket-detail-lead-actions">
-                  {showVoice && voiceControl}
-                  {/* Delete shows for a DELETABLE_STATES ticket with onDelete
+                {(showVoice || canDelete) && (
+                  <div data-role="ticket-detail-lead-actions">
+                    {showVoice && voiceControl}
+                    {/* Delete shows for a DELETABLE_STATES ticket with onDelete
                       wired. Inline the state + callback check (not the derived
                       canDelete) so TypeScript narrows onDelete to defined inside
                       onClick — mirroring the Poke/Talk buttons below. */}
-                  {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
-                    <button
-                      type="button"
-                      data-role="detail-delete"
-                      onClick={() => {
-                        // A blocked delete discards in-progress work and releases
-                        // a worker, with no un-archive — so confirm it (D4). A
-                        // shaping proposal is cheap and re-proposable: delete it
-                        // immediately, no confirm.
-                        if (ticket.state === 'blocked' && !window.confirm(DELETE_BLOCKED_CONFIRM)) {
-                          return;
-                        }
-                        onDelete(ticket.id);
-                      }}
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        aria-hidden="true"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                    {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
+                      <button
+                        type="button"
+                        data-role="detail-delete"
+                        onClick={() => {
+                          // A blocked delete discards in-progress work and releases
+                          // a worker, with no un-archive — so confirm it (D4). A
+                          // shaping proposal is cheap and re-proposable: delete it
+                          // immediately, no confirm.
+                          if (
+                            ticket.state === 'blocked' &&
+                            !window.confirm(DELETE_BLOCKED_CONFIRM)
+                          ) {
+                            return;
+                          }
+                          onDelete(ticket.id);
+                        }}
                       >
-                        <path d="M4 7h16" />
-                        <path d="M10 11v6M14 11v6" />
-                        <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
-                        <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
-                      </svg>
-                      Delete
-                    </button>
-                  )}
-                </div>
-              )}
-              {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
-                <button
-                  type="button"
-                  data-role="detail-poke"
-                  onClick={() => {
-                    onPoke(ticket.id);
-                  }}
-                >
-                  {/* The 👉 is the whole signal for a poke, mirroring the feed's
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          aria-hidden="true"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M4 7h16" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+                          <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                        </svg>
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                )}
+                {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
+                  <button
+                    type="button"
+                    data-role="detail-poke"
+                    onClick={() => {
+                      onPoke(ticket.id);
+                    }}
+                  >
+                    {/* The 👉 is the whole signal for a poke, mirroring the feed's
                       poke card (08 §3). Decorative (aria-hidden) so the button's
                       accessible name stays the plain word "Poke". */}
-                  <span data-role="detail-poke-emoji" aria-hidden="true">
-                    👉
-                  </span>
-                  Poke
-                </button>
-              )}
-              {isBlocked && onTalk !== undefined && (
-                <button
-                  type="button"
-                  data-role="detail-talk"
-                  onClick={() => {
-                    onTalk();
-                  }}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    aria-hidden="true"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                    <span data-role="detail-poke-emoji" aria-hidden="true">
+                      👉
+                    </span>
+                    Poke
+                  </button>
+                )}
+                {isBlocked && onTalk !== undefined && (
+                  <button
+                    type="button"
+                    data-role="detail-talk"
+                    onClick={() => {
+                      onTalk();
+                    }}
                   >
-                    <rect x="9" y="3" width="6" height="11" rx="3" />
-                    <path d="M5 11a7 7 0 0 0 14 0" />
-                    <path d="M12 18v3" />
-                  </svg>
-                  Talk to unblock
-                </button>
-              )}
-              {isShaping && onAccept !== undefined && (
-                <button
-                  type="button"
-                  data-role="detail-accept"
-                  onClick={() => {
-                    onAccept(ticket.id);
-                  }}
-                >
-                  Accept
-                </button>
-              )}
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="9" y="3" width="6" height="11" rx="3" />
+                      <path d="M5 11a7 7 0 0 0 14 0" />
+                      <path d="M12 18v3" />
+                    </svg>
+                    Talk to unblock
+                  </button>
+                )}
+                {isShaping && onAccept !== undefined && (
+                  <button
+                    type="button"
+                    data-role="detail-accept"
+                    onClick={() => {
+                      onAccept(ticket.id);
+                    }}
+                  >
+                    Accept
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </Drawer.Content>

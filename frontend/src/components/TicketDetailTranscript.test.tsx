@@ -27,6 +27,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     countingDown: false,
     sendImminent: false,
     delaySend: vi.fn(),
+    getSendCountdown: vi.fn(() => null),
     getLevel: vi.fn(() => 0),
     keyboardMode: false,
     openKeyboard: vi.fn(),

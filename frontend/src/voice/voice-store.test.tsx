@@ -283,6 +283,42 @@ describe('VoiceProvider mic activation', () => {
     }
   });
 
+  it('`getSendCountdown` tracks the armed deadline — null idle, full on arm, depleting toward the send', () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      // Nothing armed: no ring to drive.
+      expect(result.current.getSendCountdown()).toBeNull();
+
+      act(() => {
+        result.current.resume();
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'open' });
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'final', text: 'Move it to done.' });
+      });
+      // Just armed: the full 5s reveal window remains → a full ring.
+      expect(result.current.getSendCountdown()).toBeCloseTo(1, 2);
+
+      // 3s in: 2s of the 5s window left → the ring is ~40% full.
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+      expect(result.current.getSendCountdown()).toBeCloseTo(0.4, 2);
+
+      // A "+10" tap pushes the deadline 10s further out; the reading clamps to the
+      // reveal window so the ring reads full again (it withdraws until it nears).
+      act(() => {
+        result.current.delaySend();
+      });
+      expect(result.current.getSendCountdown()).toBeCloseTo(1, 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('backgrounding stops the mic and returning does NOT restart it', () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {

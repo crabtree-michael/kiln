@@ -27,6 +27,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     countingDown: false,
     sendImminent: false,
     delaySend: noop,
+    getSendCountdown: () => null,
     getLevel: () => 0,
     keyboardMode: false,
     openKeyboard: noop,

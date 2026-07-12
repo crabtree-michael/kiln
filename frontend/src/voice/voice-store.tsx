@@ -363,6 +363,26 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     dispatch({ type: 'sendNow' });
   }, []);
 
+  const getSendCountdown = useCallback((): number | null => {
+    // Remaining fraction of the reveal window, read straight off the wall-clock
+    // deadline the grace timer fires at — the single source of truth for "how much
+    // time is left" (the same value the reveal/grace timers key off). Returns null
+    // when nothing is armed so the dock's ring loop knows to stop; clamps to
+    // [0, 1] so a fresh arm reads as a full ring and the frame the send fires (or a
+    // "+10" pushes the deadline past the window) reads as empty rather than
+    // over/under-filling. Denominator is DELAY_REVEAL_WINDOW_MS — the exact stretch
+    // the "+10" control is visible for — so the ring is full the moment it appears.
+    const deadline = graceDeadlineRef.current;
+    if (deadline === null) {
+      return null;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return 0;
+    }
+    return Math.min(1, remaining / DELAY_REVEAL_WINDOW_MS);
+  }, []);
+
   const delaySend = useCallback((): void => {
     // The "+10" control extends the post-turn-end auto-send countdown by 10s
     // (09 §4). The timer lives in the store (the machine stays pure and owns no
@@ -434,6 +454,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       countingDown: state.pending !== undefined,
       sendImminent,
       delaySend,
+      getSendCountdown,
       getLevel,
       keyboardMode,
       openKeyboard,
@@ -453,6 +474,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       cancel,
       sendNow,
       delaySend,
+      getSendCountdown,
       getLevel,
       keyboardMode,
       openKeyboard,

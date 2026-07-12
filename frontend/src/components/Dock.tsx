@@ -14,6 +14,13 @@ import { MicButton } from '@/components/MicButton';
 import { SystemAlertBand } from '@/components/SystemAlertBand';
 import type { SystemAlert } from '@/transport/transport';
 
+// Countdown-ring geometry for the "+10" button. The SVG fills the button's 44px
+// box (viewBox 0 0 44 44); the arc's radius leaves half its stroke width inside
+// the box edge so it never clips. The circumference is the dash length the rAF
+// loop offsets to deplete the ring.
+const RING_RADIUS = 20.5;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
 export interface DockProps {
   /** Persistent system-health alerts, surfaced as the permanent error band at the
    * very top of the dock (above the controls). Rendered HERE rather than as a
@@ -34,6 +41,7 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
     sendNow,
     sendImminent,
     delaySend,
+    getSendCountdown,
     keyboardMode,
     openKeyboard,
     closeKeyboard,
@@ -41,6 +49,10 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
   } = useVoice();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // The depleting arc of the "+10" button's countdown ring (below). Driven
+  // imperatively via a rAF loop rather than React state so the ring animates
+  // smoothly at frame rate without re-rendering the dock each tick.
+  const ringRef = useRef<SVGCircleElement | null>(null);
   // The typed draft is pure view state local to the dock — the store only sees it
   // on submit (via `submitText`). Kept out of the voice machine so keystrokes
   // don't churn the transcript reducer.
@@ -191,6 +203,34 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
     }
     el.scrollTop = el.scrollHeight;
   }, [settledText, tailText]);
+
+  // Deplete the "+10" button's countdown ring in step with the real auto-send
+  // deadline. Only runs while the control is shown (`showDelay`); each frame it
+  // samples `getSendCountdown()` — the store's remaining fraction of the reveal
+  // window — and offsets the arc's dash so a full ring (fraction 1) empties to
+  // nothing (fraction 0) exactly as the send fires. Reading the store's
+  // wall-clock deadline every frame (the same pattern the mic orb uses for
+  // `getLevel`) keeps the ring in sync with the timer instead of drifting on its
+  // own clock. A no-op where rAF is unavailable (isolated tests / SSR).
+  useEffect(() => {
+    if (!showDelay) {
+      return;
+    }
+    const ring = ringRef.current;
+    if (ring === null || typeof requestAnimationFrame === 'undefined') {
+      return;
+    }
+    let handle = requestAnimationFrame(function tick() {
+      // A null reading (the deadline cleared out from under us mid-frame) reads as
+      // empty so the ring never freezes part-filled as the button withdraws.
+      const remaining = getSendCountdown() ?? 0;
+      ring.style.strokeDashoffset = (RING_CIRCUMFERENCE * (1 - remaining)).toFixed(2);
+      handle = requestAnimationFrame(tick);
+    });
+    return () => {
+      cancelAnimationFrame(handle);
+    };
+  }, [showDelay, getSendCountdown]);
 
   return (
     <div data-role="dock" data-dock-state={keyboardMode ? 'keyboard' : micState}>
@@ -360,7 +400,35 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
                   aria-label="Delay auto-send 10 seconds"
                   onClick={delaySend}
                 >
-                  <span aria-hidden="true">+10</span>
+                  {/* Dark-red countdown ring, depleting in sync with the real
+                      grace-window deadline: the track is the full circle; the
+                      progress arc's stroke-dashoffset is driven each frame by the
+                      rAF loop above. Rotated so it empties from the top. */}
+                  <svg
+                    data-role="dock-delay-ring"
+                    viewBox="0 0 44 44"
+                    aria-hidden="true"
+                    fill="none"
+                  >
+                    <circle data-role="dock-delay-ring-track" cx="22" cy="22" r={RING_RADIUS} />
+                    <circle
+                      data-role="dock-delay-ring-progress"
+                      ref={ringRef}
+                      cx="22"
+                      cy="22"
+                      r={RING_RADIUS}
+                      strokeDasharray={RING_CIRCUMFERENCE.toFixed(2)}
+                      strokeDashoffset="0"
+                      transform="rotate(-90 22 22)"
+                    />
+                  </svg>
+                  <span data-role="dock-delay-label" aria-hidden="true">
+                    <span data-role="dock-delay-count">
+                      <span data-role="dock-delay-plus">+</span>
+                      <span data-role="dock-delay-num">10</span>
+                    </span>
+                    <span data-role="dock-delay-unit">sec</span>
+                  </span>
                 </button>
               )}
 

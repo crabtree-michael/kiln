@@ -29,6 +29,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     countingDown: false,
     sendImminent: false,
     delaySend: vi.fn(),
+    getSendCountdown: vi.fn(() => null),
     getLevel: vi.fn(() => 0),
     keyboardMode: false,
     openKeyboard: vi.fn(),
@@ -167,7 +168,13 @@ describe('Dock', () => {
       delaySend,
     });
     render(<Dock />);
-    fireEvent.click(screen.getByRole('button', { name: 'Delay auto-send 10 seconds' }));
+    const delay = screen.getByRole('button', { name: 'Delay auto-send 10 seconds' });
+    // The time-based label spells out "+10 sec" (with a lowercase unit) so the
+    // control reads as a countdown, not a bare count.
+    expect(delay).toHaveTextContent('+10sec');
+    // The dark-red countdown ring is present, with its depleting progress arc.
+    expect(delay.querySelector('[data-role="dock-delay-ring-progress"]')).not.toBeNull();
+    fireEvent.click(delay);
     expect(delaySend).toHaveBeenCalledTimes(1);
   });
 

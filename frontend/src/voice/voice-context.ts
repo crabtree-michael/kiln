@@ -40,6 +40,13 @@ export interface VoiceStoreValue {
    *  time to catch a not-yet-ready utterance before it fires (09 §4). A no-op when
    *  nothing is counting down; the dock gates its visibility on `sendImminent`. */
   delaySend: () => void;
+  /** Fraction of the reveal window still remaining before the armed auto-send
+   *  fires — 1 the instant the "+10" control appears, easing to 0 as the send
+   *  fires — or `null` when nothing is armed. The dock samples this each animation
+   *  frame (like `getLevel` for the mic orb) to deplete the "+10" button's
+   *  countdown ring, so the ring tracks the REAL grace-window deadline the store
+   *  owns rather than a parallel animation that could drift out of sync. */
+  getSendCountdown: () => number | null;
   /** Current mic input loudness as a raw RMS (0..~1); the dock samples this each
    *  animation frame to size the volume orb (09 §3). 0 when not listening. */
   getLevel: () => number;

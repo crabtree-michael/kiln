@@ -135,9 +135,12 @@ export function ActivityProvider({ children }: ActivityProviderProps): JSX.Eleme
       } else if (timer === undefined) {
         timersRef.current.set(
           id,
-          setTimeout(() => {
-            dismiss(id);
-          }, dwellsRef.current.get(id) ?? TOAST_MS),
+          setTimeout(
+            () => {
+              dismiss(id);
+            },
+            dwellsRef.current.get(id) ?? TOAST_MS,
+          ),
         );
       }
     },

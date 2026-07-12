@@ -832,19 +832,17 @@ button[data-role='feed-card-head']:focus-visible {
 }
 
 /* Done card's second line (08 §7): a link to the landed work on GitHub — the
-   commit SHA under merge-on-main, or "#<number>" for a pull request. Indented to
-   sit under the ticket name (past the ✅ marker + head gap), monospace so a SHA
-   reads as code, and in the accent so it reads as the card's one affordance.
-   self-start keeps the hit target to the label width rather than the full row.
-   inline-flex + gap sets the GitHub mark beside the label so the SHA reads as a
-   link out to GitHub; the icon inherits the accent (and hover/focus) via
-   currentColor. */
+   commit SHA under merge-on-main, or "#<number>" for a pull request. Left-aligns
+   flush with the ✅ marker's left edge (no indent), monospace so a SHA reads as
+   code, and in the accent so it reads as the card's one affordance. self-start
+   keeps the hit target to the label width rather than the full row. inline-flex +
+   gap sets the GitHub mark beside the label so the SHA reads as a link out to
+   GitHub; the icon inherits the accent (and hover/focus) via currentColor. */
 [data-role='feed-card-github'] {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding-inline-start: calc(17px + 9px);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12.5px;
   font-weight: 600;

@@ -58,6 +58,7 @@ vi.mock('@/voice/voice-context', async (importOriginal) => {
       openKeyboard: vi.fn(),
       closeKeyboard: vi.fn(),
       submitText: vi.fn(() => Promise.resolve(true)),
+      setTicketContext: vi.fn(),
     }),
   };
 });

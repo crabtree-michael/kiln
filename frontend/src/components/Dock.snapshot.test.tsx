@@ -32,6 +32,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     openKeyboard: noop,
     closeKeyboard: noop,
     submitText: () => Promise.resolve(true),
+    setTicketContext: noop,
     ...overrides,
   };
 }

@@ -58,6 +58,12 @@ export interface VoiceStoreValue {
    *  (the dock clears the field) and `false` on failure (the text is kept so the
    *  user can retry). A no-op resolving `false` when the text is empty. */
   submitText: (text: string) => Promise<boolean>;
+  /** Register the title of the ticket the user currently has open, so a message
+   *  sent from the ticket-detail sheet (its mic, 08 §5) is prefixed with that
+   *  title before it POSTs — giving the brain the context of what the comment is
+   *  about. The sheet's `MicButton` sets it on open and clears it (`null`) on
+   *  close; the dock's plain mic never sets it, so dock messages carry no prefix. */
+  setTicketContext: (ticketTitle: string | null) => void;
 }
 
 export const VoiceStoreContext = createContext<VoiceStoreValue | undefined>(undefined);

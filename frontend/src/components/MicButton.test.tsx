@@ -32,6 +32,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     openKeyboard: vi.fn(),
     closeKeyboard: vi.fn(),
     submitText: vi.fn(() => Promise.resolve(true)),
+    setTicketContext: vi.fn(),
     ...overrides,
   };
 }
@@ -138,5 +139,21 @@ describe('MicButton', () => {
     const { container } = render(<MicButton />);
     expect(container.querySelector('[data-role="dock-mic-orb"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+  });
+
+  it('registers the ticket context when placed inside a sheet and clears it on unmount', () => {
+    const setTicketContext = vi.fn();
+    mockVoiceValue = stubVoice({ setTicketContext });
+    const { unmount } = render(<MicButton sendable ticketContext="Ship the redesign" />);
+    expect(setTicketContext).toHaveBeenCalledWith('Ship the redesign');
+    unmount();
+    expect(setTicketContext).toHaveBeenLastCalledWith(null);
+  });
+
+  it('leaves the ticket context untouched in the dock (no ticketContext prop)', () => {
+    const setTicketContext = vi.fn();
+    mockVoiceValue = stubVoice({ setTicketContext });
+    render(<MicButton />);
+    expect(setTicketContext).not.toHaveBeenCalled();
   });
 });

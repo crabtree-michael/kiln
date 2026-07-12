@@ -12,6 +12,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { VoiceProvider } from '@/voice/voice-store';
 import { useVoice } from '@/voice/voice-context';
+import { postMessage } from '@/transport/transport';
 import type { VoiceStream, StartVoiceStreamOptions } from '@/voice/assemblyai-client';
 import type { VoiceProviderEvent } from '@/voice/commit-machine';
 
@@ -342,6 +343,78 @@ describe('VoiceProvider mic activation', () => {
     expect(result.current.keyboardMode).toBe(false);
     expect(result.current.micState).toBe('paused');
     expect(startVoiceStream).not.toHaveBeenCalled();
+  });
+
+  it('a message sent from within a ticket is prefixed with the ticket title', async () => {
+    const posted = vi.mocked(postMessage);
+    posted.mockClear();
+    const { result } = renderHook(() => useVoice(), { wrapper });
+    act(() => {
+      result.current.resume();
+    });
+    // The ticket-detail sheet's mic registers the open ticket's title...
+    act(() => {
+      result.current.setTicketContext('Fix the login button');
+    });
+    // ...then the user speaks and taps send: the POSTed text carries the title so
+    // the brain knows which ticket the comment is about.
+    act(() => {
+      fireProviderEvent({ kind: 'partial', text: 'it still looks broken' });
+    });
+    act(() => {
+      result.current.sendNow();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(posted).toHaveBeenCalledWith(
+      'Regarding the ticket "Fix the login button": it still looks broken',
+    );
+  });
+
+  it('a message sent from the dock (no ticket context) is POSTed unprefixed', async () => {
+    const posted = vi.mocked(postMessage);
+    posted.mockClear();
+    const { result } = renderHook(() => useVoice(), { wrapper });
+    act(() => {
+      result.current.resume();
+    });
+    act(() => {
+      fireProviderEvent({ kind: 'partial', text: 'move it to done' });
+    });
+    act(() => {
+      result.current.sendNow();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(posted).toHaveBeenCalledWith('move it to done');
+  });
+
+  it('closing the ticket (context cleared to null) drops the prefix again', async () => {
+    const posted = vi.mocked(postMessage);
+    posted.mockClear();
+    const { result } = renderHook(() => useVoice(), { wrapper });
+    act(() => {
+      result.current.resume();
+    });
+    // Open a ticket, then close it — the sheet's mic clears the context on unmount.
+    act(() => {
+      result.current.setTicketContext('Fix the login button');
+    });
+    act(() => {
+      result.current.setTicketContext(null);
+    });
+    act(() => {
+      fireProviderEvent({ kind: 'partial', text: 'from the dock now' });
+    });
+    act(() => {
+      result.current.sendNow();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(posted).toHaveBeenCalledWith('from the dock now');
   });
 
   it('unmount tears a live stream down (no mic left listening)', () => {

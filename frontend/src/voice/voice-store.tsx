@@ -41,6 +41,18 @@ const COMMIT_DELAY_MS = 5_000;
 // extends the CURRENT deadline (additive), so repeated taps stack.
 const SEND_DELAY_EXTENSION_MS = 10_000;
 
+// Prefix a message the user sends from within a ticket with that ticket's title,
+// so the brain sees what the comment is about (the transcript still rides the
+// unchanged /api/message seam — this only shapes the text). A `null`/blank title
+// (a message from the dock, not a ticket) returns the text untouched, so dock
+// messages are never prefixed.
+function withTicketContext(text: string, ticketTitle: string | null): string {
+  if (ticketTitle === null || ticketTitle.trim() === '') {
+    return text;
+  }
+  return `Regarding the ticket "${ticketTitle}": ${text}`;
+}
+
 // The "+10" control is offered only in this final stretch before the armed send
 // fires (09 §4). It surfaces as the deadline draws near — not for the whole window
 // — so a "+10" tap that pushes the deadline out past this stretch withdraws the
@@ -90,6 +102,17 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   // dock's "+10" control visibility. Store state (not the pure machine's): it is a
   // function of the wall-clock deadline the store owns, not of transcript state.
   const [sendImminent, setSendImminent] = useState(false);
+
+  // The title of the ticket the user currently has open, or `null` when none is
+  // (the plain dock mic). Set by the sheet's mic on open and cleared on close.
+  // Held in a ref, not state: it only shapes the text at POST time — it changes
+  // nothing on screen, so it must not trigger a re-render (and the commit effect
+  // reads the latest value without re-running on it). A committed/typed message
+  // is prefixed with this so the brain knows which ticket the comment is about.
+  const ticketContextRef = useRef<string | null>(null);
+  const setTicketContext = useCallback((ticketTitle: string | null): void => {
+    ticketContextRef.current = ticketTitle;
+  }, []);
 
   const stopStream = useCallback((): void => {
     if (streamRef.current !== null) {
@@ -281,7 +304,10 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     void (async () => {
       let sent = true;
       try {
-        await postMessage(pending);
+        // Prefix with the open ticket's title when the utterance was sent from
+        // the ticket-detail sheet, so the brain sees what it's about (a no-op for
+        // a dock message, where no ticket context is set).
+        await postMessage(withTicketContext(pending, ticketContextRef.current));
       } catch {
         // Keep the finalized text visible; nothing else to do inline.
         sent = false;
@@ -381,7 +407,9 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     // committed utterance.
     dismissToastRef.current();
     try {
-      await postMessage(trimmed);
+      // Same ticket-title prefix as a spoken commit when typed from within a
+      // ticket, so both inputs reach the brain with identical context.
+      await postMessage(withTicketContext(trimmed, ticketContextRef.current));
       return true;
     } catch {
       return false;
@@ -411,6 +439,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       openKeyboard,
       closeKeyboard,
       submitText,
+      setTicketContext,
     }),
     [
       state.micState,
@@ -429,6 +458,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       openKeyboard,
       closeKeyboard,
       submitText,
+      setTicketContext,
     ],
   );
 

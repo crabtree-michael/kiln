@@ -452,8 +452,11 @@ export function PrimaryScreenView({
           // button + clear (×) the moment a transcript is on screen, so the user can
           // commit or reset the utterance without reaching for the dock behind the
           // sheet. Safe to always pass — it only mounts (and touches the voice store)
-          // when the sheet renders it.
-          voiceControl={<MicButton sendable />}
+          // when the sheet renders it. `ticketContext` registers this ticket's
+          // title with the voice store so whatever the user sends from the sheet is
+          // prefixed with it, giving the brain the context of what they're
+          // commenting on (08 §5).
+          voiceControl={<MicButton sendable ticketContext={openTicket.title} />}
           // The live transcript for that mic, shown in the sheet's dock above the
           // controls so the user watches their words land without leaving the sheet
           // (08 §5). Self-gating (renders nothing until there is text) and rides the

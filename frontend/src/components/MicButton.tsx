@@ -42,11 +42,45 @@ export interface MicButtonProps {
    *  utterance without the dock's full controls row. Defaults off — the dock passes
    *  nothing and keeps rendering just the orb (it owns its own send/cancel). */
   sendable?: boolean;
+  /** The title of the ticket this mic is placed inside (the ticket-detail sheet,
+   *  08 §5). When set, a message sent from here is prefixed with the title so the
+   *  brain knows which ticket the comment is about; the registration is cleared on
+   *  unmount (sheet close). The dock omits it, so dock messages carry no prefix. */
+  ticketContext?: string;
 }
 
-export function MicButton({ showLabel = false, sendable = false }: MicButtonProps): JSX.Element {
-  const { micState, connecting, settledText, tailText, pause, resume, cancel, sendNow, getLevel } =
-    useVoice();
+export function MicButton({
+  showLabel = false,
+  sendable = false,
+  ticketContext,
+}: MicButtonProps): JSX.Element {
+  const {
+    micState,
+    connecting,
+    settledText,
+    tailText,
+    pause,
+    resume,
+    cancel,
+    sendNow,
+    getLevel,
+    setTicketContext,
+  } = useVoice();
+
+  // While this mic is placed inside a ticket sheet, register that ticket's title
+  // as the voice store's active context so a message sent from here is prefixed
+  // with it (08 §5). Cleared to `null` on unmount (the sheet closing) so the dock
+  // mic behind it sends without a prefix. A no-op for the dock's own mic, which
+  // passes no `ticketContext`.
+  useEffect(() => {
+    if (ticketContext === undefined) {
+      return;
+    }
+    setTicketContext(ticketContext);
+    return () => {
+      setTicketContext(null);
+    };
+  }, [ticketContext, setTicketContext]);
   const orbRef = useRef<HTMLSpanElement | null>(null);
   // Send-aware mode swaps the orb for send + clear the moment there is any
   // transcript on screen — interim or settled, listening or paused (the "stuck"

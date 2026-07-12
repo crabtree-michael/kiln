@@ -34,6 +34,7 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     openKeyboard: vi.fn(),
     closeKeyboard: vi.fn(),
     submitText: vi.fn(() => Promise.resolve(true)),
+    setTicketContext: vi.fn(),
     ...overrides,
   };
 }

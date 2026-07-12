@@ -310,56 +310,12 @@ export function TicketDetail({
                   room until the user speaks. */}
               {showVoice && transcript}
               <div data-role="ticket-detail-actions">
-                {/* Bottom-left cluster: the mic and the Delete button — the pair
-                  08 §5 calls for. `margin-right: auto` on it pushes the trailing
-                  state action (Accept/Talk/Poke) to the right; absent (a sheet with
-                  neither voice nor delete) the row is byte-identical to the old
-                  flex-end footer. */}
-                {(showVoice || canDelete) && (
-                  <div data-role="ticket-detail-lead-actions">
-                    {showVoice && voiceControl}
-                    {/* Delete shows for a DELETABLE_STATES ticket with onDelete
-                      wired. Inline the state + callback check (not the derived
-                      canDelete) so TypeScript narrows onDelete to defined inside
-                      onClick — mirroring the Poke/Talk buttons below. */}
-                    {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
-                      <button
-                        type="button"
-                        data-role="detail-delete"
-                        onClick={() => {
-                          // A blocked delete discards in-progress work and releases
-                          // a worker, with no un-archive — so confirm it (D4). A
-                          // shaping proposal is cheap and re-proposable: delete it
-                          // immediately, no confirm.
-                          if (
-                            ticket.state === 'blocked' &&
-                            !window.confirm(DELETE_BLOCKED_CONFIRM)
-                          ) {
-                            return;
-                          }
-                          onDelete(ticket.id);
-                        }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          aria-hidden="true"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M4 7h16" />
-                          <path d="M10 11v6M14 11v6" />
-                          <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
-                          <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
-                        </svg>
-                        Delete
-                      </button>
-                    )}
-                  </div>
+                {/* Bottom-left cluster: the mic. `margin-right: auto` on it pushes
+                  the trailing state actions (Delete/Accept/Poke) to the right;
+                  absent (a sheet without voice) the row is byte-identical to the
+                  old flex-end footer. */}
+                {showVoice && (
+                  <div data-role="ticket-detail-lead-actions">{voiceControl}</div>
                 )}
                 {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
                   <button
@@ -376,6 +332,49 @@ export function TicketDetail({
                       👉
                     </span>
                     Poke
+                  </button>
+                )}
+                {/* Delete shows for a DELETABLE_STATES ticket with onDelete wired,
+                  as an icon-only circular button to the left of Accept. Inline the
+                  state + callback check (not the derived canDelete) so TypeScript
+                  narrows onDelete to defined inside onClick — mirroring the
+                  Poke/Accept buttons. The trash glyph is aria-hidden, so the
+                  button's accessible name comes from aria-label="Delete". */}
+                {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
+                  <button
+                    type="button"
+                    data-role="detail-delete"
+                    aria-label="Delete"
+                    onClick={() => {
+                      // A blocked delete discards in-progress work and releases a
+                      // worker, with no un-archive — so confirm it (D4). A shaping
+                      // proposal is cheap and re-proposable: delete it immediately,
+                      // no confirm.
+                      if (
+                        ticket.state === 'blocked' &&
+                        !window.confirm(DELETE_BLOCKED_CONFIRM)
+                      ) {
+                        return;
+                      }
+                      onDelete(ticket.id);
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M4 7h16" />
+                      <path d="M10 11v6M14 11v6" />
+                      <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+                      <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                    </svg>
                   </button>
                 )}
                 {isShaping && onAccept !== undefined && (

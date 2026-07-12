@@ -487,7 +487,6 @@ func TestUpsertProjectCreatesThenUpdates(t *testing.T) {
 	updated, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
 		Name:        testProjectName,
 		RepoURL:     testProjectRepoURL,
-		BrainModel:  "claude-haiku-4-5-20251001",
 		WorkerCount: 5,
 	})
 	if err != nil {
@@ -496,7 +495,7 @@ func TestUpsertProjectCreatesThenUpdates(t *testing.T) {
 	if updated.ID != created.ID {
 		t.Fatalf("second UpsertProject id = %q, want %q (same project)", updated.ID, created.ID)
 	}
-	if updated.BrainModel != "claude-haiku-4-5-20251001" || updated.WorkerCount != 5 {
+	if updated.WorkerCount != 5 {
 		t.Fatalf("UpsertProject update did not persist fields: %+v", updated)
 	}
 }

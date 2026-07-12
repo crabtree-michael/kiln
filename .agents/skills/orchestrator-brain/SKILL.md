@@ -17,7 +17,8 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
 **Open decisions — resolved in `docs/specs/06-orchestrator-brain.md` (status: proposed).**
 - [x] Model → 06 §2: Anthropic Go SDK, default `claude-haiku-4-5-20251001` (`DefaultModel`
       in `llm.go` — switched from Sonnet to Haiku to cut cost/latency), `KILN_BRAIN_MODEL`
-      override (`ModelEnvVar`). Per-project override via the `brain_model` project setting.
+      override (`ModelEnvVar`). Backend-only: the model is NOT user/project-configurable —
+      resolved at the composition root from `KILN_BRAIN_MODEL` else `DefaultModel`.
 - [x] Input contract → 06 §3 (amended by the CRUD consolidation): fresh context per pass —
       last 20 transcript messages + the event (agent output truncated ~8k head+tail). The
       board is NO LONGER injected — the model pulls it via list_tickets/get_ticket, so a

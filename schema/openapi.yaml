@@ -1068,7 +1068,7 @@ components:
         avatar_url: { type: string }
     MeProject:
       type: object
-      required: [name, repo_url, agent_provider, amika_snapshot, brain_model, worker_count, merge_gate_mode, amika_secrets]
+      required: [name, repo_url, agent_provider, amika_snapshot, worker_count, merge_gate_mode, amika_secrets]
       properties:
         name: { type: string }
         repo_url: { type: string }
@@ -1080,7 +1080,6 @@ components:
             Empty means "use the deployment default" (AGENT_MODE) — the back-compat
             behavior every existing project keeps.
         amika_snapshot: { type: string }
-        brain_model: { type: string }
         worker_count: { type: integer }
         merge_gate_mode:
           type: string
@@ -1159,7 +1158,6 @@ components:
             registered provider set; an unregistered key pauses the project's board
             loud rather than silently falling back (D7).
         amika_snapshot: { type: string }
-        brain_model: { type: string }
         worker_count: { type: integer }
         merge_gate_mode:
           type: string

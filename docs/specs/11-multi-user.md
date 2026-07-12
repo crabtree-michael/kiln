@@ -103,8 +103,11 @@ New tables (runtime Postgres, same database — `02` §3):
     pair (they were always the same repo twice): it feeds both the Amika sandbox source
     and the brain's repo-inspection clone.
   - `amika_snapshot` — a snapshot is built from a specific repo, so it rides with it.
-  - `brain_model` — per-brain model choice (was `KILN_BRAIN_MODEL`).
   - `worker_count` — per-board WIP cap (was `KILN_WORKER_COUNT`), default 3.
+
+  The brain model is **not** a project field: it is backend-only, resolved at the
+  composition root from `KILN_BRAIN_MODEL` (else `brain.DefaultModel`), and never exposed
+  as a user/project setting.
 
   One project per user for now, enforced by a unique index on `owner_user_id` that is
   **dropped, not migrated,** when multi-project arrives. Everything downstream keys on
@@ -138,7 +141,7 @@ New endpoints, all session-protected from day one, all types generated from `/sc
   entirely from this.
 - `PUT /api/settings` — partial update of `user_config`. Blank/omitted fields are left
   unchanged (secrets are write-only, so "clear" is an explicit `null`).
-- `PUT /api/project` — `name`, `repo_url`, `amika_snapshot`, `brain_model`,
+- `PUT /api/project` — `name`, `repo_url`, `amika_snapshot`,
   `worker_count`. Creates the row on first write (onboarding), updates thereafter.
 - `POST /api/settings/verify` — live connection checks, one per configured credential:
   Amika authenticated ping, `git ls-remote` on `repo_url` with the stored PAT, a
@@ -283,8 +286,9 @@ Per the hard gate (`02` §4), at three levels:
   user and the dashboard becomes a provisioning system — wrong trade at invite-only
   scale.
 - **D4 — Credentials on the user, repo + brain knobs on the project.** Keys follow the
-  person (`user_config`); `repo_url`, `amika_snapshot`, `brain_model`, `worker_count`
-  parameterize a specific brain/board (`projects`). `AMIKA_REPO_URL` and
+  person (`user_config`); `repo_url`, `amika_snapshot`, `worker_count`
+  parameterize a specific brain/board (`projects`). The brain model is not among them —
+  it is backend-only (`KILN_BRAIN_MODEL` else `brain.DefaultModel`). `AMIKA_REPO_URL` and
   `GITHUB_REPO_URL` collapse into one `repo_url` — they were always the same repo.
 - **D5 — One brain per project.** The brain is project-scoped state + a project-scoped
   event stream; users eventually run several. Registry keys on `project_id`, resolving

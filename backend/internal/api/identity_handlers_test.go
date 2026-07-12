@@ -174,7 +174,7 @@ func TestMeWithProjectAndSecrets(t *testing.T) {
 		User: identity.User{GitHubLogin: testGHLogin},
 		Project: &identity.Project{
 			Name: testProjectName, RepoURL: testRepoURL,
-			AmikaSnapshot: "snap-1", BrainModel: "sonnet", WorkerCount: 5,
+			AmikaSnapshot: "snap-1", WorkerCount: 5,
 		},
 		Settings: identity.MeSettings{
 			AnthropicKey: identity.SecretStatus{Set: true, Tail: "x4Kd"},

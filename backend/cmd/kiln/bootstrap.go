@@ -20,7 +20,6 @@ type bootstrapInput struct {
 	GitHubUser        string // KILN_BOOTSTRAP_GITHUB_USER — the owner to adopt orphans into ("" ⇒ adoption skipped)
 	RepoURL           string // GITHUB_REPO_URL else AMIKA_REPO_URL — the seeded project's repo
 	AmikaSnapshot     string // AMIKA_SNAPSHOT
-	BrainModel        string // KILN_BRAIN_MODEL
 	WorkerCount       int    // KILN_WORKER_COUNT — clamped 1..10 into projects.worker_count
 	AnthropicAPIKey   string // ANTHROPIC_API_KEY — seeded only when user_config's is unset
 	AmikaAPIKey       string // AMIKA_API_KEY — seeded only when unset
@@ -133,7 +132,6 @@ func ensureBootstrapProject(
 		Name:          projectName(in.RepoURL),
 		RepoURL:       in.RepoURL,
 		AmikaSnapshot: in.AmikaSnapshot,
-		BrainModel:    in.BrainModel,
 		WorkerCount:   clampWorkerCount(in.WorkerCount),
 	})
 	if err != nil {

@@ -686,7 +686,6 @@ export interface components {
             /** @description The registry key selecting which coding-agent provider this project's turns run on (multi-provider design §9): `amika`, `devin`, `mock`, … Empty means "use the deployment default" (AGENT_MODE) — the back-compat behavior every existing project keeps. */
             agent_provider: string;
             amika_snapshot: string;
-            brain_model: string;
             worker_count: number;
             /**
              * @description Which condition satisfies a ticket's merge gate (06 §7): `main` accepts a done only once its commit is on origin/main; `pr` accepts it once the work exists in a pull request, merged or not. Defaults to `main`.
@@ -733,7 +732,6 @@ export interface components {
             /** @description The registry key selecting this project's coding-agent provider (multi-provider design §9). Omitted or empty selects the deployment default (AGENT_MODE). The composition root validates the key against the registered provider set; an unregistered key pauses the project's board loud rather than silently falling back (D7). */
             agent_provider?: string;
             amika_snapshot?: string;
-            brain_model?: string;
             worker_count?: number;
             /**
              * @description Which condition satisfies a ticket's merge gate (06 §7): `main` (done when the commit is on origin/main) or `pr` (done when the work is in a pull request). Omitted or empty keeps/defaults to `main`.

@@ -461,7 +461,6 @@ type MeProject struct {
 	// AmikaSecrets Amika secrets injected into every sandbox this project starts (02 §8).
 	AmikaSecrets  []AmikaSecret `json:"amika_secrets"`
 	AmikaSnapshot string        `json:"amika_snapshot"`
-	BrainModel    string        `json:"brain_model"`
 
 	// MergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` accepts a done only once its commit is on origin/main; `pr` accepts it once the work exists in a pull request, merged or not. Defaults to `main`.
 	MergeGateMode MeProjectMergeGateMode `json:"merge_gate_mode"`
@@ -537,7 +536,6 @@ type ProjectUpdateRequest struct {
 	// AmikaSecrets The project's full Amika secret list. Like the other optional project fields on this wholesale upsert, omitted or [] clears it; a name kept with an empty value keeps its stored (encrypted) value (02 §8).
 	AmikaSecrets  *[]AmikaSecretInput `json:"amika_secrets,omitempty"`
 	AmikaSnapshot *string             `json:"amika_snapshot,omitempty"`
-	BrainModel    *string             `json:"brain_model,omitempty"`
 
 	// MergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` (done when the commit is on origin/main) or `pr` (done when the work is in a pull request). Omitted or empty keeps/defaults to `main`.
 	MergeGateMode *ProjectUpdateRequestMergeGateMode `json:"merge_gate_mode,omitempty"`

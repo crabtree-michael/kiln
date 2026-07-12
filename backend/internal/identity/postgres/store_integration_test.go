@@ -377,7 +377,6 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		RepoURL:       "https://github.com/o/r",
 		AgentProvider: "devin",
 		AmikaSnapshot: "snap-1",
-		BrainModel:    "claude-x",
 		WorkerCount:   3,
 		AmikaSecrets: []identity.AmikaSecret{
 			{NameEnc: []byte("enc-name-1"), ValueEnc: []byte("enc-val-1")},
@@ -424,7 +423,6 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		Name:          "renamed-project",
 		RepoURL:       "https://github.com/o/r2",
 		AmikaSnapshot: "snap-2",
-		BrainModel:    "claude-y",
 		WorkerCount:   5,
 	})
 	if err != nil {
@@ -473,7 +471,6 @@ func TestGetProjectByID(t *testing.T) {
 		Name:          "dave-project",
 		RepoURL:       "https://github.com/d/p",
 		AmikaSnapshot: "snap-d",
-		BrainModel:    "claude-d",
 		WorkerCount:   4,
 	})
 	if err != nil {
@@ -486,7 +483,7 @@ func TestGetProjectByID(t *testing.T) {
 	}
 	if got.ID != created.ID || got.OwnerUserID != user.ID || got.Name != "dave-project" ||
 		got.RepoURL != "https://github.com/d/p" || got.AmikaSnapshot != "snap-d" ||
-		got.BrainModel != "claude-d" || got.WorkerCount != 4 {
+		got.WorkerCount != 4 {
 		t.Fatalf("GetProject = %+v, want %+v", got, created)
 	}
 }

@@ -51,7 +51,7 @@ func (s *Store) Save(ctx context.Context, userID string, sub push.Subscription) 
 // failure (the board/postgres idiom).
 func (s *Store) List(ctx context.Context, userID string) (_ []push.Subscription, err error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, endpoint, p256dh, auth, created_at
+		SELECT id, endpoint, p256dh, auth, created_at, last_seen_foreground_at
 		FROM push_subscriptions
 		WHERE user_id = $1
 		ORDER BY id`, userID)
@@ -67,7 +67,9 @@ func (s *Store) List(ctx context.Context, userID string) (_ []push.Subscription,
 	var subs []push.Subscription
 	for rows.Next() {
 		var sub push.Subscription
-		if serr := rows.Scan(&sub.ID, &sub.Endpoint, &sub.P256dh, &sub.Auth, &sub.CreatedAt); serr != nil {
+		if serr := rows.Scan(
+			&sub.ID, &sub.Endpoint, &sub.P256dh, &sub.Auth, &sub.CreatedAt, &sub.LastSeenForegroundAt,
+		); serr != nil {
 			return nil, fmt.Errorf("push/postgres: scan subscription: %w", serr)
 		}
 		subs = append(subs, sub)
@@ -94,6 +96,26 @@ func (s *Store) DeleteUserEndpoint(ctx context.Context, userID, endpoint string)
 	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2`, userID, endpoint); err != nil {
 		return fmt.Errorf("push/postgres: delete user subscription: %w", err)
+	}
+	return nil
+}
+
+// TouchForeground records the caller's device foreground-presence lease (02 §10
+// push dedup): visible=true stamps last_seen_foreground_at to the server clock
+// (now()), visible=false clears it. Scoped by user_id AND endpoint so one user
+// can never stamp another's device; a no-op (no error, zero rows updated) when
+// the endpoint is unknown or owned by someone else — a presence report that
+// matches no owned row changes nothing and that device keeps receiving pushes
+// (fail-open). now() is the server clock, so the client never sends a timestamp
+// and clock skew cannot arise.
+func (s *Store) TouchForeground(ctx context.Context, userID, endpoint string, visible bool) error {
+	// A single UPDATE handles both directions: visible stamps now(), else NULL.
+	// CASE keeps it one statement (and one round trip) rather than branching.
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE push_subscriptions
+		SET last_seen_foreground_at = CASE WHEN $3 THEN now() ELSE NULL END
+		WHERE user_id = $1 AND endpoint = $2`, userID, endpoint, visible); err != nil {
+		return fmt.Errorf("push/postgres: touch foreground: %w", err)
 	}
 	return nil
 }

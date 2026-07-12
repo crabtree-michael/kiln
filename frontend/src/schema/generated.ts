@@ -329,6 +329,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report this device's foreground presence for push dedup (02 §10).
+         * @description The client heartbeats `{visible:true, endpoint}` while the app is foregrounded (and once immediately on becoming visible), and best-effort `{visible:false, endpoint}` (via `navigator.sendBeacon`) when it backgrounds. The server stamps `last_seen_foreground_at` on that device's push-subscription row (server clock — the client never sends a timestamp) so the notify.send sender can skip a device whose lease is still fresh, letting the in-app toast be the only surface rather than a duplicate OS banner. Suppression is a best-effort optimization layered over send-by-default: an unknown or foreign endpoint is a 204 no-op, and any doubt (stale lease, no presence ever reported) resolves to *send*. Scoped to the signed-in user (per-device, not per-project).
+         */
+        post: operations["postPresence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream": {
         parameters: {
             query?: never;
@@ -762,6 +782,13 @@ export interface components {
             /** @description The push service URL of the subscription to remove. */
             endpoint: string;
         };
+        /** @description One device's foreground-presence report (02 §10 push dedup): whether the app is currently visible, plus the device's own push-subscription endpoint so the server stamps the right row. The server uses its own clock, so no timestamp is carried. */
+        PresenceUpdate: {
+            /** @description true while the tab is foregrounded (heartbeat); false on the best-effort leave beacon when it backgrounds. */
+            visible: boolean;
+            /** @description The push service URL identifying this device's subscription row (the same endpoint carried in PushSubscription). */
+            endpoint: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -1191,6 +1218,35 @@ export interface operations {
                 };
             };
             /** @description Invalid request body (mode not one of the allowed values). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresenceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Presence recorded (or a no-op for an unknown endpoint). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body. */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -398,6 +398,33 @@ paths:
                 $ref: '#/components/schemas/NotificationMode'
         '400':
           description: Invalid request body (mode not one of the allowed values).
+  /api/presence:
+    post:
+      operationId: postPresence
+      summary: Report this device's foreground presence for push dedup (02 §10).
+      description: >
+        The client heartbeats `{visible:true, endpoint}` while the app is
+        foregrounded (and once immediately on becoming visible), and best-effort
+        `{visible:false, endpoint}` (via `navigator.sendBeacon`) when it
+        backgrounds. The server stamps `last_seen_foreground_at` on that device's
+        push-subscription row (server clock — the client never sends a timestamp)
+        so the notify.send sender can skip a device whose lease is still fresh,
+        letting the in-app toast be the only surface rather than a duplicate OS
+        banner. Suppression is a best-effort optimization layered over
+        send-by-default: an unknown or foreign endpoint is a 204 no-op, and any
+        doubt (stale lease, no presence ever reported) resolves to *send*. Scoped
+        to the signed-in user (per-device, not per-project).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresenceUpdate'
+      responses:
+        '204':
+          description: Presence recorded (or a no-op for an unknown endpoint).
+        '400':
+          description: Invalid request body.
   /api/stream:
     get:
       operationId: getStream
@@ -1220,4 +1247,24 @@ components:
         endpoint:
           type: string
           description: The push service URL of the subscription to remove.
+      additionalProperties: false
+    PresenceUpdate:
+      type: object
+      description: >
+        One device's foreground-presence report (02 §10 push dedup): whether the
+        app is currently visible, plus the device's own push-subscription endpoint
+        so the server stamps the right row. The server uses its own clock, so no
+        timestamp is carried.
+      required: [visible, endpoint]
+      properties:
+        visible:
+          type: boolean
+          description: >
+            true while the tab is foregrounded (heartbeat); false on the
+            best-effort leave beacon when it backgrounds.
+        endpoint:
+          type: string
+          description: >
+            The push service URL identifying this device's subscription row (the
+            same endpoint carried in PushSubscription).
       additionalProperties: false

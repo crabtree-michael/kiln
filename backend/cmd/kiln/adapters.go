@@ -733,6 +733,13 @@ func (a *pushRegistrarAdapter) Unsubscribe(ctx context.Context, userID, endpoint
 	return nil
 }
 
+func (a *pushRegistrarAdapter) TouchForeground(ctx context.Context, userID, endpoint string, visible bool) error {
+	if err := a.store.TouchForeground(ctx, userID, endpoint, visible); err != nil {
+		return fmt.Errorf("kiln: touch push presence: %w", err)
+	}
+	return nil
+}
+
 func (a *pushRegistrarAdapter) Mode(ctx context.Context, userID string) (string, error) {
 	mode, err := a.store.Mode(ctx, userID)
 	if err != nil {

@@ -13,6 +13,7 @@ import { useFeedStore } from '@/stores/feed-context';
 import { useActivityStore } from '@/stores/activity-context';
 import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
+import { usePresence } from '@/stores/use-presence';
 import { acceptTicket, deleteTicket, postMessage } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
@@ -21,6 +22,11 @@ function PrimaryScreenBody(): JSX.Element {
   // Keep the screen column matched to the visible viewport while the keyboard is
   // open, so the dock stays docked above it rather than sliding off-screen.
   useKeyboardViewport();
+
+  // Report foreground presence so the backend withholds a duplicate Web Push
+  // while this tab is visible (02 §10 push dedup). No-ops until notifications
+  // are enabled (no subscription ⇒ nothing to suppress).
+  usePresence();
 
   const {
     feed,

@@ -29,6 +29,7 @@ export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
+export type PresenceUpdatePayload = components['schemas']['PresenceUpdate'];
 export type BetaSignupRequest = components['schemas']['BetaSignupRequest'];
 export type NotificationMode = components['schemas']['NotificationMode'];
 /** The push-notification frequency values, mirroring the wire enum. */
@@ -616,6 +617,45 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
  * server is idempotent on the address, so a repeat submit still resolves; the
  * caller redirects to the confirmation page on success. Throws on a non-2xx so
  * the form can surface an error and keep the visitor on the page. */
+/** `POST /api/presence` — heartbeat that this device is foregrounded (02 §10
+ * push dedup). The server stamps `last_seen_foreground_at` on this endpoint's
+ * subscription row so the notify.send sender skips it while it's visible, letting
+ * the in-app toast be the only surface. Best-effort by design: a failure just
+ * leaves the lease stale, which resolves to *send* (the safe default), so the
+ * caller fires-and-forgets and never surfaces an error. Used for the visible
+ * heartbeat; the hide/teardown leave signal goes through `beaconPresenceHidden`
+ * so it survives the page being torn down. */
+export async function postPresence(endpoint: string, visible: boolean): Promise<void> {
+  const body: PresenceUpdatePayload = { visible, endpoint };
+  await fetch('/api/presence', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    // Let the heartbeat complete even if the tab is being backgrounded mid-flight.
+    keepalive: true,
+  });
+}
+
+/** `POST /api/presence {visible:false}` via `navigator.sendBeacon` — the
+ * best-effort leave signal (02 §10 push dedup) that clears this device's
+ * foreground lease the moment it backgrounds, collapsing the dedup window on the
+ * clean path. `sendBeacon` is the one request that survives the page being torn
+ * down (`pagehide`), where a `fetch` would be cancelled. Per the design this is
+ * an OPTIMIZATION, never a correctness requirement: if it doesn't fire (crash, OS
+ * kill), the short server-side TTL ages the lease out and delivery resumes.
+ * Returns whether the beacon was queued (false when unsupported), so the caller
+ * can fall back to `postPresence`. */
+export function beaconPresenceHidden(endpoint: string): boolean {
+  if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') {
+    return false;
+  }
+  const body: PresenceUpdatePayload = { visible: false, endpoint };
+  // A typed Blob so the push service sees application/json; the backend decodes
+  // JSON regardless of content type, but this keeps the wire honest.
+  const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
+  return navigator.sendBeacon('/api/presence', blob);
+}
+
 export async function postBetaSignup(email: string): Promise<void> {
   const body: BetaSignupRequest = { email };
   const response = await fetch('/api/beta-signup', {

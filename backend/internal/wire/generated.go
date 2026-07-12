@@ -517,6 +517,15 @@ type NotificationMode struct {
 // NotificationModeMode Which feed updates fire a push notification.
 type NotificationModeMode string
 
+// PresenceUpdate One device's foreground-presence report (02 §10 push dedup): whether the app is currently visible, plus the device's own push-subscription endpoint so the server stamps the right row. The server uses its own clock, so no timestamp is carried.
+type PresenceUpdate struct {
+	// Endpoint The push service URL identifying this device's subscription row (the same endpoint carried in PushSubscription).
+	Endpoint string `json:"endpoint"`
+
+	// Visible true while the tab is foregrounded (heartbeat); false on the best-effort leave beacon when it backgrounds.
+	Visible bool `json:"visible"`
+}
+
 // ProjectUpdateRequest defines model for ProjectUpdateRequest.
 type ProjectUpdateRequest struct {
 	// AgentProvider The registry key selecting this project's coding-agent provider (multi-provider design §9). Omitted or empty selects the deployment default (AGENT_MODE). The composition root validates the key against the registered provider set; an unregistered key pauses the project's board loud rather than silently falling back (D7).
@@ -696,6 +705,9 @@ type PostFeedSeenJSONRequestBody = FeedSeenRequest
 
 // PostMessageJSONRequestBody defines body for PostMessage for application/json ContentType.
 type PostMessageJSONRequestBody = MessageRequest
+
+// PostPresenceJSONRequestBody defines body for PostPresence for application/json ContentType.
+type PostPresenceJSONRequestBody = PresenceUpdate
 
 // PutProjectJSONRequestBody defines body for PutProject for application/json ContentType.
 type PutProjectJSONRequestBody = ProjectUpdateRequest

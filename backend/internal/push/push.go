@@ -26,6 +26,12 @@ type Subscription struct {
 	P256dh    string
 	Auth      string
 	CreatedAt time.Time
+	// LastSeenForegroundAt is the device's foreground-presence lease (02 §10 push
+	// dedup): the server-clock time of its most recent visible heartbeat, or nil
+	// when it has never reported foreground (or cleared it on backgrounding). The
+	// Sender skips a device whose lease is still fresh; nil always resolves to
+	// send, so absent presence degrades to today's always-send behavior.
+	LastSeenForegroundAt *time.Time
 }
 
 // Notification frequency modes (02 §10). ModeBlocked is the default and
@@ -50,11 +56,19 @@ const (
 // one user can never drop another's row. Both are idempotent — deleting an absent
 // endpoint is a no-op. Mode is per user (push_user_settings); a user who never
 // set one gets ModeBlocked, not an error.
+// TouchForeground records a device's foreground-presence lease (02 §10 push
+// dedup): visible=true stamps last_seen_foreground_at=now() on the row matching
+// that endpoint AND owned by userID, visible=false clears it. Scoped by user_id
+// like DeleteUserEndpoint so one user can never stamp another's device, and a
+// no-op (no error) when the endpoint is unknown or foreign — a presence report
+// that references no owned row simply changes nothing, and that device keeps
+// receiving pushes (fail-open).
 type Store interface {
 	Save(ctx context.Context, userID string, sub Subscription) error
 	List(ctx context.Context, userID string) ([]Subscription, error)
 	DeleteByEndpoint(ctx context.Context, endpoint string) error
 	DeleteUserEndpoint(ctx context.Context, userID, endpoint string) error
+	TouchForeground(ctx context.Context, userID, endpoint string, visible bool) error
 	Mode(ctx context.Context, userID string) (string, error)
 	SetMode(ctx context.Context, userID, mode string) error
 }

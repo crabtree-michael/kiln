@@ -193,6 +193,12 @@ type PushSubscription struct {
 type PushRegistrar interface {
 	Subscribe(ctx context.Context, userID string, sub PushSubscription) error
 	Unsubscribe(ctx context.Context, userID, endpoint string) error
+	// TouchForeground records a device's foreground-presence lease (02 §10 push
+	// dedup): POST /api/presence stamps (visible) or clears (hidden) the row for
+	// this user's endpoint so the notify.send sender can skip a foregrounded
+	// device. An unknown or foreign endpoint is a no-op, and any doubt resolves
+	// to send — presence is a best-effort optimization, never a delivery gate.
+	TouchForeground(ctx context.Context, userID, endpoint string, visible bool) error
 	Mode(ctx context.Context, userID string) (string, error)
 	SetMode(ctx context.Context, userID, mode string) error
 }
@@ -417,6 +423,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /api/push/key", s.withSession(s.handlePushKey))
 		mux.HandleFunc("GET /api/push/mode", s.withSession(s.handlePushModeGet))
 		mux.HandleFunc("PUT /api/push/mode", s.withSession(s.handlePushModeSet))
+		mux.HandleFunc("POST /api/presence", s.withSession(s.handlePresence))
 	}
 	if s.seeder != nil {
 		mux.HandleFunc("POST /api/dev/tickets", s.withProject(s.handleDevCreateTicket))
@@ -944,6 +951,40 @@ func (s *Server) handlePushUnsubscribe(w http.ResponseWriter, r *http.Request, u
 	if err := s.push.Unsubscribe(r.Context(), user.ID, req.Endpoint); err != nil {
 		slog.Error("api: delete push subscription", "err", err)
 		http.Error(w, "delete subscription", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePresence records a device's foreground-presence lease (02 §10 push
+// dedup). The client heartbeats {visible:true, endpoint} while the tab is
+// visible and best-effort {visible:false} on backgrounding; the server stamps
+// (or clears) last_seen_foreground_at on that user's matching subscription row
+// so the notify.send sender can skip a foregrounded device rather than deliver a
+// duplicate banner. Scoped to the signed-in user (per-device, not per-project),
+// mirroring handlePushSubscribe. An unknown or foreign endpoint is a 204 no-op —
+// presence is a best-effort optimization that must never gate delivery, so a
+// report that matches no owned row simply stamps nothing and that device keeps
+// receiving pushes (fail-open).
+func (s *Server) handlePresence(w http.ResponseWriter, r *http.Request, user identity.User) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushBody)
+	var req wire.PresenceUpdate
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Endpoint == "" {
+		http.Error(w, "endpoint is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.push.TouchForeground(r.Context(), user.ID, req.Endpoint, req.Visible); err != nil {
+		slog.Error("api: record push presence", "err", err)
+		http.Error(w, "record presence", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

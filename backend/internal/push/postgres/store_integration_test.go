@@ -376,6 +376,84 @@ func TestDeleteUserEndpointIsOwnerScoped(t *testing.T) {
 	}
 }
 
+// TestTouchForegroundStampsAndClears exercises the presence-lease write side
+// (02 §10 push dedup): a fresh subscription has a nil lease, visible=true stamps
+// it (server clock, reflected in List), and visible=false clears it back to nil.
+func TestTouchForegroundStampsAndClears(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	const endpoint = "https://push.example/device"
+	if err := store.Save(ctx, userA, sub(endpoint)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// A device that has never reported presence carries a nil lease → send.
+	got, err := store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List (initial): %v", err)
+	}
+	if len(got) != 1 || got[0].LastSeenForegroundAt != nil {
+		t.Fatalf("fresh subscription has non-nil lease: %+v", got)
+	}
+
+	// visible=true stamps the server clock.
+	if err := store.TouchForeground(ctx, userA, endpoint, true); err != nil {
+		t.Fatalf("TouchForeground(true): %v", err)
+	}
+	got, err = store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List (after stamp): %v", err)
+	}
+	if len(got) != 1 || got[0].LastSeenForegroundAt == nil {
+		t.Fatalf("visible=true did not stamp the lease: %+v", got)
+	}
+
+	// visible=false clears it back to nil (the clean leave-beacon path).
+	if err := store.TouchForeground(ctx, userA, endpoint, false); err != nil {
+		t.Fatalf("TouchForeground(false): %v", err)
+	}
+	got, err = store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List (after clear): %v", err)
+	}
+	if len(got) != 1 || got[0].LastSeenForegroundAt != nil {
+		t.Fatalf("visible=false did not clear the lease: %+v", got)
+	}
+}
+
+// TestTouchForegroundIsOwnerScoped: a presence report for an endpoint owned by
+// another user (or unknown) is a no-op — it stamps nothing and errors nothing,
+// so a racing/foreign beacon can never affect a device it doesn't own (fail-open).
+func TestTouchForegroundIsOwnerScoped(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	const endpoint = "https://push.example/owned-by-a"
+	if err := store.Save(ctx, userA, sub(endpoint)); err != nil {
+		t.Fatalf("Save userA: %v", err)
+	}
+
+	// userB tries to stamp userA's device: scoped by user_id, so it changes nothing.
+	if err := store.TouchForeground(ctx, userB, endpoint, true); err != nil {
+		t.Fatalf("TouchForeground (cross-user): %v", err)
+	}
+	got, err := store.List(ctx, userA)
+	if err != nil {
+		t.Fatalf("List userA: %v", err)
+	}
+	if len(got) != 1 || got[0].LastSeenForegroundAt != nil {
+		t.Fatalf("cross-user TouchForeground stamped userA's device: %+v", got)
+	}
+
+	// An unknown endpoint is likewise a no-op, not an error.
+	if err := store.TouchForeground(ctx, userA, "https://push.example/never", true); err != nil {
+		t.Errorf("TouchForeground on absent endpoint: %v", err)
+	}
+}
+
 // TestDeleteUserEndpointLeavesOtherDevices is the reported cross-device scenario:
 // one user with two devices (Phone A and Phone B, both under the single v1 user).
 // Disabling notifications on Phone B deletes only Phone B's endpoint — Phone A's

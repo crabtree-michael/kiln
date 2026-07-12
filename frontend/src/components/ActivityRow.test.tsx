@@ -97,7 +97,10 @@ describe('ActivityRow', () => {
     fireEvent.click(openButton);
 
     // Open: the clamp drops and a Close control appears; the Open button is gone.
-    expect(screen.getByText(/A very long agent utterance/)).toHaveAttribute('data-expanded', 'true');
+    expect(screen.getByText(/A very long agent utterance/)).toHaveAttribute(
+      'data-expanded',
+      'true',
+    );
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open message' })).toBeNull();
   });
@@ -214,9 +217,7 @@ describe('ActivityRow', () => {
     const toasts = [
       toast(1, { kind: 'toast', verb: 'started', ticketTitle: 'Login Redesign', ticketId: 't-1' }),
     ];
-    const { container } = render(
-      <ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />,
-    );
+    const { container } = render(<ActivityRow thinking={false} toasts={toasts} onDismiss={noop} />);
     expect(container).toMatchSnapshot();
   });
 

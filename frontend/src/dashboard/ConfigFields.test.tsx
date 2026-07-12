@@ -8,11 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ProjectFields } from '@/dashboard/ConfigFields';
-import type {
-  MeProject,
-  ProjectUpdateRequest,
-  ProviderDescriptor,
-} from '@/transport/transport';
+import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
 
 /** ProjectFields' onSave, typed so the captured call body is ProjectUpdateRequest
  * (no assertion needed to read amika_secrets off it). */
@@ -216,11 +212,11 @@ describe('ProjectFields — provider select', () => {
     );
     const select = screen.getByRole('combobox', { name: /agent provider/i });
     expect(select).toHaveValue('devin');
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      'Default',
-      'Amika',
-      'Devin',
-    ]);
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Default', 'Amika', 'Devin']);
   });
 
   it('submits the chosen provider key', () => {

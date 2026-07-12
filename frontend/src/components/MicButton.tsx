@@ -35,10 +35,7 @@ export interface MicButtonProps {
   ticketContext?: string;
 }
 
-export function MicButton({
-  sendable = false,
-  ticketContext,
-}: MicButtonProps): JSX.Element {
+export function MicButton({ sendable = false, ticketContext }: MicButtonProps): JSX.Element {
   const {
     micState,
     connecting,

@@ -39,7 +39,11 @@ interface ModeOption {
 // "All updates" (the tester's firehose) trails. "Default" is the selection
 // unless the user changes it.
 const MODE_OPTIONS: ModeOption[] = [
-  { value: 'default', label: 'Default', detail: 'Notify when a ticket is blocked, completed, or started.' },
+  {
+    value: 'default',
+    label: 'Default',
+    detail: 'Notify when a ticket is blocked, completed, or started.',
+  },
   { value: 'blocked', label: 'Blocked', detail: 'Notify only when a ticket needs you.' },
   { value: 'all', label: 'All updates', detail: 'Notify on every feed update.' },
 ];

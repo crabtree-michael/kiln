@@ -188,8 +188,8 @@ func TestModeIsPerUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mode userB: %v", err)
 	}
-	if got != push.ModeBlocked {
-		t.Errorf("userB mode = %q, want default %q", got, push.ModeBlocked)
+	if got != push.ModeDefault {
+		t.Errorf("userB mode = %q, want default %q", got, push.ModeDefault)
 	}
 	got, err = store.Mode(ctx, userA)
 	if err != nil {

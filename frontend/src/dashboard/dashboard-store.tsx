@@ -185,7 +185,10 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   // `me.projects` via `mergeProjects` — a local splice, so the switcher and list
   // reflect the change without a full `GET /api/me` round-trip.
   const runProjectMutation = useCallback(
-    async (label: string, mutate: () => Promise<(projects: MeProject[]) => MeProject[]>): Promise<void> => {
+    async (
+      label: string,
+      mutate: () => Promise<(projects: MeProject[]) => MeProject[]>,
+    ): Promise<void> => {
       setSaving(true);
       setError(null);
       try {

@@ -362,7 +362,8 @@ export async function fetchBoard(): Promise<Board> {
 
 /** `GET /api/messages?limit=` — most-recent `limit` transcript rows, oldest-first. */
 export async function fetchMessages(limit?: number): Promise<Message[]> {
-  const url = limit === undefined ? appPath('/messages') : appPath(`/messages?limit=${String(limit)}`);
+  const url =
+    limit === undefined ? appPath('/messages') : appPath(`/messages?limit=${String(limit)}`);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`fetchMessages: HTTP ${String(response.status)}`);
@@ -434,7 +435,9 @@ export async function fetchFeedHistory(before?: number, limit?: number): Promise
     params.set('limit', String(limit));
   }
   const query = params.toString();
-  const response = await fetch(query === '' ? appPath('/feed/history') : appPath(`/feed/history?${query}`));
+  const response = await fetch(
+    query === '' ? appPath('/feed/history') : appPath(`/feed/history?${query}`),
+  );
   if (!response.ok) {
     throw new Error(`fetchFeedHistory: HTTP ${String(response.status)}`);
   }
@@ -460,7 +463,9 @@ export async function postFeedSeen(lastNotificationId: number): Promise<void> {
  * fire-and-forget like `postFeedSeen`, the resulting `feed` snapshot drops the
  * card. */
 export async function dismissFeedCard(notificationId: number): Promise<void> {
-  const response = await fetch(appPath(`/feed/${String(notificationId)}/dismiss`), { method: 'POST' });
+  const response = await fetch(appPath(`/feed/${String(notificationId)}/dismiss`), {
+    method: 'POST',
+  });
   if (!response.ok) {
     throw new Error(`dismissFeedCard: HTTP ${String(response.status)}`);
   }

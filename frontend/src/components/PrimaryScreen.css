@@ -190,6 +190,154 @@
   color: var(--accent);
 }
 
+/* Project switcher (12 §4.1): the "Kiln" wordmark doubles as the dropdown
+ * trigger. `project-switcher` is the positioned ancestor the panel anchors to,
+ * and it stands where the static kiln-mark did, so `justify-content:
+ * space-between` on the header still holds it left and the actions cluster
+ * right. */
+[data-role='project-switcher'] {
+  position: relative;
+}
+
+[data-role='project-switcher-current'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+}
+
+[data-role='project-switcher-current']:hover,
+[data-role='project-switcher-current'][aria-expanded='true'] {
+  background: var(--surface-inset);
+}
+
+/* Caret mirrors the stream-status caret: a small triangle that flips when open. */
+[data-role='project-switcher-caret'] {
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid var(--accent);
+  opacity: 0.7;
+  transition: transform var(--duration-base) ease;
+}
+
+[data-role='project-switcher-current'][aria-expanded='true'] [data-role='project-switcher-caret'] {
+  transform: rotate(180deg);
+}
+
+/* LEFT-anchored panel (the trigger sits at the header's left edge), otherwise
+ * mirroring the notify/stream panels' mount-and-animate mechanics: it stays
+ * mounted and animates opacity/offset/max-height both ways, collapsed
+ * (max-height/opacity/pointer-events) until `data-open='true'`. This collapse is
+ * the fix for the panel that used to render permanently expanded — it carried no
+ * CSS at all, so the full project list floated over the screen and blocked the
+ * dock below. */
+[data-role='project-switcher-panel'] {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  max-width: calc(100vw - 52px);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  transform-origin: top left;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  max-height: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-base) ease,
+    transform var(--duration-base) var(--ease-settle),
+    max-height var(--duration-base) ease;
+}
+
+[data-role='project-switcher-panel'][data-open='true'] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  max-height: 60vh;
+  pointer-events: auto;
+}
+
+/* The scrolling region: the project list soaks up the overflow so the "Add"
+ * footer below stays pinned and visible however many projects the user owns. */
+[data-role='project-switcher-list'] {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+[data-role='project-switcher-item'] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-body);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+}
+
+[data-role='project-switcher-item']:hover {
+  background: var(--surface-inset);
+}
+
+/* The current project reads in the accent so the open menu shows at a glance
+ * which one the app is scoped to. */
+[data-role='project-switcher-item'][data-current='true'] {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+/* The "Add" footer sits below the list, separated by its own margin; it never
+ * shrinks, so the scrolling list can't push it off-panel. Mirrors the notify
+ * menu's permission button. */
+[data-role='project-switcher-new'] {
+  display: block;
+  flex-shrink: 0;
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 9px 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  text-align: center;
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='project-switcher-new']:hover {
+  color: var(--text-body);
+  background: var(--surface-card);
+}
+
 /* The right-aligned cluster of header dropdowns: the bell notification-settings
  * menu, then the stream status menu. justify-content: space-between on the
  * header keeps the wordmark left and this cluster right. */

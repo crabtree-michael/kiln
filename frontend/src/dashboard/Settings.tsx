@@ -21,7 +21,13 @@ interface ProjectCardProps {
 
 /** One project's edit form + delete, keyed on its id (12 §4.2). Delete is
  * behind a confirm since the cascade is destructive and irreversible (12 §5). */
-function ProjectCard({ project, providers, saving, onSave, onDelete }: ProjectCardProps): JSX.Element {
+function ProjectCard({
+  project,
+  providers,
+  saving,
+  onSave,
+  onDelete,
+}: ProjectCardProps): JSX.Element {
   const save = useCallback(
     (body: ProjectUpdateRequest): Promise<void> => onSave(project.id, body),
     [onSave, project.id],

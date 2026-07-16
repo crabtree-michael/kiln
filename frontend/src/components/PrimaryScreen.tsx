@@ -86,39 +86,37 @@ function PrimaryScreenBody(): JSX.Element {
   }, []);
 
   return (
-    <>
-      <ProjectSwitcher />
-      <PrimaryScreenView
-        feed={feed}
-        board={board}
-        connectionState={connectionState}
-        thinking={thinking}
-        toasts={toasts}
-        onDismiss={dismiss}
-        onToastExpandedChange={setToastExpanded}
-        onAccept={onAccept}
-        onDelete={onDelete}
-        onPoke={onPoke}
-        onDismissCard={dismissCard}
-        onDismissAll={dismissAll}
-        onOpenTickets={refreshBoard}
-        ticketsRefreshing={refreshing}
-        lastSeenId={lastSeenId}
-        hasMoreHistory={hasMoreHistory}
-        loadingMoreHistory={loadingMoreHistory}
-        onLoadMoreHistory={loadMoreHistory}
-        onRefreshFeed={refreshFeed}
-        notificationMode={notificationMode}
-        onSelectNotificationMode={setNotificationMode}
-        pushStatus={pushStatus}
-        onEnablePush={() => {
-          void enablePush();
-        }}
-        onDisablePush={() => {
-          void disablePush();
-        }}
-      />
-    </>
+    <PrimaryScreenView
+      brand={<ProjectSwitcher />}
+      feed={feed}
+      board={board}
+      connectionState={connectionState}
+      thinking={thinking}
+      toasts={toasts}
+      onDismiss={dismiss}
+      onToastExpandedChange={setToastExpanded}
+      onAccept={onAccept}
+      onDelete={onDelete}
+      onPoke={onPoke}
+      onDismissCard={dismissCard}
+      onDismissAll={dismissAll}
+      onOpenTickets={refreshBoard}
+      ticketsRefreshing={refreshing}
+      lastSeenId={lastSeenId}
+      hasMoreHistory={hasMoreHistory}
+      loadingMoreHistory={loadingMoreHistory}
+      onLoadMoreHistory={loadMoreHistory}
+      onRefreshFeed={refreshFeed}
+      notificationMode={notificationMode}
+      onSelectNotificationMode={setNotificationMode}
+      pushStatus={pushStatus}
+      onEnablePush={() => {
+        void enablePush();
+      }}
+      onDisablePush={() => {
+        void disablePush();
+      }}
+    />
   );
 }
 

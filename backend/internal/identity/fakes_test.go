@@ -21,7 +21,8 @@ type fakeStore struct {
 	users             map[int64]identity.User // keyed by GitHubID
 	sessions          map[string]identity.Session
 	configs           map[string]identity.UserConfig
-	projects          map[string]identity.Project // keyed by OwnerUserID
+	projects          map[string]identity.Project // keyed by project ID (multi-project, 12 §2)
+	deletedProjects   map[string]bool             // soft-deleted project ids (12 DP6)
 	seq               int
 	touchSessionCalls int // how many times TouchSession was invoked, for negative-renewal assertions
 }
@@ -30,10 +31,11 @@ var _ identity.Store = (*fakeStore)(nil)
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		users:    map[int64]identity.User{},
-		sessions: map[string]identity.Session{},
-		configs:  map[string]identity.UserConfig{},
-		projects: map[string]identity.Project{},
+		users:           map[int64]identity.User{},
+		sessions:        map[string]identity.Session{},
+		configs:         map[string]identity.UserConfig{},
+		projects:        map[string]identity.Project{},
+		deletedProjects: map[string]bool{},
 	}
 }
 
@@ -174,56 +176,107 @@ func (s *fakeStore) UpsertUserConfig(_ context.Context, cfg identity.UserConfig)
 	return nil
 }
 
+// GetProjectByOwner returns the owner's first live project (oldest by
+// CreatedAt), or ErrNotFound when they own none live (12 §6.4).
 func (s *fakeStore) GetProjectByOwner(_ context.Context, ownerUserID string) (identity.Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.projects[ownerUserID]
-	if !ok {
+	live := s.liveByOwnerLocked(ownerUserID)
+	if len(live) == 0 {
+		return identity.Project{}, identity.ErrNotFound
+	}
+	return live[0], nil
+}
+
+// CreateProject inserts a new project with a fresh id (12 DP2), stamping
+// CreatedAt so ordering matches the real store.
+func (s *fakeStore) CreateProject(_ context.Context, p identity.Project) (identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seq++
+	p.ID = fmt.Sprintf("project-%d", s.seq)
+	// Offset CreatedAt by the sequence so rapid sequential creates keep a stable,
+	// distinct ordering (real created_at has microsecond resolution).
+	p.CreatedAt = time.Now().Add(time.Duration(s.seq) * time.Millisecond)
+	if p.MergeGateMode == "" {
+		p.MergeGateMode = identity.MergeGateMain
+	}
+	s.projects[p.ID] = p
+	return p, nil
+}
+
+// UpdateProject updates a live project the owner owns; ErrNotFound otherwise
+// (12 §3.2).
+func (s *fakeStore) UpdateProject(_ context.Context, p identity.Project) (identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.projects[p.ID]
+	if !ok || s.deletedProjects[p.ID] || existing.OwnerUserID != p.OwnerUserID {
+		return identity.Project{}, identity.ErrNotFound
+	}
+	p.CreatedAt = existing.CreatedAt
+	if p.MergeGateMode == "" {
+		p.MergeGateMode = identity.MergeGateMain
+	}
+	s.projects[p.ID] = p
+	return p, nil
+}
+
+// SoftDeleteProject marks a live project the owner owns deleted; ErrNotFound
+// otherwise (12 DP6).
+func (s *fakeStore) SoftDeleteProject(_ context.Context, id, ownerUserID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.projects[id]
+	if !ok || s.deletedProjects[id] || existing.OwnerUserID != ownerUserID {
+		return identity.ErrNotFound
+	}
+	s.deletedProjects[id] = true
+	return nil
+}
+
+// GetProject returns ErrNotFound for an unknown or soft-deleted project id.
+func (s *fakeStore) GetProject(_ context.Context, id string) (identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.projects[id]
+	if !ok || s.deletedProjects[id] {
 		return identity.Project{}, identity.ErrNotFound
 	}
 	return p, nil
 }
 
-// UpsertProject finds-or-creates by OwnerUserID (one project per owner),
-// assigning ids "project-1", "project-2", … and stamping CreatedAt on first
-// write so GetProject/ListProjects behave like the real store.
-func (s *fakeStore) UpsertProject(_ context.Context, p identity.Project) (identity.Project, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if existing, ok := s.projects[p.OwnerUserID]; ok {
-		p.ID = existing.ID
-		p.CreatedAt = existing.CreatedAt
-	} else {
-		s.seq++
-		p.ID = fmt.Sprintf("project-%d", s.seq)
-		p.CreatedAt = time.Now()
-	}
-	s.projects[p.OwnerUserID] = p
-	return p, nil
-}
-
-// GetProject returns ErrNotFound for an unknown project id.
-func (s *fakeStore) GetProject(_ context.Context, id string) (identity.Project, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, p := range s.projects {
-		if p.ID == id {
-			return p, nil
-		}
-	}
-	return identity.Project{}, identity.ErrNotFound
-}
-
-// ListProjects returns every project ordered by CreatedAt.
+// ListProjects returns every live project ordered by CreatedAt.
 func (s *fakeStore) ListProjects(_ context.Context) ([]identity.Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]identity.Project, 0, len(s.projects))
-	for _, p := range s.projects {
-		out = append(out, p)
+	for id, p := range s.projects {
+		if !s.deletedProjects[id] {
+			out = append(out, p)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
+}
+
+// ListProjectsByOwner returns the owner's live projects, oldest-first.
+func (s *fakeStore) ListProjectsByOwner(_ context.Context, ownerUserID string) ([]identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.liveByOwnerLocked(ownerUserID), nil
+}
+
+// liveByOwnerLocked returns the owner's live projects oldest-first. Caller holds s.mu.
+func (s *fakeStore) liveByOwnerLocked(ownerUserID string) []identity.Project {
+	out := make([]identity.Project, 0)
+	for id, p := range s.projects {
+		if p.OwnerUserID == ownerUserID && !s.deletedProjects[id] {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
 }
 
 // touchSessionCallCount reports how many times TouchSession was invoked, for

@@ -47,23 +47,15 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request, user 
 	s.writeMe(w, r, user.ID)
 }
 
-// handlePutProject creates or updates the caller's single project (11 §3–§4),
-// then returns the refreshed account view. A write rejected by the domain's
-// validation (identity.ErrInvalidProject) is the client's fault: 400.
+// handlePutProject is the back-compat singular write (11 §3–§4, 12 §9): it
+// creates-or-updates the caller's FIRST project, then returns the refreshed
+// account view. A write rejected by the domain's validation
+// (identity.ErrInvalidProject) is the client's fault: 400. New clients use the
+// id'd /api/projects endpoints below.
 func (s *Server) handlePutProject(w http.ResponseWriter, r *http.Request, user identity.User) {
-	var req wire.ProjectUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	upd, ok := decodeProjectUpdate(w, r)
+	if !ok {
 		return
-	}
-	upd := identity.ProjectUpdate{
-		Name:          req.Name,
-		RepoURL:       req.RepoUrl,
-		AgentProvider: derefOr(req.AgentProvider, ""),
-		AmikaSnapshot: derefOr(req.AmikaSnapshot, ""),
-		WorkerCount:   derefOr(req.WorkerCount, 0),
-		MergeGateMode: mergeGateModeToDomain(req.MergeGateMode),
-		AmikaSecrets:  amikaSecretsToDomain(req.AmikaSecrets),
 	}
 	if _, err := s.account.UpsertProject(r.Context(), user.ID, upd); err != nil {
 		if errors.Is(err, identity.ErrInvalidProject) {
@@ -77,9 +69,85 @@ func (s *Server) handlePutProject(w http.ResponseWriter, r *http.Request, user i
 	s.writeMe(w, r, user.ID)
 }
 
+// handleListProjects returns the caller's live projects (GET /api/projects,
+// 12 §3.1) — each with its id and secret statuses.
+func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request, user identity.User) {
+	views, err := s.account.ListProjects(r.Context(), user.ID)
+	if err != nil {
+		slog.Error("api: list projects", "err", err)
+		http.Error(w, "list projects", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, projectViewsToWire(views))
+}
+
+// handleCreateProject creates a distinct project for the caller (POST
+// /api/projects, 12 DP2) and returns it (201) with its server-generated id. A
+// domain-rejected write is a 400.
+func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, user identity.User) {
+	upd, ok := decodeProjectUpdate(w, r)
+	if !ok {
+		return
+	}
+	view, err := s.account.CreateProject(r.Context(), user.ID, upd)
+	if err != nil {
+		if errors.Is(err, identity.ErrInvalidProject) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		slog.Error("api: create project", "err", err)
+		http.Error(w, "create project", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, projectViewToWire(view))
+}
+
+// handleUpdateProject updates a project the caller owns (PUT /api/projects/{pid},
+// 12 §3.1) and returns it. A project the caller does not own is ErrNotFound → 404
+// (never confirming a foreign project's existence, §3.2); a domain-rejected
+// write is a 400.
+func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request, user identity.User) {
+	upd, ok := decodeProjectUpdate(w, r)
+	if !ok {
+		return
+	}
+	view, err := s.account.UpdateProject(r.Context(), user.ID, r.PathValue(projectIDParam), upd)
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrNotFound):
+			writeNotFound(w, msgNoSuchProject)
+		case errors.Is(err, identity.ErrInvalidProject):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			slog.Error("api: update project", "err", err)
+			http.Error(w, "update project", http.StatusInternalServerError)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, projectViewToWire(view))
+}
+
+// handleDeleteProject deletes a project the caller owns (DELETE
+// /api/projects/{pid}, 12 §5): the composition-root coordinator runs the
+// application-level cascade (purge state, evict tenant + repo clone) then
+// soft-deletes the row. A project the caller does not own is ErrNotFound → 404,
+// and the cascade never runs. 204 on success.
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request, user identity.User) {
+	err := s.projectDel.DeleteProject(r.Context(), user.ID, r.PathValue(projectIDParam))
+	if err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			writeNotFound(w, msgNoSuchProject)
+			return
+		}
+		slog.Error("api: delete project", "err", err)
+		http.Error(w, "delete project", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleVerify runs the live connection checks over the caller's stored
-// credentials (11 §4) and returns them in the service's order
-// (anthropic, amika, devin, repo). No request body.
+// credentials against their first project's repo (11 §4). No request body.
 func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request, user identity.User) {
 	checks, err := s.account.Verify(r.Context(), user.ID)
 	if err != nil {
@@ -87,6 +155,50 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request, user ident
 		http.Error(w, "verify settings", http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, http.StatusOK, verifyChecksToWire(checks))
+}
+
+// handleVerifyProject runs the checks against a specific project's repo (POST
+// /api/projects/{pid}/verify, 12 §3.1): the repo check is per-project, the
+// credential checks per-user. A project the caller does not own is 404.
+func (s *Server) handleVerifyProject(w http.ResponseWriter, r *http.Request, user identity.User) {
+	checks, err := s.account.VerifyProject(r.Context(), user.ID, r.PathValue(projectIDParam))
+	if err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			writeNotFound(w, msgNoSuchProject)
+			return
+		}
+		slog.Error("api: verify project", "err", err)
+		http.Error(w, "verify project", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, verifyChecksToWire(checks))
+}
+
+// decodeProjectUpdate decodes a ProjectUpdateRequest body into the domain type,
+// writing a 400 and returning ok=false on a malformed body. Shared by the
+// singular, create, and update handlers.
+func decodeProjectUpdate(w http.ResponseWriter, r *http.Request) (identity.ProjectUpdate, bool) {
+	var req wire.ProjectUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return identity.ProjectUpdate{}, false
+	}
+	return identity.ProjectUpdate{
+		Name:          req.Name,
+		RepoURL:       req.RepoUrl,
+		AgentProvider: derefOr(req.AgentProvider, ""),
+		AmikaSnapshot: derefOr(req.AmikaSnapshot, ""),
+		WorkerCount:   derefOr(req.WorkerCount, 0),
+		MergeGateMode: mergeGateModeToDomain(req.MergeGateMode),
+		AmikaSecrets:  amikaSecretsToDomain(req.AmikaSecrets),
+	}, true
+}
+
+// verifyChecksToWire maps the service's check results onto the wire response,
+// preserving order (anthropic, amika, devin, repo). Shared by the user- and
+// project-scoped verify handlers.
+func verifyChecksToWire(checks []identity.CheckResult) wire.VerifyResponse {
 	out := make([]wire.VerifyCheck, 0, len(checks))
 	for _, c := range checks {
 		out = append(out, wire.VerifyCheck{
@@ -95,7 +207,7 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request, user ident
 			Message: c.Message,
 		})
 	}
-	writeJSON(w, http.StatusOK, wire.VerifyResponse{Checks: out})
+	return wire.VerifyResponse{Checks: out}
 }
 
 // handleDevSession mints a session straight from a GitHub login (dev only),
@@ -149,18 +261,19 @@ func (s *Server) writeMe(w http.ResponseWriter, r *http.Request, userID string) 
 	writeJSON(w, http.StatusOK, out)
 }
 
-// meToWire maps an identity.Me onto the generated wire.Me (11 §4) — the
-// single domain→wire mapper for the account view, next to boardToWire's
-// precedent. A nil Project stays nil (omitted from the JSON); each secret
-// carries through as presence+fingerprint only. Structurally no secret value
-// can appear: identity.Me carries none.
+// meToWire maps an identity.Me onto the generated wire.Me (11 §4, 12 §3.1) —
+// the single domain→wire mapper for the account view, next to boardToWire's
+// precedent. The old singular project? became a projects[] (12 §3.1); each
+// carries its id and its secrets as presence+fingerprint only. Structurally no
+// secret value can appear: identity.Me carries none.
 func meToWire(me identity.Me) wire.Me {
-	out := wire.Me{
+	return wire.Me{
 		User: wire.MeUser{
 			GithubLogin: me.User.GitHubLogin,
 			DisplayName: me.User.DisplayName,
 			AvatarUrl:   me.User.AvatarURL,
 		},
+		Projects: projectViewsToWire(me.Projects),
 		Settings: wire.MeSettings{
 			AnthropicApiKey:   secretToWire(me.Settings.AnthropicKey),
 			AmikaApiKey:       secretToWire(me.Settings.AmikaKey),
@@ -169,18 +282,34 @@ func meToWire(me identity.Me) wire.Me {
 			AmikaClaudeCredId: me.Settings.AmikaClaudeCredID,
 		},
 	}
-	if p := me.Project; p != nil {
-		out.Project = &wire.MeProject{
-			Name:          p.Name,
-			RepoUrl:       p.RepoURL,
-			AgentProvider: p.AgentProvider,
-			AmikaSnapshot: p.AmikaSnapshot,
-			WorkerCount:   p.WorkerCount,
-			MergeGateMode: mergeGateModeToWire(p.MergeGateMode),
-			AmikaSecrets:  amikaSecretsToWire(me.ProjectSecrets),
-		}
+}
+
+// projectViewsToWire maps the caller's project views onto wire.MeProject,
+// always non-nil so the JSON is an array (never null) — the client's "not
+// onboarded" discriminator is projects.length === 0 (12 §4.1).
+func projectViewsToWire(views []identity.ProjectView) []wire.MeProject {
+	out := make([]wire.MeProject, 0, len(views))
+	for _, v := range views {
+		out = append(out, projectViewToWire(v))
 	}
 	return out
+}
+
+// projectViewToWire maps one project view (project + secret statuses) onto the
+// wire.MeProject, including the id the client keys every project-scoped call by
+// (12 §3.1, DP5).
+func projectViewToWire(v identity.ProjectView) wire.MeProject {
+	p := v.Project
+	return wire.MeProject{
+		Id:            p.ID,
+		Name:          p.Name,
+		RepoUrl:       p.RepoURL,
+		AgentProvider: p.AgentProvider,
+		AmikaSnapshot: p.AmikaSnapshot,
+		WorkerCount:   p.WorkerCount,
+		MergeGateMode: mergeGateModeToWire(p.MergeGateMode),
+		AmikaSecrets:  amikaSecretsToWire(v.Secrets),
+	}
 }
 
 // amikaSecretsToWire maps the project's secret statuses to the wire read type.

@@ -7,9 +7,19 @@
 // per-field auto-save + auto-verify, superseding the old manual "Save
 // credentials" / "Test connections" buttons); `saveProject` never does.
 import { useCallback, useEffect, useMemo, useState, type JSX, type ReactNode } from 'react';
-import { fetchMe, postLogout, postVerify, putProject, putSettings } from '@/transport/transport';
+import {
+  createProject as createProjectRequest,
+  deleteProject as deleteProjectRequest,
+  fetchMe,
+  postLogout,
+  postVerify,
+  putProject,
+  putSettings,
+  updateProject as updateProjectRequest,
+} from '@/transport/transport';
 import type {
   Me,
+  MeProject,
   ProjectUpdateRequest,
   SettingsUpdateRequest,
   VerifyCheck,
@@ -170,6 +180,53 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
     }
   }, []);
 
+  // runProjectMutation wraps a project create/update/delete (12 §3.1, §5): it
+  // sets saving/error, runs the transport call, and folds the result back into
+  // `me.projects` via `mergeProjects` — a local splice, so the switcher and list
+  // reflect the change without a full `GET /api/me` round-trip.
+  const runProjectMutation = useCallback(
+    async (label: string, mutate: () => Promise<(projects: MeProject[]) => MeProject[]>): Promise<void> => {
+      setSaving(true);
+      setError(null);
+      try {
+        const apply = await mutate();
+        setMe((prev) => (prev === null ? prev : { ...prev, projects: apply(prev.projects) }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : `${label} failed`);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [],
+  );
+
+  const createProject = useCallback(
+    (body: ProjectUpdateRequest): Promise<void> =>
+      runProjectMutation('createProject', async () => {
+        const created = await createProjectRequest(body);
+        return (projects) => [...projects, created];
+      }),
+    [runProjectMutation],
+  );
+
+  const updateProject = useCallback(
+    (id: string, body: ProjectUpdateRequest): Promise<void> =>
+      runProjectMutation('updateProject', async () => {
+        const updated = await updateProjectRequest(id, body);
+        return (projects) => projects.map((p) => (p.id === id ? updated : p));
+      }),
+    [runProjectMutation],
+  );
+
+  const removeProject = useCallback(
+    (id: string): Promise<void> =>
+      runProjectMutation('removeProject', async () => {
+        await deleteProjectRequest(id);
+        return (projects) => projects.filter((p) => p.id !== id);
+      }),
+    [runProjectMutation],
+  );
+
   const signOut = useCallback(async (): Promise<void> => {
     setSaving(true);
     setError(null);
@@ -194,6 +251,9 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       pendingCredentials,
       saveSettings,
       saveProject,
+      createProject,
+      updateProject,
+      removeProject,
       runVerify,
       signOut,
     }),
@@ -207,6 +267,9 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
       pendingCredentials,
       saveSettings,
       saveProject,
+      createProject,
+      updateProject,
+      removeProject,
       runVerify,
       signOut,
     ],

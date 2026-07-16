@@ -38,12 +38,25 @@ type Store interface {
 	GetUserConfig(ctx context.Context, userID string) (UserConfig, error)
 	UpsertUserConfig(ctx context.Context, cfg UserConfig) error
 
-	// GetProjectByOwner returns ErrNotFound before onboarding creates it.
+	// GetProjectByOwner returns the owner's FIRST live project (oldest by
+	// created_at), or ErrNotFound when they own none — the back-compat resolver
+	// behind the singular routes and bootstrap (12 §6.4). Filters soft-deleted rows.
 	GetProjectByOwner(ctx context.Context, ownerUserID string) (Project, error)
-	// GetProject returns ErrNotFound for an unknown projects.id.
+	// GetProject returns ErrNotFound for an unknown or soft-deleted projects.id.
 	GetProject(ctx context.Context, id string) (Project, error)
-	// ListProjects returns every project ordered by created_at (stable startup
-	// ordering for the runtime's per-project registry).
+	// ListProjects returns every LIVE project ordered by created_at (stable
+	// startup ordering for the runtime's per-project registry); soft-deleted rows
+	// are filtered so a deleted tenant is never stood up (12 DP6).
 	ListProjects(ctx context.Context) ([]Project, error)
-	UpsertProject(ctx context.Context, p Project) (Project, error)
+	// ListProjectsByOwner returns the owner's live projects oldest-first — the
+	// collection behind GET /api/projects and Me.projects (12 §3.1).
+	ListProjectsByOwner(ctx context.Context, ownerUserID string) ([]Project, error)
+	// CreateProject inserts a new project and returns it with its generated id (12 DP2).
+	CreateProject(ctx context.Context, p Project) (Project, error)
+	// UpdateProject updates a project in place, guarded by the owner check in its
+	// WHERE (id + owner_user_id, live only); ErrNotFound when no live row matches (12 §3.2).
+	UpdateProject(ctx context.Context, p Project) (Project, error)
+	// SoftDeleteProject marks the owner's project deleted (retained, filtered from
+	// reads); ErrNotFound when no live row matches (12 DP6).
+	SoftDeleteProject(ctx context.Context, id, ownerUserID string) error
 }

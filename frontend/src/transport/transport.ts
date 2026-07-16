@@ -46,6 +46,37 @@ type MeUser = components['schemas']['MeUser'];
 type MeSettings = components['schemas']['MeSettings'];
 type SecretStatus = components['schemas']['SecretStatus'];
 
+// --- Current-project scoping (12 §3.2, DP5) ---
+//
+// The client references and keys every project-scoped call by the project id
+// (12 §4.1). `activeProjectId` is the one the app is currently viewing — set by
+// the current-project store (`stores/current-project`) — and `appPath` prefixes
+// every board/feed/stream/message URL with `/api/projects/{id}` so the request
+// carries the project in the URL (the only place the SSE `EventSource` can name
+// it — it can't set a header, 12 §3.2). It is a per-JS-context module value, so
+// two tabs viewing different projects stay independent (12 §7.2). When unset it
+// falls back to the bare `/api/...` route (the back-compat first-project routes
+// the backend keeps alive, 12 §9), so a call made before a project is selected —
+// and every existing test — still resolves.
+let activeProjectId: string | null = null;
+
+/** Sets the project every subsequent project-scoped call scopes by (12 §4.1). */
+export function setActiveProjectId(id: string | null): void {
+  activeProjectId = id;
+}
+
+/** Returns the currently-scoped project id, or null before one is selected. */
+export function getActiveProjectId(): string | null {
+  return activeProjectId;
+}
+
+/** Builds a project-scoped app URL: `/api/projects/{id}{path}` when a project is
+ * active, else the bare `/api{path}` back-compat route (12 §9). `path` starts
+ * with a slash, e.g. `/board`, `/feed/history`, `/tickets/${id}/accept`. */
+function appPath(path: string): string {
+  return activeProjectId === null ? `/api${path}` : `/api/projects/${activeProjectId}${path}`;
+}
+
 /**
  * Stream connection state (07 §8): `EventSource` retries natively, so this is
  * purely a display concern — the board dims while reconnecting but stays
@@ -250,7 +281,7 @@ function isMessageEvent(event: Event): event is MessageEvent<string> {
  * (07 §5, §8) — this function does not implement its own backoff.
  */
 export function openStream(handlers: StreamHandlers): StreamConnection {
-  const source = new EventSource('/api/stream');
+  const source = new EventSource(appPath('/stream'));
 
   source.addEventListener('board', (event) => {
     if (!isMessageEvent(event)) {
@@ -318,7 +349,7 @@ export function openStream(handlers: StreamHandlers): StreamConnection {
 
 /** `GET /api/board` — the same absolute snapshot shape as the `board` SSE event. */
 export async function fetchBoard(): Promise<Board> {
-  const response = await fetch('/api/board');
+  const response = await fetch(appPath('/board'));
   if (!response.ok) {
     throw new Error(`fetchBoard: HTTP ${String(response.status)}`);
   }
@@ -331,7 +362,7 @@ export async function fetchBoard(): Promise<Board> {
 
 /** `GET /api/messages?limit=` — most-recent `limit` transcript rows, oldest-first. */
 export async function fetchMessages(limit?: number): Promise<Message[]> {
-  const url = limit === undefined ? '/api/messages' : `/api/messages?limit=${String(limit)}`;
+  const url = limit === undefined ? appPath('/messages') : appPath(`/messages?limit=${String(limit)}`);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`fetchMessages: HTTP ${String(response.status)}`);
@@ -345,7 +376,7 @@ export async function fetchMessages(limit?: number): Promise<Message[]> {
 
 /** `POST /api/message` — appends the user row + enqueues `human.message`, in one transaction. */
 export async function postMessage(text: string): Promise<MessagePostResponse> {
-  const response = await fetch('/api/message', {
+  const response = await fetch(appPath('/message'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
@@ -364,7 +395,7 @@ export async function postMessage(text: string): Promise<MessagePostResponse> {
  * foreground/resume and stream reconnect to resync the spinner, since the
  * `activity` SSE event is ephemeral and never replayed. */
 export async function fetchActivityStatus(): Promise<ActivityStatus> {
-  const response = await fetch('/api/activity');
+  const response = await fetch(appPath('/activity'));
   if (!response.ok) {
     throw new Error(`fetchActivityStatus: HTTP ${String(response.status)}`);
   }
@@ -377,7 +408,7 @@ export async function fetchActivityStatus(): Promise<ActivityStatus> {
 
 /** `GET /api/feed` — the same absolute snapshot shape as the `feed` SSE event (08 §3). */
 export async function fetchFeed(): Promise<FeedSnapshot> {
-  const response = await fetch('/api/feed');
+  const response = await fetch(appPath('/feed'));
   if (!response.ok) {
     // A transient 5xx returns a plain-text body ("read feed"), so surface the
     // status as the error rather than letting `response.json()` throw an opaque
@@ -403,7 +434,7 @@ export async function fetchFeedHistory(before?: number, limit?: number): Promise
     params.set('limit', String(limit));
   }
   const query = params.toString();
-  const response = await fetch(query === '' ? '/api/feed/history' : `/api/feed/history?${query}`);
+  const response = await fetch(query === '' ? appPath('/feed/history') : appPath(`/feed/history?${query}`));
   if (!response.ok) {
     throw new Error(`fetchFeedHistory: HTTP ${String(response.status)}`);
   }
@@ -417,7 +448,7 @@ export async function fetchFeedHistory(before?: number, limit?: number): Promise
 /** `POST /api/feed/seen` — marks update/preview cards seen up to `lastNotificationId` (08 §3). */
 export async function postFeedSeen(lastNotificationId: number): Promise<void> {
   const body: FeedSeenRequest = { last_notification_id: lastNotificationId };
-  await fetch('/api/feed/seen', {
+  await fetch(appPath('/feed/seen'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -429,7 +460,7 @@ export async function postFeedSeen(lastNotificationId: number): Promise<void> {
  * fire-and-forget like `postFeedSeen`, the resulting `feed` snapshot drops the
  * card. */
 export async function dismissFeedCard(notificationId: number): Promise<void> {
-  const response = await fetch(`/api/feed/${String(notificationId)}/dismiss`, { method: 'POST' });
+  const response = await fetch(appPath(`/feed/${String(notificationId)}/dismiss`), { method: 'POST' });
   if (!response.ok) {
     throw new Error(`dismissFeedCard: HTTP ${String(response.status)}`);
   }
@@ -439,7 +470,7 @@ export async function dismissFeedCard(notificationId: number): Promise<void> {
  * once (the header trash affordance, 08 §3). Idempotent server-side; the
  * resulting `feed` snapshot drops them all. */
 export async function dismissAllFeedCards(): Promise<void> {
-  const response = await fetch('/api/feed/dismiss-all', { method: 'POST' });
+  const response = await fetch(appPath('/feed/dismiss-all'), { method: 'POST' });
   if (!response.ok) {
     throw new Error(`dismissAllFeedCards: HTTP ${String(response.status)}`);
   }
@@ -461,11 +492,16 @@ function isMeUser(value: unknown): value is MeUser {
 function isMeProject(value: unknown): value is MeProject {
   return (
     isRecord(value) &&
+    typeof value.id === 'string' &&
     typeof value.name === 'string' &&
     typeof value.repo_url === 'string' &&
     typeof value.amika_snapshot === 'string' &&
     typeof value.worker_count === 'number'
   );
+}
+
+function isMeProjectArray(value: unknown): value is MeProject[] {
+  return Array.isArray(value) && value.every(isMeProject);
 }
 
 function isSecretStatus(value: unknown): value is SecretStatus {
@@ -500,7 +536,7 @@ function isMe(value: unknown): value is Me {
   return (
     isRecord(value) &&
     isMeUser(value.user) &&
-    (value.project === undefined || isMeProject(value.project)) &&
+    isMeProjectArray(value.projects) &&
     isMeSettings(value.settings) &&
     (value.providers === undefined ||
       (Array.isArray(value.providers) && value.providers.every(isProviderDescriptor)))
@@ -733,6 +769,78 @@ export async function putProject(body: ProjectUpdateRequest): Promise<Me> {
   return payload;
 }
 
+/** `GET /api/projects` — the caller's live projects, each with its `id` (12 §3.1). */
+export async function listProjects(): Promise<MeProject[]> {
+  const response = await fetch('/api/projects');
+  if (!response.ok) {
+    throw new Error(`listProjects: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isMeProjectArray(payload)) {
+    throw new Error('listProjects: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `POST /api/projects` — create a new project (12 DP2). Returns the created
+ * project with its server-generated `id`. */
+export async function createProject(body: ProjectUpdateRequest): Promise<MeProject> {
+  const response = await fetch('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`createProject: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isMeProject(payload)) {
+    throw new Error('createProject: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `PUT /api/projects/{id}` — update a project the caller owns (12 §3.1). A
+ * project the caller does not own is a 404 (12 §3.2). */
+export async function updateProject(id: string, body: ProjectUpdateRequest): Promise<MeProject> {
+  const response = await fetch(`/api/projects/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`updateProject: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isMeProject(payload)) {
+    throw new Error('updateProject: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `DELETE /api/projects/{id}` — soft-delete a project the caller owns (12 §5).
+ * A project the caller does not own is a 404. */
+export async function deleteProject(id: string): Promise<void> {
+  const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    throw new Error(`deleteProject: HTTP ${String(response.status)}`);
+  }
+}
+
+/** `POST /api/projects/{id}/verify` — run the connectivity checks for a specific
+ * project's repo + the caller's credentials (12 §3.1). */
+export async function verifyProject(id: string): Promise<VerifyResponse> {
+  const response = await fetch(`/api/projects/${id}/verify`, { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`verifyProject: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isVerifyResponse(payload)) {
+    throw new Error('verifyProject: unexpected response shape');
+  }
+  return payload;
+}
+
 /** `POST /api/settings/verify` — runs the per-check connectivity verification
  * (anthropic/amika/repo); unconfigured checks report status "skipped". */
 export async function postVerify(): Promise<VerifyResponse> {
@@ -774,7 +882,7 @@ export async function fetchVoiceToken(): Promise<VoiceToken> {
 
 /** `POST /api/tickets/{id}/accept` — routes acceptance through the brain like `postMessage` (08 contract). */
 export async function acceptTicket(id: string): Promise<MessagePostResponse> {
-  const response = await fetch(`/api/tickets/${id}/accept`, { method: 'POST' });
+  const response = await fetch(appPath(`/tickets/${id}/accept`), { method: 'POST' });
   const payload: unknown = await response.json();
   if (!isMessagePostResponse(payload)) {
     throw new Error('acceptTicket: unexpected response shape');
@@ -786,7 +894,7 @@ export async function acceptTicket(id: string): Promise<MessagePostResponse> {
  * like `acceptTicket`: the brain archives the shaping ticket via delete_ticket, so
  * the client never mutates the board directly (D5). */
 export async function deleteTicket(id: string): Promise<MessagePostResponse> {
-  const response = await fetch(`/api/tickets/${id}/delete`, { method: 'POST' });
+  const response = await fetch(appPath(`/tickets/${id}/delete`), { method: 'POST' });
   const payload: unknown = await response.json();
   if (!isMessagePostResponse(payload)) {
     throw new Error('deleteTicket: unexpected response shape');

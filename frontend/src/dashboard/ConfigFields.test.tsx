@@ -16,6 +16,7 @@ type SaveMock = Mock<(body: ProjectUpdateRequest) => Promise<void>>;
 
 function baseProject(overrides: Partial<MeProject> = {}): MeProject {
   return {
+    id: 'proj-1',
     name: 'demo',
     repo_url: 'https://github.com/acme/demo',
     agent_provider: '',

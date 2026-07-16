@@ -99,7 +99,7 @@ func newTenServer(t *testing.T) *tenServer {
 
 	srv := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, nil)
 	srv.EnableIdentity(idSvc, idSvc)
-	srv.EnableTenancy(idSvc)
+	srv.EnableTenancy(idSvc, nil)
 	srv.EnableDevSession(idSvc)
 	srv.EnableDevTickets(boardSvc)
 	srv.EnableDevNotifications(rtSvc)
@@ -282,6 +282,50 @@ func (tn *tenant) onboard(t *testing.T, s *tenServer, name string) {
 		t.Fatalf("UpsertProject(%s): %v", name, err)
 	}
 	tn.projectID = p.ID
+}
+
+// createProjectViaAPI creates a second (or later) project through the real
+// POST /api/projects endpoint (12 §3.1) and returns its server-generated id, so
+// a test can exercise a multi-project owner end-to-end.
+func (tn *tenant) createProjectViaAPI(t *testing.T, name string) string {
+	t.Helper()
+	resp := tn.do(t, http.MethodPost, "/api/projects", map[string]any{
+		"name":         name,
+		"repo_url":     "https://github.com/kiln-test/" + name,
+		"worker_count": 3,
+	})
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/projects (%s) status = %d, want 201", name, resp.StatusCode)
+	}
+	var out wire.MeProject
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode created project: %v", err)
+	}
+	if out.Id == "" {
+		t.Fatal("POST /api/projects returned an empty id")
+	}
+	return out.Id
+}
+
+// seedTicketInProject seeds a ticket into a specific project via the id'd dev
+// route, returning its id — the multi-project sibling of seedTicket.
+func (tn *tenant) seedTicketInProject(t *testing.T, projectID, title, body, state string) string {
+	t.Helper()
+	resp := tn.do(t, http.MethodPost, "/api/projects/"+projectID+"/dev/tickets", map[string]string{
+		"title": title, "body": body, "state": state,
+	})
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/projects/%s/dev/tickets status = %d, want 201", projectID, resp.StatusCode)
+	}
+	var out struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode dev ticket: %v", err)
+	}
+	return out.ID
 }
 
 // do issues a JSON request through the tenant's jar-bearing client. A nil body
@@ -658,6 +702,74 @@ func TestTenancy_UnauthenticatedAndNoProjectAreClosed(t *testing.T) {
 	if errBody["error"] != "no project configured" {
 		t.Errorf("no-project body = %v, want {\"error\":\"no project configured\"}", errBody)
 	}
+}
+
+// ---- 5. cross-project authorization within one user (12 §8 headline) --------
+
+// TestTenancy_CrossProjectAuthorizationById is the 12 §8 headline "teeth within
+// a single user": a user who owns projects A1 and A2 reads/mutates both via the
+// id'd /api/projects/{id}/* routes; a request for a project they do NOT own is a
+// 404 (never 200, never a leak); an unknown id is indistinguishable from a
+// foreign one; and two projects of the same user stay isolated from each other.
+func TestTenancy_CrossProjectAuthorizationById(t *testing.T) {
+	s := newTenServer(t)
+	a := signInTenant(t, s, "multi-a")
+	a.onboard(t, s, "a-one")                // first project → a.projectID
+	a2 := a.createProjectViaAPI(t, "a-two") // second project via POST /api/projects
+	b := signInTenant(t, s, "solo-b")
+	b.onboard(t, s, "b-one")
+
+	// A owns both A1 and A2: the id'd board route resolves for each.
+	var board1, board2 wire.Board
+	a.getJSON(t, "/api/projects/"+a.projectID+"/board", &board1)
+	a.getJSON(t, "/api/projects/"+a2+"/board", &board2)
+
+	// A request for B's project (A does not own it) is a 404 — never 200, never a
+	// leak — and an unknown id is indistinguishable from it.
+	for _, id := range []string{b.projectID, "00000000-0000-0000-0000-000000000000"} {
+		resp := a.do(t, http.MethodGet, "/api/projects/"+id+"/board", nil)
+		if resp.StatusCode != http.StatusNotFound {
+			closeBody(t, resp)
+			t.Fatalf("A GET /api/projects/%s/board = %d, want 404", id, resp.StatusCode)
+		}
+		closeBody(t, resp)
+	}
+
+	// Per-project isolation within one user: a ticket seeded into A1 appears on
+	// A1's board (positive control) but never on A2's.
+	ticketID := a.seedTicketInProject(t, a.projectID, "a1-only", "for a-one", "shaping")
+	a.getJSON(t, "/api/projects/"+a.projectID+"/board", &board1)
+	if !containsID(boardTicketIDs(board1), ticketID) {
+		t.Fatalf("A1 board missing its own ticket %s", ticketID)
+	}
+	a.getJSON(t, "/api/projects/"+a2+"/board", &board2)
+	if containsID(boardTicketIDs(board2), ticketID) {
+		t.Fatalf("A2 board contains A1's ticket %s — projects not isolated", ticketID)
+	}
+
+	// B cannot mutate A's project: a write keyed by A1's id as B is a 404, and it
+	// leaves A1's board untouched.
+	resp := b.do(t, http.MethodPost, "/api/projects/"+a.projectID+"/dev/tickets",
+		map[string]string{"title": "hijack", "body": "x", "state": "shaping"})
+	if resp.StatusCode != http.StatusNotFound {
+		closeBody(t, resp)
+		t.Fatalf("B seed into A's project = %d, want 404", resp.StatusCode)
+	}
+	closeBody(t, resp)
+	a.getJSON(t, "/api/projects/"+a.projectID+"/board", &board1)
+	if len(boardTicketIDs(board1)) != 1 {
+		t.Fatalf("A1 board has %d tickets after B's rejected write, want 1", len(boardTicketIDs(board1)))
+	}
+}
+
+// containsID reports whether ids contains want.
+func containsID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- DB probes -------------------------------------------------------------

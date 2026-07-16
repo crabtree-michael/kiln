@@ -34,24 +34,27 @@ func TestWithProjectID(t *testing.T) {
 	}
 }
 
-// TestNotifyURL pins the tap-to-open deep link (02 §10): a ticket-bearing
-// notify.send lands on `/app?ticket=<id>` so the frontend opens that proposal
-// (the primary screen lives at `/app`; `/` is the marketing landing page), and a
-// ticketless payload falls back to the plain app root.
+// TestNotifyURL pins the tap-to-open deep link (02 §10, 12 §6.3): the notify.send
+// lands on `/app?project=<id>[&ticket=<id>]` — the project param deep-links the
+// tap to the firing project (so a tap never opens a different tenant, 12 §6.3),
+// and the ticket param opens that proposal. Both empty falls back to the plain
+// app root (the primary screen lives at `/app`; `/` is the marketing page).
 func TestNotifyURL(t *testing.T) {
 	cases := []struct {
-		name string
-		id   board.TicketID
-		want string
+		name      string
+		projectID string
+		id        board.TicketID
+		want      string
 	}{
-		{name: "ticket", id: "t-123", want: "/app?ticket=t-123"},
-		{name: "empty falls back to root", id: "", want: "/app"},
-		{name: "id needing escaping", id: "a b/c", want: "/app?ticket=a+b%2Fc"},
+		{name: "project + ticket", projectID: "proj-9", id: "t-123", want: "/app?project=proj-9&ticket=t-123"},
+		{name: "project only", projectID: "proj-9", id: "", want: "/app?project=proj-9"},
+		{name: "both empty falls back to root", projectID: "", id: "", want: "/app"},
+		{name: "escaping", projectID: "p 1", id: "a b/c", want: "/app?project=p+1&ticket=a+b%2Fc"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := notifyURL(tc.id); got != tc.want {
-				t.Fatalf("notifyURL(%q) = %q, want %q", tc.id, got, tc.want)
+			if got := notifyURL(tc.projectID, tc.id); got != tc.want {
+				t.Fatalf("notifyURL(%q, %q) = %q, want %q", tc.projectID, tc.id, got, tc.want)
 			}
 		})
 	}

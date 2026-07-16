@@ -22,6 +22,7 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       display_name: 'Octocat',
       avatar_url: 'https://example.com/a.png',
     },
+    projects: [],
     settings: {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
@@ -33,8 +34,9 @@ function makeMe(overrides: Partial<Me> = {}): Me {
   };
 }
 
-function makeProject(): NonNullable<Me['project']> {
+function makeProject(): Me['projects'][number] {
   return {
+    id: 'proj-1',
     name: 'proj',
     repo_url: 'https://github.com/a/b',
     agent_provider: '',
@@ -95,7 +97,7 @@ describe('SessionGate', () => {
   });
 
   it('renders the children when signed in with a project', async () => {
-    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe({ project: makeProject() }));
+    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe({ projects: [makeProject()] }));
     renderGate();
     await waitFor(() => {
       expect(screen.getByTestId('app-children')).toBeInTheDocument();

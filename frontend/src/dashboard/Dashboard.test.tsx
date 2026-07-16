@@ -16,6 +16,9 @@ vi.mock('@/transport/transport', () => ({
   fetchMe: vi.fn(),
   putSettings: vi.fn(),
   putProject: vi.fn(),
+  createProject: vi.fn(),
+  updateProject: vi.fn(),
+  deleteProject: vi.fn(),
   postVerify: vi.fn(),
   postLogout: vi.fn(),
 }));
@@ -27,6 +30,7 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       display_name: 'Octocat',
       avatar_url: 'https://example.com/a.png',
     },
+    projects: [],
     settings: {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
@@ -97,15 +101,18 @@ describe('Dashboard', () => {
   it('signed in with project + configured secrets: settings view shows the configured secret status', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: 'snap-1',
-          worker_count: 3,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: 'snap-1',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
         settings: {
           anthropic_api_key: { set: false, tail: '' },
           amika_api_key: { set: true, tail: 'x4Kd' },
@@ -126,15 +133,18 @@ describe('Dashboard', () => {
   it('per-user Anthropic key entry is hidden (now a global env setting)', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     renderDashboard();
@@ -151,30 +161,36 @@ describe('Dashboard', () => {
   it('blurring a filled credential field auto-saves only that field, then auto-verifies', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     // The save response must keep the project — dropping it (e.g. a bare
     // `makeMe()`) would bounce the view back to onboarding after the save.
     vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     const response: VerifyResponse = {
@@ -212,28 +228,34 @@ describe('Dashboard', () => {
   it('blurring the Devin API key auto-saves it and reads its own verify check', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: 'devin',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: 'devin',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: 'devin',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: 'devin',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     const response: VerifyResponse = {
@@ -267,15 +289,18 @@ describe('Dashboard', () => {
   it('blurring an empty credential field does not save', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     renderDashboard();
@@ -294,28 +319,34 @@ describe('Dashboard', () => {
   it('Enter in a filled credential field fires exactly one save, with no form submission', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
@@ -345,28 +376,34 @@ describe('Dashboard', () => {
   it('Enter followed immediately by blur fires exactly one save (per-field in-flight guard)', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
@@ -392,28 +429,34 @@ describe('Dashboard', () => {
   it('a failed verify check renders a failed credential-status indicator with the message as its title', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: '',
-          worker_count: 1,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
       }),
     );
     const response: VerifyResponse = {
@@ -442,15 +485,18 @@ describe('Dashboard', () => {
   it('settings view offers a "Go to app" link back to the board (a router Link to /)', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: 'snap-1',
-          worker_count: 3,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: 'snap-1',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
         settings: {
           anthropic_api_key: { set: true, tail: 'x4Kd' },
           amika_api_key: { set: true, tail: 'y7Bc' },
@@ -471,15 +517,18 @@ describe('Dashboard', () => {
   it('matches the DOM-structure snapshot: settings view', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
-        project: {
-          name: 'kiln',
-          repo_url: 'https://github.com/crabtree-michael/kiln',
-          agent_provider: '',
-          amika_snapshot: 'snap-1',
-          worker_count: 3,
-          merge_gate_mode: 'main',
-          amika_secrets: [],
-        },
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: 'snap-1',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
         settings: {
           anthropic_api_key: { set: true, tail: 'x4Kd' },
           amika_api_key: { set: false, tail: '' },

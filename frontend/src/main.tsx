@@ -27,6 +27,7 @@ import { Dashboard } from '@/dashboard/Dashboard';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { SessionGate } from '@/components/SessionGate';
 import { SessionProvider } from '@/stores/session';
+import { CurrentProjectProvider } from '@/stores/current-project';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
 import { installAssetRecovery } from '@/asset-recovery';
 
@@ -107,7 +108,9 @@ createRoot(root).render(
             element={
               <SessionProvider>
                 <SessionGate>
-                  <PrimaryScreen />
+                  <CurrentProjectProvider>
+                    <PrimaryScreen />
+                  </CurrentProjectProvider>
                 </SessionGate>
               </SessionProvider>
             }

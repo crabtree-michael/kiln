@@ -358,9 +358,9 @@ func TestUserConfigZeroThenUpsert(t *testing.T) {
 	}
 }
 
-// ---- Project: ErrNotFound before creation; upsert updates in place --------
+// ---- Project: create is distinct-per-owner; update guards on ownership -----
 
-func TestProjectUpsertAndUniqueOwner(t *testing.T) {
+func TestProjectCreateAndUpdate(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
@@ -371,7 +371,7 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		t.Fatalf("GetProjectByOwner before create: err = %v, want ErrNotFound", err)
 	}
 
-	created, err := store.UpsertProject(ctx, identity.Project{
+	created, err := store.CreateProject(ctx, identity.Project{
 		OwnerUserID:   user.ID,
 		Name:          "my-project",
 		RepoURL:       "https://github.com/o/r",
@@ -384,10 +384,10 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("UpsertProject create: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 	if created.ID == "" {
-		t.Fatal("UpsertProject returned empty ID")
+		t.Fatal("CreateProject returned empty ID")
 	}
 
 	got, err := store.GetProjectByOwner(ctx, user.ID)
@@ -401,9 +401,8 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 	if got.AgentProvider != "devin" {
 		t.Fatalf("AgentProvider after create = %q, want devin", got.AgentProvider)
 	}
-	// The jsonb amika_secrets column round-trips the encrypted bytes through
-	// GetProjectByOwner (the store persists ciphertext verbatim; encryption is
-	// the service's job).
+	// The jsonb amika_secrets column round-trips the encrypted bytes (the store
+	// persists ciphertext verbatim; encryption is the service's job).
 	wantSecrets := []identity.AmikaSecret{
 		{NameEnc: []byte("enc-name-1"), ValueEnc: []byte("enc-val-1")},
 		{NameEnc: []byte("enc-name-2"), ValueEnc: []byte("enc-val-2")},
@@ -418,7 +417,8 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		}
 	}
 
-	updated, err := store.UpsertProject(ctx, identity.Project{
+	updated, err := store.UpdateProject(ctx, identity.Project{
+		ID:            created.ID,
 		OwnerUserID:   user.ID,
 		Name:          "renamed-project",
 		RepoURL:       "https://github.com/o/r2",
@@ -426,13 +426,13 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 		WorkerCount:   5,
 	})
 	if err != nil {
-		t.Fatalf("UpsertProject update: %v", err)
+		t.Fatalf("UpdateProject: %v", err)
 	}
 	if updated.ID != created.ID {
-		t.Fatalf("UpsertProject update created a new row: id=%s, want %s (same owner)", updated.ID, created.ID)
+		t.Fatalf("UpdateProject changed the id: id=%s, want %s", updated.ID, created.ID)
 	}
 	if updated.Name != "renamed-project" || updated.WorkerCount != 5 {
-		t.Fatalf("UpsertProject update did not persist changes: %+v", updated)
+		t.Fatalf("UpdateProject did not persist changes: %+v", updated)
 	}
 	// An update that leaves AgentProvider empty clears it back to "" — the
 	// deployment-default sentinel (design §9), not a stuck prior value.
@@ -443,13 +443,122 @@ func TestProjectUpsertAndUniqueOwner(t *testing.T) {
 	if len(updated.AmikaSecrets) != 0 {
 		t.Fatalf("AmikaSecrets after secretless update = %+v, want empty", updated.AmikaSecrets)
 	}
+}
 
-	var count int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE owner_user_id = $1`, user.ID).Scan(&count); err != nil {
-		t.Fatalf("count projects: %v", err)
+// TestCreateProjectAllowsManyPerOwner asserts the dropped one_project_per_owner
+// index (12 §2): a single owner can hold several distinct projects, each with a
+// distinct id, and GetProjectByOwner returns the oldest.
+func TestCreateProjectAllowsManyPerOwner(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	user := mustNewUser(ctx, t, store, identity.User{GitHubID: 150, GitHubLogin: "grace"})
+
+	p1, err := store.CreateProject(ctx, identity.Project{
+		OwnerUserID: user.ID, Name: "first", RepoURL: "https://github.com/g/1", WorkerCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("CreateProject first: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("projects row count for owner = %d, want 1 (one project per owner)", count)
+	p2, err := store.CreateProject(ctx, identity.Project{
+		OwnerUserID: user.ID, Name: "second", RepoURL: "https://github.com/g/2", WorkerCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("CreateProject second: %v", err)
+	}
+	if p1.ID == p2.ID {
+		t.Fatalf("two creates share id %s, want distinct", p1.ID)
+	}
+
+	owned, err := store.ListProjectsByOwner(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListProjectsByOwner: %v", err)
+	}
+	if len(owned) != 2 {
+		t.Fatalf("ListProjectsByOwner = %d projects, want 2", len(owned))
+	}
+	// Oldest-first, so [0] is the first created and GetProjectByOwner returns it.
+	if owned[0].ID != p1.ID || owned[1].ID != p2.ID {
+		t.Fatalf("ListProjectsByOwner order = [%s %s], want [%s %s]", owned[0].ID, owned[1].ID, p1.ID, p2.ID)
+	}
+	first, err := store.GetProjectByOwner(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetProjectByOwner: %v", err)
+	}
+	if first.ID != p1.ID {
+		t.Fatalf("GetProjectByOwner = %s, want oldest %s", first.ID, p1.ID)
+	}
+}
+
+// TestUpdateAndDeleteGuardOnOwner asserts the ownership boundary (12 §3.2, DP6):
+// a foreign owner can neither update nor soft-delete a project, and both report
+// ErrNotFound (never confirming its existence). A soft-deleted project then
+// vanishes from every read path.
+func TestUpdateAndDeleteGuardOnOwner(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	owner := mustNewUser(ctx, t, store, identity.User{GitHubID: 160, GitHubLogin: "heidi"})
+	foreign := mustNewUser(ctx, t, store, identity.User{GitHubID: 161, GitHubLogin: "ivan"})
+
+	proj, err := store.CreateProject(ctx, identity.Project{
+		OwnerUserID: owner.ID, Name: "owned", RepoURL: "https://github.com/h/o", WorkerCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// A foreign owner's update matches no row (id + owner) → ErrNotFound.
+	if _, err := store.UpdateProject(ctx, identity.Project{
+		ID: proj.ID, OwnerUserID: foreign.ID, Name: "hijacked", RepoURL: "https://x/y", WorkerCount: 3,
+	}); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("foreign UpdateProject err = %v, want ErrNotFound", err)
+	}
+	// A foreign owner's soft-delete likewise matches nothing.
+	if err := store.SoftDeleteProject(ctx, proj.ID, foreign.ID); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("foreign SoftDeleteProject err = %v, want ErrNotFound", err)
+	}
+	// The project is untouched — still readable by its real owner.
+	if got, err := store.GetProject(ctx, proj.ID); err != nil || got.Name != "owned" {
+		t.Fatalf("GetProject after foreign attempts = (%+v, %v), want intact", got, err)
+	}
+
+	// The real owner soft-deletes it, and it vanishes from every read path.
+	if err := store.SoftDeleteProject(ctx, proj.ID, owner.ID); err != nil {
+		t.Fatalf("owner SoftDeleteProject: %v", err)
+	}
+	if _, err := store.GetProject(ctx, proj.ID); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("GetProject after soft-delete err = %v, want ErrNotFound", err)
+	}
+	if _, err := store.GetProjectByOwner(ctx, owner.ID); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("GetProjectByOwner after soft-delete err = %v, want ErrNotFound", err)
+	}
+	if owned, err := store.ListProjectsByOwner(ctx, owner.ID); err != nil || len(owned) != 0 {
+		t.Fatalf("ListProjectsByOwner after soft-delete = (%+v, %v), want empty", owned, err)
+	}
+	if all, err := store.ListProjects(ctx); err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	} else {
+		for _, p := range all {
+			if p.ID == proj.ID {
+				t.Fatalf("ListProjects still returns soft-deleted %s", proj.ID)
+			}
+		}
+	}
+	// A second soft-delete of an already-gone row is ErrNotFound (idempotency guard).
+	if err := store.SoftDeleteProject(ctx, proj.ID, owner.ID); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("re-delete err = %v, want ErrNotFound", err)
+	}
+	// The retained row proves the id is never reused (DP6).
+	var deletedCount int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM projects WHERE id = $1 AND deleted_at IS NOT NULL`, proj.ID).Scan(&deletedCount); err != nil {
+		t.Fatalf("count deleted row: %v", err)
+	}
+	if deletedCount != 1 {
+		t.Fatalf("retained soft-deleted rows = %d, want 1", deletedCount)
 	}
 }
 
@@ -466,7 +575,7 @@ func TestGetProjectByID(t *testing.T) {
 		t.Fatalf("GetProject unknown id: err = %v, want ErrNotFound", err)
 	}
 
-	created, err := store.UpsertProject(ctx, identity.Project{
+	created, err := store.CreateProject(ctx, identity.Project{
 		OwnerUserID:   user.ID,
 		Name:          "dave-project",
 		RepoURL:       "https://github.com/d/p",
@@ -502,13 +611,13 @@ func TestListProjectsOrderedByCreatedAt(t *testing.T) {
 	u1 := mustNewUser(ctx, t, store, identity.User{GitHubID: 301, GitHubLogin: "erin"})
 	u2 := mustNewUser(ctx, t, store, identity.User{GitHubID: 302, GitHubLogin: "frank"})
 
-	p1, err := store.UpsertProject(ctx, identity.Project{
+	p1, err := store.CreateProject(ctx, identity.Project{
 		OwnerUserID: u1.ID, Name: "p1", RepoURL: "https://github.com/e/1", WorkerCount: 3,
 	})
 	if err != nil {
 		t.Fatalf("UpsertProject p1: %v", err)
 	}
-	p2, err := store.UpsertProject(ctx, identity.Project{
+	p2, err := store.CreateProject(ctx, identity.Project{
 		OwnerUserID: u2.ID, Name: "p2", RepoURL: "https://github.com/f/2", WorkerCount: 3,
 	})
 	if err != nil {

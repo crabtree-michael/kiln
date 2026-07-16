@@ -440,10 +440,10 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
-// Me The signed-in user's account view (11 §4). Secret values never appear.
+// Me The signed-in user's account view (11 §4, 12 §3.1). Secret values never appear.
 type Me struct {
-	// Project Absent until the user creates their project.
-	Project *MeProject `json:"project,omitempty"`
+	// Projects The user's live projects, oldest-first (12 §3.1). Empty until the user creates their first project — the "not onboarded" discriminator is `projects.length === 0` (12 §4.1), replacing the old singular `project?`. Each carries its own `id`, the token the client scopes every project-scoped call by (12 §3.2).
+	Projects []MeProject `json:"projects"`
 
 	// Providers The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider. The project form renders its provider select from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface.
 	Providers *[]ProviderDescriptor `json:"providers,omitempty"`
@@ -461,6 +461,9 @@ type MeProject struct {
 	// AmikaSecrets Amika secrets injected into every sandbox this project starts (02 §8).
 	AmikaSecrets  []AmikaSecret `json:"amika_secrets"`
 	AmikaSnapshot string        `json:"amika_snapshot"`
+
+	// Id The server-generated project id (12 §3.1). The client references and keys each project by this id — the switcher's key, the current-project store's persisted value, and the token every project-scoped call (`/api/projects/{id}/...`) is scoped by (12 §4.1, DP5).
+	Id string `json:"id"`
 
 	// MergeGateMode Which condition satisfies a ticket's merge gate (06 §7): `main` accepts a done only once its commit is on origin/main; `pr` accepts it once the work exists in a pull request, merged or not. Defaults to `main`.
 	MergeGateMode MeProjectMergeGateMode `json:"merge_gate_mode"`
@@ -712,6 +715,12 @@ type PostPresenceJSONRequestBody = PresenceUpdate
 
 // PutProjectJSONRequestBody defines body for PutProject for application/json ContentType.
 type PutProjectJSONRequestBody = ProjectUpdateRequest
+
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = ProjectUpdateRequest
+
+// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
+type UpdateProjectJSONRequestBody = ProjectUpdateRequest
 
 // PutPushModeJSONRequestBody defines body for PutPushMode for application/json ContentType.
 type PutPushModeJSONRequestBody = NotificationMode

@@ -14,6 +14,9 @@ vi.mock('@/transport/transport', () => ({
   fetchMe: vi.fn(),
   putSettings: vi.fn(),
   putProject: vi.fn(),
+  createProject: vi.fn(),
+  updateProject: vi.fn(),
+  deleteProject: vi.fn(),
   postVerify: vi.fn(),
   postLogout: vi.fn(),
 }));
@@ -25,6 +28,7 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       display_name: 'Octocat',
       avatar_url: 'https://example.com/a.png',
     },
+    projects: [],
     settings: {
       anthropic_api_key: { set: false, tail: '' },
       amika_api_key: { set: false, tail: '' },
@@ -222,15 +226,18 @@ describe('DashboardProvider', () => {
   it('saveProject does NOT chain runVerify', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     const updated = makeMe({
-      project: {
-        name: 'proj',
-        repo_url: 'https://github.com/a/b',
-        agent_provider: '',
-        amika_snapshot: '',
-        worker_count: 1,
-        merge_gate_mode: 'main',
-        amika_secrets: [],
-      },
+      projects: [
+        {
+          id: 'proj-1',
+          name: 'proj',
+          repo_url: 'https://github.com/a/b',
+          agent_provider: '',
+          amika_snapshot: '',
+          worker_count: 1,
+          merge_gate_mode: 'main',
+          amika_secrets: [],
+        },
+      ],
     });
     vi.mocked(transport.putProject).mockResolvedValue(updated);
 
@@ -347,15 +354,18 @@ describe('DashboardProvider', () => {
   it('saveProject calls putProject and swaps in the returned Me', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     const updated = makeMe({
-      project: {
-        name: 'proj',
-        repo_url: 'https://github.com/a/b',
-        agent_provider: '',
-        amika_snapshot: '',
-        worker_count: 1,
-        merge_gate_mode: 'main',
-        amika_secrets: [],
-      },
+      projects: [
+        {
+          id: 'proj-1',
+          name: 'proj',
+          repo_url: 'https://github.com/a/b',
+          agent_provider: '',
+          amika_snapshot: '',
+          worker_count: 1,
+          merge_gate_mode: 'main',
+          amika_secrets: [],
+        },
+      ],
     });
     vi.mocked(transport.putProject).mockResolvedValue(updated);
 

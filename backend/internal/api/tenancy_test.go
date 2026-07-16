@@ -65,7 +65,7 @@ func newFullServer(auth api.Authenticator, projects api.ProjectResolver) *httpte
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
 	srv.EnableIdentity(auth, &fakeAccount{})
-	srv.EnableTenancy(projects)
+	srv.EnableTenancy(projects, &fakeProjectDeleter{})
 	srv.EnablePush(&fakePushRegistrar{}, "BPUB")
 	srv.EnableDevTickets(&fakeSeeder{})
 	srv.EnableDevNotifications(&fakeNotificationPoster{})
@@ -175,7 +175,7 @@ func TestProjectScoping_PassesResolvedProjectToPorts(t *testing.T) {
 	)
 	projects := &fakeProjects{project: identity.Project{ID: projectA}}
 	srv.EnableIdentity(&fakeAuth{resolveUser: identity.User{ID: testUserID}}, &fakeAccount{})
-	srv.EnableTenancy(projects)
+	srv.EnableTenancy(projects, &fakeProjectDeleter{})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -223,7 +223,7 @@ func TestProjectScoping_IgnoresClientSuppliedProjectID(t *testing.T) {
 		&fakeFeedReader{}, &fakeSeenAcker{}, api.NewHub(boards), &fakeVoiceTokenMinter{},
 	)
 	srv.EnableIdentity(&fakeAuth{resolveUser: identity.User{ID: testUserID}}, &fakeAccount{})
-	srv.EnableTenancy(&fakeProjects{project: identity.Project{ID: resolved}})
+	srv.EnableTenancy(&fakeProjects{project: identity.Project{ID: resolved}}, &fakeProjectDeleter{})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

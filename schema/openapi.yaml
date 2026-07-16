@@ -517,6 +517,123 @@ paths:
               schema: { $ref: '#/components/schemas/VerifyResponse' }
         '401':
           description: No valid session.
+  /api/projects:
+    get:
+      operationId: listProjects
+      summary: The signed-in user's live projects (12 §3.1). Session-protected.
+      description: >
+        Returns every live (non-soft-deleted) project the caller owns, oldest-first
+        — the collection form of the old singular `project?` (12 §3.1). Each carries
+        its `id`, the token the client scopes project-scoped calls by.
+      responses:
+        '200':
+          description: The caller's live projects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MeProject' }
+        '401':
+          description: No valid session.
+    post:
+      operationId: createProject
+      summary: Create a new project for the caller (12 §3.1).
+      description: >
+        Creates a distinct project owned by the caller (12 DP2) and returns it with
+        its server-generated `id`. Credentials are per-user (already set), so a
+        second project skips the credential step (12 §4.3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdateRequest' }
+      responses:
+        '201':
+          description: The created project, with its id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeProject' }
+        '400':
+          description: Invalid request body.
+        '401':
+          description: No valid session.
+  /api/projects/{id}:
+    put:
+      operationId: updateProject
+      summary: Update a project the caller owns (12 §3.1).
+      description: >
+        Updates the project by id, guarded by an ownership check (12 §3.2): a
+        project the caller does not own returns 404 (never confirming existence to
+        a non-owner).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The project's id.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdateRequest' }
+      responses:
+        '200':
+          description: The updated project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeProject' }
+        '400':
+          description: Invalid request body.
+        '401':
+          description: No valid session.
+        '404':
+          description: No such project owned by the caller.
+    delete:
+      operationId: deleteProject
+      summary: Delete a project the caller owns (12 §5).
+      description: >
+        Soft-deletes the project (12 DP6): the state/runtime cascade purges live
+        board/events/messages/notifications/sandboxes and the tenant bundle + repo
+        clone, then the `projects` row is marked deleted (retained, id never reused)
+        and filtered from every read path. A project the caller does not own returns
+        404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The project's id.
+          schema: { type: string }
+      responses:
+        '204':
+          description: The project was deleted.
+        '401':
+          description: No valid session.
+        '404':
+          description: No such project owned by the caller.
+  /api/projects/{id}/verify:
+    post:
+      operationId: verifyProject
+      summary: Live connection checks for a project's repo + the caller's credentials (12 §3.1).
+      description: >
+        Runs the live checks for the given project (12 §3.1, §6.2): the repo check
+        uses this project's repo url; the Amika/Anthropic/Devin checks are per-user.
+        A project the caller does not own returns 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The project's id.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Per-check results; unconfigured checks report status "skipped".
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerifyResponse' }
+        '401':
+          description: No valid session.
+        '404':
+          description: No such project owned by the caller.
 components:
   schemas:
     Health:
@@ -1014,13 +1131,19 @@ components:
 
     Me:
       type: object
-      description: The signed-in user's account view (11 §4). Secret values never appear.
-      required: [user, settings]
+      description: The signed-in user's account view (11 §4, 12 §3.1). Secret values never appear.
+      required: [user, projects, settings]
       properties:
         user: { $ref: '#/components/schemas/MeUser' }
-        project:
-          allOf: [{ $ref: '#/components/schemas/MeProject' }]
-          description: Absent until the user creates their project.
+        projects:
+          type: array
+          description: >
+            The user's live projects, oldest-first (12 §3.1). Empty until the user
+            creates their first project — the "not onboarded" discriminator is
+            `projects.length === 0` (12 §4.1), replacing the old singular
+            `project?`. Each carries its own `id`, the token the client scopes
+            every project-scoped call by (12 §3.2).
+          items: { $ref: '#/components/schemas/MeProject' }
         settings: { $ref: '#/components/schemas/MeSettings' }
         providers:
           type: array
@@ -1068,8 +1191,15 @@ components:
         avatar_url: { type: string }
     MeProject:
       type: object
-      required: [name, repo_url, agent_provider, amika_snapshot, worker_count, merge_gate_mode, amika_secrets]
+      required: [id, name, repo_url, agent_provider, amika_snapshot, worker_count, merge_gate_mode, amika_secrets]
       properties:
+        id:
+          type: string
+          description: >
+            The server-generated project id (12 §3.1). The client references and
+            keys each project by this id — the switcher's key, the current-project
+            store's persisted value, and the token every project-scoped call
+            (`/api/projects/{id}/...`) is scoped by (12 §4.1, DP5).
         name: { type: string }
         repo_url: { type: string }
         agent_provider:

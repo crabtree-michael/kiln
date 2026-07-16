@@ -63,6 +63,11 @@ func (p *stubProjects) ProjectFor(context.Context, string) (identity.Project, er
 	return p.project, p.err
 }
 
+func (p *stubProjects) ProjectByID(context.Context, string, string) (identity.Project, error) {
+	p.called = true
+	return p.project, p.err
+}
+
 // TestWithProject_NoCookie_Returns401 asserts withProject inherits withSession's
 // guard: no session cookie is a 401, and the resolver is never consulted.
 func TestWithProject_NoCookie_Returns401(t *testing.T) {

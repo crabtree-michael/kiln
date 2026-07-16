@@ -228,16 +228,42 @@ type Authenticator interface {
 	Logout(ctx context.Context, token string) error
 }
 
-// AccountService is the api's port onto the signed-in account surface (11
-// §4): the config-status view, partial credential/project writes, and the
-// live connection checks behind GET /api/me, PUT /api/settings, PUT
-// /api/project, and POST /api/settings/verify. Satisfied directly by
-// *identity.Service, mirroring Authenticator.
+// AccountService is the api's port onto the signed-in account surface (11 §4,
+// 12 §3.1): the config-status view, credential/project writes, the project
+// collection, and the live connection checks behind GET /api/me, PUT
+// /api/settings, the /api/project(s) routes, and the verify routes. Satisfied
+// directly by *identity.Service, mirroring Authenticator.
 type AccountService interface {
 	Me(ctx context.Context, userID string) (identity.Me, error)
 	UpdateSettings(ctx context.Context, userID string, upd identity.SettingsUpdate) error
+	// UpsertProject is the back-compat singular write (PUT /api/project).
 	UpsertProject(ctx context.Context, userID string, upd identity.ProjectUpdate) (identity.Project, error)
+	// ListProjects returns the caller's live projects with their secret statuses
+	// (GET /api/projects, 12 §3.1).
+	ListProjects(ctx context.Context, userID string) ([]identity.ProjectView, error)
+	// CreateProject creates a distinct project (POST /api/projects, 12 DP2).
+	CreateProject(ctx context.Context, userID string, upd identity.ProjectUpdate) (identity.ProjectView, error)
+	// UpdateProject updates a project the caller owns (PUT /api/projects/{id});
+	// ErrNotFound for a foreign/unknown project (12 §3.2).
+	UpdateProject(ctx context.Context, userID, projectID string, upd identity.ProjectUpdate) (identity.ProjectView, error)
+	// Verify runs the caller's live checks against their first project's repo
+	// (POST /api/settings/verify, back-compat).
 	Verify(ctx context.Context, userID string) ([]identity.CheckResult, error)
+	// VerifyProject runs the checks against a specific project's repo
+	// (POST /api/projects/{id}/verify, 12 §3.1); ErrNotFound for a foreign project.
+	VerifyProject(ctx context.Context, userID, projectID string) ([]identity.CheckResult, error)
+}
+
+// ProjectDeleter deletes a project the caller owns (12 §5, DP6): an
+// application-level cascade (there is no cross-module DB FK) that purges the
+// project's board/events/messages/notifications/sandboxes, evicts its tenant
+// bundle + repo clone, then soft-deletes the row. Spans identity, the tenant
+// registry, the reset seam, and the on-disk clone, so it is assembled at the
+// composition root and injected here. Returns identity.ErrNotFound when the
+// caller does not own the project (→ 404); the state cascade never runs for a
+// project the caller can't delete.
+type ProjectDeleter interface {
+	DeleteProject(ctx context.Context, userID, projectID string) error
 }
 
 // DevSessionMinter is the DEV-ONLY port behind POST /api/dev/session: sign in
@@ -266,22 +292,23 @@ type DevSessionMinter interface {
 //
 // Push registration arrives with the notification spec (02 §10); voice with 09.
 type Server struct {
-	boards   BoardReader
-	poster   MessagePoster
-	messages MessagesReader
-	feed     FeedReader
-	seen     FeedMutator
-	hub      *Hub
-	voice    VoiceTokenMinter
-	push     PushRegistrar      // non-nil ⇒ POST /api/push/subscribe + GET /api/push/key are mounted (02 §10)
-	vapidKey string             // VAPID public key served by GET /api/push/key; empty ⇒ that route 404s (push disabled)
-	beta     BetaRegistrar      // non-nil ⇒ POST /api/beta-signup is mounted (landing-page beta list)
-	seeder   TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
-	devNotes NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
-	resetter Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
-	auth     Authenticator      // non-nil ⇒ the /auth/github/* + /auth/logout routes are mounted (11 §2)
-	account  AccountService     // the signed-in account surface (11 §4); set together with auth
-	projects ProjectResolver    // resolves the caller's project; withProject-guarded routes require it (11 phase 2)
+	boards     BoardReader
+	poster     MessagePoster
+	messages   MessagesReader
+	feed       FeedReader
+	seen       FeedMutator
+	hub        *Hub
+	voice      VoiceTokenMinter
+	push       PushRegistrar      // non-nil ⇒ POST /api/push/subscribe + GET /api/push/key are mounted (02 §10)
+	vapidKey   string             // VAPID public key served by GET /api/push/key; empty ⇒ that route 404s (push disabled)
+	beta       BetaRegistrar      // non-nil ⇒ POST /api/beta-signup is mounted (landing-page beta list)
+	seeder     TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
+	devNotes   NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
+	resetter   Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
+	auth       Authenticator      // non-nil ⇒ the /auth/github/* + /auth/logout routes are mounted (11 §2)
+	account    AccountService     // the signed-in account surface (11 §4); set together with auth
+	projects   ProjectResolver    // resolves the caller's project; withProject-guarded routes require it (11 phase 2)
+	projectDel ProjectDeleter     // non-nil ⇒ DELETE /api/projects/{pid} is mounted (12 §5); set with EnableTenancy
 
 	// providers is the deployment's coding-agent provider descriptors (multi-provider
 	// design §8), served inside GET /api/me so the dashboard renders its provider
@@ -360,13 +387,17 @@ func (s *Server) EnableProviders(descriptors []wire.ProviderDescriptor) {
 }
 
 // EnableTenancy turns on per-project scoping for the whole app surface (11
-// phase 2, call before Handler): every board/message/feed/stream/dev route is
-// wrapped in withProject, which resolves the caller's project through this
-// resolver and hands it to the handler so a session only ever touches its own
-// project's state. Set together with EnableIdentity — withProject authenticates
-// via the same session guard before it resolves the project. Satisfied by
-// *identity.Service (ProjectFor).
-func (s *Server) EnableTenancy(projects ProjectResolver) { s.projects = projects }
+// phase 2, 12 §3.2, call before Handler): every app route is mounted twice — the
+// bare form (withProject → the caller's first project, back-compat) and the id'd
+// /api/projects/{pid}/... form (withProjectID → the named, owner-authorized
+// project). The deleter powers DELETE /api/projects/{pid} (12 §5). Set together
+// with EnableIdentity — both guards authenticate via the same session guard
+// before resolving the project. Satisfied by *identity.Service (resolver) and the
+// composition-root delete coordinator.
+func (s *Server) EnableTenancy(projects ProjectResolver, del ProjectDeleter) {
+	s.projects = projects
+	s.projectDel = del
+}
 
 // EnableDevSession turns on the dev-only POST /api/dev/session route (call
 // before Handler, alongside EnableIdentity): mint a session for a
@@ -392,21 +423,14 @@ func (s *Server) EnableSPA(h http.Handler) { s.spa = h }
 // Handler returns the api's http.Handler, ready to mount.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	// The whole app surface is project-scoped (11 phase 2): withProject
-	// authenticates the session and resolves the caller's project before the
-	// handler runs, so every port call below is scoped to exactly that project.
-	mux.HandleFunc("GET /api/stream", s.withProject(s.handleStream))
-	mux.HandleFunc("GET /api/board", s.withProject(s.handleBoard))
-	mux.HandleFunc("GET /api/activity", s.withProject(s.handleActivityStatus))
-	mux.HandleFunc("POST /api/message", s.withProject(s.handleMessage))
-	mux.HandleFunc("GET /api/messages", s.withProject(s.handleMessages))
-	mux.HandleFunc("GET /api/feed", s.withProject(s.handleFeed))
-	mux.HandleFunc("GET /api/feed/history", s.withProject(s.handleFeedHistory))
-	mux.HandleFunc("POST /api/feed/seen", s.withProject(s.handleFeedSeen))
-	mux.HandleFunc("POST /api/feed/dismiss-all", s.withProject(s.handleFeedDismissAll))
-	mux.HandleFunc("POST /api/feed/{id}/dismiss", s.withProject(s.handleFeedDismiss))
-	mux.HandleFunc("POST /api/tickets/{id}/accept", s.withProject(s.handleAccept))
-	mux.HandleFunc("POST /api/tickets/{id}/delete", s.withProject(s.handleDeleteTicket))
+	// The whole app surface is project-scoped (11 phase 2, 12 §3.2). Each route is
+	// mounted twice: the bare form scopes to the caller's first project
+	// (withProject, back-compat), and the /api/projects/{pid}/... form scopes to
+	// the named, owner-authorized project (withProjectID) — the id in the URL is
+	// the only way the SSE stream can name a project (EventSource sends no headers).
+	for _, ar := range s.appRoutes() {
+		s.mountProjectScoped(mux, ar.method, ar.path, ar.handler)
+	}
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
@@ -425,14 +449,16 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("PUT /api/push/mode", s.withSession(s.handlePushModeSet))
 		mux.HandleFunc("POST /api/presence", s.withSession(s.handlePresence))
 	}
+	// Dev routes are project-scoped like the app surface — mounted in both the
+	// bare and id'd forms so an e2e can target a specific project (12 §3.2).
 	if s.seeder != nil {
-		mux.HandleFunc("POST /api/dev/tickets", s.withProject(s.handleDevCreateTicket))
+		s.mountProjectScoped(mux, http.MethodPost, "/dev/tickets", s.handleDevCreateTicket)
 	}
 	if s.devNotes != nil {
-		mux.HandleFunc("POST /api/dev/notifications", s.withProject(s.handleDevPostNotification))
+		s.mountProjectScoped(mux, http.MethodPost, "/dev/notifications", s.handleDevPostNotification)
 	}
 	if s.resetter != nil {
-		mux.HandleFunc("POST /api/dev/reset", s.withProject(s.handleReset))
+		s.mountProjectScoped(mux, http.MethodPost, "/dev/reset", s.handleReset)
 	}
 	s.mountIdentityRoutes(mux)
 	if s.healthPing != nil {
@@ -447,10 +473,52 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// projectHandler is an app handler already scoped to one resolved project — the
+// shape both withProject and withProjectID hand off to.
+type projectHandler = func(http.ResponseWriter, *http.Request, identity.User, identity.Project)
+
+// appRoute is one project-scoped app route: an HTTP method and a path relative
+// to /api (e.g. "/board", "/feed/{id}/dismiss"), plus its handler.
+type appRoute struct {
+	method  string
+	path    string
+	handler projectHandler
+}
+
+// appRoutes is the project-scoped app surface (04 §7, 07 §4, 08 §3–§4) — the
+// live board/feed/stream/message routes every session touches. Each is mounted
+// in both the bare and the id'd form (see Handler / mountProjectScoped).
+func (s *Server) appRoutes() []appRoute {
+	return []appRoute{
+		{http.MethodGet, "/stream", s.handleStream},
+		{http.MethodGet, "/board", s.handleBoard},
+		{http.MethodGet, "/activity", s.handleActivityStatus},
+		{http.MethodPost, "/message", s.handleMessage},
+		{http.MethodGet, "/messages", s.handleMessages},
+		{http.MethodGet, "/feed", s.handleFeed},
+		{http.MethodGet, "/feed/history", s.handleFeedHistory},
+		{http.MethodPost, "/feed/seen", s.handleFeedSeen},
+		{http.MethodPost, "/feed/dismiss-all", s.handleFeedDismissAll},
+		{http.MethodPost, "/feed/{id}/dismiss", s.handleFeedDismiss},
+		{http.MethodPost, "/tickets/{id}/accept", s.handleAccept},
+		{http.MethodPost, "/tickets/{id}/delete", s.handleDeleteTicket},
+	}
+}
+
+// mountProjectScoped registers one project-scoped handler under both the bare
+// path (/api<path>, scoped to the caller's first project via withProject) and
+// the id'd path (/api/projects/{pid}<path>, scoped to the named owner-authorized
+// project via withProjectID) — the 12 §3.2 dual mounting.
+func (s *Server) mountProjectScoped(mux *http.ServeMux, method, path string, h projectHandler) {
+	mux.HandleFunc(method+" /api"+path, s.withProject(h))
+	mux.HandleFunc(method+" /api/projects/{"+projectIDParam+"}"+path, s.withProjectID(h))
+}
+
 // mountIdentityRoutes registers the GitHub OAuth + cookie-session routes and the
-// session-protected account surface (11 §2, §4) when identity is enabled — plus
-// the dev-only session mint nested under it. Extracted from Handler so that
-// method stays within the statement budget as new route groups are added.
+// session-protected account surface (11 §2, §4, 12 §3.1) when identity is
+// enabled — plus the dev-only session mint nested under it. Extracted from
+// Handler so that method stays within the statement budget as new route groups
+// are added.
 func (s *Server) mountIdentityRoutes(mux *http.ServeMux) {
 	if s.auth == nil {
 		return
@@ -460,8 +528,18 @@ func (s *Server) mountIdentityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))
 	mux.HandleFunc("PUT /api/settings", s.withSession(s.handlePutSettings))
-	mux.HandleFunc("PUT /api/project", s.withSession(s.handlePutProject))
 	mux.HandleFunc("POST /api/settings/verify", s.withSession(s.handleVerify))
+	// The project collection (12 §3.1): the id-less singular writes become an id'd
+	// collection. The old singular PUT /api/project stays alive (back-compat, 12
+	// §9), mapped to the caller's first project.
+	mux.HandleFunc("PUT /api/project", s.withSession(s.handlePutProject))
+	mux.HandleFunc("GET /api/projects", s.withSession(s.handleListProjects))
+	mux.HandleFunc("POST /api/projects", s.withSession(s.handleCreateProject))
+	mux.HandleFunc("PUT /api/projects/{"+projectIDParam+"}", s.withSession(s.handleUpdateProject))
+	mux.HandleFunc("POST /api/projects/{"+projectIDParam+"}/verify", s.withSession(s.handleVerifyProject))
+	if s.projectDel != nil {
+		mux.HandleFunc("DELETE /api/projects/{"+projectIDParam+"}", s.withSession(s.handleDeleteProject))
+	}
 	// dev-only (KILN_DEV_ENDPOINTS=1 AND identity enabled): mint a session
 	// straight from a GitHub login, bypassing the OAuth dance (11 §7).
 	if s.devSession != nil {
@@ -1040,6 +1118,17 @@ func findTicket(snap board.Snapshot, id string) (board.Ticket, bool) {
 		}
 	}
 	return board.Ticket{}, false
+}
+
+// msgNoSuchProject is the 404 body for a project the caller doesn't own or that
+// doesn't exist (12 §3.2): never confirming a foreign project's existence.
+const msgNoSuchProject = "no such project"
+
+// writeNotFound writes a 404 with a {"error": msg} JSON body — the single shape
+// every "no such project"/"no project configured" response goes through (12
+// §3.2: a foreign or unknown project is a 404, never a leak).
+func writeNotFound(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": msg})
 }
 
 // writeJSON encodes v as the response body with the given status. An encode

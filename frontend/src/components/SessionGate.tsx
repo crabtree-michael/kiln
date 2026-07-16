@@ -78,10 +78,10 @@ export function SessionGate({ children }: SessionGateProps): JSX.Element | null 
     );
   }
 
-  // Signed in, but `me.project` is absent until the user creates their
-  // project on the dashboard (11 §4) — point them there instead of mounting
-  // providers that have no project to talk to.
-  if (me.project == null) {
+  // Signed in, but the user owns no project yet — "not onboarded" is now
+  // `projects.length === 0` (12 §4.1, replacing the old singular `me.project`).
+  // Point them at the dashboard instead of mounting providers with no project.
+  if (me.projects.length === 0) {
     return (
       <div style={screenStyle} data-role="session-gate-no-project">
         <h1 style={wordmarkStyle}>Kiln</h1>

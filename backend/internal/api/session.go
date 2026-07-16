@@ -64,12 +64,16 @@ func (s *Server) withSession(next func(http.ResponseWriter, *http.Request, ident
 	}
 }
 
-// ProjectResolver resolves the caller's active project from their user id
-// (11 phase 2): withProject uses it to scope every tenant-state handler to
-// exactly one project. Satisfied directly by *identity.Service's ProjectFor,
-// which returns identity.ErrNotFound until onboarding creates the project.
+// ProjectResolver resolves the caller's project for tenant-state scoping
+// (11 phase 2, 12 §3.2). Two resolvers: ProjectFor is the back-compat
+// first-project lookup behind the singular bare routes; ProjectByID is the
+// owner-authorizing by-id lookup behind the /api/projects/{pid}/* routes — it
+// returns identity.ErrNotFound both for an unknown/soft-deleted id AND for a
+// project owned by someone else, so a non-owner can never distinguish the two
+// (12 §3.2: 404, never a leak). Both satisfied directly by *identity.Service.
 type ProjectResolver interface {
 	ProjectFor(ctx context.Context, userID string) (identity.Project, error)
+	ProjectByID(ctx context.Context, userID, projectID string) (identity.Project, error)
 }
 
 // withProject authenticates the request exactly like withSession and then
@@ -87,7 +91,38 @@ func (s *Server) withProject(
 		project, err := s.projects.ProjectFor(r.Context(), user.ID)
 		if err != nil {
 			if errors.Is(err, identity.ErrNotFound) {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "no project configured"})
+				writeNotFound(w, "no project configured")
+				return
+			}
+			http.Error(w, "resolve project", http.StatusInternalServerError)
+			return
+		}
+		next(w, r, user, project)
+	})
+}
+
+// projectIDParam names the path wildcard carrying the project id on every
+// project-scoped route (/api/projects/{pid}/...). It is deliberately NOT "id":
+// the app routes it wraps (e.g. .../feed/{id}/dismiss, .../tickets/{id}/...)
+// already use {id} for their own resource, and Go 1.22's ServeMux forbids two
+// wildcards of the same name in one pattern.
+const projectIDParam = "pid"
+
+// withProjectID is withProject's by-id sibling (12 §3.2): it authenticates the
+// session, reads the {pid} path segment, and resolves it through ProjectByID —
+// which authorizes the caller as the project's owner. A project the caller does
+// not own (or an unknown/soft-deleted one) is a 404, never a 403 and never a 200
+// (12 §3.2): the ownership boundary is uniform across REST and the SSE stream,
+// and identical to withProject's shape so an app handler runs unchanged whether
+// it was reached by the bare or the id'd route.
+func (s *Server) withProjectID(
+	next func(http.ResponseWriter, *http.Request, identity.User, identity.Project),
+) http.HandlerFunc {
+	return s.withSession(func(w http.ResponseWriter, r *http.Request, user identity.User) {
+		project, err := s.projects.ProjectByID(r.Context(), user.ID, r.PathValue(projectIDParam))
+		if err != nil {
+			if errors.Is(err, identity.ErrNotFound) {
+				writeNotFound(w, msgNoSuchProject)
 				return
 			}
 			http.Error(w, "resolve project", http.StatusInternalServerError)

@@ -30,7 +30,9 @@ function DashboardBody(): JSX.Element {
     );
   }
 
-  return me.project === undefined ? <Onboarding /> : <Settings />;
+  // "Not onboarded" is now projects.length === 0 (12 §4.1): no projects → the
+  // onboarding form; one or more → the project-list settings view.
+  return me.projects.length === 0 ? <Onboarding /> : <Settings />;
 }
 
 export function Dashboard(): JSX.Element {

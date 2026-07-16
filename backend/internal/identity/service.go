@@ -194,16 +194,28 @@ func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
 		GitHubToken:       s.secretStatus(cfg.GitHubTokenEnc),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 	}}
-	proj, err := s.store.GetProjectByOwner(ctx, userID)
-	switch {
-	case err == nil:
-		me.Project = &proj
-		me.ProjectSecrets = s.amikaSecretStatuses(proj.AmikaSecrets)
-	case errors.Is(err, ErrNotFound): // onboarding not done yet
-	default:
+	views, err := s.ListProjects(ctx, userID)
+	if err != nil {
 		return Me{}, fmt.Errorf("identity: me: %w", err)
 	}
+	me.Projects = views
 	return me, nil
+}
+
+// ListProjects returns the owner's live projects as ProjectViews (project +
+// fingerprint-only secret statuses), oldest-first — the collection behind
+// GET /api/projects and Me.projects (12 §3.1). An owner with none yields an
+// empty slice (the "not onboarded" state), never an error.
+func (s *Service) ListProjects(ctx context.Context, userID string) ([]ProjectView, error) {
+	projects, err := s.store.ListProjectsByOwner(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list projects: %w", err)
+	}
+	views := make([]ProjectView, 0, len(projects))
+	for _, p := range projects {
+		views = append(views, ProjectView{Project: p, Secrets: s.amikaSecretStatuses(p.AmikaSecrets)})
+	}
+	return views, nil
 }
 
 // UpdateSettings merges non-empty fields over the stored row (read-modify-write;
@@ -236,15 +248,15 @@ func (s *Service) UpdateSettings(ctx context.Context, userID string, upd Setting
 	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("identity: update settings: %w", err)
 	}
-	// Config is per-user; invalidate the owner's project runtime if they have
-	// one. A user who hasn't onboarded a project yet has nothing to invalidate
-	// (not an error).
-	switch proj, perr := s.store.GetProjectByOwner(ctx, userID); {
-	case perr == nil:
-		s.fireInvalidate(proj.ID)
-	case errors.Is(perr, ErrNotFound): // no project yet — nothing to invalidate
-	default:
+	// Config is per-user and shared by every brain the user owns (12 §2), so a
+	// credential change must rebuild ALL of the owner's projects, not just one.
+	// A user who hasn't onboarded a project yet has nothing to invalidate.
+	projects, perr := s.store.ListProjectsByOwner(ctx, userID)
+	if perr != nil {
 		return fmt.Errorf("identity: update settings: %w", perr)
+	}
+	for _, proj := range projects {
+		s.fireInvalidate(proj.ID)
 	}
 	return nil
 }
@@ -271,45 +283,118 @@ func normalizeMergeGateMode(m MergeGateMode) (MergeGateMode, bool) {
 	return m, m == MergeGateMain || m == MergeGatePR
 }
 
-// UpsertProject creates or updates the caller's project (one per owner in
-// phase 1), validating required fields and the worker-count range.
+// CreateProject creates a new project for the caller (12 DP2), validating
+// required fields and the worker-count range. Credentials are per-user (already
+// set), so a second project skips the credential step — only the project fields
+// are supplied here. A fresh project carries no prior secrets, so the write-only
+// merge starts from nothing.
+func (s *Service) CreateProject(ctx context.Context, userID string, upd ProjectUpdate) (ProjectView, error) {
+	upd, err := validateProjectUpdate(upd)
+	if err != nil {
+		return ProjectView{}, err
+	}
+	secrets, err := s.mergeAmikaSecrets(upd.AmikaSecrets, nil)
+	if err != nil {
+		return ProjectView{}, err
+	}
+	p, err := s.store.CreateProject(ctx, s.projectRow(userID, "", upd, secrets))
+	if err != nil {
+		return ProjectView{}, fmt.Errorf("identity: create project: %w", err)
+	}
+	s.fireInvalidate(p.ID)
+	return s.projectView(p), nil
+}
+
+// UpdateProject updates a project the caller owns (12 §3.1), carrying forward
+// write-only secret values the client didn't re-enter. Ownership is enforced in
+// the store's UPDATE WHERE (id + owner_user_id): a project the caller doesn't own
+// (or a soft-deleted one) resolves to ErrNotFound both when loading its prior
+// secrets and on the write itself, so a foreign project is never confirmed (§3.2).
+func (s *Service) UpdateProject(ctx context.Context, userID, projectID string, upd ProjectUpdate) (ProjectView, error) {
+	upd, err := validateProjectUpdate(upd)
+	if err != nil {
+		return ProjectView{}, err
+	}
+	// Load the target's current secrets (owner-authorized) so empty-value entries
+	// carry the stored ciphertext forward (11 §3 D7).
+	cur, err := s.ProjectByID(ctx, userID, projectID)
+	if err != nil {
+		return ProjectView{}, err
+	}
+	secrets, err := s.mergeAmikaSecrets(upd.AmikaSecrets, cur.AmikaSecrets)
+	if err != nil {
+		return ProjectView{}, err
+	}
+	p, err := s.store.UpdateProject(ctx, s.projectRow(userID, projectID, upd, secrets))
+	if err != nil {
+		return ProjectView{}, fmt.Errorf("identity: update project: %w", err)
+	}
+	s.fireInvalidate(p.ID)
+	return s.projectView(p), nil
+}
+
+// UpsertProject is the back-compat singular write (PUT /api/project, 12 §9):
+// update the caller's first project when they have one, else create it. New
+// clients target the id'd create/update endpoints instead. Returns the plain
+// Project (bootstrap's shape).
 func (s *Service) UpsertProject(ctx context.Context, userID string, upd ProjectUpdate) (Project, error) {
+	switch first, err := s.store.GetProjectByOwner(ctx, userID); {
+	case err == nil:
+		v, uerr := s.UpdateProject(ctx, userID, first.ID, upd)
+		return v.Project, uerr
+	case errors.Is(err, ErrNotFound):
+		v, cerr := s.CreateProject(ctx, userID, upd)
+		return v.Project, cerr
+	default:
+		return Project{}, fmt.Errorf("identity: upsert project: %w", err)
+	}
+}
+
+// ProjectByID resolves a project by id and authorizes the caller as its owner
+// (12 §3.2) — the owner-check that did not exist in phase 1 (there was never a
+// foreign project to request). Returns ErrNotFound both for an unknown/soft-deleted
+// id AND for a live project owned by someone else, so a non-owner can never tell
+// the two apart (§3.2: 404, not 403). This is the request-path project resolver
+// the api's withProject guard is built on.
+func (s *Service) ProjectByID(ctx context.Context, userID, projectID string) (Project, error) {
+	p, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return Project{}, fmt.Errorf("identity: project by id: %w", err)
+	}
+	if p.OwnerUserID != userID {
+		return Project{}, ErrNotFound // don't confirm a foreign project's existence
+	}
+	return p, nil
+}
+
+// SoftDeleteProject marks the caller's project deleted (12 DP6), guarded by the
+// owner check in the store's UPDATE WHERE. Returns ErrNotFound when no live row
+// the caller owns matches. The runtime-eviction/state-cascade around this
+// (Reset, tenant Invalidate, clone removal) is the composition root's job (§5) —
+// this only retires the row.
+func (s *Service) SoftDeleteProject(ctx context.Context, userID, projectID string) error {
+	if err := s.store.SoftDeleteProject(ctx, projectID, userID); err != nil {
+		return fmt.Errorf("identity: soft delete project: %w", err)
+	}
+	return nil
+}
+
+// validateProjectUpdate defaults the worker count and gate mode and validates
+// the required fields + ranges, returning the normalized update or
+// ErrInvalidProject. Shared by create and update so both enforce the same rules.
+func validateProjectUpdate(upd ProjectUpdate) (ProjectUpdate, error) {
 	if upd.WorkerCount == 0 {
 		upd.WorkerCount = defaultWorkerCount
 	}
 	gateMode, gateOK := normalizeMergeGateMode(upd.MergeGateMode)
 	if upd.Name == "" || upd.RepoURL == "" || upd.WorkerCount < minWorkerCount || upd.WorkerCount > maxWorkerCount {
-		return Project{}, ErrInvalidProject
+		return ProjectUpdate{}, ErrInvalidProject
 	}
 	if !gateOK {
-		return Project{}, ErrInvalidProject
+		return ProjectUpdate{}, ErrInvalidProject
 	}
 	upd.MergeGateMode = gateMode
-	// Load the current secrets so write-only values the client didn't re-enter
-	// (empty value for a kept name) carry forward (11 §3 D7).
-	existing, err := s.ownerAmikaSecrets(ctx, userID)
-	if err != nil {
-		return Project{}, err
-	}
-	secrets, err := s.mergeAmikaSecrets(upd.AmikaSecrets, existing)
-	if err != nil {
-		return Project{}, err
-	}
-	p, err := s.store.UpsertProject(ctx, Project{
-		OwnerUserID:   userID,
-		Name:          upd.Name,
-		RepoURL:       upd.RepoURL,
-		AgentProvider: upd.AgentProvider,
-		AmikaSnapshot: upd.AmikaSnapshot,
-		WorkerCount:   upd.WorkerCount,
-		MergeGateMode: upd.MergeGateMode,
-		AmikaSecrets:  secrets,
-	})
-	if err != nil {
-		return Project{}, fmt.Errorf("identity: upsert project: %w", err)
-	}
-	s.fireInvalidate(p.ID)
-	return p, nil
+	return upd, nil
 }
 
 // SetInvalidator registers a hook fired after a successful config write
@@ -435,9 +520,32 @@ func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeC
 // signature stable for tests that don't verify.
 func (s *Service) SetVerifier(v Verifier) { s.verifier = v }
 
-// Verify runs live checks for each configured credential group; unconfigured
-// groups report "skipped" (11 §4). Order is fixed: anthropic, amika, devin, repo.
+// Verify runs the caller's live checks against their FIRST project's repo — the
+// back-compat user-scoped check (POST /api/settings/verify, 11 §4).
 func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, error) {
+	repoURL := ""
+	if p, err := s.store.GetProjectByOwner(ctx, userID); err == nil {
+		repoURL = p.RepoURL
+	}
+	return s.verifyRepo(ctx, userID, repoURL)
+}
+
+// VerifyProject runs the caller's live checks against a SPECIFIC project's repo
+// (12 §3.1, §6.2): the repo check uses that project's url; the Amika/Anthropic/
+// Devin checks are per-user. Owner-authorized — a foreign/unknown project is
+// ErrNotFound (→ 404).
+func (s *Service) VerifyProject(ctx context.Context, userID, projectID string) ([]CheckResult, error) {
+	proj, err := s.ProjectByID(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return s.verifyRepo(ctx, userID, proj.RepoURL)
+}
+
+// verifyRepo runs live checks for each configured credential group against the
+// given repo url; unconfigured groups report "skipped" (11 §4). Order is fixed:
+// anthropic, amika, devin, repo.
+func (s *Service) verifyRepo(ctx context.Context, userID, repoURL string) ([]CheckResult, error) {
 	cfg, err := s.store.GetUserConfig(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("identity: verify: %w", err)
@@ -446,10 +554,6 @@ func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, err
 	amikaKey := s.decrypt(cfg.AmikaKeyEnc)
 	devinKey := s.decrypt(cfg.DevinKeyEnc)
 	ghToken := s.decrypt(cfg.GitHubTokenEnc)
-	repoURL := ""
-	if p, err := s.store.GetProjectByOwner(ctx, userID); err == nil {
-		repoURL = p.RepoURL
-	}
 	checks := make([]CheckResult, 0, verifyCheckCount)
 	checks = append(checks, s.check(ctx, "anthropic", anthropicKey != "", func(ctx context.Context) CheckResult {
 		return s.verifier.VerifyAnthropic(ctx, anthropicKey)
@@ -464,6 +568,28 @@ func (s *Service) Verify(ctx context.Context, userID string) ([]CheckResult, err
 		return s.verifier.VerifyRepo(ctx, repoURL, ghToken)
 	}))
 	return checks, nil
+}
+
+// projectView pairs a stored project with its fingerprint-only secret statuses
+// (decrypted names + value presence) — the shape the account API returns.
+func (s *Service) projectView(p Project) ProjectView {
+	return ProjectView{Project: p, Secrets: s.amikaSecretStatuses(p.AmikaSecrets)}
+}
+
+// projectRow assembles the store Project for a create/update from a validated
+// update (id is "" for a create).
+func (s *Service) projectRow(userID, projectID string, upd ProjectUpdate, secrets []AmikaSecret) Project {
+	return Project{
+		ID:            projectID,
+		OwnerUserID:   userID,
+		Name:          upd.Name,
+		RepoURL:       upd.RepoURL,
+		AgentProvider: upd.AgentProvider,
+		AmikaSnapshot: upd.AmikaSnapshot,
+		WorkerCount:   upd.WorkerCount,
+		MergeGateMode: upd.MergeGateMode,
+		AmikaSecrets:  secrets,
+	}
 }
 
 // check runs one live check when its credential group is configured and a
@@ -542,19 +668,6 @@ func (s *Service) mergeSecret(dst *[]byte, plaintext string) error {
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-
-// ownerAmikaSecrets returns the owner's currently-stored (encrypted) secrets, or
-// nil before onboarding — the carry-forward source for the write-only merge.
-func (s *Service) ownerAmikaSecrets(ctx context.Context, userID string) ([]AmikaSecret, error) {
-	switch cur, err := s.store.GetProjectByOwner(ctx, userID); {
-	case err == nil:
-		return cur.AmikaSecrets, nil
-	case errors.Is(err, ErrNotFound): // first project — nothing to carry forward
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("identity: owner amika secrets: %w", err)
-	}
 }
 
 // mergeAmikaSecrets validates and encrypts the inbound secret list against the

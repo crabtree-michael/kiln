@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
@@ -34,10 +36,12 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/beta"
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/push"
 	"github.com/crabtree-michael/kiln/backend/internal/repo"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	"github.com/crabtree-michael/kiln/backend/internal/steward"
+	"github.com/crabtree-michael/kiln/backend/internal/tenant"
 )
 
 // ownerLookup resolves a project to its owning user id (11 §3) — the
@@ -684,7 +688,7 @@ func (n *webPushNotifier) Send(ctx context.Context, projectID string, payload []
 	if err := n.sender.Send(ctx, userID, push.Notification{
 		Title: p.Title,
 		Body:  p.Reason,
-		URL:   notifyURL(p.TicketID),
+		URL:   notifyURL(projectID, p.TicketID),
 	}); err != nil {
 		return fmt.Errorf("kiln: web push send: %w", err)
 	}
@@ -693,16 +697,25 @@ func (n *webPushNotifier) Send(ctx context.Context, projectID string, payload []
 
 var _ runtime.Notifier = (*webPushNotifier)(nil)
 
-// notifyURL is the tap-to-open deep link for a notify.send (02 §10):
-// "/app?ticket=<id>", which the frontend reads on load (or via the service
-// worker's postMessage) to open that ticket's detail overlay. The primary screen
-// lives at "/app" ("/" is the marketing landing page), so a payload with no
-// ticket falls back to the plain app root.
-func notifyURL(id board.TicketID) string {
-	if id == "" {
+// notifyURL is the tap-to-open deep link for a notify.send (02 §10, 12 §6.3):
+// "/app?project=<id>[&ticket=<id>]". The project param lands the app on the
+// firing project — the current-project store reads it on load, deep-linking the
+// tap to the right tenant so a tap never opens a different project than the event
+// that fired it (12 §6.3). The ticket param, when present, opens that ticket's
+// detail overlay. The primary screen lives at "/app" ("/" is the marketing
+// landing page).
+func notifyURL(projectID string, ticketID board.TicketID) string {
+	q := url.Values{}
+	if projectID != "" {
+		q.Set("project", projectID)
+	}
+	if ticketID != "" {
+		q.Set("ticket", string(ticketID))
+	}
+	if len(q) == 0 {
 		return "/app"
 	}
-	return "/app?" + url.Values{"ticket": {string(id)}}.Encode()
+	return "/app?" + q.Encode()
 }
 
 // pushRegistrarAdapter satisfies api.PushRegistrar over the push store (02 §10,
@@ -943,3 +956,90 @@ func (t *dbStateDeleter) DeleteProjectState(ctx context.Context, projectID strin
 	}
 	return nil
 }
+
+// projectAuthorizer authorizes a caller as a project's owner and soft-deletes it
+// (12 §5). Satisfied by *identity.Service (ProjectByID + SoftDeleteProject).
+type projectAuthorizer interface {
+	ProjectByID(ctx context.Context, userID, projectID string) (identity.Project, error)
+	SoftDeleteProject(ctx context.Context, userID, projectID string) error
+}
+
+// tenantEvictor drops a project's cached provider bundle and closes its
+// per-tenant resources (12 §5 step 3). Satisfied by *tenant.Registry.
+type tenantEvictor interface {
+	Invalidate(projectID string)
+}
+
+// projectDeleteCoordinator satisfies api.ProjectDeleter (12 §5, DP6): the
+// application-level cascade a project delete is, since there is no cross-module
+// DB FK to lean on. It spans identity (authorize + soft-delete), the shared DB
+// (state purge), the agent service (sandbox teardown), the tenant registry
+// (bundle eviction), and the on-disk repo clone — so it lives at the composition
+// root, next to resetCoordinator whose state/worker teardown it reuses.
+type projectDeleteCoordinator struct {
+	auth     projectAuthorizer
+	state    projectStateDeleter // dbStateDeleter — the per-project state purge
+	workers  workerResetter      // agent.Service — tear down this project's sandboxes
+	registry tenantEvictor       // tenant.Registry — evict the cached bundle
+	repoDir  string              // clone lives at repoDir/<projectID>
+}
+
+// newProjectDeleteCoordinator wires the delete cascade over the shared pool, the
+// agent service, the tenant registry, and identity.
+func newProjectDeleteCoordinator(
+	db *sql.DB, workers workerResetter, registry *tenant.Registry,
+	auth projectAuthorizer, repoDir string,
+) *projectDeleteCoordinator {
+	return &projectDeleteCoordinator{
+		auth:     auth,
+		state:    &dbStateDeleter{db: db},
+		workers:  workers,
+		registry: registry,
+		repoDir:  repoDir,
+	}
+}
+
+// DeleteProject deletes a project the caller owns (12 §5). Ownership is checked
+// first, so the destructive cascade never runs for a project the caller can't
+// delete: a foreign/unknown/already-deleted id returns identity.ErrNotFound
+// (→ 404) before any state is touched. The cascade then (1) purges this project's
+// state rows, (2) tears down its live sandboxes, (3) evicts its tenant bundle and
+// (4) removes its on-disk clone — the one caller that should, since Invalidate
+// deliberately keeps it — then (5) soft-deletes the row so it no longer resolves
+// anywhere. Steps 1–2 are idempotent, so a retry after a mid-cascade crash
+// converges (the row is still live until step 5).
+func (c *projectDeleteCoordinator) DeleteProject(ctx context.Context, userID, projectID string) error {
+	if _, err := c.auth.ProjectByID(ctx, userID, projectID); err != nil {
+		return fmt.Errorf("kiln: delete project authorize: %w", err) // ErrNotFound → 404
+	}
+	if err := c.state.DeleteProjectState(ctx, projectID); err != nil {
+		return fmt.Errorf("kiln: delete project state: %w", err)
+	}
+	if err := c.workers.ResetProject(ctx, projectID); err != nil {
+		return fmt.Errorf("kiln: delete project workers: %w", err)
+	}
+	c.registry.Invalidate(projectID) // evict the cached bundle + close its resources
+	c.removeClone(ctx, projectID)    // best-effort: a stale clone must not block the delete
+	if err := c.auth.SoftDeleteProject(ctx, userID, projectID); err != nil {
+		return fmt.Errorf("kiln: delete project soft-delete: %w", err)
+	}
+	return nil
+}
+
+// removeClone deletes the project's on-disk repo clone. Best-effort: a failure is
+// logged, not propagated — the row is being retired regardless, and a leftover
+// clone directory is inert (the deleted project is never resolved to reuse it).
+func (c *projectDeleteCoordinator) removeClone(ctx context.Context, projectID string) {
+	if c.repoDir == "" {
+		return
+	}
+	if err := os.RemoveAll(filepath.Join(c.repoDir, projectID)); err != nil {
+		slog.WarnContext(ctx, "kiln: delete project remove clone", "project_id", projectID, "err", err)
+	}
+}
+
+var (
+	_ api.ProjectDeleter = (*projectDeleteCoordinator)(nil)
+	_ projectAuthorizer  = (*identity.Service)(nil)
+	_ tenantEvictor      = (*tenant.Registry)(nil)
+)

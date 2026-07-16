@@ -260,7 +260,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
 
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, newVoiceMinter(cfg))
-	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore, betapg.New(db))
+	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore, betapg.New(db), registry)
 
 	events, outbox := rtSvc.Workers(clock)
 	return graph{
@@ -655,7 +655,7 @@ func enableServerRoutes(
 	server *api.Server, cfg Config, db *sql.DB,
 	boardSvc *board.Service, rtSvc *runtime.Service,
 	agentSvc *agent.Service, boardStore *boardpg.Store, idSvc *identity.Service,
-	pushStore push.Store, betaStore beta.Store,
+	pushStore push.Store, betaStore beta.Store, registry *tenant.Registry,
 ) {
 	// Web Push registration (02 §10): the subscribe route is always mounted (the
 	// store always exists); the VAPID public key is served only when configured,
@@ -695,11 +695,13 @@ func enableServerRoutes(
 		// (multi-provider design §8): built from the registry here — the one place
 		// naming a provider is legal — and served inside GET /api/me (D6).
 		server.EnableProviders(providerDescriptors(cfg))
-		// Every app route is project-scoped (11 phase 2): withProject resolves the
-		// caller's single project through identity's ProjectFor. Mounted with
-		// identity — unconfigured boots leave s.projects nil, and the app routes
-		// stay behind withSession's 401 (no session can be minted anyway).
-		server.EnableTenancy(idSvc)
+		// Every app route is project-scoped (11 phase 2, 12 §3.2): the bare routes
+		// resolve the caller's first project (ProjectFor), the /api/projects/{pid}/*
+		// routes resolve the named, owner-authorized project (ProjectByID). Mounted
+		// with identity — unconfigured boots leave s.projects nil, and the app routes
+		// stay behind withSession's 401 (no session can be minted anyway). The delete
+		// coordinator runs the 12 §5 cascade behind DELETE /api/projects/{pid}.
+		server.EnableTenancy(idSvc, newProjectDeleteCoordinator(db, agentSvc, registry, idSvc, cfg.RepoDir))
 		if cfg.DevEndpoints {
 			// Dev/e2e only (11 §7): mint a session straight from a GitHub login,
 			// bypassing the real OAuth dance, so an e2e can sign in deterministically.

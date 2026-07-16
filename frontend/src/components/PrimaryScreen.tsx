@@ -15,6 +15,7 @@ import { useWebPush } from '@/stores/use-web-push';
 import { usePresence } from '@/stores/use-presence';
 import { acceptTicket, deleteTicket, postMessage } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
+import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
 
 function PrimaryScreenBody(): JSX.Element {
@@ -85,36 +86,39 @@ function PrimaryScreenBody(): JSX.Element {
   }, []);
 
   return (
-    <PrimaryScreenView
-      feed={feed}
-      board={board}
-      connectionState={connectionState}
-      thinking={thinking}
-      toasts={toasts}
-      onDismiss={dismiss}
-      onToastExpandedChange={setToastExpanded}
-      onAccept={onAccept}
-      onDelete={onDelete}
-      onPoke={onPoke}
-      onDismissCard={dismissCard}
-      onDismissAll={dismissAll}
-      onOpenTickets={refreshBoard}
-      ticketsRefreshing={refreshing}
-      lastSeenId={lastSeenId}
-      hasMoreHistory={hasMoreHistory}
-      loadingMoreHistory={loadingMoreHistory}
-      onLoadMoreHistory={loadMoreHistory}
-      onRefreshFeed={refreshFeed}
-      notificationMode={notificationMode}
-      onSelectNotificationMode={setNotificationMode}
-      pushStatus={pushStatus}
-      onEnablePush={() => {
-        void enablePush();
-      }}
-      onDisablePush={() => {
-        void disablePush();
-      }}
-    />
+    <>
+      <ProjectSwitcher />
+      <PrimaryScreenView
+        feed={feed}
+        board={board}
+        connectionState={connectionState}
+        thinking={thinking}
+        toasts={toasts}
+        onDismiss={dismiss}
+        onToastExpandedChange={setToastExpanded}
+        onAccept={onAccept}
+        onDelete={onDelete}
+        onPoke={onPoke}
+        onDismissCard={dismissCard}
+        onDismissAll={dismissAll}
+        onOpenTickets={refreshBoard}
+        ticketsRefreshing={refreshing}
+        lastSeenId={lastSeenId}
+        hasMoreHistory={hasMoreHistory}
+        loadingMoreHistory={loadingMoreHistory}
+        onLoadMoreHistory={loadMoreHistory}
+        onRefreshFeed={refreshFeed}
+        notificationMode={notificationMode}
+        onSelectNotificationMode={setNotificationMode}
+        pushStatus={pushStatus}
+        onEnablePush={() => {
+          void enablePush();
+        }}
+        onDisablePush={() => {
+          void disablePush();
+        }}
+      />
+    </>
   );
 }
 

@@ -123,16 +123,21 @@ type MeSettings struct {
 	AmikaClaudeCredID string
 }
 
-// Me is everything GET /api/me returns (11 §4).
+// ProjectView is one project plus its fingerprint-only secret statuses
+// (decrypted names + value presence). Deriving Secrets needs the cipher, which
+// the api's wire mapping doesn't hold, so the service computes it here (12 §3.1).
+type ProjectView struct {
+	Project Project
+	Secrets []AmikaSecretStatus
+}
+
+// Me is everything GET /api/me returns (11 §4, 12 §3.1). Projects is the user's
+// live project set (empty until onboarding creates the first) — the collection
+// that replaced the old singular Project?, so "not onboarded" is len==0 (12 §4.1).
 type Me struct {
-	User    User
-	Project *Project // nil until onboarding creates it
-	// ProjectSecrets is the fingerprint-only view of Project.AmikaSecrets
-	// (decrypted names + value status), nil when there is no project. Kept
-	// beside Project because deriving it needs the cipher, which the api's
-	// wire mapping doesn't hold.
-	ProjectSecrets []AmikaSecretStatus
-	Settings       MeSettings
+	User     User
+	Projects []ProjectView
+	Settings MeSettings
 }
 
 // SettingsUpdate is a partial credential write; empty string = leave unchanged.

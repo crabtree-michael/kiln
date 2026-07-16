@@ -232,10 +232,16 @@ func (s *Store) UpsertUserConfig(ctx context.Context, cfg identity.UserConfig) e
 	return nil
 }
 
-// GetProjectByOwner returns ErrNotFound before onboarding creates it.
+// GetProjectByOwner returns the owner's FIRST live project (oldest by
+// created_at, 12 §6.4) or ErrNotFound when they own none. Multi-project (12 §2)
+// dropped the one-per-owner index, so this is now "a project the owner has" —
+// the back-compat resolver behind the singular routes and bootstrap. Soft-deleted
+// rows are filtered (deleted_at IS NULL, 12 DP6).
 func (s *Store) GetProjectByOwner(ctx context.Context, ownerUserID string) (identity.Project, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT `+projectColumns+` FROM projects WHERE owner_user_id = $1`, ownerUserID)
+		`SELECT `+projectColumns+` FROM projects
+		  WHERE owner_user_id = $1 AND deleted_at IS NULL
+		  ORDER BY created_at LIMIT 1`, ownerUserID)
 	p, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return identity.Project{}, identity.ErrNotFound
@@ -246,10 +252,11 @@ func (s *Store) GetProjectByOwner(ctx context.Context, ownerUserID string) (iden
 	return p, nil
 }
 
-// GetProject returns ErrNotFound for an unknown projects.id.
+// GetProject returns ErrNotFound for an unknown or soft-deleted projects.id
+// (12 DP6: a soft-deleted project no longer resolves anywhere).
 func (s *Store) GetProject(ctx context.Context, id string) (identity.Project, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT `+projectColumns+` FROM projects WHERE id = $1`, id)
+		`SELECT `+projectColumns+` FROM projects WHERE id = $1 AND deleted_at IS NULL`, id)
 	p, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return identity.Project{}, identity.ErrNotFound
@@ -260,12 +267,102 @@ func (s *Store) GetProject(ctx context.Context, id string) (identity.Project, er
 	return p, nil
 }
 
-// ListProjects returns every project ordered by created_at (stable startup
-// ordering for the runtime's per-project registry). The named err return lets
-// the deferred rows.Close failure surface (the board/postgres idiom).
-func (s *Store) ListProjects(ctx context.Context) (_ []identity.Project, err error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+projectColumns+` FROM projects ORDER BY created_at`)
+// ListProjects returns every LIVE project ordered by created_at (stable startup
+// ordering for the runtime's per-project registry). Soft-deleted rows are
+// filtered so the runtime never stands up a deleted tenant (12 DP6). The named
+// err return lets the deferred rows.Close failure surface (the board/postgres idiom).
+func (s *Store) ListProjects(ctx context.Context) ([]identity.Project, error) {
+	return s.queryProjects(ctx,
+		`SELECT `+projectColumns+` FROM projects WHERE deleted_at IS NULL ORDER BY created_at`)
+}
+
+// ListProjectsByOwner returns the owner's live projects, oldest-first — the
+// collection behind GET /api/projects and Me.projects (12 §3.1). Soft-deleted
+// rows are filtered (12 DP6).
+func (s *Store) ListProjectsByOwner(ctx context.Context, ownerUserID string) ([]identity.Project, error) {
+	return s.queryProjects(ctx,
+		`SELECT `+projectColumns+` FROM projects
+		  WHERE owner_user_id = $1 AND deleted_at IS NULL ORDER BY created_at`, ownerUserID)
+}
+
+// CreateProject inserts a new project for the owner and returns it with its
+// server-generated id (12 DP2). Unlike the retired owner-keyed upsert, this
+// always creates a distinct row — the mechanism that makes "many projects per
+// user" possible.
+func (s *Store) CreateProject(ctx context.Context, p identity.Project) (identity.Project, error) {
+	secrets, err := marshalAmikaSecrets(p.AmikaSecrets)
+	if err != nil {
+		return identity.Project{}, err
+	}
+	row := s.db.QueryRowContext(ctx, `
+		INSERT INTO projects (
+			owner_user_id, name, repo_url, agent_provider, amika_snapshot,
+			worker_count, merge_gate_mode, amika_secrets)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING `+projectColumns,
+		p.OwnerUserID, p.Name, p.RepoURL, p.AgentProvider, p.AmikaSnapshot,
+		p.WorkerCount, coalesceGateMode(p.MergeGateMode), secrets)
+	out, err := scanProject(row)
+	if err != nil {
+		return identity.Project{}, fmt.Errorf("identity/postgres: create project: %w", err)
+	}
+	return out, nil
+}
+
+// UpdateProject updates a project in place, guarded by an ownership check
+// (12 §3.2): the UPDATE's WHERE pins both the id and the owner (and filters
+// soft-deleted rows), so a caller can only ever mutate a live project they own.
+// Returns ErrNotFound when no live row matches (unknown id, foreign owner, or
+// already soft-deleted) — never confirming a foreign project's existence.
+func (s *Store) UpdateProject(ctx context.Context, p identity.Project) (identity.Project, error) {
+	secrets, err := marshalAmikaSecrets(p.AmikaSecrets)
+	if err != nil {
+		return identity.Project{}, err
+	}
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE projects
+		   SET name = $3, repo_url = $4, agent_provider = $5, amika_snapshot = $6,
+		       worker_count = $7, merge_gate_mode = $8, amika_secrets = $9
+		 WHERE id = $1 AND owner_user_id = $2 AND deleted_at IS NULL
+		RETURNING `+projectColumns,
+		p.ID, p.OwnerUserID, p.Name, p.RepoURL, p.AgentProvider, p.AmikaSnapshot,
+		p.WorkerCount, coalesceGateMode(p.MergeGateMode), secrets)
+	out, err := scanProject(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return identity.Project{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return identity.Project{}, fmt.Errorf("identity/postgres: update project: %w", err)
+	}
+	return out, nil
+}
+
+// SoftDeleteProject marks the owner's project deleted (12 DP6): the row is
+// retained (id never reused) and filtered from every read path. Guarded by the
+// owner check and idempotent-safe — a WHERE that also requires deleted_at IS NULL
+// so a re-delete of an already-deleted row reports ErrNotFound rather than
+// re-stamping. Returns ErrNotFound when no live row matches (unknown/foreign/gone).
+func (s *Store) SoftDeleteProject(ctx context.Context, id, ownerUserID string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE projects SET deleted_at = now()
+		  WHERE id = $1 AND owner_user_id = $2 AND deleted_at IS NULL`, id, ownerUserID)
+	if err != nil {
+		return fmt.Errorf("identity/postgres: soft delete project: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("identity/postgres: soft delete project rows: %w", err)
+	}
+	if n == 0 {
+		return identity.ErrNotFound
+	}
+	return nil
+}
+
+// queryProjects runs a projection query and scans every row, sharing the
+// rows.Close/iterate error handling across the two list paths.
+func (s *Store) queryProjects(ctx context.Context, query string, args ...any) (_ []identity.Project, err error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("identity/postgres: list projects: %w", err)
 	}
@@ -289,39 +386,14 @@ func (s *Store) ListProjects(ctx context.Context) (_ []identity.Project, err err
 	return out, nil
 }
 
-// UpsertProject creates or updates the owner's project in place (one project
-// per owner in phase 1).
-func (s *Store) UpsertProject(ctx context.Context, p identity.Project) (identity.Project, error) {
-	secrets, err := marshalAmikaSecrets(p.AmikaSecrets)
-	if err != nil {
-		return identity.Project{}, err
+// coalesceGateMode defaults an unset gate mode to the column default so a direct
+// store caller (and the service, which defaults it too) never trips the CHECK
+// constraint.
+func coalesceGateMode(m identity.MergeGateMode) string {
+	if m == "" {
+		return string(identity.MergeGateMain)
 	}
-	// Coalesce an unset gate mode to the column default so a direct store caller
-	// (and the service, which defaults it too) never trips the CHECK constraint.
-	gateMode := string(p.MergeGateMode)
-	if gateMode == "" {
-		gateMode = string(identity.MergeGateMain)
-	}
-	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO projects (
-			owner_user_id, name, repo_url, agent_provider, amika_snapshot,
-			worker_count, merge_gate_mode, amika_secrets)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (owner_user_id) DO UPDATE
-		  SET name = EXCLUDED.name, repo_url = EXCLUDED.repo_url,
-		      agent_provider = EXCLUDED.agent_provider,
-		      amika_snapshot = EXCLUDED.amika_snapshot,
-		      worker_count = EXCLUDED.worker_count,
-		      merge_gate_mode = EXCLUDED.merge_gate_mode,
-		      amika_secrets = EXCLUDED.amika_secrets
-		RETURNING `+projectColumns,
-		p.OwnerUserID, p.Name, p.RepoURL, p.AgentProvider, p.AmikaSnapshot,
-		p.WorkerCount, gateMode, secrets)
-	out, err := scanProject(row)
-	if err != nil {
-		return identity.Project{}, fmt.Errorf("identity/postgres: upsert project: %w", err)
-	}
-	return out, nil
+	return string(m)
 }
 
 // rowScanner is the minimal *sql.Row/*sql.Rows surface scanUser/scanProject

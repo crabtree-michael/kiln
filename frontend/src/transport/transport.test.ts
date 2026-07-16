@@ -19,6 +19,7 @@ import {
   postPushSubscription,
   fetchNotificationMode,
   putNotificationMode,
+  setActiveProjectId,
   type Board,
   type FeedSnapshot,
   type SayEvent,
@@ -227,6 +228,7 @@ describe('transport', () => {
         display_name: 'Octocat',
         avatar_url: 'https://example.com/a.png',
       },
+      projects: [],
       settings: {
         anthropic_api_key: { set: false, tail: '' },
         amika_api_key: { set: false, tail: '' },
@@ -538,4 +540,66 @@ describe('transport', () => {
       await expect(putNotificationMode('all')).rejects.toThrow('HTTP 500');
     });
   });
+
+  describe('current-project scoping (12 §3.2)', () => {
+    // Reset the module-level active project after each scoping test so the
+    // bare-route tests above/below keep resolving to `/api/...`.
+    afterEach(() => {
+      setActiveProjectId(null);
+    });
+
+    it('scopes app calls to /api/projects/{id}/... once a project is active', async () => {
+      setActiveProjectId('proj-42');
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(makeBoard({})))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await fetchBoard();
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toBe('/api/projects/proj-42/board');
+    });
+
+    it('scopes the SSE stream URL to the active project (EventSource can carry no header)', () => {
+      setActiveProjectId('proj-42');
+      openStream(noopHandlers());
+      expect(FakeEventSource.instances[0]?.url).toBe('/api/projects/proj-42/stream');
+    });
+
+    it('scopes the message POST to the active project', async () => {
+      setActiveProjectId('proj-42');
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ event_id: 1, message_id: 2 }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await postMessage('hi');
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toBe('/api/projects/proj-42/message');
+    });
+
+    it('falls back to the bare /api route when no project is active (back-compat)', async () => {
+      setActiveProjectId(null);
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(makeBoard({})))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await fetchBoard();
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toBe('/api/board');
+    });
+  });
 });
+
+/** A no-op StreamHandlers for tests that only assert the opened URL. */
+function noopHandlers(): StreamHandlers {
+  return {
+    onBoard: () => undefined,
+    onSay: () => undefined,
+    onConnectionStateChange: () => undefined,
+  };
+}

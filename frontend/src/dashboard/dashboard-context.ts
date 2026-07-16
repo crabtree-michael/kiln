@@ -53,9 +53,19 @@ export interface DashboardStoreValue {
    * save itself succeeded (callers use this to decide whether to clear a
    * write-only draft). */
   saveSettings: (body: SettingsUpdateRequest) => Promise<boolean>;
-  /** `PUT /api/project`, then swaps `me` for the response. Never chains
-   * verify — only credential saves do. */
+  /** `PUT /api/project` (back-compat singular, the first project), then swaps
+   * `me` for the response. Used by onboarding to create the first project.
+   * Never chains verify — only credential saves do. */
   saveProject: (body: ProjectUpdateRequest) => Promise<void>;
+  /** `POST /api/projects` — create a new project (12 §3.1), then merge it into
+   * `me.projects`. */
+  createProject: (body: ProjectUpdateRequest) => Promise<void>;
+  /** `PUT /api/projects/{id}` — update the named project (12 §3.1), then merge
+   * the response back into `me.projects`. */
+  updateProject: (id: string, body: ProjectUpdateRequest) => Promise<void>;
+  /** `DELETE /api/projects/{id}` — soft-delete the named project (12 §5), then
+   * drop it from `me.projects`. */
+  removeProject: (id: string) => Promise<void>;
   /** `POST /api/settings/verify`, populating `verifyChecks` from the response. */
   runVerify: () => Promise<void>;
   /** `POST /auth/logout`, then re-fetches `/api/me` to land on `signed-out`. */

@@ -350,8 +350,8 @@ func TestMeEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Me: %v", err)
 	}
-	if me.Project != nil {
-		t.Fatalf("Project = %+v, want nil before onboarding", me.Project)
+	if len(me.Projects) != 0 {
+		t.Fatalf("Projects = %+v, want empty before onboarding", me.Projects)
 	}
 	for name, got := range map[string]identity.SecretStatus{
 		"AnthropicKey": me.Settings.AnthropicKey,
@@ -480,8 +480,8 @@ func TestUpsertProjectCreatesThenUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Me: %v", err)
 	}
-	if me.Project == nil {
-		t.Fatal("Project = nil, want non-nil after UpsertProject")
+	if len(me.Projects) != 1 {
+		t.Fatalf("Projects = %+v, want exactly one after UpsertProject", me.Projects)
 	}
 
 	updated, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
@@ -686,12 +686,16 @@ func TestUpsertProjectAmikaSecretsRoundTrip(t *testing.T) {
 		{Name: amikaSecretName1, Value: identity.SecretStatus{Set: true, Tail: identity.Tail(amikaSecretValue1)}},
 		{Name: amikaSecretName2, Value: identity.SecretStatus{Set: true, Tail: identity.Tail(amikaSecretValue2)}},
 	}
-	if len(me.ProjectSecrets) != len(wantStatus) {
-		t.Fatalf("Me().ProjectSecrets = %+v, want %+v", me.ProjectSecrets, wantStatus)
+	if len(me.Projects) != 1 {
+		t.Fatalf("Me().Projects = %+v, want exactly one", me.Projects)
+	}
+	gotSecrets := me.Projects[0].Secrets
+	if len(gotSecrets) != len(wantStatus) {
+		t.Fatalf("Me().Projects[0].Secrets = %+v, want %+v", gotSecrets, wantStatus)
 	}
 	for i, w := range wantStatus {
-		if me.ProjectSecrets[i] != w {
-			t.Errorf("ProjectSecrets[%d] = %+v, want %+v", i, me.ProjectSecrets[i], w)
+		if gotSecrets[i] != w {
+			t.Errorf("Secrets[%d] = %+v, want %+v", i, gotSecrets[i], w)
 		}
 	}
 

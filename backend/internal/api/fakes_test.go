@@ -28,10 +28,11 @@ const testProjectID = "proj-A"
 // path) and records the user ids it was asked to resolve, so a test can assert
 // withProject scoped to the resolved session's user/project.
 type fakeProjects struct {
-	mu      sync.Mutex
-	project identity.Project
-	err     error
-	userIDs []string
+	mu         sync.Mutex
+	project    identity.Project
+	err        error
+	userIDs    []string
+	projectIDs []string // ids ProjectByID was asked to resolve (12 §3.2)
 }
 
 func (f *fakeProjects) ProjectFor(_ context.Context, userID string) (identity.Project, error) {
@@ -41,10 +42,40 @@ func (f *fakeProjects) ProjectFor(_ context.Context, userID string) (identity.Pr
 	return f.project, f.err
 }
 
+// ProjectByID resolves the canned project (or injected error) and records both
+// the user and the project id it was asked for, so a test can assert
+// withProjectID passed the {pid} path segment through (12 §3.2).
+func (f *fakeProjects) ProjectByID(_ context.Context, userID, projectID string) (identity.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userIDs = append(f.userIDs, userID)
+	f.projectIDs = append(f.projectIDs, projectID)
+	return f.project, f.err
+}
+
 func (f *fakeProjects) resolvedUserIDs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.userIDs...)
+}
+
+// fakeProjectDeleter is api.ProjectDeleter (12 §5 DELETE /api/projects/{pid}):
+// records the (user, project) it was asked to delete and returns an injected err.
+type fakeProjectDeleter struct {
+	mu        sync.Mutex
+	err       error
+	userID    string
+	projectID string
+	calls     int
+}
+
+func (f *fakeProjectDeleter) DeleteProject(_ context.Context, userID, projectID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userID = userID
+	f.projectID = projectID
+	f.calls++
+	return f.err
 }
 
 // authCookie is the kiln_session request cookie every authenticated test call
@@ -64,7 +95,7 @@ func authCookie() *http.Cookie {
 // it can wrap an inline api.NewServer(...) expression.
 func enableSession(srv *api.Server) *api.Server {
 	srv.EnableIdentity(&fakeAuth{resolveUser: identity.User{ID: testUserID}}, &fakeAccount{})
-	srv.EnableTenancy(&fakeProjects{project: identity.Project{ID: testProjectID}})
+	srv.EnableTenancy(&fakeProjects{project: identity.Project{ID: testProjectID}}, &fakeProjectDeleter{})
 	return srv
 }
 
@@ -445,6 +476,9 @@ type fakeAccount struct {
 	projectErr    error
 	projectCall   int
 
+	projectViews  []identity.ProjectView // canned ListProjects result
+	projectIDSeen string                 // last projectID an id'd method (Update/Verify) saw
+
 	verifyChecks []identity.CheckResult
 	verifyErr    error
 }
@@ -471,9 +505,43 @@ func (f *fakeAccount) UpsertProject(_ context.Context, _ string, upd identity.Pr
 	return f.projectResult, f.projectErr
 }
 
+func (f *fakeAccount) ListProjects(context.Context, string) ([]identity.ProjectView, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.projectViews, f.projectErr
+}
+
+func (f *fakeAccount) CreateProject(
+	_ context.Context, _ string, upd identity.ProjectUpdate,
+) (identity.ProjectView, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.projectUpd = upd
+	f.projectCall++
+	return identity.ProjectView{Project: f.projectResult}, f.projectErr
+}
+
+func (f *fakeAccount) UpdateProject(
+	_ context.Context, _, projectID string, upd identity.ProjectUpdate,
+) (identity.ProjectView, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.projectUpd = upd
+	f.projectCall++
+	f.projectIDSeen = projectID
+	return identity.ProjectView{Project: f.projectResult}, f.projectErr
+}
+
 func (f *fakeAccount) Verify(context.Context, string) ([]identity.CheckResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.verifyChecks, f.verifyErr
+}
+
+func (f *fakeAccount) VerifyProject(_ context.Context, _, projectID string) ([]identity.CheckResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.projectIDSeen = projectID
 	return f.verifyChecks, f.verifyErr
 }
 
@@ -481,6 +549,14 @@ func (f *fakeAccount) lastSettingsUpdate() identity.SettingsUpdate {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.settingsUpd
+}
+
+// lastProjectID reports the projectID the last id'd account method (UpdateProject
+// or VerifyProject) was called with (12 §3.1).
+func (f *fakeAccount) lastProjectID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.projectIDSeen
 }
 
 func (f *fakeAccount) lastProjectUpdate() identity.ProjectUpdate {

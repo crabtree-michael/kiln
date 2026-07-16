@@ -24,6 +24,18 @@ var (
 // each destructive step must carry exactly this id.
 const testProjectID = "proj-1"
 
+// Step names the reset/delete coordinator fakes append to their shared order
+// slice, so a test can assert the exact cascade order (shared to keep goconst
+// happy across the two coordinator test files).
+const (
+	stepDelete     = "delete"
+	stepWorkers    = "workers"
+	stepPool       = "pool"
+	stepAuthorize  = "authorize"
+	stepEvict      = "evict"
+	stepSoftDelete = "soft-delete"
+)
+
 type fakeStateDeleter struct {
 	calls     int
 	projectID string
@@ -34,7 +46,7 @@ type fakeStateDeleter struct {
 func (f *fakeStateDeleter) DeleteProjectState(_ context.Context, projectID string) error {
 	f.calls++
 	f.projectID = projectID
-	*f.order = append(*f.order, "delete")
+	*f.order = append(*f.order, stepDelete)
 	return f.err
 }
 
@@ -48,7 +60,7 @@ type fakeWorkerResetter struct {
 func (f *fakeWorkerResetter) ResetProject(_ context.Context, projectID string) error {
 	f.calls++
 	f.projectID = projectID
-	*f.order = append(*f.order, "workers")
+	*f.order = append(*f.order, stepWorkers)
 	return f.err
 }
 
@@ -64,7 +76,7 @@ func (f *fakePoolReconciler) ReconcileWorkers(_ context.Context, projectID strin
 	f.calls++
 	f.n = n
 	f.projectID = projectID
-	*f.order = append(*f.order, "pool")
+	*f.order = append(*f.order, stepPool)
 	return f.err
 }
 
@@ -78,7 +90,7 @@ func TestResetCoordinator_DeletesTearsDownThenReseeds(t *testing.T) {
 	if err := c.Reset(context.Background(), testProjectID); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
-	if want := []string{"delete", "workers", "pool"}; len(order) != 3 ||
+	if want := []string{stepDelete, stepWorkers, stepPool}; len(order) != 3 ||
 		order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
 		t.Errorf("order = %v, want %v", order, want)
 	}

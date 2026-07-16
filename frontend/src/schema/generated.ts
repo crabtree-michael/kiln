@@ -437,6 +437,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The signed-in user's live projects (12 §3.1). Session-protected.
+         * @description Returns every live (non-soft-deleted) project the caller owns, oldest-first — the collection form of the old singular `project?` (12 §3.1). Each carries its `id`, the token the client scopes project-scoped calls by.
+         */
+        get: operations["listProjects"];
+        put?: never;
+        /**
+         * Create a new project for the caller (12 §3.1).
+         * @description Creates a distinct project owned by the caller (12 DP2) and returns it with its server-generated `id`. Credentials are per-user (already set), so a second project skips the credential step (12 §4.3).
+         */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a project the caller owns (12 §3.1).
+         * @description Updates the project by id, guarded by an ownership check (12 §3.2): a project the caller does not own returns 404 (never confirming existence to a non-owner).
+         */
+        put: operations["updateProject"];
+        post?: never;
+        /**
+         * Delete a project the caller owns (12 §5).
+         * @description Soft-deletes the project (12 DP6): the state/runtime cascade purges live board/events/messages/notifications/sandboxes and the tenant bundle + repo clone, then the `projects` row is marked deleted (retained, id never reused) and filtered from every read path. A project the caller does not own returns 404.
+         */
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Live connection checks for a project's repo + the caller's credentials (12 §3.1).
+         * @description Runs the live checks for the given project (12 §3.1, §6.2): the repo check uses this project's repo url; the Amika/Anthropic/Devin checks are per-user. A project the caller does not own returns 404.
+         */
+        post: operations["verifyProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -651,11 +719,11 @@ export interface components {
             /** @description True while a brain pass is in flight (the spinner is showing). */
             thinking: boolean;
         };
-        /** @description The signed-in user's account view (11 §4). Secret values never appear. */
+        /** @description The signed-in user's account view (11 §4, 12 §3.1). Secret values never appear. */
         Me: {
             user: components["schemas"]["MeUser"];
-            /** @description Absent until the user creates their project. */
-            project?: components["schemas"]["MeProject"];
+            /** @description The user's live projects, oldest-first (12 §3.1). Empty until the user creates their first project — the "not onboarded" discriminator is `projects.length === 0` (12 §4.1), replacing the old singular `project?`. Each carries its own `id`, the token the client scopes every project-scoped call by (12 §3.2). */
+            projects: components["schemas"]["MeProject"][];
             settings: components["schemas"]["MeSettings"];
             /** @description The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider. The project form renders its provider select from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface. */
             providers?: components["schemas"]["ProviderDescriptor"][];
@@ -681,6 +749,8 @@ export interface components {
             avatar_url: string;
         };
         MeProject: {
+            /** @description The server-generated project id (12 §3.1). The client references and keys each project by this id — the switcher's key, the current-project store's persisted value, and the token every project-scoped call (`/api/projects/{id}/...`) is scoped by (12 §4.1, DP5). */
+            id: string;
             name: string;
             repo_url: string;
             /** @description The registry key selecting which coding-agent provider this project's turns run on (multi-provider design §9): `amika`, `devin`, `mock`, … Empty means "use the deployment default" (AGENT_MODE) — the back-compat behavior every existing project keeps. */
@@ -1396,6 +1466,191 @@ export interface operations {
             };
             /** @description No valid session. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's live projects. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeProject"][];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The created project, with its id. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeProject"];
+                };
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeProject"];
+                };
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such project owned by the caller. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such project owned by the caller. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verifyProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-check results; unconfigured checks report status "skipped". */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyResponse"];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such project owned by the caller. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

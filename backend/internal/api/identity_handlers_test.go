@@ -108,6 +108,21 @@ func asObj(t *testing.T, m map[string]any, key string) map[string]any {
 	return v
 }
 
+// firstProject extracts body["projects"][0] as an object, failing when the
+// projects array is empty or malformed (12 §3.1: Me carries a projects[]).
+func firstProject(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+	projects, ok := body["projects"].([]any)
+	if !ok || len(projects) == 0 {
+		t.Fatalf("projects = %v, want at least one project", body["projects"])
+	}
+	first, ok := projects[0].(map[string]any)
+	if !ok {
+		t.Fatalf("projects[0] = %v (%T), want an object", projects[0], projects[0])
+	}
+	return first
+}
+
 func TestMeRequiresSession(t *testing.T) {
 	srv := newIdentityServer(&fakeAuth{}, &fakeAccount{})
 	ts := httptest.NewServer(srv.Handler())
@@ -125,7 +140,7 @@ func TestMeReturnsAccountView(t *testing.T) {
 	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID, GitHubLogin: testGHLogin}}
 	account := &fakeAccount{me: identity.Me{
 		User: identity.User{GitHubLogin: testGHLogin, DisplayName: "Alice", AvatarURL: "https://example.com/a.png"},
-		// Project left nil: not yet onboarded.
+		// Projects left empty: not yet onboarded (12 §4.1).
 		Settings: identity.MeSettings{
 			AnthropicKey: identity.SecretStatus{Set: false},
 			AmikaKey:     identity.SecretStatus{Set: false},
@@ -158,8 +173,8 @@ func TestMeReturnsAccountView(t *testing.T) {
 	if user["github_login"] != testGHLogin {
 		t.Errorf("user.github_login = %v, want alice", user["github_login"])
 	}
-	if _, present := body["project"]; present && body["project"] != nil {
-		t.Errorf("project = %v, want absent/null", body["project"])
+	if projects, ok := body["projects"].([]any); !ok || len(projects) != 0 {
+		t.Errorf("projects = %v, want empty array before onboarding", body["projects"])
 	}
 	settings := asObj(t, body, "settings")
 	anthropic := asObj(t, settings, "anthropic_api_key")
@@ -172,10 +187,10 @@ func TestMeWithProjectAndSecrets(t *testing.T) {
 	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
 	account := &fakeAccount{me: identity.Me{
 		User: identity.User{GitHubLogin: testGHLogin},
-		Project: &identity.Project{
-			Name: testProjectName, RepoURL: testRepoURL,
+		Projects: []identity.ProjectView{{Project: identity.Project{
+			ID: testProjectID, Name: testProjectName, RepoURL: testRepoURL,
 			AmikaSnapshot: "snap-1", WorkerCount: 5,
-		},
+		}}},
 		Settings: identity.MeSettings{
 			AnthropicKey: identity.SecretStatus{Set: true, Tail: "x4Kd"},
 			AmikaKey:     identity.SecretStatus{Set: false},
@@ -202,12 +217,15 @@ func TestMeWithProjectAndSecrets(t *testing.T) {
 	if err := json.Unmarshal([]byte(rawBody), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	project := asObj(t, body, "project")
+	project := firstProject(t, body)
 	if project["name"] != testProjectName || project["repo_url"] != testRepoURL {
 		t.Errorf("project = %+v, want name=kiln repo_url=https://github.com/x/y", project)
 	}
 	if project["worker_count"] != float64(5) {
 		t.Errorf("project.worker_count = %v, want 5", project["worker_count"])
+	}
+	if project["id"] != testProjectID {
+		t.Errorf("project.id = %v, want %s", project["id"], testProjectID)
 	}
 	settings := asObj(t, body, "settings")
 	anthropic := asObj(t, settings, "anthropic_api_key")
@@ -229,11 +247,13 @@ func TestMeWithProjectAndSecrets(t *testing.T) {
 func TestMeSerializesAmikaSecretStatuses(t *testing.T) {
 	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
 	account := &fakeAccount{me: identity.Me{
-		User:    identity.User{GitHubLogin: testGHLogin},
-		Project: &identity.Project{Name: testProjectName, RepoURL: testRepoURL, WorkerCount: 3},
-		ProjectSecrets: []identity.AmikaSecretStatus{
-			{Name: testSecretName, Value: identity.SecretStatus{Set: true, Tail: "3xyz"}},
-		},
+		User: identity.User{GitHubLogin: testGHLogin},
+		Projects: []identity.ProjectView{{
+			Project: identity.Project{ID: testProjectID, Name: testProjectName, RepoURL: testRepoURL, WorkerCount: 3},
+			Secrets: []identity.AmikaSecretStatus{
+				{Name: testSecretName, Value: identity.SecretStatus{Set: true, Tail: "3xyz"}},
+			},
+		}},
 	}}
 	srv := newIdentityServer(auth, account)
 	ts := httptest.NewServer(srv.Handler())
@@ -254,7 +274,7 @@ func TestMeSerializesAmikaSecretStatuses(t *testing.T) {
 	if err := json.Unmarshal([]byte(readBody(t, resp)), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	project := asObj(t, body, "project")
+	project := firstProject(t, body)
 	secrets, ok := project["amika_secrets"].([]any)
 	if !ok || len(secrets) != 1 {
 		t.Fatalf("project.amika_secrets = %v, want exactly one secret", project["amika_secrets"])

@@ -1,0 +1,443 @@
+/* Native project-management page styling (12 follow-up). Plain CSS keyed off
+   `data-role`/`data-*` — never classNames — same discipline as PrimaryScreen.css
+   and Dashboard.css. Every value reads the shared semantic tokens
+   (src/styles/tokens.css) so both themes come for free. Scoped entirely under
+   [data-role='projects-manager'] so it never leaks onto the `/`, `/app`, or
+   `/dashboard` screens.
+
+   Unlike the desktop-first dashboard, this is a mobile-first, app-native surface:
+   a single narrow column under a sticky header, so it reads as part of the app
+   rather than a settings detour. It reuses the dashboard's ProjectFields form, so
+   the form-control rules below intentionally mirror Dashboard.css. */
+
+[data-role='projects-manager'] {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* Room under the sticky header, and a generous bottom pad so the last control
+     clears the home indicator. */
+  padding: 0 var(--page-gutter) var(--space-12);
+  background: var(--surface-page);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-role='projects-manager'] * {
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------------ header */
+
+/* Sticky app-style bar: a back chevron on the left, the screen title beside it.
+   Opaque page tone so the list scrolls cleanly under it, and a top safe-area
+   inset so it clears the notch / Dynamic Island (mirrors PrimaryScreen's
+   feed-header). */
+[data-role='projects-header'] {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 calc(-1 * var(--page-gutter));
+  padding: calc(env(safe-area-inset-top, 0px) + var(--space-4)) var(--page-gutter) var(--space-4);
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+[data-role='projects-header'] h1 {
+  margin: 0;
+  font: var(--type-title);
+  color: var(--text-body);
+}
+
+/* The back control is a round, tappable target the size of a touch minimum, not
+   a text link — this is the app, not the dashboard's quiet "← Go to app". */
+[data-role='projects-back'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  margin-left: calc(-1 * var(--space-2));
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: 1.375rem;
+  line-height: 1;
+  text-decoration: none;
+  transition: background var(--duration-fast) ease;
+}
+
+[data-role='projects-back']:hover {
+  background: var(--surface-inset);
+  color: var(--text-body);
+}
+
+/* ------------------------------------------------------- shared list column */
+
+/* The content below the header is one centered, app-width column. */
+[data-role='projects-list'],
+[data-role='new-project-form'],
+[data-role='projects-loading'],
+[data-role='projects-signed-out'] {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+[data-role='projects-list'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* -------------------------------------------------------------- project row */
+
+/* A soft card that stays a compact summary until tapped open. */
+[data-role='project-row'] {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+[data-role='project-row'][data-open='true'] {
+  border-color: var(--border-strong);
+}
+
+/* The whole summary is the toggle: name over a muted repo, a caret on the right
+   that rotates when open. Full-width, min touch height. */
+[data-role='project-row-toggle'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: var(--space-4);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+[data-role='project-row-identity'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+[data-role='project-row-name'] {
+  font: var(--type-heading);
+  color: var(--text-body);
+}
+
+[data-role='project-row-repo'] {
+  font: var(--type-mono);
+  color: var(--text-muted);
+  /* Repo URLs are long — clip to one line rather than wrap the summary tall. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A chevron drawn from a rotated border corner (no icon asset), pointing down
+   when collapsed and flipping up when open — the same idiom as the switcher's
+   caret. */
+[data-role='project-row-caret'] {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform var(--duration-fast) ease;
+}
+
+[data-role='project-row'][data-open='true'] [data-role='project-row-caret'] {
+  transform: rotate(-135deg);
+}
+
+/* The edit body appears below the summary, separated by a hairline. */
+[data-role='project-row-body'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* ------------------------------------------------------- new-project section */
+
+[data-role='new-project-form'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+[data-role='new-project-form'] h2 {
+  margin: 0;
+  font: var(--type-heading);
+  color: var(--text-body);
+}
+
+/* -------------------------------------------------- reused ProjectFields form */
+/* ProjectFields is the dashboard's form; give it the same control vocabulary
+   here (Dashboard.css scopes those rules under [data-role='dashboard'], which
+   this page is not). */
+
+[data-role='projects-manager'] form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+[data-role='projects-manager'] label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: var(--type-small);
+  color: var(--text-secondary);
+}
+
+[data-role='projects-manager'] input,
+[data-role='projects-manager'] select {
+  font: var(--type-body);
+  color: var(--text-body);
+  background: var(--surface-page);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+[data-role='projects-manager'] input:focus-visible,
+[data-role='projects-manager'] select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* The sandbox-secrets fieldset (02 §8), mirroring Dashboard.css. */
+[data-role='projects-manager'] [data-role='amika-secrets'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+}
+
+[data-role='projects-manager'] [data-role='amika-secrets'] legend {
+  padding: 0 var(--space-2);
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='projects-manager'] [data-role='amika-secrets-hint'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-faint);
+}
+
+[data-role='projects-manager'] [data-role='amika-secret-row'] {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+[data-role='projects-manager'] [data-role='amika-secret-row'] label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ buttons */
+
+/* Primary pill for the submit / add affordances. */
+[data-role='projects-manager'] button[type='submit'],
+[data-role='add-project'] {
+  align-self: flex-start;
+  font: var(--type-body-strong);
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-6);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+}
+
+[data-role='add-project'] {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  min-height: var(--touch-target);
+  align-self: center;
+  text-align: center;
+}
+
+[data-role='projects-manager'] button[type='submit']:hover,
+[data-role='add-project']:hover {
+  background: var(--accent-hover);
+}
+
+[data-role='projects-manager'] button[type='submit']:active,
+[data-role='add-project']:active {
+  background: var(--accent-press);
+}
+
+[data-role='projects-manager'] button[type='submit']:disabled {
+  background: var(--surface-inset);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* De-emphasized ghost buttons: add-secret, remove-secret, cancel, delete. */
+[data-role='add-secret'],
+[data-role='remove-secret'],
+[data-role='cancel-new-project'],
+[data-role='delete-project'] {
+  align-self: flex-start;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-4);
+  cursor: pointer;
+}
+
+[data-role='add-secret']:hover,
+[data-role='remove-secret']:hover,
+[data-role='cancel-new-project']:hover {
+  background: var(--surface-subtle);
+  border-color: var(--border-strong);
+}
+
+/* Delete reads as destructive: ember text/border, filling on hover. */
+[data-role='delete-project'] {
+  color: var(--danger);
+  border-color: var(--danger-soft);
+}
+
+[data-role='delete-project']:hover {
+  background: var(--danger-soft);
+}
+
+[data-role='delete-project']:disabled {
+  color: var(--text-faint);
+  border-color: var(--border-default);
+  cursor: default;
+}
+
+/* ------------------------------------------------------------ empty / states */
+
+[data-role='projects-empty'] {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-6);
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font: var(--type-editorial);
+  text-align: center;
+}
+
+[data-role='projects-error'] {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  color: var(--danger);
+  font: var(--type-small);
+}
+
+/* A quiet link out to the account/credentials surface, kept subordinate to the
+   project work above it. */
+[data-role='projects-account-link'] {
+  align-self: center;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+[data-role='projects-account-link']:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------- loading / signin */
+
+[data-role='projects-loading'] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: 40vh;
+  color: var(--text-muted);
+  font: var(--type-small);
+}
+
+[data-role='projects-spinner'] {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+  animation: kiln-projects-spin 0.7s linear infinite;
+}
+
+@keyframes kiln-projects-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='projects-spinner'] {
+    animation: none;
+  }
+  [data-role='project-row-caret'] {
+    transition: none;
+  }
+}
+
+[data-role='projects-signed-out'] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+  min-height: 50vh;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+[data-role='projects-sign-in-link'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: var(--type-body-strong);
+  text-decoration: none;
+}
+
+[data-role='projects-sign-in-link']:hover {
+  background: var(--accent-hover);
+}

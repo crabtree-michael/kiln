@@ -24,6 +24,7 @@ import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
 import { Guide } from '@/guide/Guide';
 import { Dashboard } from '@/dashboard/Dashboard';
+import { ProjectsManager } from '@/projects/ProjectsManager';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { SessionGate } from '@/components/SessionGate';
 import { SessionProvider } from '@/stores/session';
@@ -118,6 +119,13 @@ createRoot(root).render(
           <Route path="/onboarding" element={<Guide />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
+          {/* `/projects` is the app-native project-management page (12 follow-up):
+              list / create / configure / delete projects in the app's own chrome,
+              where the header switcher's "Add" and the account view's projects
+              detour used to route. It owns its own `DashboardProvider` (the shared
+              data layer), so — like `/dashboard` — it mounts directly, not behind
+              the app's SessionGate. */}
+          <Route path="/projects" element={<ProjectsManager />} />
           {/* Catch-all last: every real route above wins first; any other path
               lands on the standalone 404 page instead of rendering nothing. */}
           <Route path="*" element={<NotFound />} />

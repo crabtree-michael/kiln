@@ -1,7 +1,9 @@
 // Project switcher (12 §4.1): the app header's brand control. The "Kiln"
 // wordmark itself is the dropdown trigger — clicking it opens a menu listing the
 // user's projects (the current one marked) plus an "Add" button that routes to
-// the dashboard's create form. The client references and keys each project by
+// the app-native project-management page (`/projects`, 12 follow-up), opening it
+// on the create form (`?new=1`) — it used to dump the user on the `/dashboard`
+// account view. The client references and keys each project by
 // its `project_id` (DP5); selecting one re-scopes every board/feed/stream/message
 // call (the current-project store tears down and re-opens the EventSource against
 // the new project). Reads the live set + current selection from the
@@ -98,7 +100,7 @@ export function ProjectSwitcher(): JSX.Element | null {
           data-role="project-switcher-new"
           onClick={() => {
             setOpen(false);
-            void navigate('/dashboard');
+            void navigate('/projects?new=1');
           }}
         >
           Add

@@ -73,9 +73,11 @@ Everything below is in service of removing exactly these three.
 
 ```sql
 DROP INDEX one_project_per_owner;
+ALTER TABLE projects ADD COLUMN deleted_at timestamptz;  -- NULL = live; set = soft-deleted (§5)
 ```
 
-No data migration (`11` §3): existing single-project users simply become
+The nullable `deleted_at` column backs soft-delete (§5); every project read path filters
+`deleted_at IS NULL`. No data migration (`11` §3): existing single-project users simply become
 "users who happen to own one project". Keep the FK `owner_user_id → users(id) ON DELETE
 CASCADE` and all later columns (`amika_snapshot`, `worker_count`, `merge_gate_mode`,
 `agent_provider`, `amika_secrets`) exactly as they are.
@@ -148,8 +150,8 @@ authorize*:
 withProject(next):
   user := withSession(...)
   id   := pathParam("id")
-  proj := projects.GetProject(ctx, id)          // by id, not by owner
-  if err == ErrNotFound            → 404
+  proj := projects.GetProject(ctx, id)          // by id, not by owner; filters deleted_at IS NULL
+  if err == ErrNotFound            → 404 (also covers a soft-deleted project — §5)
   if proj.OwnerUserID != user.ID   → 404 (not 403 — don't confirm existence to non-owners)
   next(w, r, user, proj)
 ```
@@ -180,10 +182,12 @@ dashboard manages all of them.**
   `stores/current-project`), persisted to `localStorage` and defaulting to the
   most-recently-used (else the first by `created_at`). This is the single value that keys
   every board/feed/stream/message call in §3.2.
-- Surface it in the app chrome. Today no project name appears anywhere; add a compact
-  **project switcher** in the header (`HeaderStatusMenu` is the natural home) showing the
-  current project's name and a dropdown of the user's projects + "New project…". The dock
-  and feed are otherwise unchanged.
+- Surface it in the app chrome. Add a compact **project switcher** in the header
+  (`HeaderStatusMenu` is the natural home) listing the user's projects + "New project…". The
+  client **names and references each project by its `project_id`**, not by a user-friendly
+  name — the id from `MeProject.id` (§3.1) is the identifier the switcher keys on, the value
+  the current-project store persists, and the token every §3.2 call scopes by. The dock and
+  feed are otherwise unchanged.
 - **Switching projects** tears down and re-opens the single `EventSource` against the new
   project's stream and refetches board/feed. Because the queue is already per-project
   serial/cross-project concurrent (§1), the other projects keep running server-side while
@@ -225,8 +229,8 @@ So deletion is an **application-level cascade across modules**, not `ON DELETE C
 
 The good news: the seam already exists. `Reset(ctx, projectID)`
 (`api/routes.go:162`, the `Resetter` behind `POST /api/dev/reset`) already tears down one
-project's board/events/messages and its Amika sandboxes. Deletion is *reset + remove the
-project row + evict the tenant*:
+project's board/events/messages and its Amika sandboxes. Deletion is *reset + evict the
+tenant + soft-delete the project row (retained, not removed)*:
 
 1. **Quiesce** — stop claiming new events for the project and let/await any in-flight event
    drain (the busy-set worker already serializes per project; deletion waits out or cancels
@@ -237,11 +241,17 @@ project row + evict the tenant*:
    `registry.go:205`) drops the cached bundle and closes per-tenant resources; also remove
    the on-disk repo clone at `RepoDir/<projectID>` (which `Invalidate` deliberately keeps —
    deletion is the one caller that should remove it).
-4. **Delete the row** — `DELETE FROM projects WHERE id = $1 AND owner_user_id = $2`.
+4. **Soft-delete the row** — the `projects` row is **marked deleted, not removed**:
+   `UPDATE projects SET deleted_at = now() WHERE id = $1 AND owner_user_id = $2` (new
+   nullable `deleted_at` column in the identity migration of §2). The row is retained in the
+   database; every read path filters it out (`WHERE deleted_at IS NULL`), so a soft-deleted
+   project no longer resolves in `withProject` (§3.2), `ListProjectIDs`, `Me.projects`, or the
+   switcher, and its id can never be reused. The state cascade (steps 2–3) still runs, so a
+   soft-deleted project holds only its retained metadata row, not live board/runtime state.
 
-**Decisions to make (§7):** soft vs hard delete; whether to allow deleting a project with
-active/blocked tickets or require it be idle first; and idempotency if step 4 succeeds but a
-later cleanup is retried.
+**Decisions to make (§7):** whether to allow deleting a project with active/blocked tickets or
+require it be idle first; and idempotency if a later cleanup is retried after the row is
+marked deleted.
 
 ---
 
@@ -267,7 +277,8 @@ account level rather than per project.
 
 Push subscriptions stay per-user; a notification already carries `project_id`. The **new**
 requirement: a notification tap must land the app **on that project**. The notification
-payload should carry the `project_id` (and ideally project name), and the tap-handler
+payload carries the `project_id` — the client references the project by that id (not a name),
+consistent with the switcher (§4.1) — and the tap-handler
 (`notifications` skill, frontend registration/tap path) sets the client's current project
 (§4.1) before/while opening `/app`. Without this, a tap could open the app on a *different*
 project than the event that fired the notification — a real cross-project confusion bug to
@@ -293,13 +304,15 @@ cross-project parallelism, bounded only by the worker pool size. No change.
 
 ### 7.1 Per-user vs per-project credentials (the main real trade-off)
 Credentials live on the user and are shared by all their projects (`11` §3 D4). This is
-clean and already implemented, and it makes second-project onboarding nearly free. But the
+clean and already implemented, and it makes second-project onboarding nearly free. The
 **GitHub repo token** is the one credential that is plausibly *repo-specific*: two projects
 in different orgs may need different PATs, and the token also feeds the brain's repo
-inspection. Options: (a) keep per-user, accept "one PAT must cover all your repos" (fine for
-a solo dev's own repos; recommended for now); (b) allow a per-project repo-token override in
-`projects` that falls back to `user_config`. Recommend (a) now, design (b) as a later,
-additive column — it does not block anything here.
+inspection. **Decision: the repo token is retrieved per-user, not per-project** — the
+get-repo-token path resolves the token at the user level (project → owner → `user_config`),
+never keying on `project_id`. We accept "one PAT must cover all your repos" (fine for a solo
+dev's own repos). A per-project repo-token override in `projects` that falls back to
+`user_config` remains a later, additive column — it does not block anything here, and it does
+not change the default user-level retrieval decided here.
 
 ### 7.2 How the client names the project — path vs query vs header
 `EventSource` can't send headers, so the stream forces the id into the URL. Recommended:
@@ -310,12 +323,16 @@ server state, breaks multiple tabs viewing different projects, and hides the ten
 that should be explicit and testable. Recommend explicit-in-URL.
 
 ### 7.3 Project deletion semantics
-Soft vs hard delete; block deletion of a project with in-flight/blocked tickets vs
-force-drain; retry/idempotency of the cross-module cascade (§5). Leaning hard-delete +
-require-idle (or explicit force), reusing the `Reset` path.
+**Decided: soft delete** — the `projects` row is marked `deleted_at` and retained; the
+state/runtime cascade still purges live board/events/messages/notifications/sandboxes, and
+all read paths filter `deleted_at IS NULL` (§5). Retaining the row preserves an audit trail
+and guarantees the id is never reused. Still open: block deletion of a project with
+in-flight/blocked tickets vs force-drain; and retry/idempotency of the cross-module cascade
+(§5), reusing the `Reset` path.
 
 ### 7.4 Guardrails
-Name uniqueness per owner (recommend no); a per-user project cap (recommend a config'd soft
+Name uniqueness per owner (recommend no — the client references projects by `project_id`, not
+name (§4.1), so name collisions are harmless); a per-user project cap (recommend a config'd soft
 cap — each project is a brain + a repo clone + a worker budget, so unbounded fan-out has a
 real resource cost even at invite scale).
 
@@ -349,7 +366,9 @@ The headline is unchanged from `11` §8 but now has *teeth within a single user*
   one user process concurrently; one with a broken credential fails feed-visibly on that
   project while the other keeps running.
 - **Deletion:** cascade purges board/events/messages/notifications/sandboxes for the id,
-  evicts the tenant bundle and repo clone, and is idempotent; a sibling project is untouched.
+  evicts the tenant bundle and repo clone, and is idempotent; the `projects` row is **retained
+  with `deleted_at` set** and no longer resolves in `withProject`/`ListProjectIDs`/`Me.projects`
+  (its id is never reused); a sibling project is untouched.
 - **Frontend/E2E:** switch current project → board/feed/stream re-scope; second-project
   onboarding skips credentials; a notification tap lands on the firing project (§6.3).
 
@@ -385,14 +404,17 @@ second whenever they like.
 - **DP3 — Project id in the URL (path segment), authorized by owner in `withProject`.**
   `EventSource` can't carry a header; explicit-in-URL keeps the tenant boundary visible and
   testable; the owner check is the new security boundary. No server-side "active project".
-- **DP4 — Credentials stay per-user.** Already implemented; makes 2nd-project onboarding
-  free. Per-project repo-token override is a later additive option (§7.1).
-- **DP5 — Client owns "current project".** `localStorage`-persisted, MRU default; stateless
-  server; supports multiple tabs. Stream scoped to current project; background projects use
-  Web Push.
-- **DP6 — Deletion is an app-level cascade via the existing `Reset` seam.** No DB FK cascade
-  exists across module schemas; reuse `Reset(projectID)` + tenant `Invalidate` + row delete
-  + clone removal.
+- **DP4 — Credentials stay per-user, including the repo token.** Already implemented; makes
+  2nd-project onboarding free. The get-repo-token path resolves per-user (not per-project); a
+  per-project repo-token override is a later additive option (§7.1).
+- **DP5 — Client owns "current project", referenced by `project_id`.** The client names and
+  keys projects by their `project_id` (not a user-friendly name); `localStorage`-persisted,
+  MRU default; stateless server; supports multiple tabs. Stream scoped to current project;
+  background projects use Web Push.
+- **DP6 — Deletion is a soft delete plus an app-level state cascade via the existing `Reset`
+  seam.** No DB FK cascade exists across module schemas; reuse `Reset(projectID)` + tenant
+  `Invalidate` + clone removal to purge live state, then **mark the `projects` row
+  `deleted_at` (retain, don't remove)** and filter `deleted_at IS NULL` on every read path.
 - **DP7 — Single-owner only.** Teams/sharing/billing/open-signup stay `11` non-goals;
   authorization is the owner check.
 </content>

@@ -38,6 +38,11 @@ const EMPTY_SUMMARY: FeedSummary = {
 
 export interface PrimaryScreenViewProps {
   feed: FeedSnapshot | null;
+  /** The header brand slot (12 §4.1). When provided, the composing screen passes
+   * the `ProjectSwitcher`, which turns the "Kiln" wordmark into the project-switcher
+   * trigger. Omitted (presentational tests) renders the static "Kiln" mark, so the
+   * header DOM/snapshots stay byte-for-byte unchanged. */
+  brand?: JSX.Element | undefined;
   /** The latest board snapshot, broken out per-ticket in the header dropdown.
    * Optional so presentational tests can omit it (the menu then shows no
    * tickets). */
@@ -190,6 +195,7 @@ function findTicket(board: Board | null, id: string | null): Ticket | null {
 
 export function PrimaryScreenView({
   feed,
+  brand,
   board = null,
   connectionState,
   thinking,
@@ -268,10 +274,12 @@ export function PrimaryScreenView({
           be pulled: the elastic bounce now shows as blank space inside the feed
           scrollport, below the pinned bar. */}
       <header data-role="feed-header">
-        <div data-role="kiln-mark">
-          <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-          <span data-role="kiln-wordmark">Kiln</span>
-        </div>
+        {brand ?? (
+          <div data-role="kiln-mark">
+            <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
+            <span data-role="kiln-wordmark">Kiln</span>
+          </div>
+        )}
         <div data-role="header-actions">
           <NotificationSettingsMenu
             mode={notificationMode}

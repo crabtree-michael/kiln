@@ -1,6 +1,7 @@
-// ProjectSwitcher tests (12 §4.1): lists the user's projects, marks the current
-// one, switches on click (by project_id), and offers "New project…". Rendered
-// under a stub current-project context + MemoryRouter (it navigates).
+// ProjectSwitcher tests (12 §4.1): the "Kiln" wordmark is the trigger; opening
+// it lists the user's projects, marks the current one, switches on click (by
+// project_id), and offers an "Add" affordance. Rendered under a stub
+// current-project context + MemoryRouter (it navigates).
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -35,18 +36,25 @@ function renderSwitcher(value: CurrentProjectStoreValue): void {
 }
 
 describe('ProjectSwitcher', () => {
-  it('shows the current project name and lists all projects', () => {
+  it('shows the "Kiln" trigger and lists all projects when opened', () => {
     const projects = [makeProject('p1', 'one'), makeProject('p2', 'two')];
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
 
-    expect(screen.getByRole('button', { name: /one/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /Kiln/ })).toHaveAttribute(
       'data-role',
       'project-switcher-current',
     );
-    fireEvent.click(screen.getByRole('button', { name: /one/ }));
+    // The panel starts collapsed — the CSS hide keys off `data-open`/`aria-hidden`,
+    // so an unopened switcher must not present its list (the bug this replaced
+    // rendered the full project list permanently, over the screen).
+    const panel = document.querySelector('[data-role="project-switcher-panel"]');
+    expect(panel).toHaveAttribute('data-open', 'false');
+    expect(panel).toHaveAttribute('aria-hidden', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /Kiln/ }));
+    expect(panel).toHaveAttribute('data-open', 'true');
     const items = screen.getAllByRole('button', { name: /one|two/ });
-    // The current button plus two list items.
-    expect(items.length).toBeGreaterThanOrEqual(3);
+    // Both project list items.
+    expect(items.length).toBeGreaterThanOrEqual(2);
   });
 
   it('switches the current project by id on select', () => {
@@ -54,8 +62,10 @@ describe('ProjectSwitcher', () => {
     const selectProject = vi.fn();
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject });
 
-    fireEvent.click(screen.getByRole('button', { name: /one/ }));
-    const item = document.querySelector('[data-role="project-switcher-item"][data-project-id="p2"]');
+    fireEvent.click(screen.getByRole('button', { name: /Kiln/ }));
+    const item = document.querySelector(
+      '[data-role="project-switcher-item"][data-project-id="p2"]',
+    );
     expect(item).not.toBeNull();
     if (item !== null) {
       fireEvent.click(item);
@@ -63,17 +73,19 @@ describe('ProjectSwitcher', () => {
     expect(selectProject).toHaveBeenCalledWith('p2');
   });
 
-  it('offers a "New project…" affordance', () => {
+  it('offers an "Add" affordance', () => {
     const projects = [makeProject('p1', 'one')];
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
-    fireEvent.click(screen.getByRole('button', { name: /one/ }));
-    expect(screen.getByRole('button', { name: 'New project…' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Kiln/ }));
+    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
   });
 
   it('renders nothing when there is no current project', () => {
     const { container } = render(
       <MemoryRouter>
-        <CurrentProjectContext.Provider value={{ current: null, projects: [], selectProject: vi.fn() }}>
+        <CurrentProjectContext.Provider
+          value={{ current: null, projects: [], selectProject: vi.fn() }}
+        >
           <ProjectSwitcher />
         </CurrentProjectContext.Provider>
       </MemoryRouter>,

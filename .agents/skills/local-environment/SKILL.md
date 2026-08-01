@@ -58,8 +58,8 @@ by script, and the whole thing is meant to be baked into a snapshot so agents la
   tracked from `backend/go.mod`), golangci-lint (pinned to the version in
   `.github/workflows/check.yml`), oapi-codegen, `jq`/`ripgrep`/`build-essential`, a local
   PostgreSQL 16 with the `kiln` role and the `kiln`/`kiln_test` databases, docker + compose v2,
-  the git hooks, `.env`, and the Playwright chromium browser. Idempotent — re-running it is a
-  fast no-op, so it is safe from any lifecycle hook.
+  the git hooks, `.env`, and the Playwright chromium browser **plus its system libraries**.
+  Idempotent — re-running it is a fast no-op, so it is safe from any lifecycle hook.
 - **`make services`** (`scripts/amika/start-services.sh`) — the once-per-**boot** half. Run it
   after a resume if `pg_isready` or `docker info` fails.
 - **`scripts/amika/setup.sh`** — the per-boot lifecycle script Amika itself runs (both
@@ -109,6 +109,14 @@ by script, and the whole thing is meant to be baked into a snapshot so agents la
   nullish — so a `?? 'e2e-user'` default does not fire and the specs mint sessions with an empty
   login, failing with `dev session mint failed: ... -> 400 ... is the stack up?`. The stack is
   fine; the login is empty. Read env vars as `process.env.X?.trim() || default` in `/tests`.
+- **The Playwright browser and its system libraries are two installs, and the browser cache
+  proves nothing about the libraries.** With `~/.cache/ms-playwright` populated but the shared
+  libraries missing, every browser-driven spec dies at launch with
+  `error while loading shared libraries: libglib-2.0.so.0` — which reads like a broken browser
+  install, not a missing apt package. Fix with `playwright install-deps chromium`, run **from
+  `tests/`**: playwright is a dependency of that package, and `pnpm exec` at the repo root (no
+  package, no workspace) exits `ERR_PNPM_RECURSIVE_EXEC_NO_PACKAGE`. `provision.sh` probes the
+  two independently so a box with one and not the other repairs itself on re-run.
 - **`golangci-lint@latest` on the unversioned module path installs v1, which cannot lint this
   repo.** `.golangci.yml` is `version: "2"` format, but
   `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` resolves to v1.64.x

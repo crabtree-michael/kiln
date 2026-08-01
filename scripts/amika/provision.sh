@@ -276,14 +276,38 @@ git config user.email >/dev/null 2>&1 || git config user.email "agent@trykiln.de
 # Project dependencies — the same work the per-boot script does.
 "$repo_root/scripts/amika/setup.sh"
 
-# --- 9. Playwright browser (e2e) ----------------------------------------------
+# --- 9. Playwright: the browser AND its system libraries (e2e) -----------------
+# Two separate installs, and the e2e run needs both: `install-browser` unpacks the
+# chromium build under ~/.cache/ms-playwright, `install-deps` apt-installs the
+# shared libraries that build links against. A box with the browser but not the
+# libraries looks provisioned and then dies at launch with
+#   error while loading shared libraries: libglib-2.0.so.0
+# failing every browser-driven spec.
+#
+# They are probed independently on purpose: keying the libraries off the browser
+# cache means a box that got one and not the other never repairs itself on re-run.
 if [ -d tests ] && command -v pnpm >/dev/null 2>&1; then
   if [ ! -d "$HOME/.cache/ms-playwright" ]; then
     log "installing the playwright chromium browser"
     (cd tests && pnpm install && pnpm run install-browser) >/dev/null 2>&1 \
       || warn "playwright browser install failed (make e2e will be unavailable)"
-    [ "$HAVE_SUDO" = 1 ] && sudo_q env "PATH=$PATH" pnpm exec playwright install-deps chromium >/dev/null 2>&1 \
-      || true
+  else
+    log "playwright browser already installed"
+  fi
+
+  # install-deps has to run from tests/: playwright is a dependency of THAT
+  # package, and `pnpm exec` at the repo root — which is neither a package nor a
+  # workspace — exits ERR_PNPM_RECURSIVE_EXEC_NO_PACKAGE. Sending that to
+  # /dev/null under `|| true` is exactly what hid it: the libraries were never
+  # installed and provisioning still reported success.
+  if [ "$HAVE_SUDO" = 1 ]; then
+    if ldconfig -p 2>/dev/null | grep -q 'libglib-2.0\.so\.0'; then
+      log "playwright system libraries already present"
+    else
+      log "installing the playwright system libraries"
+      (cd tests && sudo_q env "PATH=$PATH" pnpm exec playwright install-deps chromium) >/dev/null 2>&1 \
+        || warn "playwright system-library install failed (browser-driven e2e specs will not launch)"
+    fi
   fi
 fi
 

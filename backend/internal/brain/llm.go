@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
 
 // DefaultModel is the default Anthropic model id (06 §2, D1): Haiku is the
@@ -26,6 +28,12 @@ const ModelEnvVar = "KILN_BRAIN_MODEL"
 // calls and status text, not long prose, so a small ceiling is plenty and
 // keeps latency down (06 §5's cost/latency envelope).
 const maxOutputTokens = 4096
+
+// roundTextSummaryBytes bounds how much of one round's assistant text a log
+// record carries. Same budget as the agent module's output summary: enough to
+// read what the model actually said without a runaway record when a round
+// generates to the maxOutputTokens ceiling.
+const roundTextSummaryBytes = 1024
 
 // GateMode names which condition satisfies a ticket's merge gate (06 §7). The
 // zero value ("") is treated as GateMain, so a project that never set the knob
@@ -200,26 +208,55 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 	if err != nil {
 		return LLMResponse{}, fmt.Errorf("brain: anthropic messages.new: %w", err)
 	}
-	a.logUsage(ctx, msg.Usage)
-	return fromSDKMessage(msg), nil
+	resp := fromSDKMessage(msg)
+	a.logRound(ctx, msg.Usage, resp)
+	return resp, nil
 }
 
-// logUsage emits one round's token usage so cache hit rates are observable in
-// production (the slog→Sentry-Logs bridge ships Info+ records with typed
-// attributes) as well as by the live eval set. Info rather than Debug on
-// purpose: one compact record per LLM round is cheap, and it is the only
-// signal that distinguishes a cold cache write from a read after deploy.
-// cache_read_input_tokens staying at zero across a pass's later rounds means
-// a silent invalidator crept into the prefix (a volatile system prompt,
-// non-deterministic tool ordering). input_tokens is the uncached remainder
-// only — the true prompt size is the sum of all three.
-func (a *Adapter) logUsage(ctx context.Context, u anthropic.Usage) {
-	a.log().LogAttrs(ctx, slog.LevelInfo, "brain: llm round usage",
+// logRound emits one record per LLM round carrying both what the round cost and
+// what the model actually said, keyed (via the context handler) to the pass's
+// turn id so a whole pass reads back in order.
+//
+// The usage half makes cache hit rates observable in production (the
+// slog→Sentry-Logs bridge ships Info+ records with typed attributes) as well as
+// by the live eval set. cache_read_input_tokens staying at zero across a pass's
+// later rounds means a silent invalidator crept into the prefix (a volatile
+// system prompt, non-deterministic tool ordering). input_tokens is the uncached
+// remainder only — the true prompt size is the sum of all three.
+//
+// The output half is the model's own message: the assistant text, the tool
+// calls it asked for, and the stop reason that decides whether the bounded loop
+// continues. Without it the only trace of a pass was brain.tool's per-call
+// records, which show the calls but never the reasoning text the model wrapped
+// them in — and nothing at all for a round that ends the pass with text only.
+// Text is summarized (obs.Summary) rather than hashed: unlike a redelivered
+// instruction, what matters here is reading it, not matching it.
+//
+// Info rather than Debug on purpose: one compact record per LLM round is cheap,
+// and it is the only signal that distinguishes a cold cache write from a read
+// after deploy.
+func (a *Adapter) logRound(ctx context.Context, u anthropic.Usage, resp LLMResponse) {
+	a.log().LogAttrs(ctx, slog.LevelInfo, "brain: llm round",
 		slog.Int64("input_tokens", u.InputTokens),
 		slog.Int64("output_tokens", u.OutputTokens),
 		slog.Int64("cache_read_input_tokens", u.CacheReadInputTokens),
 		slog.Int64("cache_creation_input_tokens", u.CacheCreationInputTokens),
+		slog.String("stop_reason", string(resp.StopReason)),
+		slog.String("text", obs.Summary(resp.Text, roundTextSummaryBytes)),
+		slog.String("tool_calls", summarizeCalls(resp.Calls)),
 	)
+}
+
+// summarizeCalls renders a round's tool_use blocks as a compact "name#id" list
+// — empty when the round called nothing. Names and ids only: dispatchOne
+// (tools.go) already logs each call's arguments and result on its own record,
+// and the id is what joins the two under the same turn_id.
+func summarizeCalls(calls []ToolCall) string {
+	parts := make([]string, 0, len(calls))
+	for _, c := range calls {
+		parts = append(parts, string(c.Name)+"#"+c.ID)
+	}
+	return strings.Join(parts, " ")
 }
 
 // log returns the adapter's logger, defaulting to slog.Default() so the

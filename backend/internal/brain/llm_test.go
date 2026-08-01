@@ -10,11 +10,14 @@ package brain_test
 // schema) and how a canned response Message maps back onto LLMResponse.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -110,6 +113,16 @@ func message(stopReason string, content ...map[string]any) map[string]any {
 
 func textBlock(text string) map[string]any {
 	return map[string]any{keyType: keyText, keyText: text}
+}
+
+// apiErrorBody is the Anthropic error envelope the stub returns for a non-2xx
+// response. Shared by the tests that drive Do down its error path so the
+// envelope's literals live in exactly one place.
+func apiErrorBody(msg string) map[string]any {
+	return map[string]any{
+		keyType: "error",
+		"error": map[string]any{keyType: "api_error", "message": msg},
+	}
 }
 
 func toolUseBlock(id, name string, input map[string]any) map[string]any {
@@ -410,7 +423,7 @@ func TestDoEncodesTools(t *testing.T) {
 // and an empty LLMResponse.
 func TestDoWrapsAPIError(t *testing.T) {
 	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusInternalServerError,
-		map[string]any{keyType: "error", "error": map[string]any{keyType: "api_error", "message": "boom"}})
+		apiErrorBody("boom"))
 
 	resp, err := adapter.Do(context.Background(), brain.LLMRequest{})
 	if err == nil {
@@ -418,6 +431,116 @@ func TestDoWrapsAPIError(t *testing.T) {
 	}
 	if resp.StopReason != "" || resp.Text != "" || len(resp.Calls) != 0 {
 		t.Errorf("Do: expected zero LLMResponse on error, got %+v", resp)
+	}
+}
+
+// captureRounds installs a JSON handler as the default logger for the duration
+// of the test and returns an accessor for the decoded "brain: llm round"
+// records emitted while it is installed. The Adapter logs through
+// slog.Default() when no logger is injected (llm.go's log()), so this is how
+// the round record is observable from outside the package. Safe because no test
+// in this package runs in parallel.
+func captureRounds(t *testing.T) func() []map[string]any {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return func() []map[string]any {
+		var rounds []map[string]any
+		for line := range strings.SplitSeq(buf.String(), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			var rec map[string]any
+			if err := json.Unmarshal([]byte(line), &rec); err != nil {
+				t.Fatalf("decode log record %q: %v", line, err)
+			}
+			if rec["msg"] == "brain: llm round" {
+				rounds = append(rounds, rec)
+			}
+		}
+		return rounds
+	}
+}
+
+// TestDoLogsRoundOutputAlongsideUsage: the per-round record carries the model's
+// own output — text, tool calls, stop reason — next to the token counts, so a
+// pass is readable in the trace and not just costable.
+func TestDoLogsRoundOutputAlongsideUsage(t *testing.T) {
+	rounds := captureRounds(t)
+	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		message("tool_use",
+			textBlock("marking it ready"),
+			toolUseBlock(callID1, string(brain.ToolGetTicket), map[string]any{"id": ticketT1}),
+		))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+
+	got := rounds()
+	if len(got) != 1 {
+		t.Fatalf("logged %d round records, want 1", len(got))
+	}
+	rec := got[0]
+	if rec["text"] != "marking it ready" {
+		t.Errorf("round text = %v, want the assistant text", rec["text"])
+	}
+	wantCalls := string(brain.ToolGetTicket) + "#" + callID1
+	if rec["tool_calls"] != wantCalls {
+		t.Errorf("round tool_calls = %v, want %q", rec["tool_calls"], wantCalls)
+	}
+	if rec["stop_reason"] != string(brain.StopToolUse) {
+		t.Errorf("round stop_reason = %v, want %q", rec["stop_reason"], brain.StopToolUse)
+	}
+	// The usage attributes the record already carried must survive alongside it.
+	for _, key := range []string{
+		"input_tokens", "output_tokens",
+		"cache_read_input_tokens", "cache_creation_input_tokens",
+	} {
+		if _, present := rec[key]; !present {
+			t.Errorf("round record dropped usage attribute %q: %v", key, rec)
+		}
+	}
+}
+
+// TestDoLogsTextOnlyRound: a round that ends the pass with text and no tools
+// still reaches the trace — the case brain.tool's per-call records never cover.
+func TestDoLogsTextOnlyRound(t *testing.T) {
+	rounds := captureRounds(t)
+	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		message("end_turn", textBlock("nothing to do")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+
+	got := rounds()
+	if len(got) != 1 {
+		t.Fatalf("logged %d round records, want 1", len(got))
+	}
+	if got[0]["text"] != "nothing to do" {
+		t.Errorf("round text = %v, want the final text", got[0]["text"])
+	}
+	if got[0]["tool_calls"] != "" {
+		t.Errorf("round tool_calls = %v, want empty for a text-only round", got[0]["tool_calls"])
+	}
+}
+
+// TestDoDoesNotLogRoundOnAPIError: a failed call has no model output to trace,
+// so it must not emit a round record (the wrapped error is the signal).
+func TestDoDoesNotLogRoundOnAPIError(t *testing.T) {
+	rounds := captureRounds(t)
+	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusInternalServerError,
+		apiErrorBody("boom"))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err == nil {
+		t.Fatal("Do: expected error on HTTP 500, got nil")
+	}
+	if got := rounds(); len(got) != 0 {
+		t.Errorf("logged %d round records on API error, want 0", len(got))
 	}
 }
 

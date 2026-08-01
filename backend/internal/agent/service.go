@@ -259,7 +259,13 @@ func (s *Service) ListAgents(ctx context.Context, projectID string) ([]AgentInfo
 	}
 	out := make([]AgentInfo, 0, len(live))
 	for _, w := range live {
-		workerID := strings.TrimPrefix(w.Name, prefix)
+		// Derive the slot id from the name, stripping any generation suffix; a
+		// foreign-prefix name (shouldn't reach here — ListWorkers is prefix-scoped)
+		// falls back to a bare trim, preserving the pre-generation behaviour.
+		workerID, _, ok := parseWorkerName(prefix, w.Name)
+		if !ok {
+			workerID = strings.TrimPrefix(w.Name, prefix)
+		}
 		info := AgentInfo{WorkerID: workerID, Status: statusFor(w.Status, false)}
 		if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found {
 			info.UpdatedAt = prev.UpdatedAt
@@ -314,7 +320,7 @@ func (s *Service) GetAgentUpdates(ctx context.Context, projectID, workerID strin
 		turnRunning = isRunning(prev.Phase)
 		u.IsError = prev.Phase == PhaseFailed
 	}
-	w, err := s.resolveWorker(ctx, provider, workerName(prefix, workerID))
+	w, err := s.resolveSlotWorker(ctx, provider, prefix, workerID)
 	if err != nil {
 		return AgentUpdate{}, fmt.Errorf("agent: get agent updates: %w", err)
 	}
@@ -556,12 +562,22 @@ func (s *Service) advanceSend(ctx context.Context, provider Provider, prefix str
 // recreate is left for the reconciler's next sweep to heal; the row still
 // settles so it never lingers non-terminal.
 func (s *Service) advanceRelease(ctx context.Context, provider Provider, prefix string, t Turn) {
-	name := workerName(prefix, t.WorkerID)
-	if err := provider.DestroyWorker(ctx, s.lookupWorker(name)); err != nil {
-		slog.WarnContext(ctx, "agent: release destroy", "worker", name, "err", err)
+	gen := 0
+	if w, ok := s.slotWorker(prefix, t.WorkerID); ok {
+		if _, g, pok := parseWorkerName(prefix, w.Name); pok {
+			gen = g
+		}
+		if err := provider.DestroyWorker(ctx, w); err != nil {
+			slog.WarnContext(ctx, "agent: release destroy", "worker", w.Name, "err", err)
+		}
+		s.deleteWorker(w.Name)
 	}
-	if nw, err := provider.CreateWorker(ctx, name); err != nil {
-		slog.WarnContext(ctx, "agent: release recreate; reconciler will heal", "worker", name, "err", err)
+	// Recreate for a fresh workspace at the same generation; a name still squatted
+	// by the just-destroyed sandbox's VM (auto_delete off — D6) rotates to the next
+	// generation via ErrNameConflict rather than dead-lettering the slot.
+	if nw, err := s.createWorkerRotating(ctx, provider, prefix, t.WorkerID, gen); err != nil {
+		slog.WarnContext(ctx, "agent: release recreate; reconciler will heal",
+			"worker_id", t.WorkerID, "err", err)
 	} else {
 		s.putWorker(nw)
 	}
@@ -783,39 +799,132 @@ func (s *Service) reconcileProject(ctx context.Context, projectID string) {
 		slog.ErrorContext(ctx, "agent: read worker slots", "project", projectID, "err", err)
 		return
 	}
-	wanted := wantedNames(prefix, ids)
-	failed := s.adoptAndCreate(ctx, provider, wanted, live)
-	s.destroyOrphans(ctx, provider, prefix, wanted, live)
-	s.recordProvisionFailures(projectID, prefix, failed)
+	failed := s.adoptAndCreate(ctx, provider, prefix, ids, live)
+	s.recordProvisionFailures(projectID, failed)
 }
 
-// adoptAndCreate adopts every wanted worker already live and creates the rest on
-// the given provider, returning the names whose CreateWorker failed this sweep —
-// slots with no live sandbox, which the health reconcile must gate out of the
-// pull until they provision.
+// adoptAndCreate reconciles one project's live sandboxes against its board slots
+// (05 §4, generalised for generational names): each slot adopts the highest
+// non-errored generation among its live sandboxes, or — when none is adoptable —
+// creates the next generation under a fresh name (routing around a squatting
+// failed record, D6). Every prefix-scoped sandbox it did NOT adopt (a lower/stale
+// generation, a terminally-failed record, or an orphan matching no slot) is
+// destroyed. Returns the slot ids whose create failed this sweep, which the health
+// reconcile gates out of the pull until they provision.
 func (s *Service) adoptAndCreate(
-	ctx context.Context, provider Provider, wanted map[string]struct{}, live []ProviderWorker,
+	ctx context.Context, provider Provider, prefix string, ids []string, live []ProviderWorker,
 ) []string {
-	byName := indexByName(live)
-	var failed []string
-	for name := range wanted {
-		if w, ok := byName[name]; ok {
-			s.putWorker(w)
-			continue
+	// Group live, prefix-scoped sandboxes by parsed slot id; a foreign-prefix name
+	// parses to ok=false and is left untouched (11 §3).
+	grouped := map[string][]ProviderWorker{}
+	for _, w := range live {
+		if uuid, _, ok := parseWorkerName(prefix, w.Name); ok {
+			grouped[uuid] = append(grouped[uuid], w)
 		}
-		w, err := provider.CreateWorker(ctx, name)
+	}
+	kept := make(map[string]struct{}, len(ids))
+	var failed []string
+	for _, id := range ids {
+		w, err := s.adoptOrCreateSlot(ctx, provider, prefix, id, grouped[id])
 		if err != nil {
 			// Log the wrapped err (a backend may scrub it — a provider message can
 			// echo a rejected secret) plus the provider's scrub-safe status/code/trace
 			// so the failure stays diagnosable even when err reads "[Filtered]".
 			slog.ErrorContext(ctx, "agent: create worker",
-				append([]any{"worker", name, "err", err}, providerErrAttrs(err)...)...)
-			failed = append(failed, name)
+				append([]any{"worker_id", id, "err", err}, providerErrAttrs(err)...)...)
+			failed = append(failed, id)
 			continue
 		}
-		s.putWorker(w)
+		kept[w.Name] = struct{}{}
 	}
+	s.destroyUnkept(ctx, provider, prefix, live, kept)
 	return failed
+}
+
+// adoptOrCreateSlot resolves the one provider worker a slot should use from its
+// live sandboxes (05 §4): adopt the highest-generation sandbox that is not
+// terminally errored, else create the next generation under a fresh name past the
+// highest generation seen — so a squatting failed gen-N record never blocks the
+// slot, because gen N+1 gets a name nothing holds. Shared by the reconciler and
+// the turn machine's ensureWorker so both settle on the same current generation.
+func (s *Service) adoptOrCreateSlot(
+	ctx context.Context, provider Provider, prefix, workerID string, candidates []ProviderWorker,
+) (ProviderWorker, error) {
+	adopt, maxGen := pickAdoptable(prefix, candidates)
+	if adopt != nil {
+		s.putWorker(*adopt)
+		return *adopt, nil
+	}
+	w, err := s.createWorkerRotating(ctx, provider, prefix, workerID, maxGen+1)
+	if err != nil {
+		return ProviderWorker{}, err
+	}
+	s.putWorker(w)
+	return w, nil
+}
+
+// pickAdoptable selects a slot's adoptable sandbox — the highest-generation one
+// whose liveness is not terminally RunErrored — and reports the highest generation
+// seen across ALL of the slot's sandboxes (errored included) so the caller can
+// create past a squatting failed record. The returned worker is nil when the slot
+// has no non-errored sandbox; maxGen is -1 when it has none at all.
+func pickAdoptable(prefix string, candidates []ProviderWorker) (*ProviderWorker, int) {
+	var adopt *ProviderWorker
+	maxGen, bestGen := -1, -1
+	for i := range candidates {
+		_, gen, ok := parseWorkerName(prefix, candidates[i].Name)
+		if !ok {
+			continue
+		}
+		if gen > maxGen {
+			maxGen = gen
+		}
+		if candidates[i].Status == RunErrored {
+			continue // a terminally-failed record is never adopted (route around it)
+		}
+		if gen > bestGen {
+			bestGen, adopt = gen, &candidates[i]
+		}
+	}
+	return adopt, maxGen
+}
+
+// nameRotateAttempts bounds how many generations the create path tries when the
+// provider rejects a name as already in use (ErrNameConflict) — the
+// belt-and-suspenders for the destroy→recreate race where the prior record has
+// left the live list but its sandbox VM still squats the deterministic name
+// (auto_delete off — D6). After the bound the create fails and the slot is
+// recorded errored / sandbox_health fires, exactly as a provision failure does
+// today.
+const nameRotateAttempts = 5
+
+// createWorkerRotating creates the slot's sandbox starting at startGen, advancing
+// one generation (a fresh name) each time CreateWorker returns ErrNameConflict, up
+// to nameRotateAttempts. A non-conflict error returns immediately (the existing
+// provision-failure handling owns it). Each rotation logs the slot id and the new
+// generation — scrub-safe fields only, no secrets.
+func (s *Service) createWorkerRotating(
+	ctx context.Context, provider Provider, prefix, workerID string, startGen int,
+) (ProviderWorker, error) {
+	if startGen < 0 {
+		startGen = 0
+	}
+	gen := startGen
+	var lastErr error
+	for range nameRotateAttempts {
+		w, err := provider.CreateWorker(ctx, workerName(prefix, workerID, gen))
+		if err == nil {
+			return w, nil
+		}
+		lastErr = err
+		if !errors.Is(err, ErrNameConflict) {
+			return ProviderWorker{}, fmt.Errorf("agent: create worker for slot %q: %w", workerID, err)
+		}
+		slog.WarnContext(ctx, "agent: worker name conflict; rotating to next generation",
+			"worker_id", workerID, "gen", gen, "next_gen", gen+1)
+		gen++
+	}
+	return ProviderWorker{}, fmt.Errorf("agent: create worker for slot %q exhausted name rotation: %w", workerID, lastErr)
 }
 
 // providerErrAttrs returns scrub-safe slog attributes for a provider error that
@@ -831,20 +940,20 @@ func providerErrAttrs(err error) []any {
 	return []any{"provider_status", status, "provider_error_code", code, "provider_trace", trace}
 }
 
-// recordProvisionFailures replaces the project's provisioning-failure set with
-// the worker ids behind failedNames (empty clears it). A full replace per sweep,
-// so a slot that provisions on a later sweep — or is no longer wanted — drops out
-// automatically and the liveness loop stops reporting it errored.
-func (s *Service) recordProvisionFailures(projectID, prefix string, failedNames []string) {
+// recordProvisionFailures replaces the project's provisioning-failure set with the
+// slot ids whose create failed this sweep (empty clears it). A full replace per
+// sweep, so a slot that provisions on a later sweep — or is no longer wanted —
+// drops out automatically and the liveness loop stops reporting it errored.
+func (s *Service) recordProvisionFailures(projectID string, failedIDs []string) {
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
-	if len(failedNames) == 0 {
+	if len(failedIDs) == 0 {
 		delete(s.provisionErrs, projectID)
 		return
 	}
-	ids := make(map[string]struct{}, len(failedNames))
-	for _, name := range failedNames {
-		ids[strings.TrimPrefix(name, prefix)] = struct{}{}
+	ids := make(map[string]struct{}, len(failedIDs))
+	for _, id := range failedIDs {
+		ids[id] = struct{}{}
 	}
 	s.provisionErrs[projectID] = ids
 }
@@ -863,50 +972,79 @@ func (s *Service) provisionFailedIDs(projectID string) []string {
 	return out
 }
 
-// destroyOrphans removes live prefix-matched entries that match no slot (05 §4).
-// The prefix is this project's own, so the sweep never touches another project's
-// (or another environment's) workers (11 §3).
-func (s *Service) destroyOrphans(
+// destroyUnkept destroys every prefix-scoped live sandbox the sweep did not adopt
+// (05 §4): a slot's lower/stale generations, its terminally-failed records, and
+// orphans matching no slot at all. Prefix-scoped, so it never touches another
+// project's (or environment's) workers (11 §3). Best-effort — a destroy failure is
+// logged and the sweep continues; a 404 is success (DestroyWorker semantics).
+func (s *Service) destroyUnkept(
 	ctx context.Context, provider Provider, prefix string,
-	wanted map[string]struct{}, live []ProviderWorker,
+	live []ProviderWorker, kept map[string]struct{},
 ) {
 	for _, w := range live {
 		if !strings.HasPrefix(w.Name, prefix) {
 			continue
 		}
-		if _, ok := wanted[w.Name]; ok {
+		if _, ok := kept[w.Name]; ok {
 			continue
 		}
 		if err := provider.DestroyWorker(ctx, w); err != nil {
-			slog.ErrorContext(ctx, "agent: destroy orphan worker", "worker", w.Name, "err", err)
+			slog.ErrorContext(ctx, "agent: destroy stale/orphan worker", "worker", w.Name, "err", err)
 			continue
 		}
 		s.deleteWorker(w.Name)
 	}
 }
 
-// ensureWorker returns the cached provider worker for a slot, creating it on the
-// given provider if the cache has none yet.
+// ensureWorker returns the provider worker a slot should use, reading the current
+// generation from the cache the reconciler populates; on a cache miss (a turn
+// racing the first sweep, or a slot whose earlier provision failed) it re-derives
+// it from the live list — adopting the highest non-errored generation or creating a
+// fresh one, rotating past a squatting name (05 §4).
 func (s *Service) ensureWorker(
 	ctx context.Context, provider Provider, prefix, workerID string,
 ) (ProviderWorker, error) {
-	name := workerName(prefix, workerID)
-	if w, ok := s.getWorker(name); ok {
+	if w, ok := s.slotWorker(prefix, workerID); ok {
 		return w, nil
 	}
-	w, err := provider.CreateWorker(ctx, name)
+	live, err := provider.ListWorkers(ctx)
 	if err != nil {
-		return ProviderWorker{}, fmt.Errorf("agent: create worker %q: %w", name, err)
+		return ProviderWorker{}, fmt.Errorf("agent: ensure worker %q: list: %w", workerID, err)
 	}
-	s.putWorker(w)
+	w, err := s.adoptOrCreateSlot(ctx, provider, prefix, workerID, slotCandidates(prefix, workerID, live))
+	if err != nil {
+		return ProviderWorker{}, fmt.Errorf("agent: ensure worker %q: %w", workerID, err)
+	}
 	return w, nil
 }
 
-func (s *Service) getWorker(name string) (ProviderWorker, bool) {
+// slotWorker returns the cached provider worker for a slot: the highest-generation
+// cached entry whose name parses to workerID under prefix. The reconciler
+// populates the cache, so the turn machine reads the generation the last sweep
+// settled on rather than recomputing it.
+func (s *Service) slotWorker(prefix, workerID string) (ProviderWorker, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	w, ok := s.workers[name]
-	return w, ok
+	var best ProviderWorker
+	bestGen := -1
+	for name, w := range s.workers {
+		if uuid, gen, ok := parseWorkerName(prefix, name); ok && uuid == workerID && gen > bestGen {
+			bestGen, best = gen, w
+		}
+	}
+	return best, bestGen >= 0
+}
+
+// slotCandidates filters a live worker list to the sandboxes belonging to one slot
+// (parsed under prefix) — the input pickAdoptable ranks by generation.
+func slotCandidates(prefix, workerID string, live []ProviderWorker) []ProviderWorker {
+	var out []ProviderWorker
+	for _, w := range live {
+		if uuid, _, ok := parseWorkerName(prefix, w.Name); ok && uuid == workerID {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 func (s *Service) putWorker(w ProviderWorker) {
@@ -921,32 +1059,23 @@ func (s *Service) deleteWorker(name string) {
 	delete(s.workers, name)
 }
 
-// lookupWorker returns the cached worker, or a name-only handle when the cache
-// has none (enough for a destroy, which treats an absent worker as success).
-func (s *Service) lookupWorker(name string) ProviderWorker {
-	if w, ok := s.getWorker(name); ok {
-		return w
-	}
-	return ProviderWorker{Name: name}
-}
-
-// resolveWorker returns the cached provider worker for a name, falling back to a
-// list-and-match on the given provider (never creating one — this is a read
-// path). A zero ProviderWorker means "not live", handled by the caller as an
-// empty update.
-func (s *Service) resolveWorker(ctx context.Context, provider Provider, name string) (ProviderWorker, error) {
-	if w, ok := s.getWorker(name); ok {
+// resolveSlotWorker returns the current provider worker for a slot on a read path
+// (never creating one): the cached generation, else the highest non-errored
+// generation from a live list-and-match. A zero ProviderWorker means "not live",
+// handled by the caller as an empty update.
+func (s *Service) resolveSlotWorker(
+	ctx context.Context, provider Provider, prefix, workerID string,
+) (ProviderWorker, error) {
+	if w, ok := s.slotWorker(prefix, workerID); ok {
 		return w, nil
 	}
 	live, err := provider.ListWorkers(ctx)
 	if err != nil {
 		return ProviderWorker{}, fmt.Errorf("agent: list workers: %w", err)
 	}
-	for _, w := range live {
-		if w.Name == name {
-			s.putWorker(w)
-			return w, nil
-		}
+	if adopt, _ := pickAdoptable(prefix, slotCandidates(prefix, workerID, live)); adopt != nil {
+		s.putWorker(*adopt)
+		return *adopt, nil
 	}
 	return ProviderWorker{}, nil
 }
@@ -964,27 +1093,4 @@ func failureOutput(t Turn) string {
 		return t.LastError
 	}
 	return "agent turn failed"
-}
-
-// workerName derives the deterministic provider-side name for a board worker
-// slot under a given prefix (05 §4, D5, 11 §3).
-func workerName(prefix, workerID string) string { return prefix + workerID }
-
-// wantedNames maps board slot ids to their deterministic provider-worker names
-// under a given prefix.
-func wantedNames(prefix string, ids []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		out[workerName(prefix, id)] = struct{}{}
-	}
-	return out
-}
-
-// indexByName keys live workers by their provider-side name.
-func indexByName(ws []ProviderWorker) map[string]ProviderWorker {
-	out := make(map[string]ProviderWorker, len(ws))
-	for _, w := range ws {
-		out[w.Name] = w
-	}
-	return out
 }

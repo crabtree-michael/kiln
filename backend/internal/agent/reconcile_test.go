@@ -11,6 +11,7 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -25,6 +26,13 @@ type reconcileProvider struct {
 	workers   []agent.ProviderWorker
 	created   []string
 	destroyed []string
+	// conflictsLeft makes CreateWorker return agent.ErrNameConflict this many times
+	// (then succeed); alwaysConflict makes every CreateWorker conflict. Both model an
+	// orphaned VM squatting the deterministic name, driving the generation-rotation
+	// path (05 §4). conflicted records the names that were rejected.
+	conflictsLeft  int
+	alwaysConflict bool
+	conflicted     []string
 }
 
 func newReconcileProvider(seed ...agent.ProviderWorker) *reconcileProvider {
@@ -40,6 +48,13 @@ func (p *reconcileProvider) ListWorkers(ctx context.Context) ([]agent.ProviderWo
 func (p *reconcileProvider) CreateWorker(ctx context.Context, name string) (agent.ProviderWorker, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.alwaysConflict || p.conflictsLeft > 0 {
+		if p.conflictsLeft > 0 {
+			p.conflictsLeft--
+		}
+		p.conflicted = append(p.conflicted, name)
+		return agent.ProviderWorker{}, fmt.Errorf("reconcileProvider: %w", agent.ErrNameConflict)
+	}
 	p.created = append(p.created, name)
 	w := agent.ProviderWorker{Name: name, Ref: name}
 	p.workers = append(p.workers, w)
@@ -90,6 +105,12 @@ func (p *reconcileProvider) wasDestroyed(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return slices.Contains(p.destroyed, name)
+}
+
+func (p *reconcileProvider) createdCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.created)
 }
 
 const (

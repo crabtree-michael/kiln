@@ -278,6 +278,42 @@ func TestCreateWorkerOmitsSecretEnvVarsWhenNone(t *testing.T) {
 	}
 }
 
+// A 409 sandbox_name_conflict on POST /sandboxes surfaces as agent.ErrNameConflict
+// so the Service rotates the slot to a fresh generation — the permanent fix for the
+// pool wedge (05 §4). The *APIError stays reachable beneath the sentinel for logs.
+func TestCreateWorkerNameConflictMappedToSentinel(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k", RepoURL: testRepoURL}, map[route]http.HandlerFunc{
+		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, http.StatusConflict,
+				errEnvelope("sandbox_name_conflict", "a sandbox with this name already exists"))
+		},
+	})
+
+	_, err := c.CreateWorker(context.Background(), agent.WorkerName("w1"))
+	if !errors.Is(err, agent.ErrNameConflict) {
+		t.Fatalf("err = %v, want it to wrap agent.ErrNameConflict", err)
+	}
+	apiErr := new(APIError)
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusConflict {
+		t.Errorf("err = %v, want an *APIError with status 409 beneath the sentinel", err)
+	}
+}
+
+// A 409 that is NOT a name conflict must stay a plain error — only the squatting-name
+// case rotates the generation.
+func TestCreateWorkerNonNameConflict409NotMappedToSentinel(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+		{http.MethodPost, pathSandboxes}: func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, http.StatusConflict, errEnvelope("some_other_conflict", "unrelated conflict"))
+		},
+	})
+
+	_, err := c.CreateWorker(context.Background(), agent.WorkerName("w1"))
+	if err == nil || errors.Is(err, agent.ErrNameConflict) {
+		t.Fatalf("err = %v, want a plain error (not ErrNameConflict)", err)
+	}
+}
+
 func TestWorkerReadyStates(t *testing.T) {
 	worker := agent.ProviderWorker{Name: agent.WorkerName("w1"), Ref: sbID}
 

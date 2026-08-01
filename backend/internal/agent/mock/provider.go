@@ -21,6 +21,10 @@ var (
 	errProvisioning      = errors.New("mock: provisioning failed")
 	errStartTurnInjected = errors.New("mock: injected StartTurn failure")
 	errUnknownJob        = errors.New("mock: unknown job")
+	// errNameConflict wraps the neutral sentinel so a test/e2e can drive the
+	// squatting-name rotation path (05 §4): CreateWorker rejects the name until the
+	// Service retries at a fresh generation.
+	errNameConflict = fmt.Errorf("mock: %w", agent.ErrNameConflict)
 	// errOutOfCredits wraps the neutral sentinel so a test/e2e can drive the
 	// credits-exhausted fail-fast path (05 §5, §8).
 	errOutOfCredits = fmt.Errorf("mock: %w", agent.ErrOutOfCredits)
@@ -55,6 +59,13 @@ type Provider struct {
 
 	// FailProvisioning makes CreateWorker fail terminally (05 §8).
 	FailProvisioning bool
+
+	// FailCreateWithNameConflict makes CreateWorker return agent.ErrNameConflict
+	// this many times before succeeding — the squatting-name path (05 §4): a
+	// failed/partial provision left an orphaned VM holding the deterministic name,
+	// so the create 409s until the Service rotates to a fresh generation. Each
+	// conflict decrements it.
+	FailCreateWithNameConflict int
 
 	// FailStartTurns makes StartTurn fail this many times, then succeed; each
 	// failure decrements it.
@@ -134,6 +145,10 @@ func (p *Provider) CreateWorker(_ context.Context, name string) (agent.ProviderW
 	p.init()
 	if p.FailProvisioning {
 		return agent.ProviderWorker{}, errProvisioning
+	}
+	if p.FailCreateWithNameConflict > 0 {
+		p.FailCreateWithNameConflict--
+		return agent.ProviderWorker{}, errNameConflict
 	}
 	p.workers[name] = true
 	return agent.ProviderWorker{Name: name, Ref: name}, nil

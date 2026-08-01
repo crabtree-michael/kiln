@@ -230,6 +230,14 @@ func (c *Client) CreateWorker(ctx context.Context, name string) (agent.ProviderW
 	}
 	var s sandbox
 	if err := c.do(ctx, http.MethodPost, "/sandboxes", req, &s); err != nil {
+		if isNameConflict(err) {
+			// The name is already taken — most often by an orphaned Daytona VM
+			// squatting a failed provision's deterministic name (auto_delete off,
+			// 05 D6). Map to the neutral sentinel so the Service rotates the slot to
+			// the next generation under a fresh name. The *APIError is still wrapped
+			// so logs keep the status/code/trace.
+			return agent.ProviderWorker{}, fmt.Errorf("amika: create worker %s: %w: %w", name, agent.ErrNameConflict, err)
+		}
 		return agent.ProviderWorker{}, err
 	}
 	return agent.ProviderWorker{Name: firstNonEmpty(s.Name, name), Ref: s.ID}, nil
@@ -526,6 +534,28 @@ func isConversationLost(err error) bool {
 		return strings.Contains(strings.ToLower(apiErr.Code+" "+apiErr.Message), "session")
 	}
 	return false
+}
+
+// isNameConflict reports whether err is Amika's 409 sandbox_name_conflict on
+// CreateWorker — the requested sandbox name is already taken, most often by an
+// orphaned Daytona VM squatting a failed provision's deterministic name
+// (auto_delete off — 05 D6). Maps to agent.ErrNameConflict so the Service rotates
+// to the next generation under a fresh name. A hardening point: v0beta1 does not
+// document per-error codes, so this matches the known code plus a defensive
+// status-409 name/conflict heuristic. Only CreateWorker consults it, so the
+// startSandbox 409 ("already starting") is unaffected.
+func isNameConflict(err error) bool {
+	apiErr := new(APIError)
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusConflict {
+		return false
+	}
+	hay := strings.ToLower(apiErr.Code + " " + apiErr.Message)
+	if strings.Contains(hay, "name_conflict") || strings.Contains(hay, "name conflict") {
+		return true
+	}
+	return strings.Contains(hay, "name") &&
+		(strings.Contains(hay, "conflict") || strings.Contains(hay, "exist") ||
+			strings.Contains(hay, "taken") || strings.Contains(hay, "in use"))
 }
 
 // isOutOfCredits reports whether err is an Amika rejection for exhausted account

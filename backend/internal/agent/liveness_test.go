@@ -82,13 +82,30 @@ func TestRun_LivenessChangeNudgesBoard(t *testing.T) {
 	testutil.Eventually(t, func() bool { return refresher.count() > before })
 }
 
-// TestRun_ErroredWorkerReportedToBoardHealth pins the health-aware-pull sync:
-// the liveness loop reports each project's errored worker ids to the board, so
-// the pull can skip failing sandboxes. A healthy pool reports an empty set; an
-// errored sandbox is named.
+// erroredListProvider always lists its slot's sandbox as terminally RunErrored,
+// so the reconciler can neither adopt it nor heal it into a healthy generation —
+// modeling a genuinely broken slot whose errored state the liveness loop must keep
+// reporting to board health (03 §5) even as the reconciler tries to rebuild it.
+// The embedded mock supplies create/destroy/turn behaviour; only ListWorkers is
+// overridden, so the reported liveness is fixed regardless of the rebuild churn.
+type erroredListProvider struct {
+	*mock.Provider
+
+	name string
+}
+
+func (p *erroredListProvider) ListWorkers(context.Context) ([]agent.ProviderWorker, error) {
+	return []agent.ProviderWorker{{Name: p.name, Ref: p.name, Status: agent.RunErrored}}, nil
+}
+
+// TestRun_ErroredWorkerReportedToBoardHealth pins the health-aware-pull sync: the
+// liveness loop reports each project's errored worker ids to the board, so the pull
+// can skip failing sandboxes. A slot whose sandbox is terminally errored is named in
+// the errored set — even while the reconciler rotates generations trying to rebuild
+// it (which the derived slot id absorbs, so the report stays keyed to the slot).
 func TestRun_ErroredWorkerReportedToBoardHealth(t *testing.T) {
 	store := newFakeStore()
-	provider := mock.New()
+	provider := &erroredListProvider{Provider: mock.New(), name: agent.WorkerName(testWorkerID)}
 	clock := testutil.NewFakeClock()
 	refresher := &fakeRefresher{}
 	svc := newService(store, provider, &fakeEvents{}, &fakeSlots{ids: []string{testWorkerID}}, clock, refresher)
@@ -96,15 +113,9 @@ func TestRun_ErroredWorkerReportedToBoardHealth(t *testing.T) {
 	stop := runService(t, svc, clock)
 	defer stop()
 
-	// The reconciler brings the slot's worker up healthy: the first tick reports
-	// an empty errored set for the project.
-	testutil.Eventually(t, func() bool {
-		ids, reported := refresher.erroredFor(testProject)
-		return reported && len(ids) == 0
-	})
-
-	// The sandbox fails terminally: the next tick names it in the errored set.
-	provider.SetWorkerStatus(agent.WorkerName(testWorkerID), agent.RunErrored)
+	// The slot's only sandbox is terminally errored: the reconciler cannot adopt it,
+	// and the liveness loop names the slot in the project's errored set so the pull
+	// skips it (03 §5).
 	testutil.Eventually(t, func() bool {
 		ids, _ := refresher.erroredFor(testProject)
 		return len(ids) == 1 && ids[0] == testWorkerID

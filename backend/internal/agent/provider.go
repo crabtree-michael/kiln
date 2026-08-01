@@ -41,6 +41,17 @@ var ErrConversationLost = errors.New("agent: provider lost the conversation")
 // (05 §5). Adapters wrap it (fmt.Errorf("…: %w", …)) so errors.Is still matches.
 var ErrOutOfCredits = errors.New("agent: provider credits exhausted")
 
+// ErrNameConflict is the sentinel an adapter returns from CreateWorker when the
+// provider rejects the requested name because a resource already holds it — for
+// Amika, a 409 sandbox_name_conflict left by a failed/partial provision whose
+// orphaned VM (auto_delete off — 05 D6) still squats the deterministic name,
+// invisible to the live sandbox list. The Service recognises it and retries the
+// create at the next generation under a fresh name (see the reconciler's
+// name-rotation), so a squatting orphan never wedges the slot the way it did
+// before (the amika-sandbox-name-conflict prod incident). Adapters wrap it
+// (fmt.Errorf("…: %w", …)) so errors.Is still matches.
+var ErrNameConflict = errors.New("agent: provider worker name already in use")
+
 // ErrProviderUnavailable is the sentinel the ProviderResolver returns when a
 // project's configured provider cannot be built — most often because its
 // registry key names no registered constructor (a rolled-back or dropped

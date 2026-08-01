@@ -1,27 +1,17 @@
-// Deep-link → open-ticket bridge tests (02 §10 tap-to-open). Covers the URL
-// parser and both arrival paths the hook wires: a cold open at `/app?ticket=<id>`
-// and a live service-worker `kiln:navigate` message to an already-open tab.
+// Deep-link → open-ticket bridge tests (02 §10 tap-to-open). Covers the three
+// arrival paths the hook wires: a cold open at `/app?ticket=<id>`, a live
+// service-worker `kiln:navigate` message to an already-open tab, and a ticket
+// stashed by a cross-project switch that remounted the screen (12 §6.3). The
+// URL parsing itself is tested in `stores/deep-link.test.ts`.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { ticketIdFromUrl, useDeepLinkTicket } from '@/components/use-deep-link-ticket';
-
-describe('ticketIdFromUrl', () => {
-  it('pulls the ticket id out of a deep link (full URL or bare query)', () => {
-    expect(ticketIdFromUrl('/?ticket=t-login')).toBe('t-login');
-    expect(ticketIdFromUrl('?ticket=a+b%2Fc')).toBe('a b/c');
-    expect(ticketIdFromUrl('/?other=1&ticket=t-x')).toBe('t-x');
-  });
-
-  it('returns null when the ticket param is absent or empty', () => {
-    expect(ticketIdFromUrl('/')).toBeNull();
-    expect(ticketIdFromUrl('/?other=1')).toBeNull();
-    expect(ticketIdFromUrl('/?ticket=')).toBeNull();
-  });
-});
+import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { stashDeepLinkTicket, takeDeepLinkTicket } from '@/stores/deep-link';
 
 describe('useDeepLinkTicket', () => {
   afterEach(() => {
     window.history.replaceState(null, '', '/');
+    takeDeepLinkTicket();
   });
 
   it('opens the deep-linked ticket on mount and strips the query param', () => {
@@ -42,6 +32,21 @@ describe('useDeepLinkTicket', () => {
       useDeepLinkTicket(onOpen);
     });
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('opens a ticket stashed by a cross-project switch, over the stale URL', () => {
+    // This screen mounted *because* a tap switched projects: the URL still
+    // describes whatever the tab was showing before, so the stash wins.
+    window.history.replaceState(null, '', '/?ticket=t-stale');
+    stashDeepLinkTicket('t-tapped');
+    const onOpen = vi.fn();
+    renderHook(() => {
+      useDeepLinkTicket(onOpen);
+    });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith('t-tapped');
+    // Consumed: a later remount (e.g. a manual project switch) must not reopen it.
+    expect(takeDeepLinkTicket()).toBeNull();
   });
 
   it('opens the ticket from a live service-worker navigate message', () => {

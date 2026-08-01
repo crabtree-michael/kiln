@@ -41,9 +41,15 @@ The `notify.send` outbox contract (03 §7.1) is unchanged — only its executor 
   `POST /api/push/subscribe`). The toggle is `dashboard/NotificationsField.tsx` in Settings.
 - **Service worker:** `frontend/public/push-sw.js` — a **static, hand-written** worker
   (`push` + `notificationclick` only). It suppresses the notification when a Kiln tab is
-  already foregrounded, and the deep link (`/app` / `/app?ticket=<id>`; `/` is the marketing
-  landing page) is handed to a live tab via `postMessage({type:'kiln:navigate'})`, falling
-  back to `openWindow` on a cold start.
+  already foregrounded, and the deep link (`/app?project=<id>[&ticket=<id>]`; `/` is the
+  marketing landing page) is handed to a live tab via
+  `postMessage({type:'kiln:navigate'})`, falling back to `openWindow` on a cold start.
+- **Tap handling (frontend):** `src/stores/deep-link.ts` is the one parser + service-worker
+  subscription; the link's two halves are consumed by two owners. The **project** half goes
+  to the current-project store (`stores/current-project.tsx`), which switches the app to the
+  firing project (12 §6.3) — via `?project=` at render on a cold open, via a `kiln:navigate`
+  message on a live tab. The **ticket** half goes to `components/use-deep-link-ticket.ts`,
+  which opens the detail overlay. See the cross-project trap below.
 - **Wire** (`schema/openapi.yaml`): `GET /api/push/key` (VAPID public key, 404 when
   unconfigured), `POST /api/push/subscribe` + `DELETE /api/push/subscribe` (server-side
   unsubscribe on opt-out), `GET`/`PUT /api/push/mode` (the per-user `ModeBlocked`/
@@ -106,6 +112,20 @@ Run these every time you touch this area, not just the change in front of you.
 
 ## Potential gotchas
 
+- **A cross-project tap fights the project switch — the ticket needs a hand-off.** The whole
+  data subtree is keyed by project id (`CurrentProjectProvider`, 12 §4.1), so switching
+  projects **remounts the primary screen and throws away its open-ticket state**. Opening the
+  ticket and switching the project in the same tap therefore cannot both be plain `setState`:
+  the switch wins and the ticket silently never opens. The switching side parks the id
+  (`stashDeepLinkTicket`) and the *remounted* screen takes it in its mount effect
+  (`takeDeepLinkTicket`) — module-level state precisely because it must outlive the subtree
+  being torn down. `current-project.test.tsx` covers it end-to-end (drop the stash and the
+  test goes to `'none'`). Anything else a tap must carry into the new project needs the same
+  treatment.
+- **Never select a project id that isn't in `me.projects`.** The store resolves an unknown
+  selected id to `projects[0]`, so a tap naming a deleted/foreign project would silently yank
+  the user to their *first* project — worse than ignoring the tap. The live tap handler
+  membership-checks before switching.
 - **Per-user routing (11 phase 2):** subscriptions and the notification mode are keyed by
   `user_id` (`push_subscriptions.user_id`, `push_user_settings`; migration
   `0003_user_tenancy.sql`). A `notify.send` carries a project; `webPushNotifier` resolves

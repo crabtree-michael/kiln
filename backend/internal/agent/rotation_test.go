@@ -19,13 +19,14 @@ import (
 
 // genName is the provider-side name of the test slot's sandbox at a generation,
 // under the default prefix the single-tenant test service uses: gen 0 is the legacy
-// bare name, gen ≥1 gets the "-g<n>" suffix. All rotation tests reconcile the single
-// slot reconcileWorkerA, so the id is fixed here.
+// bare name (full uuid), gen ≥1 gets the short "<fragment>-g<n>" DNS-label-safe form
+// (agent.SlotFragmentForTest mirrors the internal fragment). All rotation tests
+// reconcile the single slot reconcileWorkerA, so the id is fixed here.
 func genName(gen int) string {
 	if gen == 0 {
 		return agent.WorkerName(reconcileWorkerA)
 	}
-	return agent.WorkerName(reconcileWorkerA) + "-g" + strconv.Itoa(gen)
+	return agent.WorkerNamePrefix + agent.SlotFragmentForTest(reconcileWorkerA) + "-g" + strconv.Itoa(gen)
 }
 
 // A slot whose only live sandbox is a terminally-failed gen-0 record must be rebuilt
@@ -44,6 +45,13 @@ func TestRun_RotatesPastSquattingFailedRecord(t *testing.T) {
 	testutil.Eventually(t, func() bool { return provider.wasCreated(genName(1)) })
 	// ...and the squatting failed gen-0 record is destroyed as stale.
 	testutil.Eventually(t, func() bool { return provider.wasDestroyed(genName(0)) })
+
+	// The healed name must be a valid, ≤63-char DNS label — the whole point of the
+	// fragment scheme (the OLD full-uuid gen-1 name 400'd and never healed).
+	if n := genName(1); len(n) > agent.MaxDNSLabelLenForTest {
+		t.Errorf("healed gen-1 name %q is %d chars, exceeds the %d-char DNS label limit",
+			n, len(n), agent.MaxDNSLabelLenForTest)
+	}
 }
 
 // Given both a failed gen-0 record and a live gen-1 for the same slot, adopt the

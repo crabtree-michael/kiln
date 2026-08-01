@@ -257,15 +257,14 @@ func (s *Service) ListAgents(ctx context.Context, projectID string) ([]AgentInfo
 	if err != nil {
 		return nil, fmt.Errorf("agent: list agents: %w", err)
 	}
+	// Board slots let a gen≥1 short name (which carries only the slot fragment) be
+	// mapped back to its full board slot id; best-effort, so a nil/erroring Slots
+	// port just falls back to the parsed remainder (gen-0 names are the full id
+	// already). Read once per call, outside the per-worker loop.
+	slotIDs := s.slotIDsFor(ctx, projectID)
 	out := make([]AgentInfo, 0, len(live))
 	for _, w := range live {
-		// Derive the slot id from the name, stripping any generation suffix; a
-		// foreign-prefix name (shouldn't reach here — ListWorkers is prefix-scoped)
-		// falls back to a bare trim, preserving the pre-generation behaviour.
-		workerID, _, ok := parseWorkerName(prefix, w.Name)
-		if !ok {
-			workerID = strings.TrimPrefix(w.Name, prefix)
-		}
+		workerID := slotIDForName(prefix, w.Name, slotIDs)
 		info := AgentInfo{WorkerID: workerID, Status: statusFor(w.Status, false)}
 		if prev, found, lerr := s.store.LatestForWorker(ctx, workerID); lerr == nil && found {
 			info.UpdatedAt = prev.UpdatedAt
@@ -814,18 +813,15 @@ func (s *Service) reconcileProject(ctx context.Context, projectID string) {
 func (s *Service) adoptAndCreate(
 	ctx context.Context, provider Provider, prefix string, ids []string, live []ProviderWorker,
 ) []string {
-	// Group live, prefix-scoped sandboxes by parsed slot id; a foreign-prefix name
-	// parses to ok=false and is left untouched (11 §3).
-	grouped := map[string][]ProviderWorker{}
-	for _, w := range live {
-		if uuid, _, ok := parseWorkerName(prefix, w.Name); ok {
-			grouped[uuid] = append(grouped[uuid], w)
-		}
-	}
+	// Group live, prefix-scoped sandboxes by board slot (board-slot-driven, not
+	// exact-equality on the parsed remainder): a gen≥1 name carries only the slot
+	// fragment, so slotCandidates matches each candidate against the slot's id AND
+	// its fragment via slotMatches. A foreign-prefix name parses to ok=false and is
+	// left untouched (11 §3).
 	kept := make(map[string]struct{}, len(ids))
 	var failed []string
 	for _, id := range ids {
-		w, err := s.adoptOrCreateSlot(ctx, provider, prefix, id, grouped[id])
+		w, err := s.adoptOrCreateSlot(ctx, provider, prefix, id, slotCandidates(prefix, id, live))
 		if err != nil {
 			// Log the wrapped err (a backend may scrub it — a provider message can
 			// echo a rejected secret) plus the provider's scrub-safe status/code/trace
@@ -855,7 +851,16 @@ func (s *Service) adoptOrCreateSlot(
 		s.putWorker(*adopt)
 		return *adopt, nil
 	}
-	w, err := s.createWorkerRotating(ctx, provider, prefix, workerID, maxGen+1)
+	newGen := maxGen + 1
+	if newGen >= 1 {
+		// No adoptable sandbox but a higher generation already exists — we are healing
+		// a wedge by rebuilding the slot past a squatting/failed record (the
+		// amika-sandbox-name-conflict fix). Log the rotation with scrub-safe fields
+		// only (slot id + generation; the name is derived, no secrets).
+		slog.InfoContext(ctx, "agent: rotating slot to next generation past unadoptable record",
+			"worker_id", workerID, "new_gen", newGen)
+	}
+	w, err := s.createWorkerRotating(ctx, provider, prefix, workerID, newGen)
 	if err != nil {
 		return ProviderWorker{}, err
 	}
@@ -1028,7 +1033,7 @@ func (s *Service) slotWorker(prefix, workerID string) (ProviderWorker, bool) {
 	var best ProviderWorker
 	bestGen := -1
 	for name, w := range s.workers {
-		if uuid, gen, ok := parseWorkerName(prefix, name); ok && uuid == workerID && gen > bestGen {
+		if rem, gen, ok := parseWorkerName(prefix, name); ok && slotMatches(workerID, rem) && gen > bestGen {
 			bestGen, best = gen, w
 		}
 	}
@@ -1040,11 +1045,46 @@ func (s *Service) slotWorker(prefix, workerID string) (ProviderWorker, bool) {
 func slotCandidates(prefix, workerID string, live []ProviderWorker) []ProviderWorker {
 	var out []ProviderWorker
 	for _, w := range live {
-		if uuid, _, ok := parseWorkerName(prefix, w.Name); ok && uuid == workerID {
+		if rem, _, ok := parseWorkerName(prefix, w.Name); ok && slotMatches(workerID, rem) {
 			out = append(out, w)
 		}
 	}
 	return out
+}
+
+// slotIDsFor reads the project's board slot ids, best-effort: a nil Slots port
+// (test wiring that does not exercise it) or a read error yields nil, and the
+// caller falls back to the parsed name remainder. Used only to resolve a gen≥1
+// short name (fragment) back to its full board slot id on the read path.
+func (s *Service) slotIDsFor(ctx context.Context, projectID string) []string {
+	if s.slots == nil {
+		return nil
+	}
+	ids, err := s.slots.WorkerIDs(ctx, projectID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: read worker slots for name resolution; falling back to parsed name",
+			"project", projectID, "err", err)
+		return nil
+	}
+	return ids
+}
+
+// slotIDForName resolves a provider worker name back to its board slot id. A
+// gen-0 name's remainder is the full id already; a gen≥1 name's remainder is the
+// slot fragment, so it is matched against slotIDs via slotMatches. A name matching
+// no known slot (or a foreign prefix) falls back to the parsed remainder — the
+// pre-generation trim behaviour.
+func slotIDForName(prefix, name string, slotIDs []string) string {
+	rem, _, ok := parseWorkerName(prefix, name)
+	if !ok {
+		return strings.TrimPrefix(name, prefix)
+	}
+	for _, id := range slotIDs {
+		if slotMatches(id, rem) {
+			return id
+		}
+	}
+	return rem
 }
 
 func (s *Service) putWorker(w ProviderWorker) {

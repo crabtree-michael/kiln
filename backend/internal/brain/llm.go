@@ -13,11 +13,11 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
 )
 
-// DefaultModel is the default Anthropic model id (06 §2, D1): Haiku is the
-// default for a tool-following dispatcher over a small board, trading some of
-// Sonnet's or Opus's judgment for the lowest latency and cost. Step up via
-// KILN_BRAIN_MODEL when the eval set (§9) shows a pass needs stronger judgment.
-const DefaultModel = "claude-haiku-4-5-20251001"
+// DefaultModel is the default Anthropic model id (06 §2, D1): Sonnet 5 gives a
+// tool-following dispatcher over a small board stronger judgment than Haiku
+// while thinking stays disabled (see Do) to hold the dispatcher's low latency
+// and the small maxOutputTokens ceiling. Override via KILN_BRAIN_MODEL.
+const DefaultModel = "claude-sonnet-5"
 
 // ModelEnvVar overrides DefaultModel when set (06 §2, D1). Normally parsed
 // into Config.Model at the composition root; the Adapter also consults it
@@ -196,6 +196,13 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 		MaxTokens: maxOutputTokens,
 		Messages:  messages,
 		Tools:     toSDKTools(req.Tools),
+		// Thinking stays off. Sonnet 5 (and 4.6+) run adaptive thinking whenever
+		// the field is omitted, and MaxTokens caps thinking + tool calls + text
+		// together — so an omitted field could burn the small maxOutputTokens
+		// budget thinking and truncate a round's tool calls. Disabling keeps the
+		// brain a lean, low-latency dispatcher; a no-op on models that don't think
+		// by default (e.g. Haiku). Revisit if the eval set (§9) wants deliberation.
+		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
 	}
 	if req.System != "" {
 		params.System = []anthropic.TextBlockParam{{

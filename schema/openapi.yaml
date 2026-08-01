@@ -634,6 +634,74 @@ paths:
           description: No valid session.
         '404':
           description: No such project owned by the caller.
+  /api/snapshots:
+    get:
+      operationId: listSnapshots
+      summary: >
+        List the base-image snapshots the caller's project can start its workers
+        from (sandbox selection). The dashboard renders the snapshot picker from
+        this instead of a free-text handle. Served only when the project's
+        provider exposes a snapshot catalog (a managed-sandbox provider); other
+        providers 404 and the picker stays hidden. Project-scoped: the bare form
+        scopes to the caller's first project, the /api/projects/{id}/snapshots
+        form to the named project (12 §3.2).
+      responses:
+        '200':
+          description: The project's available snapshots.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SnapshotList' }
+        '401':
+          description: No valid session.
+        '404':
+          description: The project's provider offers no snapshot catalog.
+        '502':
+          description: The provider could not be reached.
+    post:
+      operationId: saveSnapshot
+      summary: >
+        Capture one of the project's running dev boxes as a new named snapshot,
+        which then appears in GET /api/snapshots. The capture runs in the
+        background; the response is the (still-capturing) snapshot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveSnapshotRequest' }
+      responses:
+        '202':
+          description: The snapshot capture was accepted; its capture runs in the background.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Snapshot' }
+        '400':
+          description: Invalid request body (missing dev-box ref or name).
+        '401':
+          description: No valid session.
+        '404':
+          description: The project's provider offers no snapshot catalog.
+        '502':
+          description: The provider could not be reached.
+  /api/dev-boxes:
+    get:
+      operationId: listDevBoxes
+      summary: >
+        List the caller's running dev boxes — the interactive sandboxes a
+        snapshot can be captured from (distinct from the project's pooled
+        workers). Served only when the project's provider exposes a snapshot
+        catalog; other providers 404.
+      responses:
+        '200':
+          description: The caller's dev boxes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DevBoxList' }
+        '401':
+          description: No valid session.
+        '404':
+          description: The project's provider offers no snapshot catalog.
+        '502':
+          description: The provider could not be reached.
 components:
   schemas:
     Health:
@@ -1317,6 +1385,79 @@ components:
         checks:
           type: array
           items: { $ref: '#/components/schemas/VerifyCheck' }
+
+    Snapshot:
+      type: object
+      description: >
+        One provider-neutral base-image snapshot a project's workers can start
+        from (sandbox selection). `ref` is the opaque handle the project stores as
+        its `amika_snapshot` and passes back at worker-create time; the rest are
+        display fields. Provider vocabulary never crosses — the dashboard renders
+        these without naming a provider.
+      required: [ref, name, description, source, state, created_at]
+      properties:
+        ref:
+          type: string
+          description: >
+            The opaque snapshot handle stored as the project's `amika_snapshot`
+            and handed back to the provider to seed a worker's workspace.
+        name: { type: string, description: Human-facing snapshot name. }
+        description: { type: string, description: Optional note captured with the snapshot. }
+        source:
+          type: string
+          description: The dev box the snapshot was captured from, when known; empty otherwise.
+        state:
+          type: string
+          enum: [ready, capturing, failed, unknown]
+          description: >
+            The capture lifecycle: `ready` (fully captured — safe to select),
+            `capturing` (background capture still running — listed but not yet
+            selectable), `failed`, or `unknown` (an unrecognised provider state).
+        created_at:
+          type: string
+          format: date-time
+          description: When the snapshot was captured; zero time when the provider omits it.
+    SnapshotList:
+      type: object
+      required: [snapshots]
+      properties:
+        snapshots:
+          type: array
+          items: { $ref: '#/components/schemas/Snapshot' }
+    DevBox:
+      type: object
+      description: >
+        One provider-neutral running dev box a snapshot can be captured from — an
+        interactive sandbox the user develops in, distinct from the project's
+        pooled workers. `ref` is the opaque handle passed to POST
+        /api/project/snapshots to capture it.
+      required: [ref, name, status]
+      properties:
+        ref: { type: string, description: Opaque dev-box handle used as the capture source. }
+        name: { type: string, description: Human-facing dev-box name. }
+        status:
+          type: string
+          enum: [starting, ready, stopped, errored]
+          description: The dev box's run state; empty when the provider cannot report it.
+    DevBoxList:
+      type: object
+      required: [dev_boxes]
+      properties:
+        dev_boxes:
+          type: array
+          items: { $ref: '#/components/schemas/DevBox' }
+    SaveSnapshotRequest:
+      type: object
+      description: >
+        Capture a running dev box as a new named snapshot (POST
+        /api/project/snapshots).
+      required: [dev_box_ref, name]
+      properties:
+        dev_box_ref:
+          type: string
+          description: The `ref` of the dev box (from GET /api/project/dev-boxes) to capture.
+        name: { type: string, description: The name for the new snapshot. }
+        description: { type: string, description: Optional note stored with the snapshot. }
 
     PushKey:
       type: object

@@ -74,6 +74,33 @@ type agentSendRequest struct {
 	SessionID  string `json:"session_id,omitempty"`
 }
 
+// --- Snapshot catalog (agent.SandboxCatalog, catalog.go) ---
+//
+// snapshotObject is the subset of the Amika sandbox-snapshot object we read
+// (GET/POST /sandbox-snapshots). `snapshot` is the fully-qualified name used as
+// the create-sandbox `snapshot` field — so it, not `id`, is the neutral
+// Snapshot.Ref the project stores. state is un-enumerated like the sandbox
+// state, so classifySnapshotState is defensive (states.go).
+type snapshotObject struct {
+	ID                string `json:"id"`
+	Snapshot          string `json:"snapshot"`
+	State             string `json:"state"`
+	Description       string `json:"description"`
+	SourceSandboxName string `json:"source_sandbox_name"`
+	CreatedAt         string `json:"created_at"`
+}
+
+// createSnapshotRequest is the POST /sandbox-snapshots body: name is required,
+// sandbox_id identifies the source dev box, description is optional. mode is
+// omitted so Amika's default (scrub_and_delete — strip injected secrets, then
+// delete the source) applies, which is the safe capture for a reusable base
+// image.
+type createSnapshotRequest struct {
+	Name        string `json:"name"`
+	SandboxID   string `json:"sandbox_id"`
+	Description string `json:"description,omitempty"`
+}
+
 // createSessionRequest is the POST …/sessions body: agent_name is required, so a
 // fresh StartTurn can mint a conversation id before sending anything into it.
 type createSessionRequest struct {

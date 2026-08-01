@@ -208,3 +208,31 @@ Amika is now **one registered provider among several**, not *the* provider. What
 - **Still frozen (the whole point):** `AgentRuntime{Send,Release}`, the `agent.turn_completed`
   payload, the `agent_turns` dedupe, the reconciler/poller. A provider addition that touches
   board/brain/runtime/wire (beyond the descriptor) means the abstraction is leaking.
+
+## Sandbox selection — snapshot catalog seam (`agent.SandboxCatalog`, catalog.go)
+
+Replaces the free-text `AMIKA_SNAPSHOT` handle with a dashboard picker of the account's real
+snapshots, plus "save a running dev box as a snapshot". The seam stays provider-neutral:
+
+- **Optional Provider extension `agent.SandboxCatalog`** (`internal/agent/catalog.go`):
+  `ListSnapshots` / `ListDevBoxes` / `SaveSnapshot`, over neutral `Snapshot{Ref,Name,Description,
+  Source,State}` (state = `ready|capturing|failed|unknown`) and `DevBox{Ref,Name,Status}`. Read via
+  `agent.SandboxCatalogOf(p)` (mirrors `CapabilitiesOf` — never a type switch); a provider without it
+  offers no catalog. `Snapshot.Ref` is exactly what the project stores as `amika_snapshot` and passes
+  back at create time — an opaque handle, no Amika vocabulary crosses.
+- **Amika impl** (`internal/agent/amika/catalog.go`): `ListSnapshots`→`GET /sandbox-snapshots`
+  (Ref = the snapshot's `snapshot` fully-qualified name, NOT its id); `ListDevBoxes`→`GET /sandboxes`
+  filtered to the COMPLEMENT of the worker prefix (the user's dev boxes, not pooled workers);
+  `SaveSnapshot`→`POST /sandbox-snapshots` (default `scrub_and_delete` mode, async capture). Snapshot
+  `state` is un-enumerated → `classifySnapshotState` in `states.go` (the one place to harden). The
+  mock also implements it (seeded `Snapshots`/`DevBoxes` knobs) so dev/e2e renders the picker.
+- **API** (`internal/api`, `SandboxCatalog` port + `sandboxCatalogAdapter` in `cmd/kiln/adapters.go`
+  over the per-project `agent.ProviderResolver`): `GET/POST /api/project/snapshots`,
+  `GET /api/project/dev-boxes`, all `withProject`-scoped. A provider with no catalog →
+  `api.ErrNoSandboxCatalog` → 404, so the client hides the picker (Devin/mock-without-data);
+  other failures → 502. `ProjectFields` renders the `<select data-role="amika-snapshot">` and the
+  capture form when the snapshots endpoint answers 200, else falls back to the free-text input.
+- **Gotcha:** adding the `DevBoxStatus`/`SnapshotState` enums to the schema collided with
+  `AgentStatusStatus`'s bare `errored`/etc. constants, so oapi-codegen re-qualified them
+  (`wire.Errored` → `wire.AgentStatusStatusErrored`). Expected — update the consumer, don't rename
+  the schema.

@@ -6,9 +6,16 @@
 // dropped; value omitted when the draft is blank so the stored value is kept).
 import { describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ProjectFields } from '@/dashboard/ConfigFields';
-import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
+import type {
+  DevBox,
+  MeProject,
+  ProjectUpdateRequest,
+  ProviderDescriptor,
+  SaveSnapshotRequest,
+  Snapshot,
+} from '@/transport/transport';
 
 /** ProjectFields' onSave, typed so the captured call body is ProjectUpdateRequest
  * (no assertion needed to read amika_secrets off it). */
@@ -234,5 +241,183 @@ describe('ProjectFields — provider select', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
     expect(lastBody(onSave).agent_provider).toBe('devin');
+  });
+});
+
+describe('ProjectFields — snapshot selection (sandbox selection)', () => {
+  const snapshots: Snapshot[] = [
+    {
+      ref: 'org/base:1',
+      name: 'base',
+      description: '',
+      source: 'dev-a',
+      state: 'ready',
+      created_at: '2026-07-01T10:00:00Z',
+    },
+    {
+      ref: 'org/wip:2',
+      name: 'wip',
+      description: '',
+      source: '',
+      state: 'capturing',
+      created_at: '2026-07-02T10:00:00Z',
+    },
+  ];
+
+  it('renders a free-text snapshot input when no catalog is available', () => {
+    render(<ProjectFields project={baseProject()} saving={false} onSave={vi.fn()} />);
+    // No picker; the back-compat text input is present.
+    expect(screen.queryByRole('combobox', { name: /snapshot/i })).toBeNull();
+    expect(screen.getByRole('textbox', { name: /amika snapshot/i })).toBeInTheDocument();
+  });
+
+  it('renders a snapshot picker from the catalog, with capturing snapshots disabled', () => {
+    render(
+      <ProjectFields
+        project={baseProject({ amika_snapshot: 'org/base:1' })}
+        snapshots={snapshots}
+        catalogAvailable
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    const select = screen.getByRole('combobox', { name: /sandbox snapshot/i });
+    expect(select).toHaveValue('org/base:1');
+    const options = within(select).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['Default', 'base', 'wip (capturing)']);
+    // The still-capturing snapshot is listed but not selectable.
+    const wip = options.find((o) => o.textContent === 'wip (capturing)');
+    expect(wip).toHaveProperty('disabled', true);
+  });
+
+  it('keeps a stored handle that is no longer in the catalog selectable', () => {
+    render(
+      <ProjectFields
+        project={baseProject({ amika_snapshot: 'legacy-handle' })}
+        snapshots={snapshots}
+        catalogAvailable
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    const select = screen.getByRole('combobox', { name: /sandbox snapshot/i });
+    expect(select).toHaveValue('legacy-handle');
+    expect(within(select).getByText('legacy-handle (current)')).toBeInTheDocument();
+  });
+
+  it('submits the chosen snapshot ref as amika_snapshot', () => {
+    const onSave: SaveMock = vi.fn(() => Promise.resolve());
+    render(
+      <ProjectFields
+        project={baseProject()}
+        snapshots={snapshots}
+        catalogAvailable
+        saving={false}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: /sandbox snapshot/i }), {
+      target: { value: 'org/base:1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(lastBody(onSave).amika_snapshot).toBe('org/base:1');
+  });
+});
+
+describe('ProjectFields — save a dev box as a snapshot', () => {
+  const devBoxes: DevBox[] = [
+    { ref: 'sb-dev', name: 'my-dev-box', status: 'ready' },
+    { ref: 'sb-old', name: 'old-box', status: 'stopped' },
+  ];
+
+  it('loads dev boxes when the capture section is available', () => {
+    const onRefreshDevBoxes = vi.fn();
+    render(
+      <ProjectFields
+        project={baseProject()}
+        catalogAvailable
+        devBoxes={devBoxes}
+        onRefreshDevBoxes={onRefreshDevBoxes}
+        onSaveSnapshot={vi.fn(() => Promise.resolve())}
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(onRefreshDevBoxes).toHaveBeenCalled();
+    const select = screen.getByRole('combobox', { name: /dev box/i });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Select a dev box…', 'my-dev-box (ready)', 'old-box (stopped)']);
+  });
+
+  it('is hidden without a catalog', () => {
+    render(
+      <ProjectFields
+        project={baseProject()}
+        onSaveSnapshot={vi.fn(() => Promise.resolve())}
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('combobox', { name: /dev box/i })).toBeNull();
+  });
+
+  it('disables Save snapshot until a dev box and a name are chosen', () => {
+    render(
+      <ProjectFields
+        project={baseProject()}
+        catalogAvailable
+        devBoxes={devBoxes}
+        onRefreshDevBoxes={vi.fn()}
+        onSaveSnapshot={vi.fn(() => Promise.resolve())}
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'Save snapshot' });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByRole('combobox', { name: /dev box/i }), {
+      target: { value: 'sb-dev' },
+    });
+    expect(button).toBeDisabled(); // still needs a name
+    fireEvent.change(screen.getByRole('textbox', { name: /snapshot name/i }), {
+      target: { value: 'my-base' },
+    });
+    expect(button).toBeEnabled();
+  });
+
+  it('captures the selected dev box with the given name and clears the form', async () => {
+    const onSaveSnapshot = vi.fn((_body: SaveSnapshotRequest) => Promise.resolve());
+    render(
+      <ProjectFields
+        project={baseProject()}
+        catalogAvailable
+        devBoxes={devBoxes}
+        onRefreshDevBoxes={vi.fn()}
+        onSaveSnapshot={onSaveSnapshot}
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: /dev box/i }), {
+      target: { value: 'sb-dev' },
+    });
+    const nameInput = screen.getByRole('textbox', { name: /snapshot name/i });
+    fireEvent.change(nameInput, { target: { value: 'my-base' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /description/i }), {
+      target: { value: 'warm tree' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save snapshot' }));
+    expect(onSaveSnapshot).toHaveBeenCalledWith({
+      dev_box_ref: 'sb-dev',
+      name: 'my-base',
+      description: 'warm tree',
+    });
+    // The form clears once the capture resolves.
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('');
+    });
   });
 });

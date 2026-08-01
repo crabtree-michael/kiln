@@ -29,6 +29,7 @@ const (
 	roleUser = "user" // the non-assistant sessionMessage.Role value in test transcripts
 
 	stateRunning = "running" // the live sandbox state in test fixtures
+	stateStopped = "stopped" // the auto-stopped sandbox state in test fixtures
 )
 
 var (
@@ -320,7 +321,7 @@ func TestWorkerReadyStates(t *testing.T) {
 		started := false
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
 			{http.MethodGet, pathSandbox}: func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, sandbox{ID: sbID, State: "stopped"})
+				writeJSON(t, w, http.StatusOK, sandbox{ID: sbID, State: stateStopped})
 			},
 			{http.MethodPost, pathStart}: func(w http.ResponseWriter, r *http.Request) {
 				started = true
@@ -339,7 +340,7 @@ func TestWorkerReadyStates(t *testing.T) {
 	t.Run("stopped tolerates 409 on start", func(t *testing.T) {
 		c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
 			{http.MethodGet, pathSandbox}: func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, sandbox{ID: sbID, State: "stopped"})
+				writeJSON(t, w, http.StatusOK, sandbox{ID: sbID, State: stateStopped})
 			},
 			{http.MethodPost, pathStart}: func(w http.ResponseWriter, r *http.Request) {
 				writeJSON(t, w, http.StatusConflict, errEnvelope("conflict", "already starting"))

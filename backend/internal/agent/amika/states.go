@@ -92,6 +92,37 @@ func runStatus(p sandboxPhase) agent.RunStatus {
 	return agent.RunStarting // unreachable: keeps not-ready-yet the safe default
 }
 
+// classifySnapshotState maps a sandbox-snapshot's un-enumerated `state` onto the
+// neutral agent.SnapshotState (catalog.go). Known strings map; anything else
+// falls through to SnapshotUnknown so the dashboard renders it without the core
+// guessing. "ready"/"active"/"available" mean fully captured (selectable);
+// "capturing"/"pending"/"processing" mean the slow capture is still running;
+// "error"/"failed" is terminal. Harden here as real values are observed (05 §11).
+func classifySnapshotState(state string) agent.SnapshotState {
+	switch s := norm(state); {
+	case snapshotReadyStates[s]:
+		return agent.SnapshotReady
+	case snapshotCapturingStates[s]:
+		return agent.SnapshotCapturing
+	case snapshotFailedStates[s]:
+		return agent.SnapshotFailed
+	default:
+		return agent.SnapshotUnknown
+	}
+}
+
+var (
+	snapshotReadyStates = set(
+		"ready", "active", "available", "completed", "complete", "captured", "done",
+	)
+	snapshotCapturingStates = set(
+		"capturing", "pending", "processing", "creating", "in_progress", "running",
+	)
+	snapshotFailedStates = set(
+		"error", "errored", "failed", "failure",
+	)
+)
+
 func norm(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 func set(vs ...string) map[string]bool {

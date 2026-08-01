@@ -702,6 +702,14 @@ func enableServerRoutes(
 		// stay behind withSession's 401 (no session can be minted anyway). The delete
 		// coordinator runs the 12 §5 cascade behind DELETE /api/projects/{pid}.
 		server.EnableTenancy(idSvc, newProjectDeleteCoordinator(db, agentSvc, registry, idSvc, cfg.RepoDir))
+		// The project sandbox-selection routes (GET/POST /api/snapshots, GET
+		// /api/dev-boxes + their /api/projects/{pid}/… forms): resolve each project's
+		// provider and, when it exposes a snapshot catalog (a managed-sandbox
+		// provider), serve its snapshots + dev boxes so the dashboard renders a
+		// snapshot picker instead of a free-text handle. Project-scoped, mounted with
+		// tenancy; the adapter is built from the same registry the runtime resolves
+		// providers through.
+		server.EnableSandboxCatalog(&sandboxCatalogAdapter{resolver: &providerResolver{registry: registry}})
 		if cfg.DevEndpoints {
 			// Dev/e2e only (11 §7): mint a session straight from a GitHub login,
 			// bypassing the real OAuth dance, so an e2e can sign in deterministically.

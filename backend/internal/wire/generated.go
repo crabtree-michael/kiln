@@ -51,25 +51,49 @@ func (e ActivityEventVerb) Valid() bool {
 
 // Defines values for AgentStatusStatus.
 const (
-	Building AgentStatusStatus = "building"
-	Errored  AgentStatusStatus = "errored"
-	Idle     AgentStatusStatus = "idle"
-	Starting AgentStatusStatus = "starting"
-	Stopped  AgentStatusStatus = "stopped"
+	AgentStatusStatusBuilding AgentStatusStatus = "building"
+	AgentStatusStatusErrored  AgentStatusStatus = "errored"
+	AgentStatusStatusIdle     AgentStatusStatus = "idle"
+	AgentStatusStatusStarting AgentStatusStatus = "starting"
+	AgentStatusStatusStopped  AgentStatusStatus = "stopped"
 )
 
 // Valid indicates whether the value is a known member of the AgentStatusStatus enum.
 func (e AgentStatusStatus) Valid() bool {
 	switch e {
-	case Building:
+	case AgentStatusStatusBuilding:
 		return true
-	case Errored:
+	case AgentStatusStatusErrored:
 		return true
-	case Idle:
+	case AgentStatusStatusIdle:
 		return true
-	case Starting:
+	case AgentStatusStatusStarting:
 		return true
-	case Stopped:
+	case AgentStatusStatusStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DevBoxStatus.
+const (
+	DevBoxStatusErrored  DevBoxStatus = "errored"
+	DevBoxStatusReady    DevBoxStatus = "ready"
+	DevBoxStatusStarting DevBoxStatus = "starting"
+	DevBoxStatusStopped  DevBoxStatus = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the DevBoxStatus enum.
+func (e DevBoxStatus) Valid() bool {
+	switch e {
+	case DevBoxStatusErrored:
+		return true
+	case DevBoxStatusReady:
+		return true
+	case DevBoxStatusStarting:
+		return true
+	case DevBoxStatusStopped:
 		return true
 	default:
 		return false
@@ -190,6 +214,30 @@ func (e ProjectUpdateRequestMergeGateMode) Valid() bool {
 	case ProjectUpdateRequestMergeGateModeMain:
 		return true
 	case ProjectUpdateRequestMergeGateModePr:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SnapshotState.
+const (
+	Capturing SnapshotState = "capturing"
+	Failed    SnapshotState = "failed"
+	Ready     SnapshotState = "ready"
+	Unknown   SnapshotState = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the SnapshotState enum.
+func (e SnapshotState) Valid() bool {
+	switch e {
+	case Capturing:
+		return true
+	case Failed:
+		return true
+	case Ready:
+		return true
+	case Unknown:
 		return true
 	default:
 		return false
@@ -344,6 +392,26 @@ type Board struct {
 	// WorkerTotal Total worker capacity slots (03 §2.3).
 	WorkerTotal int      `json:"worker_total"`
 	Working     []Ticket `json:"working"`
+}
+
+// DevBox One provider-neutral running dev box a snapshot can be captured from — an interactive sandbox the user develops in, distinct from the project's pooled workers. `ref` is the opaque handle passed to POST /api/project/snapshots to capture it.
+type DevBox struct {
+	// Name Human-facing dev-box name.
+	Name string `json:"name"`
+
+	// Ref Opaque dev-box handle used as the capture source.
+	Ref string `json:"ref"`
+
+	// Status The dev box's run state; empty when the provider cannot report it.
+	Status DevBoxStatus `json:"status"`
+}
+
+// DevBoxStatus The dev box's run state; empty when the provider cannot report it.
+type DevBoxStatus string
+
+// DevBoxList defines model for DevBoxList.
+type DevBoxList struct {
+	DevBoxes []DevBox `json:"dev_boxes"`
 }
 
 // FeedCard One backlog item on the primary screen (08 §3). Hybrid-sourced but the client renders one list and never knows the difference: `blocker` and `proposal` are derived from board state; `update` and `preview` are brain-authored notification rows. The visible tag (Blocker/Proposal/ Update/Preview) is derived from `kind` on the client.
@@ -595,6 +663,18 @@ type PushUnsubscribe struct {
 	Endpoint string `json:"endpoint"`
 }
 
+// SaveSnapshotRequest Capture a running dev box as a new named snapshot (POST /api/project/snapshots).
+type SaveSnapshotRequest struct {
+	// Description Optional note stored with the snapshot.
+	Description *string `json:"description,omitempty"`
+
+	// DevBoxRef The `ref` of the dev box (from GET /api/project/dev-boxes) to capture.
+	DevBoxRef string `json:"dev_box_ref"`
+
+	// Name The name for the new snapshot.
+	Name string `json:"name"`
+}
+
 // SayEvent The `say` SSE event payload (07 §4) — one event per brain say (renamed from `speak`, 07 A1). message_id matches the corresponding Message row from GET /api/messages/the transcript.
 type SayEvent struct {
 	At        time.Time `json:"at"`
@@ -617,6 +697,35 @@ type SettingsUpdateRequest struct {
 	AnthropicApiKey   *string `json:"anthropic_api_key,omitempty"`
 	DevinApiKey       *string `json:"devin_api_key,omitempty"`
 	GithubAuthToken   *string `json:"github_auth_token,omitempty"`
+}
+
+// Snapshot One provider-neutral base-image snapshot a project's workers can start from (sandbox selection). `ref` is the opaque handle the project stores as its `amika_snapshot` and passes back at worker-create time; the rest are display fields. Provider vocabulary never crosses — the dashboard renders these without naming a provider.
+type Snapshot struct {
+	// CreatedAt When the snapshot was captured; zero time when the provider omits it.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Description Optional note captured with the snapshot.
+	Description string `json:"description"`
+
+	// Name Human-facing snapshot name.
+	Name string `json:"name"`
+
+	// Ref The opaque snapshot handle stored as the project's `amika_snapshot` and handed back to the provider to seed a worker's workspace.
+	Ref string `json:"ref"`
+
+	// Source The dev box the snapshot was captured from, when known; empty otherwise.
+	Source string `json:"source"`
+
+	// State The capture lifecycle: `ready` (fully captured — safe to select), `capturing` (background capture still running — listed but not yet selectable), `failed`, or `unknown` (an unrecognised provider state).
+	State SnapshotState `json:"state"`
+}
+
+// SnapshotState The capture lifecycle: `ready` (fully captured — safe to select), `capturing` (background capture still running — listed but not yet selectable), `failed`, or `unknown` (an unrecognised provider state).
+type SnapshotState string
+
+// SnapshotList defines model for SnapshotList.
+type SnapshotList struct {
+	Snapshots []Snapshot `json:"snapshots"`
 }
 
 // SystemAlert A persistent system-health problem surfaced to the user as a permanent error band above the dock — distinct from an auto-dismissing activity toast (08 §4): it stays until the condition clears. Deliberately generic: the client renders any alert without knowing its cause, so the section works for any persistent failure, not just sandboxes. `kind` is an opaque machine category the client may theme off but must not depend on; `detail` is the human-readable sentence shown verbatim. Rides the board snapshot's `alerts` array, which is absolute like the rest of the snapshot — an alert simply drops out of the next snapshot once its underlying condition recovers.
@@ -733,3 +842,6 @@ type PostPushSubscribeJSONRequestBody = PushSubscription
 
 // PutSettingsJSONRequestBody defines body for PutSettings for application/json ContentType.
 type PutSettingsJSONRequestBody = SettingsUpdateRequest
+
+// SaveSnapshotJSONRequestBody defines body for SaveSnapshot for application/json ContentType.
+type SaveSnapshotJSONRequestBody = SaveSnapshotRequest

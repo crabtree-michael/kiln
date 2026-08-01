@@ -462,6 +462,97 @@ func (a *agentStatusAdapter) ListAgents(ctx context.Context, projectID string) (
 
 var _ api.AgentInspector = (*agentStatusAdapter)(nil)
 
+// sandboxCatalogAdapter satisfies api.SandboxCatalog over the per-project
+// coding-agent provider (sandbox selection). It resolves the project's provider
+// through the same agent.ProviderResolver the runtime uses, reads its OPTIONAL
+// SandboxCatalog capability (agent.SandboxCatalogOf — the leak-free read, never a
+// type switch on a concrete adapter), and maps the neutral agent shapes onto the
+// api's own value-copies (the api never imports internal/agent). A provider that
+// exposes no catalog — a session-only provider like Devin, or the mock with no
+// seeded data disabled — yields api.ErrNoSandboxCatalog, which the routes turn
+// into a 404 so the client hides the snapshot picker. No provider handle crosses.
+type sandboxCatalogAdapter struct{ resolver agent.ProviderResolver }
+
+func (a *sandboxCatalogAdapter) ListSnapshots(ctx context.Context, projectID string) ([]api.Snapshot, error) {
+	c, err := a.catalog(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	snaps, err := c.ListSnapshots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list snapshots %s: %w", projectID, err)
+	}
+	out := make([]api.Snapshot, len(snaps))
+	for i, s := range snaps {
+		out[i] = api.Snapshot{
+			Ref:         s.Ref,
+			Name:        s.Name,
+			Description: s.Description,
+			Source:      s.Source,
+			State:       string(s.State),
+			CreatedAt:   s.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (a *sandboxCatalogAdapter) ListDevBoxes(ctx context.Context, projectID string) ([]api.DevBox, error) {
+	c, err := a.catalog(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	boxes, err := c.ListDevBoxes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: list dev boxes %s: %w", projectID, err)
+	}
+	out := make([]api.DevBox, len(boxes))
+	for i, b := range boxes {
+		out[i] = api.DevBox{Ref: b.Ref, Name: b.Name, Status: string(b.Status)}
+	}
+	return out, nil
+}
+
+func (a *sandboxCatalogAdapter) SaveSnapshot(
+	ctx context.Context, projectID string, req api.SaveSnapshotRequest,
+) (api.Snapshot, error) {
+	c, err := a.catalog(ctx, projectID)
+	if err != nil {
+		return api.Snapshot{}, err
+	}
+	s, err := c.SaveSnapshot(ctx, agent.SaveSnapshotRequest{
+		DevBoxRef:   req.DevBoxRef,
+		Name:        req.Name,
+		Description: req.Description,
+	})
+	if err != nil {
+		return api.Snapshot{}, fmt.Errorf("kiln: save snapshot %s: %w", projectID, err)
+	}
+	return api.Snapshot{
+		Ref:         s.Ref,
+		Name:        s.Name,
+		Description: s.Description,
+		Source:      s.Source,
+		State:       string(s.State),
+		CreatedAt:   s.CreatedAt,
+	}, nil
+}
+
+// catalog resolves the project's provider and its snapshot catalog, or
+// api.ErrNoSandboxCatalog when the provider has none.
+func (a *sandboxCatalogAdapter) catalog(ctx context.Context, projectID string) (agent.SandboxCatalog, error) {
+	provider, _, err := a.resolver.For(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: resolve provider for sandbox catalog %s: %w", projectID, err)
+	}
+	c, ok := agent.SandboxCatalogOf(provider)
+	if !ok {
+		return nil, api.ErrNoSandboxCatalog
+	}
+	return c, nil
+}
+
+var _ api.SandboxCatalog = (*sandboxCatalogAdapter)(nil)
+
 // boardRefreshAdapter satisfies agent.BoardRefresher over *api.Hub: the agent's
 // liveness loop nudges the hub to re-push the board when a silent auto-stop
 // changes a worker's status (amended 2026-07-05). The liveness sweep is

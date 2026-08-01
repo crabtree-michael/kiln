@@ -505,6 +505,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the base-image snapshots the caller's project can start its workers from (sandbox selection). The dashboard renders the snapshot picker from this instead of a free-text handle. Served only when the project's provider exposes a snapshot catalog (a managed-sandbox provider); other providers 404 and the picker stays hidden. Project-scoped: the bare form scopes to the caller's first project, the /api/projects/{id}/snapshots form to the named project (12 §3.2). */
+        get: operations["listSnapshots"];
+        put?: never;
+        /** Capture one of the project's running dev boxes as a new named snapshot, which then appears in GET /api/snapshots. The capture runs in the background; the response is the (still-capturing) snapshot. */
+        post: operations["saveSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev-boxes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the caller's running dev boxes — the interactive sandboxes a snapshot can be captured from (distinct from the project's pooled workers). Served only when the project's provider exposes a snapshot catalog; other providers 404. */
+        get: operations["listDevBoxes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -820,6 +855,54 @@ export interface components {
         };
         VerifyResponse: {
             checks: components["schemas"]["VerifyCheck"][];
+        };
+        /** @description One provider-neutral base-image snapshot a project's workers can start from (sandbox selection). `ref` is the opaque handle the project stores as its `amika_snapshot` and passes back at worker-create time; the rest are display fields. Provider vocabulary never crosses — the dashboard renders these without naming a provider. */
+        Snapshot: {
+            /** @description The opaque snapshot handle stored as the project's `amika_snapshot` and handed back to the provider to seed a worker's workspace. */
+            ref: string;
+            /** @description Human-facing snapshot name. */
+            name: string;
+            /** @description Optional note captured with the snapshot. */
+            description: string;
+            /** @description The dev box the snapshot was captured from, when known; empty otherwise. */
+            source: string;
+            /**
+             * @description The capture lifecycle: `ready` (fully captured — safe to select), `capturing` (background capture still running — listed but not yet selectable), `failed`, or `unknown` (an unrecognised provider state).
+             * @enum {string}
+             */
+            state: "ready" | "capturing" | "failed" | "unknown";
+            /**
+             * Format: date-time
+             * @description When the snapshot was captured; zero time when the provider omits it.
+             */
+            created_at: string;
+        };
+        SnapshotList: {
+            snapshots: components["schemas"]["Snapshot"][];
+        };
+        /** @description One provider-neutral running dev box a snapshot can be captured from — an interactive sandbox the user develops in, distinct from the project's pooled workers. `ref` is the opaque handle passed to POST /api/project/snapshots to capture it. */
+        DevBox: {
+            /** @description Opaque dev-box handle used as the capture source. */
+            ref: string;
+            /** @description Human-facing dev-box name. */
+            name: string;
+            /**
+             * @description The dev box's run state; empty when the provider cannot report it.
+             * @enum {string}
+             */
+            status: "starting" | "ready" | "stopped" | "errored";
+        };
+        DevBoxList: {
+            dev_boxes: components["schemas"]["DevBox"][];
+        };
+        /** @description Capture a running dev box as a new named snapshot (POST /api/project/snapshots). */
+        SaveSnapshotRequest: {
+            /** @description The `ref` of the dev box (from GET /api/project/dev-boxes) to capture. */
+            dev_box_ref: string;
+            /** @description The name for the new snapshot. */
+            name: string;
+            /** @description Optional note stored with the snapshot. */
+            description?: string;
         };
         /** @description The VAPID public key for pushManager.subscribe (02 §10). */
         PushKey: {
@@ -1651,6 +1734,140 @@ export interface operations {
             };
             /** @description No such project owned by the caller. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listSnapshots: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's available snapshots. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotList"];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The project's provider offers no snapshot catalog. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The provider could not be reached. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    saveSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveSnapshotRequest"];
+            };
+        };
+        responses: {
+            /** @description The snapshot capture was accepted; its capture runs in the background. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+            /** @description Invalid request body (missing dev-box ref or name). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The project's provider offers no snapshot catalog. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The provider could not be reached. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listDevBoxes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's dev boxes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevBoxList"];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The project's provider offers no snapshot catalog. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The provider could not be reached. */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

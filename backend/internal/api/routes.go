@@ -266,6 +266,55 @@ type ProjectDeleter interface {
 	DeleteProject(ctx context.Context, userID, projectID string) error
 }
 
+// ErrNoSandboxCatalog is the sentinel a SandboxCatalog adapter returns when the
+// caller's project runs on a provider that exposes no snapshot catalog (a
+// session-only provider like Devin, or the deployment default). The routes map
+// it to 404 so the client hides the snapshot picker rather than surfacing an
+// error — a provider without a managed sandbox simply offers no snapshots.
+var ErrNoSandboxCatalog = errors.New("api: project provider has no sandbox catalog")
+
+// SandboxCatalog is the api's seam onto the caller's project's coding-agent
+// snapshot catalog (sandbox selection): list the base-image snapshots a project
+// can start its workers from, list the dev boxes a snapshot can be captured
+// from, and capture one. Satisfied by a cmd/kiln adapter that resolves the
+// project's per-project provider and delegates when it exposes a catalog — a
+// provider without one returns ErrNoSandboxCatalog. The api never imports
+// internal/agent, so Snapshot/DevBox mirror the agent module's neutral shapes by
+// value (the same boundary rule AgentInfo follows); no provider handle crosses.
+type SandboxCatalog interface {
+	ListSnapshots(ctx context.Context, projectID string) ([]Snapshot, error)
+	ListDevBoxes(ctx context.Context, projectID string) ([]DevBox, error)
+	SaveSnapshot(ctx context.Context, projectID string, req SaveSnapshotRequest) (Snapshot, error)
+}
+
+// Snapshot is the api-local mirror of agent.Snapshot (sandbox selection): a
+// base-image the project's workers can start from. Ref is the opaque handle
+// stored as the project's amika_snapshot; State is the neutral capture lifecycle
+// (ready|capturing|failed|unknown).
+type Snapshot struct {
+	Ref         string
+	Name        string
+	Description string
+	Source      string
+	State       string
+	CreatedAt   time.Time
+}
+
+// DevBox is the api-local mirror of agent.DevBox: a running dev box a snapshot
+// can be captured from. Status is the neutral run state (starting|ready|stopped|errored).
+type DevBox struct {
+	Ref    string
+	Name   string
+	Status string
+}
+
+// SaveSnapshotRequest asks the provider to capture DevBoxRef as a new named snapshot.
+type SaveSnapshotRequest struct {
+	DevBoxRef   string
+	Name        string
+	Description string
+}
+
 // DevSessionMinter is the DEV-ONLY port behind POST /api/dev/session: sign in
 // (or create) a user straight from a GitHub login and mint a session for it,
 // bypassing the real OAuth dance (11 §7) — so an e2e can establish an
@@ -317,6 +366,13 @@ type Server struct {
 	// nil/empty leaves the wire field omitted, so a deployment that never enabled it
 	// behaves exactly as before.
 	providers []wire.ProviderDescriptor
+
+	// sandbox is the caller's project's coding-agent snapshot catalog (sandbox
+	// selection); non-nil ⇒ the GET/POST /api/project/snapshots + GET
+	// /api/project/dev-boxes routes are mounted. Set together with tenancy (the
+	// routes are project-scoped). A provider without a catalog is handled per-call
+	// (ErrNoSandboxCatalog ⇒ 404), not by leaving this nil.
+	sandbox SandboxCatalog
 
 	devSession DevSessionMinter // dev-only; non-nil (AND auth enabled) ⇒ POST /api/dev/session is mounted (11 §7)
 
@@ -405,6 +461,13 @@ func (s *Server) EnableTenancy(projects ProjectResolver, del ProjectDeleter) {
 // only — gated at the composition root by KILN_DEV_ENDPOINTS.
 func (s *Server) EnableDevSession(m DevSessionMinter) { s.devSession = m }
 
+// EnableSandboxCatalog turns on the project sandbox-selection routes (call
+// before Handler, alongside EnableTenancy): GET/POST /api/project/snapshots and
+// GET /api/project/dev-boxes, all project-scoped through withProject. A project
+// whose provider offers no catalog returns ErrNoSandboxCatalog per call (404),
+// so the client hides the picker without the routes being absent.
+func (s *Server) EnableSandboxCatalog(c SandboxCatalog) { s.sandbox = c }
+
 // EnableHealthz turns on GET /healthz (call before Handler): a liveness+DB probe
 // returning 200 {status:ok, version} when ping succeeds, 503 {status:degraded}
 // otherwise. version is the release string; ping is the composition root's DB
@@ -430,6 +493,15 @@ func (s *Server) Handler() http.Handler {
 	// the only way the SSE stream can name a project (EventSource sends no headers).
 	for _, ar := range s.appRoutes() {
 		s.mountProjectScoped(mux, ar.method, ar.path, ar.handler)
+	}
+	// The project sandbox-selection routes (sandbox selection) are project-scoped
+	// too, but gated on the snapshot catalog being wired — dual-mounted (bare +
+	// id'd) like the rest of the app surface. A provider without a catalog is
+	// handled per call (ErrNoSandboxCatalog ⇒ 404), not by leaving them unmounted.
+	if s.sandbox != nil {
+		s.mountProjectScoped(mux, http.MethodGet, "/snapshots", s.handleListSnapshots)
+		s.mountProjectScoped(mux, http.MethodPost, "/snapshots", s.handleSaveSnapshot)
+		s.mountProjectScoped(mux, http.MethodGet, "/dev-boxes", s.handleListDevBoxes)
 	}
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
@@ -916,6 +988,123 @@ func deleteNounForState(state board.State) string {
 	return deleteNounTicket
 }
 
+// maxSnapshotBody caps the POST /api/project/snapshots body before decoding — a
+// dev-box ref, a name, and an optional note are well under 8 KiB.
+const maxSnapshotBody = 8 << 10
+
+// handleListSnapshots returns the base-image snapshots the caller's project can
+// start its workers from (sandbox selection). A provider with no catalog is a
+// 404 (the client hides the picker), any other read failure a 502.
+func (s *Server) handleListSnapshots(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	snaps, err := s.sandbox.ListSnapshots(r.Context(), project.ID)
+	if err != nil {
+		s.writeSandboxError(w, "list snapshots", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshotsToWire(snaps))
+}
+
+// handleListDevBoxes returns the caller's running dev boxes — the sandboxes a
+// snapshot can be captured from. Same error mapping as handleListSnapshots.
+func (s *Server) handleListDevBoxes(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	boxes, err := s.sandbox.ListDevBoxes(r.Context(), project.ID)
+	if err != nil {
+		s.writeSandboxError(w, "list dev boxes", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, devBoxesToWire(boxes))
+}
+
+// handleSaveSnapshot captures a running dev box as a new named snapshot (202 —
+// the capture runs in the background). A blank dev-box ref or name is a 400; a
+// provider with no catalog is a 404; any other failure a 502.
+func (s *Server) handleSaveSnapshot(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotBody)
+	var req wire.SaveSnapshotRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	devBoxRef := strings.TrimSpace(req.DevBoxRef)
+	name := strings.TrimSpace(req.Name)
+	if devBoxRef == "" || name == "" {
+		http.Error(w, "dev_box_ref and name are required", http.StatusBadRequest)
+		return
+	}
+	description := ""
+	if req.Description != nil {
+		description = strings.TrimSpace(*req.Description)
+	}
+	snap, err := s.sandbox.SaveSnapshot(r.Context(), project.ID, SaveSnapshotRequest{
+		DevBoxRef:   devBoxRef,
+		Name:        name,
+		Description: description,
+	})
+	if err != nil {
+		s.writeSandboxError(w, "save snapshot", err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, snapshotToWire(snap))
+}
+
+// writeSandboxError maps a SandboxCatalog failure to its status: a provider with
+// no catalog (ErrNoSandboxCatalog) is a 404 — the client hides the picker rather
+// than showing an error — while any other failure (the provider could not be
+// reached or rejected the call) is a 502.
+func (s *Server) writeSandboxError(w http.ResponseWriter, op string, err error) {
+	if errors.Is(err, ErrNoSandboxCatalog) {
+		http.Error(w, "no sandbox catalog", http.StatusNotFound)
+		return
+	}
+	slog.Error("api: "+op, "err", err)
+	http.Error(w, op, http.StatusBadGateway)
+}
+
+// snapshotsToWire maps the api snapshot list onto wire.SnapshotList, always a
+// non-nil array.
+func snapshotsToWire(snaps []Snapshot) wire.SnapshotList {
+	out := make([]wire.Snapshot, 0, len(snaps))
+	for _, s := range snaps {
+		out = append(out, snapshotToWire(s))
+	}
+	return wire.SnapshotList{Snapshots: out}
+}
+
+func snapshotToWire(s Snapshot) wire.Snapshot {
+	return wire.Snapshot{
+		Ref:         s.Ref,
+		Name:        s.Name,
+		Description: s.Description,
+		Source:      s.Source,
+		State:       wire.SnapshotState(s.State),
+		CreatedAt:   s.CreatedAt,
+	}
+}
+
+// devBoxesToWire maps the api dev-box list onto wire.DevBoxList, always non-nil.
+func devBoxesToWire(boxes []DevBox) wire.DevBoxList {
+	out := make([]wire.DevBox, 0, len(boxes))
+	for _, b := range boxes {
+		out = append(out, wire.DevBox{
+			Ref:    b.Ref,
+			Name:   b.Name,
+			Status: wire.DevBoxStatus(b.Status),
+		})
+	}
+	return wire.DevBoxList{DevBoxes: out}
+}
+
 // handleVoiceToken mints a short-lived AssemblyAI streaming token (09 §6) and
 // returns it with its absolute expiry. The client opens the STT WebSocket
 // directly with this token; audio never transits our backend (09 §2). A
@@ -1198,7 +1387,7 @@ func agentJoin(
 		// transient provisioning, so neither counts against health. Reading the
 		// neutral AgentStatus keeps this provider-agnostic — any adapter that
 		// reports RunErrored surfaces here, no MECA/Amika specifics.
-		if a.Status == string(wire.Errored) {
+		if a.Status == string(wire.AgentStatusStatusErrored) {
 			failing++
 		}
 	}

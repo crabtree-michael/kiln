@@ -41,6 +41,9 @@ export type ProjectUpdateRequest = components['schemas']['ProjectUpdateRequest']
 export type VerifyResponse = components['schemas']['VerifyResponse'];
 export type VerifyCheck = components['schemas']['VerifyCheck'];
 export type ProviderDescriptor = components['schemas']['ProviderDescriptor'];
+export type Snapshot = components['schemas']['Snapshot'];
+export type DevBox = components['schemas']['DevBox'];
+export type SaveSnapshotRequest = components['schemas']['SaveSnapshotRequest'];
 
 type MeUser = components['schemas']['MeUser'];
 type MeSettings = components['schemas']['MeSettings'];
@@ -537,6 +540,27 @@ function isProviderDescriptor(value: unknown): value is ProviderDescriptor {
   );
 }
 
+function isSnapshot(value: unknown): value is Snapshot {
+  return (
+    isRecord(value) &&
+    typeof value.ref === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.state === 'string'
+  );
+}
+
+function isSnapshotArray(value: unknown): value is Snapshot[] {
+  return Array.isArray(value) && value.every(isSnapshot);
+}
+
+function isDevBox(value: unknown): value is DevBox {
+  return isRecord(value) && typeof value.ref === 'string' && typeof value.name === 'string';
+}
+
+function isDevBoxArray(value: unknown): value is DevBox[] {
+  return Array.isArray(value) && value.every(isDevBox);
+}
+
 function isMe(value: unknown): value is Me {
   return (
     isRecord(value) &&
@@ -842,6 +866,67 @@ export async function verifyProject(id: string): Promise<VerifyResponse> {
   const payload: unknown = await response.json();
   if (!isVerifyResponse(payload)) {
     throw new Error('verifyProject: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `GET /api/snapshots` (project-scoped via appPath) — the base-image snapshots
+ * the project's workers can start from (sandbox selection). Resolves `null` when
+ * the project's provider offers no snapshot catalog (404) — the dashboard hides
+ * the picker and falls back to a free-text handle — mirroring how `fetchMe`
+ * resolves a 401 to `null`. Any other non-2xx rejects. Scoped to the named
+ * project (12 §3.2) so each project card shows its own provider's snapshots. */
+export async function fetchSnapshots(projectId: string): Promise<Snapshot[] | null> {
+  const response = await fetch(`/api/projects/${projectId}/snapshots`);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`fetchSnapshots: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !isSnapshotArray(payload.snapshots)) {
+    throw new Error('fetchSnapshots: unexpected response shape');
+  }
+  return payload.snapshots;
+}
+
+/** `GET /api/projects/{id}/dev-boxes` — the caller's running dev boxes a snapshot
+ * can be captured from, scoped to the named project. Resolves `null` when the
+ * provider offers no catalog (404), like `fetchSnapshots`. */
+export async function fetchDevBoxes(projectId: string): Promise<DevBox[] | null> {
+  const response = await fetch(`/api/projects/${projectId}/dev-boxes`);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`fetchDevBoxes: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !isDevBoxArray(payload.dev_boxes)) {
+    throw new Error('fetchDevBoxes: unexpected response shape');
+  }
+  return payload.dev_boxes;
+}
+
+/** `POST /api/projects/{id}/snapshots` — capture a running dev box as a new named
+ * snapshot for the named project; the capture runs in the background, so the
+ * returned snapshot may still be `capturing`. */
+export async function saveSnapshot(
+  projectId: string,
+  body: SaveSnapshotRequest,
+): Promise<Snapshot> {
+  const response = await fetch(`/api/projects/${projectId}/snapshots`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`saveSnapshot: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isSnapshot(payload)) {
+    throw new Error('saveSnapshot: unexpected response shape');
   }
   return payload;
 }

@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { CredentialFields, ProjectFields } from '@/dashboard/ConfigFields';
 import { NotificationsField } from '@/dashboard/NotificationsField';
+import { useSandboxCatalog } from '@/dashboard/use-sandbox-catalog';
 import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
 
 interface ProjectCardProps {
@@ -39,10 +40,26 @@ function ProjectCard({
       void onDelete(project.id);
     }
   }, [onDelete, project.id, project.name]);
+  // This project's own snapshot catalog (sandbox selection): the picker + capture
+  // form appear only when its provider exposes a catalog (a managed-sandbox
+  // provider), else ProjectFields falls back to the free-text snapshot handle.
+  const catalog = useSandboxCatalog(project.id);
 
   return (
     <section data-role="project-card" data-project-id={project.id}>
-      <ProjectFields project={project} providers={providers} saving={saving} onSave={save} />
+      <ProjectFields
+        project={project}
+        providers={providers}
+        snapshots={catalog.snapshots}
+        catalogAvailable={catalog.catalogAvailable}
+        devBoxes={catalog.devBoxes}
+        onRefreshDevBoxes={() => {
+          void catalog.refreshDevBoxes();
+        }}
+        onSaveSnapshot={catalog.saveSnapshot}
+        saving={saving}
+        onSave={save}
+      />
       <button type="button" data-role="delete-project" disabled={saving} onClick={handleDelete}>
         Delete project
       </button>

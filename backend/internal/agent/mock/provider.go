@@ -78,6 +78,13 @@ type Provider struct {
 	// any provider shape without a real adapter.
 	Caps agent.Capabilities
 
+	// Snapshots / DevBoxes back the SandboxCatalog seam (catalog.go): the mock
+	// serves these verbatim for ListSnapshots / ListDevBoxes, and SaveSnapshot
+	// appends a fresh capturing snapshot to Snapshots. Seed them so dev/e2e (the
+	// mock is the default) renders the dashboard's snapshot picker with data.
+	Snapshots []agent.Snapshot
+	DevBoxes  []agent.DevBox
+
 	mu         sync.Mutex
 	workers    map[string]bool             // live worker names
 	convs      map[string]map[string]bool  // worker name → live conversation ids
@@ -198,6 +205,43 @@ func (p *Provider) ReadLatestOutput(_ context.Context, w agent.ProviderWorker) (
 	defer p.mu.Unlock()
 	p.init()
 	return p.lastOutput[w.Name], nil
+}
+
+var _ agent.SandboxCatalog = (*Provider)(nil)
+
+// ListSnapshots returns the seeded snapshot catalog (agent.SandboxCatalog).
+func (p *Provider) ListSnapshots(_ context.Context) ([]agent.Snapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]agent.Snapshot, len(p.Snapshots))
+	copy(out, p.Snapshots)
+	return out, nil
+}
+
+// ListDevBoxes returns the seeded dev boxes a snapshot can be captured from.
+func (p *Provider) ListDevBoxes(_ context.Context) ([]agent.DevBox, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]agent.DevBox, len(p.DevBoxes))
+	copy(out, p.DevBoxes)
+	return out, nil
+}
+
+// SaveSnapshot appends a fresh capturing snapshot named req.Name and returns it,
+// mirroring Amika's async capture (the new snapshot then shows in ListSnapshots).
+func (p *Provider) SaveSnapshot(_ context.Context, req agent.SaveSnapshotRequest) (agent.Snapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.seq++
+	snap := agent.Snapshot{
+		Ref:         fmt.Sprintf("snap-%d", p.seq),
+		Name:        req.Name,
+		Description: req.Description,
+		Source:      req.DevBoxRef,
+		State:       agent.SnapshotCapturing,
+	}
+	p.Snapshots = append(p.Snapshots, snap)
+	return snap, nil
 }
 
 // SetWorkerStatus overrides a live worker's reported liveness under the lock,

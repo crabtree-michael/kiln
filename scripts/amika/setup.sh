@@ -63,8 +63,15 @@ fi
 # the boot over them.
 if command -v go >/dev/null 2>&1; then
   if ! command -v golangci-lint >/dev/null 2>&1; then
-    echo "amika-setup: installing golangci-lint"
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
+    # Pinned to the version CI installs, read out of the workflow so the two
+    # cannot drift. The v2 module path matters: `@latest` on the unversioned
+    # path resolves to v1.64.x, which cannot read this repo's `version: "2"`
+    # .golangci.yml — it installs cleanly and then fails at lint time.
+    golangci_version="$(grep -oE 'v2\.[0-9]+\.[0-9]+' .github/workflows/check.yml 2>/dev/null | head -1 || true)"
+    [ -n "$golangci_version" ] || golangci_version="v2.12.2"
+    echo "amika-setup: installing golangci-lint $golangci_version"
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+      | sh -s -- -b "$(go env GOPATH)/bin" "$golangci_version" >/dev/null \
       || echo "amika-setup: WARNING golangci-lint install failed (make lint will be unavailable)" >&2
   fi
   if ! command -v oapi-codegen >/dev/null 2>&1; then
@@ -72,6 +79,14 @@ if command -v go >/dev/null 2>&1; then
     go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest \
       || echo "amika-setup: WARNING oapi-codegen install failed (make schema will be unavailable)" >&2
   fi
+fi
+
+# --- Local services ------------------------------------------------------------
+# The box has no systemd, so postgres and dockerd are not running after a create
+# or a resume — they have to be started once per boot or the integration half of
+# the gate silently skips and `make up` has no daemon. Best-effort by design.
+if [ -x scripts/amika/start-services.sh ]; then
+  scripts/amika/start-services.sh || true
 fi
 
 echo "amika-setup: done"

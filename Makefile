@@ -29,6 +29,14 @@ setup: ## Install dependencies and dev tools
 	@echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
 	@echo "  go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest"
 
+.PHONY: sandbox
+sandbox: ## Provision a bare dev box: toolchain, test database, docker, hooks, deps
+	scripts/amika/provision.sh
+
+.PHONY: services
+services: ## Start the local services (postgres for integration tests, docker for the stack)
+	scripts/amika/start-services.sh
+
 .PHONY: hooks
 hooks: ## Install the git pre-commit / pre-push hard-gate hooks
 	git config core.hooksPath .githooks

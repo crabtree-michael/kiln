@@ -48,7 +48,61 @@ agent brings the whole system up with a single `docker compose up`.
   **onboard a project for the test user once** (see the footgun below), then `make e2e`. See the
   `end-to-end-development` skill and `/tests/README.md`.
 
+## Provisioning the sandbox (the dev box you are working in)
+
+An Amika sandbox is **not** a ready dev box out of the base image: it ships Node 22 + pnpm and
+little else. The toolchain, the integration-test database, and the docker daemon are provisioned
+by script, and the whole thing is meant to be baked into a snapshot so agents land ready.
+
+- **`make sandbox`** (`scripts/amika/provision.sh`) — the once-per-box provision: Go (version
+  tracked from `backend/go.mod`), golangci-lint (pinned to the version in
+  `.github/workflows/check.yml`), oapi-codegen, `jq`/`ripgrep`/`build-essential`, a local
+  PostgreSQL 16 with the `kiln` role and the `kiln`/`kiln_test` databases, docker + compose v2,
+  the git hooks, `.env`, and the Playwright chromium browser. Idempotent — re-running it is a
+  fast no-op, so it is safe from any lifecycle hook.
+- **`make services`** (`scripts/amika/start-services.sh`) — the once-per-**boot** half. Run it
+  after a resume if `pg_isready` or `docker info` fails.
+- **`scripts/amika/setup.sh`** — the per-boot lifecycle script Amika itself runs (both
+  `setup_script` and `start_script` in `.amika/config.toml`): dependency sync + `make services`.
+- **Capturing a snapshot:** run `make sandbox`, confirm `make check` is green, then capture. The
+  provisioned state (packages, `/etc/environment`, `/etc/profile.d/kiln-toolchain.sh`) persists;
+  the running daemons do not, which is what `make services` is for on the next boot.
+
 ## Common footguns
+
+- **`BASH_ENV=/etc/environment` silently un-installs the toolchain for every bash script.** The
+  sandbox sets `BASH_ENV`, so bash sources that file for **every non-interactive shell** — and
+  its `PATH=` line *overwrites* the PATH the shell inherited. Anything with a
+  `#!/usr/bin/env bash` shebang — the git hooks (`.githooks/pre-commit` runs lint+typecheck),
+  `scripts/amika/setup.sh`, any helper you write — sees a stock PATH with no `/usr/local/go/bin`
+  and no `~/go/bin`, and fails as though nothing were installed. **Exporting from `~/.zshrc` or
+  `~/.profile` does not fix this**: bash scripts never read them. The system PATH in
+  `/etc/environment` is the only place that reaches every shell, which is why
+  `provision.sh` edits it. Note also that a bare `FOO=bar` in that file is **not exported** to
+  grandchildren (`go test` under `make`) when the var wasn't already in the environment — hence
+  the matching `export` in `/etc/profile.d/kiln-toolchain.sh`.
+- **A shell opened *before* provisioning keeps the old PATH.** Agent tool shells often replay a
+  PATH captured when the session started, which overrides `/etc/environment` — so right after
+  running `make sandbox` you can still get `gofmt: not found` from `make check` in the same
+  session while a fresh shell is fine. Use `bash -lc 'make check'` (or start a new shell) to
+  confirm; the next boot picks it up normally.
+- **No systemd, so nothing starts itself.** `apt-get install postgresql docker.io` succeeds but
+  `invoke-rc.d` is denied ("policy-rc.d denied execution of start"), so neither daemon is
+  running — after an install *or* a resume from snapshot. Start them with `make services`
+  (`pg_ctlcluster 16 main start`, and `dockerd` under `nohup` since there is no unit to start).
+  Docker group membership only applies to a **new login**, so `start-services.sh` also grants the
+  current user the socket directly (`setfacl`) or every `docker` call needs sudo for that boot.
+- **Integration tests skip themselves when `TEST_DATABASE_URL` is unset — the gate goes quiet,
+  not red.** `go test -tags=integration ./...` exits 0 with everything skipped, so `make check`
+  looks green while testing nothing (measured: 21 tests in `internal/board/postgres` pass with
+  the DB set, all 21 skip without it). The local cluster + the `/etc/environment` entry exist to
+  make the sandbox's gate as real as CI's; same credentials as CI and compose
+  (`postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable`).
+- **`golangci-lint@latest` on the unversioned module path installs v1, which cannot lint this
+  repo.** `.golangci.yml` is `version: "2"` format, but
+  `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` resolves to v1.64.x
+  (the v2 releases live under the `/v2` module path) — it installs cleanly and then fails at
+  lint time. Install via the upstream `install.sh` pinned to the CI version instead.
 
 - **A fresh stack has no project, so `/api/*` and the board are empty until you onboard one**
   (spec 11 multi-user). Every route is project-scoped; a signed-in user with no project gets a

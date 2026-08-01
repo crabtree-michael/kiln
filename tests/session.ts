@@ -19,7 +19,13 @@ export async function mintSession(
   rc: APIRequestContext,
   opts: { base?: string; login?: string } = {},
 ): Promise<void> {
-  const github_login = opts.login ?? process.env.KILN_BOOTSTRAP_GITHUB_USER ?? 'e2e-user';
+  // `??` alone is wrong here: playwright.config.ts loads the repo-root .env, and
+  // the documented first-time setup is `cp .env.example .env` — which defines
+  // KILN_BOOTSTRAP_GITHUB_USER as the EMPTY STRING. An empty string is not
+  // nullish, so it beat the default and every spec posted {github_login: ""},
+  // which the backend rejects with 400. Treat blank as unset.
+  const envLogin = process.env.KILN_BOOTSTRAP_GITHUB_USER?.trim();
+  const github_login = opts.login ?? (envLogin ? envLogin : 'e2e-user');
   const base = (opts.base ?? '').replace(/\/+$/, '');
   const res = await rc.post(`${base}/api/dev/session`, { data: { github_login } });
   if (res.status() !== 200) {

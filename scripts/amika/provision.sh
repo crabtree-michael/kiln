@@ -145,27 +145,45 @@ fi
 
 # --- 5. PostgreSQL: the integration-test database ------------------------------
 # The `-tags=integration` suites skip themselves when TEST_DATABASE_URL is unset.
-# Same credentials as CI (.github/workflows/check.yml) and compose, so a test that
-# passes here passes there.
-TEST_DB_URL="postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable"
+# Same credentials as CI (.github/workflows/check.yml), so a test that passes here
+# passes there.
+#
+# On 5433, NOT the default 5432, because compose's `db` service publishes 5432 on
+# the host: with the native cluster on the default port, `make up` dies with
+# "failed to bind host port 0.0.0.0:5432/tcp: address already in use" and the
+# whole stack refuses to start. Moving the test cluster one port over lets the
+# gate's database and the live stack run at the same time, which is the normal
+# case for an agent (run the stack, keep testing).
+TEST_DB_PORT=5433
+TEST_DB_URL="postgres://kiln:kiln@localhost:$TEST_DB_PORT/kiln_test?sslmode=disable"
+PG_CONF=/etc/postgresql/16/main/postgresql.conf
+if [ "$HAVE_SUDO" = 1 ] && [ -f "$PG_CONF" ] && ! grep -qE "^port = $TEST_DB_PORT" "$PG_CONF"; then
+  log "moving the test cluster to port $TEST_DB_PORT (compose's db owns 5432)"
+  sudo_q sed -i "s/^port = .*/port = $TEST_DB_PORT/" "$PG_CONF"
+  pg_isready -q -p "$TEST_DB_PORT" 2>/dev/null || sudo_q pg_ctlcluster 16 main restart 2>/dev/null || true
+fi
+export PGPORT="$TEST_DB_PORT"
 if [ "$HAVE_SUDO" = 1 ] && command -v pg_ctlcluster >/dev/null 2>&1; then
   # The image has no systemd, so apt's invoke-rc.d never starts the cluster.
-  if ! pg_isready -q 2>/dev/null; then
+  if ! pg_isready -q -p "$TEST_DB_PORT" 2>/dev/null; then
     log "starting the postgres cluster"
     sudo_q pg_ctlcluster 16 main start 2>/dev/null || warn "could not start postgres"
-    for _ in $(seq 1 20); do pg_isready -q 2>/dev/null && break; sleep 1; done
+    for _ in $(seq 1 20); do pg_isready -q -p "$TEST_DB_PORT" 2>/dev/null && break; sleep 1; done
   fi
-  if pg_isready -q 2>/dev/null; then
-    if ! sudo_q -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='kiln'" | grep -q 1; then
+  # sudo drops PGPORT, so every client call names the port explicitly.
+  if pg_isready -q -p "$TEST_DB_PORT" 2>/dev/null; then
+    if ! sudo_q -u postgres psql -p "$TEST_DB_PORT" -tAc "SELECT 1 FROM pg_roles WHERE rolname='kiln'" | grep -q 1; then
       log "creating role kiln"
-      sudo_q -u postgres psql -qc "CREATE ROLE kiln LOGIN PASSWORD 'kiln' SUPERUSER;" >/dev/null
+      sudo_q -u postgres psql -p "$TEST_DB_PORT" -qc "CREATE ROLE kiln LOGIN PASSWORD 'kiln' SUPERUSER;" >/dev/null
     fi
     for db in kiln kiln_test; do
-      if ! sudo_q -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1; then
+      if ! sudo_q -u postgres psql -p "$TEST_DB_PORT" -tAc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1; then
         log "creating database $db"
-        sudo_q -u postgres createdb -O kiln "$db"
+        sudo_q -u postgres createdb -p "$TEST_DB_PORT" -O kiln "$db"
       fi
     done
+  else
+    warn "postgres not reachable on $TEST_DB_PORT (integration tests will skip)"
   fi
 fi
 

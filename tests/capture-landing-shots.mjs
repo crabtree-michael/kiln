@@ -21,7 +21,9 @@ const BASE = process.env.KILN_E2E_BASE_URL ?? 'http://localhost:5173';
 const OUT = new URL('../frontend/public/shots/', import.meta.url).pathname;
 // The login the backend's boot-time bootstrap seeded the owner project under
 // (KILN_BOOTSTRAP_GITHUB_USER); dev sign-in resolves it deterministically.
-const LOGIN = process.env.KILN_BOOTSTRAP_GITHUB_USER ?? 'e2e-user';
+// Blank counts as unset: `cp .env.example .env` leaves this defined-but-empty,
+// and an empty string is not nullish, so `??` alone would send no login at all.
+const LOGIN = process.env.KILN_BOOTSTRAP_GITHUB_USER?.trim() || 'e2e-user';
 await mkdir(OUT, { recursive: true });
 
 // Every /api/* is behind the session gate now (spec 11), so mint a dev session

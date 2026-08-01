@@ -23,18 +23,25 @@ if ! sudo -n true 2>/dev/null; then
 fi
 
 # --- PostgreSQL ---------------------------------------------------------------
+# The test cluster lives on 5433, not 5432: compose's `db` publishes 5432 on the
+# host, and a native cluster squatting there makes `make up` fail to bind. Read
+# the port off the cluster itself so this keeps working if provision.sh changes
+# it, falling back to 5433.
 if command -v pg_ctlcluster >/dev/null 2>&1; then
-  if pg_isready -q 2>/dev/null; then
-    log "postgres already accepting connections"
+  pg_port="$(pg_lsclusters -h 2>/dev/null | awk 'NR==1 {print $3}')"
+  [ -n "$pg_port" ] || pg_port=5433
+  if pg_isready -q -p "$pg_port" 2>/dev/null; then
+    log "postgres already accepting connections on $pg_port"
   else
     version="$(pg_lsclusters -h 2>/dev/null | awk 'NR==1 {print $1}')"
     cluster="$(pg_lsclusters -h 2>/dev/null | awk 'NR==1 {print $2}')"
     if [ -n "$version" ] && [ -n "$cluster" ]; then
-      log "starting postgres $version/$cluster"
+      log "starting postgres $version/$cluster on $pg_port"
       sudo -n pg_ctlcluster "$version" "$cluster" start 2>/dev/null
-      for _ in $(seq 1 20); do pg_isready -q 2>/dev/null && break; sleep 1; done
+      for _ in $(seq 1 20); do pg_isready -q -p "$pg_port" 2>/dev/null && break; sleep 1; done
     fi
-    pg_isready -q 2>/dev/null || warn "postgres did not come up (integration tests will skip)"
+    pg_isready -q -p "$pg_port" 2>/dev/null \
+      || warn "postgres did not come up (integration tests will skip)"
   fi
 fi
 

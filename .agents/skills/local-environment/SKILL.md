@@ -96,8 +96,19 @@ by script, and the whole thing is meant to be baked into a snapshot so agents la
   not red.** `go test -tags=integration ./...` exits 0 with everything skipped, so `make check`
   looks green while testing nothing (measured: 21 tests in `internal/board/postgres` pass with
   the DB set, all 21 skip without it). The local cluster + the `/etc/environment` entry exist to
-  make the sandbox's gate as real as CI's; same credentials as CI and compose
-  (`postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable`).
+  make the sandbox's gate as real as CI's; same credentials as CI.
+- **The sandbox's test cluster is on 5433, not 5432.** Compose's `db` publishes 5432 on the
+  host, so a native cluster on the default port makes the whole stack fail to start with
+  `failed to bind host port 0.0.0.0:5432/tcp: address already in use`. The provisioned cluster
+  therefore listens on **5433** (`TEST_DATABASE_URL=postgres://kiln:kiln@localhost:5433/kiln_test?sslmode=disable`)
+  so the gate's database and `make up` can run at the same time — the normal case for an agent.
+  `sudo` drops `PGPORT`, so pass `-p 5433` to `psql`/`createdb` by hand.
+- **A blank `.env` breaks the e2e suite in a way that looks like a stack problem.** The
+  documented first-time step (`cp .env.example .env`) leaves `KILN_BOOTSTRAP_GITHUB_USER`
+  **defined but empty**, `tests/playwright.config.ts` loads that file, and an empty string is not
+  nullish — so a `?? 'e2e-user'` default does not fire and the specs mint sessions with an empty
+  login, failing with `dev session mint failed: ... -> 400 ... is the stack up?`. The stack is
+  fine; the login is empty. Read env vars as `process.env.X?.trim() || default` in `/tests`.
 - **`golangci-lint@latest` on the unversioned module path installs v1, which cannot lint this
   repo.** `.golangci.yml` is `version: "2"` format, but
   `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` resolves to v1.64.x

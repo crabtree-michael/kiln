@@ -184,8 +184,20 @@
    * overflow under the fixed header. min-height:0 lets it shrink below its
    * content's intrinsic height so the scrollbar engages instead of pushing the
    * panel past its max-height. The border-top is the container's own edge, so it
-   * stays put as a divider beneath the pinned header. */
-  flex: 1 1 auto;
+   * stays put as a divider beneath the pinned header.
+   *
+   * The outsized shrink factor is what makes the body — not the dock — the part
+   * that yields once the sheet is pinned at its max-height. Flexbox distributes
+   * negative free space by (shrink factor × flex base size), so with the default
+   * 1 the dock was squeezed in proportion to its own height every time the ticket
+   * body was long enough to cap the sheet: the transcript inside it lost tens of
+   * pixels and clipped its text behind an invisible internal scroll (no scrollbar
+   * on touch), which is exactly the "transcript is cut off" symptom. Weighting the
+   * body far above the dock lets the body absorb essentially all of it, down to
+   * its own min-height: 0 — and only then, on a viewport too short to seat the
+   * header + dock at all, does the dock give up space (it keeps flex-shrink: 1 as
+   * that last-resort valve, so the action buttons can never be clipped off). */
+  flex: 1 100 auto;
   min-height: 0;
   overflow-y: auto;
   margin-top: 0.7rem;
@@ -286,8 +298,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  /* Cap the dock so a long transcript can't push the controls off a short sheet;
-   * the transcript itself scrolls inside its own bound (below). */
+  /* The dock holds its intrinsic height: the body above outweighs it in the
+   * shrink distribution (see its `flex`), so a capped sheet takes the space out
+   * of the scrolling body rather than out of the transcript. min-height: 0 keeps
+   * the last-resort valve open — on a sheet too short to seat header + dock the
+   * dock can still shrink (the transcript scrolls inside its own bound, below)
+   * instead of pushing the controls past the panel's clipped bottom edge. */
   min-height: 0;
 }
 
@@ -301,8 +317,12 @@
   /* Give the transcript generous vertical room so the full content reads at a
    * glance instead of being pinched to a line or two. Still bounded (and
    * internally scrolling, below) so a runaway utterance can't shove the controls
-   * off a short sheet — the body above yields its flex space as the dock grows. */
-  max-height: 45vh;
+   * off a short sheet — the body above yields its flex space as the dock grows.
+   * Measured in dvh, the same unit as the sheet's own max-height, so the bound is
+   * honest about the space it is spending: on mobile Safari `vh` is the LARGE
+   * viewport (browser chrome hidden), so 45vh could ask for more than 45% of the
+   * sheet actually has and force the squeeze this cap exists to avoid. */
+  max-height: 45dvh;
   overflow-y: auto;
   padding: 2px 2px 6px;
   text-align: center;

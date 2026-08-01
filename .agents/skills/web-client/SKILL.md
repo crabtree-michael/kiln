@@ -170,4 +170,24 @@ _(Accumulate more as you work.)_
     renders and closes fine in jsdom (Escape works), but its drag physics don't — don't
     assert on them.
 
+- **A `max-height` flex column shrinks EVERY item, not just the scrolling one.** The
+  ticket sheet caps at `85dvh` and clips; flexbox removes the overflow in proportion to
+  (shrink factor × flex base size), so with the default factor the dock lost height to a
+  long ticket body and the live transcript inside it clipped its own text behind an
+  invisible scroll (touch draws no scrollbar) — the "transcript is cut off" bug. Fix is
+  shrink *priority*, not a bigger cap: the scrolling body carries an outsized
+  `flex-shrink` (`flex: 1 100 auto`) so it yields first, while the dock keeps
+  `flex-shrink: 1` + `min-height: 0` as a last-resort valve so its controls can't be
+  clipped off a very short viewport. Same trap applies to any other capped sheet.
+  Regression-tested in `TicketDetail.transcript-space.test.ts`.
+
+- **Assert layout-critical CSS by importing the stylesheet as a string** (`?raw`, typed via
+  `vite/client`) and matching the rule body — jsdom does no layout, so nothing else in the
+  gate can catch a geometry regression. See `TicketDetail.safe-area.test.ts` and
+  `TicketDetail.transcript-space.test.ts`.
+
+- **Viewport units: match the unit the container already uses.** On mobile Safari `vh` is
+  the *large* viewport (browser chrome hidden), so a `45vh` child inside an `85dvh` parent
+  can claim more than it looks like it does.
+
 _(Accumulate: non-obvious traps and edge cases.)_

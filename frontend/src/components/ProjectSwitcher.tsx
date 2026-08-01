@@ -1,7 +1,8 @@
-// Project switcher (12 §4.1): the app header's brand control. The "Kiln"
-// wordmark itself is the dropdown trigger — clicking it opens a menu listing the
-// user's projects (the current one marked) plus an "Add" button that routes to
-// the app-native project-management page (`/projects`, 12 follow-up), opening it
+// Project switcher (12 §4.1): the app header's brand control. The wordmark shows
+// the current project's name in Kiln's brand styling (the big red accent
+// wordmark + glyph) and is itself the dropdown trigger — clicking it opens a menu
+// listing the user's projects (the current one marked) plus an "Add" button that
+// routes to the app-native project-management page (`/projects`, 12 follow-up), opening it
 // on the create form (`?new=1`) — it used to dump the user on the `/dashboard`
 // account view. The client references and keys each project by
 // its `project_id` (DP5); selecting one re-scopes every board/feed/stream/message
@@ -67,7 +68,7 @@ export function ProjectSwitcher(): JSX.Element | null {
       >
         <span data-role="kiln-mark">
           <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-          <span data-role="kiln-wordmark">Kiln</span>
+          <span data-role="kiln-wordmark">{current.name}</span>
         </span>
         <span data-role="project-switcher-caret" aria-hidden="true" />
       </button>

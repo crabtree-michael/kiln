@@ -1,6 +1,6 @@
-// ProjectSwitcher tests (12 §4.1): the "Kiln" wordmark is the trigger; opening
-// it lists the user's projects, marks the current one, switches on click (by
-// project_id), and offers an "Add" affordance. Rendered under a stub
+// ProjectSwitcher tests (12 §4.1): the current project's name is the wordmark
+// trigger; opening it lists the user's projects, marks the current one, switches
+// on click (by project_id), and offers an "Add" affordance. Rendered under a stub
 // current-project context + MemoryRouter (it navigates).
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -36,24 +36,28 @@ function renderSwitcher(value: CurrentProjectStoreValue): void {
 }
 
 describe('ProjectSwitcher', () => {
-  it('shows the "Kiln" trigger and lists all projects when opened', () => {
+  it('shows the current project name in the trigger wordmark and lists all projects when opened', () => {
     const projects = [makeProject('p1', 'one'), makeProject('p2', 'two')];
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
 
-    expect(screen.getByRole('button', { name: /Kiln/ })).toHaveAttribute(
-      'data-role',
-      'project-switcher-current',
-    );
+    // Collapsed, only the trigger is in the a11y tree (the list is aria-hidden),
+    // so a name query resolves it unambiguously despite the current project also
+    // appearing in the list.
+    const trigger = screen.getByRole('button', { name: /one/ });
+    expect(trigger).toHaveAttribute('data-role', 'project-switcher-current');
+    // The wordmark carries the current project's name in Kiln's brand styling,
+    // not the literal "Kiln".
+    expect(trigger.querySelector('[data-role="kiln-wordmark"]')).toHaveTextContent('one');
     // The panel starts collapsed — the CSS hide keys off `data-open`/`aria-hidden`,
     // so an unopened switcher must not present its list (the bug this replaced
     // rendered the full project list permanently, over the screen).
     const panel = document.querySelector('[data-role="project-switcher-panel"]');
     expect(panel).toHaveAttribute('data-open', 'false');
     expect(panel).toHaveAttribute('aria-hidden', 'true');
-    fireEvent.click(screen.getByRole('button', { name: /Kiln/ }));
+    fireEvent.click(trigger);
     expect(panel).toHaveAttribute('data-open', 'true');
     const items = screen.getAllByRole('button', { name: /one|two/ });
-    // Both project list items.
+    // Both project list items (plus the trigger, which also reads "one").
     expect(items.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -62,7 +66,7 @@ describe('ProjectSwitcher', () => {
     const selectProject = vi.fn();
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject });
 
-    fireEvent.click(screen.getByRole('button', { name: /Kiln/ }));
+    fireEvent.click(screen.getByRole('button', { name: /one/ }));
     const item = document.querySelector(
       '[data-role="project-switcher-item"][data-project-id="p2"]',
     );
@@ -76,7 +80,7 @@ describe('ProjectSwitcher', () => {
   it('offers an "Add" affordance', () => {
     const projects = [makeProject('p1', 'one')];
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
-    fireEvent.click(screen.getByRole('button', { name: /Kiln/ }));
+    fireEvent.click(screen.getByRole('button', { name: /one/ }));
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
   });
 

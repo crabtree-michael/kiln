@@ -42,12 +42,12 @@ var _ agent.SandboxCatalog = (*Client)(nil)
 // agent.Snapshots. Ref is the fully-qualified `snapshot` name a project stores
 // and passes back at worker-create time.
 func (c *Client) ListSnapshots(ctx context.Context) ([]agent.Snapshot, error) {
-	var list []snapshotObject
-	if err := c.do(ctx, http.MethodGet, "/sandbox-snapshots", nil, &list); err != nil {
+	var resp snapshotList
+	if err := c.do(ctx, http.MethodGet, "/sandbox-snapshots", nil, &resp); err != nil {
 		return nil, err
 	}
-	out := make([]agent.Snapshot, 0, len(list))
-	for _, s := range list {
+	out := make([]agent.Snapshot, 0, len(resp.Items))
+	for _, s := range resp.Items {
 		out = append(out, snapshotToNeutral(s))
 	}
 	return out, nil

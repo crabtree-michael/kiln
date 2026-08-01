@@ -23,7 +23,8 @@ func TestListSnapshotsMapsFields(t *testing.T) {
 			if got := r.Header.Get("Authorization"); got != "Bearer k" {
 				t.Errorf("auth header = %q, want Bearer k", got)
 			}
-			writeJSON(t, w, http.StatusOK, []snapshotObject{
+			// Amika wraps the list in an {"items":[...]} envelope.
+			writeJSON(t, w, http.StatusOK, snapshotList{Items: []snapshotObject{
 				{
 					ID:                "snapshot-id-1",
 					Snapshot:          "org/base:ready",
@@ -34,7 +35,7 @@ func TestListSnapshotsMapsFields(t *testing.T) {
 				},
 				{ID: "snapshot-id-2", Snapshot: "org/base:wip", State: "capturing"},
 				{ID: "snapshot-id-3", Snapshot: "", State: "weird-unknown-state"},
-			})
+			}})
 		},
 	})
 
@@ -58,6 +59,24 @@ func TestListSnapshotsMapsFields(t *testing.T) {
 	// classifies as unknown (defensive default).
 	if got[2].Ref != "snapshot-id-3" || got[2].State != agent.SnapshotUnknown {
 		t.Errorf("snapshot[2] = %+v, want Ref=snapshot-id-3 State=unknown", got[2])
+	}
+}
+
+// An empty snapshot catalog is the {"items":[]} envelope: it decodes to an
+// empty, non-error result (not a nil-body / wrong-shape decode error).
+func TestListSnapshotsEmpty(t *testing.T) {
+	c := newClient(t, Config{APIKey: "k"}, map[route]http.HandlerFunc{
+		{http.MethodGet, pathSnapshots}: func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, http.StatusOK, snapshotList{Items: []snapshotObject{}})
+		},
+	})
+
+	got, err := c.ListSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d snapshots, want 0: %+v", len(got), got)
 	}
 }
 

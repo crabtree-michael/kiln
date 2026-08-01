@@ -90,6 +90,14 @@ type snapshotObject struct {
 	CreatedAt         string `json:"created_at"`
 }
 
+// snapshotList is the {"items":[...]} envelope Amika returns for
+// GET /sandbox-snapshots — the list is wrapped, unlike GET /sandboxes which
+// returns a bare array. POST /sandbox-snapshots returns a single unwrapped
+// snapshotObject (the created object), so only the GET list decodes this.
+type snapshotList struct {
+	Items []snapshotObject `json:"items"`
+}
+
 // createSnapshotRequest is the POST /sandbox-snapshots body: name is required,
 // sandbox_id identifies the source dev box, description is optional. mode is
 // omitted so Amika's default (scrub_and_delete — strip injected secrets, then

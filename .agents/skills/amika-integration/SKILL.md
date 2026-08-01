@@ -227,11 +227,18 @@ snapshots, plus "save a running dev box as a snapshot". The seam stays provider-
   `state` is un-enumerated → `classifySnapshotState` in `states.go` (the one place to harden). The
   mock also implements it (seeded `Snapshots`/`DevBoxes` knobs) so dev/e2e renders the picker.
 - **API** (`internal/api`, `SandboxCatalog` port + `sandboxCatalogAdapter` in `cmd/kiln/adapters.go`
-  over the per-project `agent.ProviderResolver`): `GET/POST /api/project/snapshots`,
-  `GET /api/project/dev-boxes`, all `withProject`-scoped. A provider with no catalog →
+  over the per-project `agent.ProviderResolver`): `GET/POST /api/snapshots`, `GET /api/dev-boxes`,
+  dual-mounted via `mountProjectScoped` (bare = caller's first project, `/api/projects/{pid}/…` =
+  named project — 12 §3.2), gated on `s.sandbox != nil`. A provider with no catalog →
   `api.ErrNoSandboxCatalog` → 404, so the client hides the picker (Devin/mock-without-data);
-  other failures → 502. `ProjectFields` renders the `<select data-role="amika-snapshot">` and the
-  capture form when the snapshots endpoint answers 200, else falls back to the free-text input.
+  other failures → 502.
+- **Frontend (post 12 multi-project):** the catalog is **per-project**, not global — each project
+  resolves its own provider, so `Settings`'s `ProjectCard` uses the `useSandboxCatalog(projectId)`
+  hook (`frontend/src/dashboard/use-sandbox-catalog.ts`), which fetches `/api/projects/{id}/snapshots`
+  + `/dev-boxes` and feeds `ProjectFields`. `ProjectFields` renders the `<select
+  data-role="amika-snapshot">` + capture form when `catalogAvailable` (snapshots endpoint answered
+  200), else the free-text input. Do NOT put snapshot state in the global dashboard store — it can't
+  serve N project cards.
 - **Gotcha:** adding the `DevBoxStatus`/`SnapshotState` enums to the schema collided with
   `AgentStatusStatus`'s bare `errored`/etc. constants, so oapi-codegen re-qualified them
   (`wire.Errored` → `wire.AgentStatusStatusErrored`). Expected — update the consumer, don't rename

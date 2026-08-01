@@ -17,7 +17,12 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/wire"
 )
 
-const devBoxRef = "sb-dev" // a dev-box ref used across the sandbox route tests
+const (
+	devBoxRef   = "sb-dev"     // a dev-box ref used across the sandbox route tests
+	snapshotRef = "org/base:1" // a snapshot ref used across the sandbox route tests
+	snapshotN   = "my-base"    // a snapshot name used across the sandbox route tests
+	stateReady  = "ready"      // the ready snapshot/dev-box state in fixtures
+)
 
 // fakeSandboxCatalog is api.SandboxCatalog: canned lists and a recorded
 // SaveSnapshot call, or an injected error (e.g. api.ErrNoSandboxCatalog for the
@@ -63,7 +68,7 @@ func newSandboxServer(catalog api.SandboxCatalog) *httptest.Server {
 func TestListSnapshots_ReturnsMappedList(t *testing.T) {
 	captured := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 	catalog := &fakeSandboxCatalog{snapshots: []api.Snapshot{
-		{Ref: "org/base:1", Name: "base", Description: "warm", Source: "dev-a", State: "ready", CreatedAt: captured},
+		{Ref: snapshotRef, Name: "base", Description: "warm", Source: "dev-a", State: stateReady, CreatedAt: captured},
 	}}
 	ts := newSandboxServer(catalog)
 	defer ts.Close()
@@ -81,8 +86,50 @@ func TestListSnapshots_ReturnsMappedList(t *testing.T) {
 		t.Fatalf("got %d snapshots, want 1", len(body.Snapshots))
 	}
 	s := body.Snapshots[0]
-	if s.Ref != "org/base:1" || s.State != wire.SnapshotState("ready") || s.Source != "dev-a" {
+	if s.Ref != snapshotRef || s.State != wire.SnapshotState(stateReady) || s.Source != "dev-a" {
 		t.Errorf("snapshot = %+v", s)
+	}
+}
+
+// The sandbox routes are dual-mounted (12 §3.2): the id'd form
+// /api/projects/{pid}/snapshots resolves the named project through withProjectID
+// and serves the same catalog as the bare form.
+func TestListSnapshots_IdScopedRoute_ReturnsMappedList(t *testing.T) {
+	catalog := &fakeSandboxCatalog{snapshots: []api.Snapshot{
+		{Ref: snapshotRef, Name: "base", State: stateReady},
+	}}
+	ts := newSandboxServer(catalog)
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/projects/"+testProjectID+"/snapshots")
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 on the id'd route", resp.StatusCode)
+	}
+	var body wire.SnapshotList
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Snapshots) != 1 || body.Snapshots[0].Ref != snapshotRef {
+		t.Errorf("snapshots = %+v", body.Snapshots)
+	}
+}
+
+// The id'd capture route scopes the save to the named project.
+func TestSaveSnapshot_IdScopedRoute_Returns202(t *testing.T) {
+	catalog := &fakeSandboxCatalog{}
+	ts := newSandboxServer(catalog)
+	defer ts.Close()
+
+	resp := doPost(t, ts.URL+"/api/projects/"+testProjectID+"/snapshots", mustJSON(t, wire.SaveSnapshotRequest{
+		DevBoxRef: devBoxRef, Name: snapshotN,
+	}))
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 on the id'd route", resp.StatusCode)
+	}
+	if catalog.savedPID != testProjectID {
+		t.Errorf("save scoped to project %q, want %q", catalog.savedPID, testProjectID)
 	}
 }
 
@@ -135,7 +182,7 @@ func TestSaveSnapshot_CapturesAndReturns202(t *testing.T) {
 	defer ts.Close()
 
 	resp := doPost(t, ts.URL+"/api/snapshots", mustJSON(t, wire.SaveSnapshotRequest{
-		DevBoxRef: devBoxRef, Name: "my-base",
+		DevBoxRef: devBoxRef, Name: snapshotN,
 	}))
 	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusAccepted {

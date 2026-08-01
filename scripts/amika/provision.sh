@@ -128,10 +128,29 @@ if command -v go >/dev/null 2>&1; then
     log "golangci-lint $have_lint already installed"
   fi
 
-  if ! command -v oapi-codegen >/dev/null 2>&1; then
-    log "installing oapi-codegen"
-    go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest \
+  # oapi-codegen is pinned to the version that generated the CHECKED-IN wire
+  # package, read out of that file's own header so the two cannot drift. `@latest`
+  # is the same trap golangci-lint was: v2.8.0 renames enum constants
+  # (`Unknown` -> `SnapshotStateUnknown`) relative to the v2.7.1 that produced
+  # backend/internal/wire, so a box provisioned with @latest turns `make schema`
+  # into a diff unrelated to whatever the agent actually changed, and leaves
+  # `make schema-verify` red on a clean tree. CI has no schema step, so this bites
+  # only inside the sandbox — nothing upstream would catch it.
+  #
+  # Reading the pin from the generated header is deliberately self-maintaining:
+  # regenerate with a newer version on purpose and commit, and the next provision
+  # follows the file.
+  OAPI_VERSION="$(grep -oE 'oapi-codegen/v2 version v[0-9]+\.[0-9]+\.[0-9]+' backend/internal/wire/generated.go 2>/dev/null \
+    | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  [ -n "$OAPI_VERSION" ] || OAPI_VERSION="v2.7.1"
+
+  have_oapi="$(oapi-codegen --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  if [ "$have_oapi" != "$OAPI_VERSION" ]; then
+    log "installing oapi-codegen $OAPI_VERSION"
+    go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$OAPI_VERSION" \
       || warn "oapi-codegen install failed (make schema will be unavailable)"
+  else
+    log "oapi-codegen $have_oapi already installed"
   fi
 fi
 

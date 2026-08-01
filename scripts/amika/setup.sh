@@ -74,9 +74,19 @@ if command -v go >/dev/null 2>&1; then
       | sh -s -- -b "$(go env GOPATH)/bin" "$golangci_version" >/dev/null \
       || echo "amika-setup: WARNING golangci-lint install failed (make lint will be unavailable)" >&2
   fi
-  if ! command -v oapi-codegen >/dev/null 2>&1; then
-    echo "amika-setup: installing oapi-codegen"
-    go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest \
+  # Pinned to the version that generated the checked-in wire package, read from
+  # that file's own header so the two cannot drift. `@latest` is the same trap as
+  # golangci-lint above: v2.8.0 renames enum constants relative to the v2.7.1 that
+  # produced backend/internal/wire, so `make schema` on an @latest box emits a
+  # diff unrelated to the agent's change and `make schema-verify` goes red on a
+  # clean tree. CI has no schema step, so nothing upstream would catch it.
+  oapi_version="$(grep -oE 'oapi-codegen/v2 version v[0-9]+\.[0-9]+\.[0-9]+' backend/internal/wire/generated.go 2>/dev/null \
+    | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  [ -n "$oapi_version" ] || oapi_version="v2.7.1"
+  have_oapi="$(oapi-codegen --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  if [ "$have_oapi" != "$oapi_version" ]; then
+    echo "amika-setup: installing oapi-codegen $oapi_version"
+    go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$oapi_version" \
       || echo "amika-setup: WARNING oapi-codegen install failed (make schema will be unavailable)" >&2
   fi
 fi

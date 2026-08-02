@@ -196,12 +196,14 @@ func (s *Store) GetSessionUser(ctx context.Context, tokenHash string) (identity.
 func (s *Store) GetUserConfig(ctx context.Context, userID string) (identity.UserConfig, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT user_id, anthropic_api_key_enc, amika_api_key_enc, devin_api_key_enc,
-		       github_auth_token_enc, amika_claude_cred_id
+		       github_auth_token_enc, github_token_scopes, github_connected_login,
+		       amika_claude_cred_id
 		FROM user_config WHERE user_id = $1`, userID)
 
 	var cfg identity.UserConfig
 	if err := row.Scan(&cfg.UserID, &cfg.AnthropicKeyEnc, &cfg.AmikaKeyEnc, &cfg.DevinKeyEnc,
-		&cfg.GitHubTokenEnc, &cfg.AmikaClaudeCredID); err != nil {
+		&cfg.GitHubTokenEnc, &cfg.GitHubTokenScopes, &cfg.GitHubConnectedLogin,
+		&cfg.AmikaClaudeCredID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return identity.UserConfig{UserID: userID}, nil
 		}

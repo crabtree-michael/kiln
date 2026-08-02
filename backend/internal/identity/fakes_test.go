@@ -312,31 +312,44 @@ func (s *fakeStore) userCount() int {
 // and token unless exchangeErr/fetchErr is set, and records the code/token it
 // was last called with so tests can assert wiring.
 type fakeGitHub struct {
-	mu          sync.Mutex
-	token       string
+	mu    sync.Mutex
+	token string
+	// scope is what ExchangeCode reports GitHub granted. Empty is the plain
+	// sign-in grant; "repo" is a full connect grant.
+	scope       string
 	user        githubapi.GitHubUser
 	repos       []githubapi.Repo
 	exchangeErr error
 	fetchErr    error
 	reposErr    error
+	// probedScopes is what TokenScopes reports for an ALREADY-STORED token —
+	// the carried-over manual token's classification path. probeErr makes the
+	// probe fail, which must leave the stored classification untouched.
+	probedScopes string
+	probeErr     error
 
-	gotCode       string
-	gotToken      string
-	gotReposToken string
+	gotCode        string
+	gotToken       string
+	gotReposToken  string
+	gotProbedToken string
 }
 
-func (g *fakeGitHub) AuthorizeURL(state string) string {
-	return "https://github.example/login/oauth/authorize?state=" + state
+func (g *fakeGitHub) AuthorizeURL(state, scope string) string {
+	u := "https://github.example/login/oauth/authorize?state=" + state
+	if scope != "" {
+		u += "&scope=" + scope
+	}
+	return u
 }
 
-func (g *fakeGitHub) ExchangeCode(_ context.Context, code string) (string, error) {
+func (g *fakeGitHub) ExchangeCode(_ context.Context, code string) (string, string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.gotCode = code
 	if g.exchangeErr != nil {
-		return "", g.exchangeErr
+		return "", "", g.exchangeErr
 	}
-	return g.token, nil
+	return g.token, g.scope, nil
 }
 
 func (g *fakeGitHub) FetchUser(_ context.Context, accessToken string) (githubapi.GitHubUser, error) {
@@ -357,6 +370,16 @@ func (g *fakeGitHub) ListRepos(_ context.Context, accessToken string) ([]githuba
 		return nil, g.reposErr
 	}
 	return g.repos, nil
+}
+
+func (g *fakeGitHub) TokenScopes(_ context.Context, accessToken string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gotProbedToken = accessToken
+	if g.probeErr != nil {
+		return "", g.probeErr
+	}
+	return g.probedScopes, nil
 }
 
 var _ identity.GitHub = (*fakeGitHub)(nil)

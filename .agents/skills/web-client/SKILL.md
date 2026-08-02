@@ -111,10 +111,23 @@ session-free.
   same reason as `board`/`chat`/`feed` — the hook file has no JSX so components importing
   only the hook don't drag the provider's implementation into their module graph.
   `Dashboard.tsx` switches on the store's `phase` (`loading`/`signed-out`/`ready`) and
-  `me.project` to pick `SignIn`/`Onboarding`/`Settings`; `ConfigFields.tsx` holds the two
-  controlled forms (`ProjectFields`, `CredentialFields`) shared between Onboarding and
-  Settings — secrets are write-only, so credential inputs never seed from the stored value,
-  only a `configured · …tail` placeholder.
+  `me.project` to pick `SignIn`/`Onboarding`/`Settings`; `ConfigFields.tsx` holds the
+  `ProjectFields` form shared between Onboarding and Settings.
+- **Credentials are connect cards, not fields** (`Integrations.tsx`). Settings renders one
+  `[data-role="integration-card"]` per provider — GitHub, Amika, Devin (Anthropic only when
+  `VITE_SHOW_ANTHROPIC_KEY_FIELD=1`). **There is no free-text token input anywhere**; the old
+  flat `CredentialFields` form is gone. Amika/Devin connect through a small modal
+  (`[data-role="api-key-modal"]`) whose single input sends just that one field, so a save still
+  chains a verify run and updates the card's `credential-status` mark. GitHub connects through
+  the existing OAuth route — `Connect`, and once connected a right-aligned `Switch account`
+  anchor in the card's `[data-role="integration-action"]` slot, both plain full-page links to
+  `/auth/github/login`. Secrets stay write-only: the modal input never seeds from the stored
+  value, only a `configured · …tail` placeholder.
+- **Caveat inherited from that redesign:** `user_config.github_auth_token` (the PAT the repo
+  paths use — private clones, `gh` PR gate, sandbox push) no longer has a UI entry point.
+  Sign-in OAuth requests **no scopes** and never persists its token, so a GitHub card reading
+  "Connected" does **not** imply a stored repo credential. `PUT /api/settings` still accepts
+  `github_auth_token`, so already-stored tokens keep working and the field is settable by API.
 - `vite.config.ts` proxies `/auth` to the backend alongside `/api` and `/api/stream` — the
   GitHub OAuth redirect (`GET /auth/github/login` → `/callback`) needs to hit the backend
   directly, not be intercepted by the SPA's client-side router.

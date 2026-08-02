@@ -37,9 +37,27 @@ type UserConfig struct {
 	// that selects the Devin provider authenticates with its owner's stored key
 	// (multi-provider design §8), falling back to the deployment DEVIN_API_KEY
 	// env when unset so existing opt-in deployments are unchanged.
-	DevinKeyEnc       []byte
-	GitHubTokenEnc    []byte
-	AmikaClaudeCredID string
+	DevinKeyEnc []byte
+	// GitHubTokenEnc is the repo credential: the token the brain's clone/fetch,
+	// the `gh` PR gate, and the sandbox's clone/push all authenticate with.
+	// Granted by the repo-scoped Connect flow (CompleteConnect) since the
+	// integrations redesign; before that, typed into the dashboard's manual
+	// token field. Both write THIS column, so a pre-redesign token carries
+	// forward untouched and keeps working.
+	GitHubTokenEnc []byte
+	// GitHubTokenScopes is the scope list GitHub reports for GitHubTokenEnc,
+	// comma-separated as GitHub returns it. EMPTY MEANS UNKNOWN, not "none":
+	// a token carried over from the manual field was never accompanied by a
+	// scope record, and TokenScopes backfills it on the next verify. Only a
+	// KNOWN list missing `repo` marks the connection as needing a reconnect —
+	// unknown is never treated as broken.
+	GitHubTokenScopes string
+	// GitHubConnectedLogin is the GitHub account GitHubTokenEnc belongs to,
+	// recorded at connect time. Empty for a carried-over manual token (nobody
+	// recorded whose it was), which is why the card falls back to the session's
+	// own login rather than claiming an account it cannot vouch for.
+	GitHubConnectedLogin string
+	AmikaClaudeCredID    string
 }
 
 // MergeGateMode names which condition satisfies a ticket's merge gate (06 §7).
@@ -126,11 +144,45 @@ type Repo struct {
 
 // MeSettings is the config-status view: never secret values.
 type MeSettings struct {
-	AnthropicKey      SecretStatus
-	AmikaKey          SecretStatus
-	DevinKey          SecretStatus
-	GitHubToken       SecretStatus
+	AnthropicKey SecretStatus
+	AmikaKey     SecretStatus
+	DevinKey     SecretStatus
+	GitHubToken  SecretStatus
+	// GitHub is the derived state the Integrations card renders — presence AND
+	// sufficiency of the repo credential, which SecretStatus alone can't say.
+	GitHub            GitHubConnection
 	AmikaClaudeCredID string
+}
+
+// The four states of a user's GitHub repo credential. They exist because
+// "a token is stored" and "that token can actually reach the repo" are
+// different questions, and the redesign's Connect button has to say which.
+const (
+	// GitHubDisconnected: no repo credential at all.
+	GitHubDisconnected = "disconnected"
+	// GitHubUnknownScopes: a credential is stored but its scopes were never
+	// recorded — a token carried over from the old manual field, or one whose
+	// scope probe hasn't run yet. Treated as WORKING (it may well be a valid
+	// PAT, including a fine-grained one), never as broken; a verify run
+	// resolves it to connected or needs-reconnect.
+	GitHubUnknownScopes = "unknown"
+	// GitHubNeedsReconnect: a credential is stored and GitHub told us its
+	// scopes do NOT include `repo` — it cannot clone a private repo or push.
+	// This is the "don't leave it silently broken" state: the card prompts a
+	// re-auth through the Connect flow instead of failing at runtime.
+	GitHubNeedsReconnect = "needs_reconnect"
+	// GitHubConnected: a credential is stored and carries `repo`.
+	GitHubConnected = "connected"
+)
+
+// GitHubConnection is the account view's read of the repo credential.
+type GitHubConnection struct {
+	Status string
+	// Login is the account the credential belongs to; empty when unrecorded
+	// (a carried-over manual token).
+	Login string
+	// Scopes is the recorded scope list, empty when unknown.
+	Scopes []string
 }
 
 // ProjectView is one project plus its fingerprint-only secret statuses

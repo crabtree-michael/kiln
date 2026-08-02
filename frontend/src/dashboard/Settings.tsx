@@ -17,28 +17,23 @@
 //     on while scanning, which is what lets the type stay small and the rows
 //     stay compact.
 //
-// Composes `CredentialFields` (auto-save per field + auto-verify) once at the
-// account level (12 §6.2), then a list of project cards — each the reusable
+// Composes the `Integrations` section — a connect card per provider, with
+// auto-verify — once at the account level (12 §6.2), then a list of project cards — each the reusable
 // `ProjectFields` form targeting `PUT /api/projects/{id}` with a Delete — plus a
 // "New project" affordance that runs the same form against `POST /api/projects`.
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
-import { CredentialFields } from '@/dashboard/ConfigFields';
+import { Integrations } from '@/dashboard/Integrations';
 import { NotificationsField } from '@/dashboard/NotificationsField';
 import { ProjectModal } from '@/dashboard/ProjectModal';
-import {
-  GITHUB_CONNECT_PATH,
-  useGitHubRepos,
-  type GitHubRepos,
-} from '@/dashboard/use-github-repos';
+import { useGitHubRepos } from '@/dashboard/use-github-repos';
 import {
   ArrowLeftIcon,
   BellIcon,
   BoxIcon,
   ChevronRightIcon,
   FolderIcon,
-  GitHubIcon,
   PlugIcon,
   PlusIcon,
   SignOutIcon,
@@ -176,42 +171,6 @@ function SettingsSection({ section, action, children }: SettingsSectionProps): J
       </header>
       <div data-role="section-body">{children}</div>
     </section>
-  );
-}
-
-/** The account-level GitHub connection, shown at the top of Integrations. Sign-in
- * IS the GitHub connection (one OAuth flow, one callback — see `useGitHubRepos`),
- * so "connect" and "switch account" are both just `/auth/github/login` again; this
- * row exists to make that state legible in one place instead of only surfacing
- * inside each project's repo picker. */
-function GitHubConnectionRow({ github }: { github: GitHubRepos }): JSX.Element {
-  const state = github.loading ? 'loading' : github.connected ? 'connected' : 'disconnected';
-  const detail =
-    state === 'loading'
-      ? 'Checking your GitHub connection…'
-      : state === 'connected'
-        ? `${String(github.repos.length)} ${github.repos.length === 1 ? 'repository' : 'repositories'} available to link to a project.`
-        : 'Connect to pick project repositories, including private ones.';
-
-  return (
-    <div data-role="github-connection" data-state={state}>
-      <span data-role="integration-icon">
-        <GitHubIcon />
-      </span>
-      <div data-role="integration-text">
-        <span data-role="integration-name">GitHub account</span>
-        <span data-role="integration-detail">{detail}</span>
-      </div>
-      <span data-role="integration-state" data-state={state}>
-        {state === 'loading' ? 'Checking…' : state === 'connected' ? 'Connected' : 'Not connected'}
-      </span>
-      {/* A backend route, so a real navigation — never a router Link. */}
-      {state !== 'loading' ? (
-        <a href={GITHUB_CONNECT_PATH} data-role="github-connection-action">
-          {state === 'connected' ? 'Switch account' : 'Connect'}
-        </a>
-      ) : null}
-    </div>
   );
 }
 
@@ -395,9 +354,10 @@ export function Settings(): JSX.Element {
           </SettingsSection>
 
           <SettingsSection section={INTEGRATIONS_SECTION}>
-            <GitHubConnectionRow github={github} />
-            <CredentialFields
+            <Integrations
               settings={me.settings}
+              githubLogin={me.user.github_login}
+              github={github}
               pendingCredentials={pendingCredentials}
               verifying={verifying}
               verifyChecks={verifyChecks}

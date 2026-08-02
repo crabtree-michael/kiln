@@ -32,14 +32,26 @@ func New() *Client { return &Client{} }
 
 // AuthorizeURL returns a local, non-navigable placeholder: the keyless lane
 // mints sessions through POST /api/dev/session, never the OAuth dance, so this
-// exists only to satisfy the port.
-func (c *Client) AuthorizeURL(state string) string {
-	return "/auth/github/callback?state=" + state + "&code=mock-code"
+// exists only to satisfy the port. The scope rides in the query so a keyless
+// run can still tell the sign-in grant from the connect grant.
+func (c *Client) AuthorizeURL(state, scope string) string {
+	u := "/auth/github/callback?state=" + state + "&code=mock-code"
+	if scope != "" {
+		u += "&scope=" + scope
+	}
+	return u
 }
 
-// ExchangeCode returns a canned access token without any network call.
-func (c *Client) ExchangeCode(context.Context, string) (string, error) {
-	return MockToken, nil
+// ExchangeCode returns a canned access token and reports it as repo-scoped, so
+// the offline connect grant lands a credential exactly as the real one does.
+func (c *Client) ExchangeCode(context.Context, string) (string, string, error) {
+	return MockToken, githubapi.ScopeRepo, nil
+}
+
+// TokenScopes reports the canned credential as repo-scoped, so a keyless run
+// classifies as connected rather than sitting in the unknown-scopes state.
+func (c *Client) TokenScopes(context.Context, string) (string, error) {
+	return githubapi.ScopeRepo, nil
 }
 
 // FetchUser returns a canned profile without any network call.

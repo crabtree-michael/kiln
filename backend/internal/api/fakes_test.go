@@ -383,11 +383,19 @@ func (f *fakeNotificationPoster) posted() []devNote {
 type fakeAuth struct {
 	mu sync.Mutex
 
-	loginURL string // base URL LoginURL appends "?state=" onto
+	loginURL   string // base URL LoginURL appends "?state=" onto
+	connectURL string // base URL ConnectURL appends "?state=" onto
 
 	completeLoginUser  identity.User
 	completeLoginErr   error
 	completeLoginCalls []string // codes CompleteLogin was called with, in order
+
+	// The repo-scoped grant's half. Kept separate from the login fields so a
+	// test can assert the callback picked the RIGHT completion — the whole
+	// point of the state prefix is that only one of the two runs.
+	completeConnectUser  identity.User
+	completeConnectErr   error
+	completeConnectCalls []string // codes CompleteConnect was called with, in order
 
 	sessionToken     string
 	sessionExpires   time.Time
@@ -412,6 +420,17 @@ func (f *fakeAuth) CompleteLogin(_ context.Context, code string) (identity.User,
 	return f.completeLoginUser, f.completeLoginErr
 }
 
+func (f *fakeAuth) ConnectURL(state string) string {
+	return f.connectURL + "?state=" + state
+}
+
+func (f *fakeAuth) CompleteConnect(_ context.Context, code string) (identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.completeConnectCalls = append(f.completeConnectCalls, code)
+	return f.completeConnectUser, f.completeConnectErr
+}
+
 func (f *fakeAuth) CreateSession(_ context.Context, _ string) (string, time.Time, error) {
 	return f.sessionToken, f.sessionExpires, f.createSessionErr
 }
@@ -431,6 +450,12 @@ func (f *fakeAuth) completeLoginCallCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.completeLoginCalls)
+}
+
+func (f *fakeAuth) completeConnectCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.completeConnectCalls)
 }
 
 func (f *fakeAuth) lastCompleteLoginCode() string {

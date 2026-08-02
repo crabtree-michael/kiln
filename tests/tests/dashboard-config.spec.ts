@@ -30,12 +30,15 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   expect(created.ok(), 'seeding the project over PUT /api/project failed').toBe(true);
   await page.reload();
 
-  // Project saved → settings view; credentials auto-save as entered — fill
-  // and blur (no submit button exists anymore). The Anthropic key is now a
-  // global env setting and its per-user field is hidden, so this exercises the
-  // credential path through the Amika key field instead.
+  // Project saved → settings view. Credentials now live in the Integrations
+  // section as one connect card per provider: "Connect" opens a small modal
+  // whose single input takes the key (there is no free-text credential form
+  // anymore, and GitHub connects through OAuth rather than a pasted token).
+  // The Anthropic key is a global env setting and its card is hidden, so this
+  // exercises the credential path through the Amika card instead.
+  await page.locator('[data-role="integration-connect"][data-provider="amika"]').click();
   await page.getByLabel('Amika API key').fill('sk-amika-e2e-fake-x4Kd');
-  await page.getByLabel('Amika API key').press('Tab');
+  await page.locator('[data-role="api-key-save"]').click();
   const status = page.locator('[data-role="secret-status"][data-name="amika_api_key"]');
   await expect(status).toHaveAttribute('data-set', 'true');
   await expect(status).toContainText('x4Kd');

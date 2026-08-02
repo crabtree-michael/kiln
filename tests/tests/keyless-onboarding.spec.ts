@@ -26,11 +26,14 @@ test('@keyless a new user connects a project and the board comes alive', async (
     .selectOption('https://example.com/keyless/demo');
   await page.getByRole('button', { name: 'Save project' }).click();
 
-  // Credentials auto-save on blur, then a live verify runs. With KILN_VERIFY_MODE=mock
-  // the Amika check reports ok offline (no real Amika call), instead of the failed
-  // status the key-gated dashboard-config spec asserts.
+  // Credentials are entered through the Integrations section: the provider's
+  // "Connect" card opens a modal whose single input takes the key. Saving it
+  // chains a live verify — with KILN_VERIFY_MODE=mock the Amika check reports
+  // ok offline (no real Amika call), instead of the failed status the
+  // key-gated dashboard-config spec asserts.
+  await page.locator('[data-role="integration-connect"][data-provider="amika"]').click();
   await page.getByLabel('Amika API key').fill('mock-amika-key');
-  await page.getByLabel('Amika API key').press('Tab');
+  await page.locator('[data-role="api-key-save"]').click();
   const secret = page.locator('[data-role="secret-status"][data-name="amika_api_key"]');
   await expect(secret).toHaveAttribute('data-set', 'true');
   await expect(

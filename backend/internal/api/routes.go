@@ -235,6 +235,11 @@ type BetaRegistrar interface {
 type Authenticator interface {
 	LoginURL(state string) string
 	CompleteLogin(ctx context.Context, code string) (identity.User, error)
+	// ConnectURL/CompleteConnect are the repo-scoped grant behind the
+	// dashboard's "Connect GitHub" card: same dance, but the token it yields is
+	// stored as the caller's repo credential (11 §2, integrations redesign).
+	ConnectURL(state string) string
+	CompleteConnect(ctx context.Context, code string) (identity.User, error)
 	CreateSession(ctx context.Context, userID string) (string, time.Time, error)
 	// ResolveSession returns the session's current expiry alongside the user
 	// (the renewed one when the sliding window fired, else the existing one)
@@ -635,6 +640,7 @@ func (s *Server) mountIdentityRoutes(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
+	mux.HandleFunc("GET /auth/github/connect", s.handleAuthConnect)
 	mux.HandleFunc("GET /auth/github/callback", s.handleAuthCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))

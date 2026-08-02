@@ -860,7 +860,20 @@ export interface components {
             amika_api_key: components["schemas"]["SecretStatus"];
             devin_api_key: components["schemas"]["SecretStatus"];
             github_auth_token: components["schemas"]["SecretStatus"];
+            github_connection: components["schemas"]["GitHubConnection"];
             amika_claude_cred_id: string;
+        };
+        /** @description The user's GitHub repo credential, as the Integrations card renders it. `github_auth_token` above says only whether SOMETHING is stored; this says whether it can actually reach the repo, which is what the card's Connect / Reconnect state turns on. */
+        GitHubConnection: {
+            /**
+             * @description `disconnected` — nothing stored. `connected` — stored with the `repo` scope. `unknown` — stored, scopes never recorded: a token carried over from the removed manual token field, treated as working (it is never downgraded merely by this refactor) until a verify run classifies it. `needs_reconnect` — stored, and GitHub reported a scope list WITHOUT `repo`, so it cannot clone a private repo or push; the card prompts a re-auth rather than failing later.
+             * @enum {string}
+             */
+            status: "disconnected" | "unknown" | "needs_reconnect" | "connected";
+            /** @description The GitHub account the credential belongs to; empty when unrecorded (a carried-over manual token). */
+            login: string;
+            /** @description Recorded scopes; empty when unknown. */
+            scopes: string[];
         };
         SecretStatus: {
             set: boolean;

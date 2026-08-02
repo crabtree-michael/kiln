@@ -92,10 +92,14 @@ describe('settings desktop layout', () => {
     expect(body).toMatch(/grid-template-columns:\s*repeat\(auto-fit, minmax\(180px, 1fr\)\)/);
   });
 
-  it('lists the credentials in columns rather than one per line', () => {
-    const body = ruleBody("[data-role='settings-form'] {");
-    expect(body).toMatch(/display:\s*grid/);
-    expect(body).toMatch(/grid-template-columns:\s*repeat\(auto-fit, minmax\(250px, 1fr\)\)/);
+  // Credentials are connect cards now, not a grid of inputs. Each card is a
+  // header row whose action is pinned to the right edge — that `margin-left:
+  // auto` is what keeps "Switch account" off the identity line, so it is the
+  // part worth asserting.
+  it('pins each integration card’s action to the right edge', () => {
+    const body = ruleBody("[data-role='integration-action'] {");
+    expect(body).toMatch(/margin-left:\s*auto/);
+    expect(ruleBody("[data-role='integration-header'] {")).toMatch(/display:\s*flex/);
   });
 
   it('collapses to a single column below the two-column threshold', () => {

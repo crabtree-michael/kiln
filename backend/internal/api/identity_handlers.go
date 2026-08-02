@@ -312,8 +312,24 @@ func meToWire(me identity.Me) wire.Me {
 			AmikaApiKey:       secretToWire(me.Settings.AmikaKey),
 			DevinApiKey:       secretToWire(me.Settings.DevinKey),
 			GithubAuthToken:   secretToWire(me.Settings.GitHubToken),
+			GithubConnection:  gitHubConnectionToWire(me.Settings.GitHub),
 			AmikaClaudeCredId: me.Settings.AmikaClaudeCredID,
 		},
+	}
+}
+
+// gitHubConnectionToWire maps the derived repo-credential state onto the wire.
+// Scopes is forced non-nil so the JSON is always an array, never null — the
+// client reads it as a list without a null guard.
+func gitHubConnectionToWire(c identity.GitHubConnection) wire.GitHubConnection {
+	scopes := c.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+	return wire.GitHubConnection{
+		Status: wire.GitHubConnectionStatus(c.Status),
+		Login:  c.Login,
+		Scopes: scopes,
 	}
 }
 

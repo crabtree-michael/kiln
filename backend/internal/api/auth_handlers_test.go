@@ -29,6 +29,10 @@ const (
 	// testStateValue is the state token every "state cookie present and
 	// matching the query param" test case shares.
 	testStateValue = "st-1"
+
+	// testSessionToken is the session token fakeAuth mints on a successful
+	// callback.
+	testSessionToken = "sess-tok-1"
 )
 
 // newAuthTestServer builds a bare server with EnableIdentity turned on over
@@ -128,7 +132,7 @@ func TestAuthCallbackSuccess(t *testing.T) {
 	expires := time.Now().Add(30 * 24 * time.Hour)
 	auth := &fakeAuth{
 		completeLoginUser: identity.User{ID: "u-1"},
-		sessionToken:      "sess-tok-1",
+		sessionToken:      testSessionToken,
 		sessionExpires:    expires,
 	}
 	ts := newAuthTestServer(auth)

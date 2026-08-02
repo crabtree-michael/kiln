@@ -25,7 +25,7 @@ func TestAuthorizeURL(t *testing.T) {
 		OAuthBaseURL: "https://github.example",
 	}, nil)
 
-	got := c.AuthorizeURL("state-abc")
+	got := c.AuthorizeURL("state-abc", "")
 
 	u, err := url.Parse(got)
 	if err != nil {
@@ -41,14 +41,39 @@ func TestAuthorizeURL(t *testing.T) {
 	if q.Get("state") != "state-abc" {
 		t.Errorf("state = %q, want state-abc", q.Get("state"))
 	}
-	// Sign-in and repo access are one credential (settings repo picker), so the
-	// authorize URL asks for `repo` on top of the default public identity — this
-	// is the only place that scope is requested.
-	if q.Get("scope") != "repo" {
-		t.Errorf("scope = %q, want repo", q.Get("scope"))
+	// Sign-in asks for nothing (11 §2 D2): repo access is a separate, explicit
+	// grant, so logging in never costs the user write access to their repos.
+	if q.Has("scope") {
+		t.Errorf("expected no scope param on the sign-in grant, got %q", q.Get("scope"))
 	}
 	if !strings.HasPrefix(got, "https://github.example/") {
 		t.Errorf("AuthorizeURL = %q, want prefix https://github.example/", got)
+	}
+}
+
+// The connect grant is the same URL plus the repo scope — this is what makes
+// the dashboard's "Connect GitHub" token usable for clone/push, rather than
+// the scopeless identity token plain sign-in yields.
+func TestAuthorizeURLWithRepoScope(t *testing.T) {
+	c := githubapi.New(githubapi.Config{
+		ClientID:     testClientID,
+		ClientSecret: testClientSecret,
+		OAuthBaseURL: "https://github.example",
+	}, nil)
+
+	u, err := url.Parse(c.AuthorizeURL("state-abc", githubapi.ScopeRepo))
+	if err != nil {
+		t.Fatalf("parse AuthorizeURL result: %v", err)
+	}
+	q := u.Query()
+	if q.Get("scope") != "repo" {
+		t.Errorf("scope = %q, want repo", q.Get("scope"))
+	}
+	if q.Get("state") != "state-abc" {
+		t.Errorf("state = %q, want state-abc", q.Get("state"))
+	}
+	if q.Get("client_id") != testClientID {
+		t.Errorf("client_id = %q, want client-123", q.Get("client_id"))
 	}
 }
 
@@ -66,7 +91,7 @@ func TestExchangeCodeSuccess(t *testing.T) {
 			t.Errorf("decode request body: %v", derr)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if _, werr := w.Write([]byte(`{"access_token":"gho_x","token_type":"bearer"}`)); werr != nil {
+		if _, werr := w.Write([]byte(`{"access_token":"gho_x","scope":"repo","token_type":"bearer"}`)); werr != nil {
 			t.Errorf("write response: %v", werr)
 		}
 	}))
@@ -78,12 +103,17 @@ func TestExchangeCodeSuccess(t *testing.T) {
 		OAuthBaseURL: ts.URL,
 	}, nil)
 
-	tok, err := c.ExchangeCode(context.Background(), "code-abc")
+	tok, scope, err := c.ExchangeCode(context.Background(), "code-abc")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
 	if tok != "gho_x" {
 		t.Errorf("token = %q, want gho_x", tok)
+	}
+	// The granted scope rides back alongside the token — it is what decides
+	// whether the grant is a usable repo credential.
+	if scope != "repo" {
+		t.Errorf("scope = %q, want repo", scope)
 	}
 	if gotMethod != http.MethodPost || gotPath != "/login/oauth/access_token" {
 		t.Errorf("request = %s %s, want POST /login/oauth/access_token", gotMethod, gotPath)
@@ -113,7 +143,7 @@ func TestExchangeCodeOAuthError(t *testing.T) {
 		OAuthBaseURL: ts.URL,
 	}, nil)
 
-	_, err := c.ExchangeCode(context.Background(), "code-abc")
+	_, _, err := c.ExchangeCode(context.Background(), "code-abc")
 	if err == nil {
 		t.Fatal("expected error on OAuth error body, got nil")
 	}
@@ -137,7 +167,7 @@ func TestExchangeCodeHTTPError(t *testing.T) {
 		OAuthBaseURL: ts.URL,
 	}, nil)
 
-	_, err := c.ExchangeCode(context.Background(), "code-abc")
+	_, _, err := c.ExchangeCode(context.Background(), "code-abc")
 	if err == nil {
 		t.Fatal("expected error on 503, got nil")
 	}

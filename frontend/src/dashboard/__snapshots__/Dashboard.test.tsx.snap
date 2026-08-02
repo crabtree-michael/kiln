@@ -288,97 +288,121 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
             <div
               data-role="section-body"
             >
-              <div
-                data-role="github-connection"
-                data-state="connected"
-              >
-                <span
-                  data-role="integration-icon"
-                >
-                  <svg
-                    aria-hidden="true"
-                    data-icon="github"
-                    fill="currentColor"
-                    viewBox="0 0 16 16"
-                  >
-                    <path
-                      d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
-                    />
-                  </svg>
-                </span>
-                <div
-                  data-role="integration-text"
-                >
-                  <span
-                    data-role="integration-name"
-                  >
-                    GitHub account
-                  </span>
-                  <span
-                    data-role="integration-detail"
-                  >
-                    1 repository available to link to a project.
-                  </span>
-                </div>
-                <span
-                  data-role="integration-state"
-                  data-state="connected"
-                >
-                  Connected
-                </span>
-                <a
-                  data-role="github-connection-action"
-                  href="/auth/github/login"
-                >
-                  Switch account
-                </a>
-              </div>
-              <form
-                data-role="settings-form"
+              <section
+                data-role="integrations"
               >
                 <div
-                  data-name="amika_api_key"
-                  data-role="credential-row"
+                  data-connected="true"
+                  data-provider="github"
+                  data-role="integration-card"
                 >
-                  <label
-                    for="credential-amika_api_key"
+                  <div
+                    data-role="integration-header"
                   >
-                    <span
-                      aria-hidden="true"
-                      data-role="credential-icon"
+                    <div
+                      data-role="integration-identity"
                     >
-                      <svg
-                        aria-hidden="true"
-                        data-icon="spark"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.75"
-                        viewBox="0 0 24 24"
+                      <span
+                        data-role="integration-title"
                       >
-                        <path
-                          d="m12 3 2.1 5.6 5.6 2.1-5.6 2.1L12 18.4l-2.1-5.6L4.3 10.7l5.6-2.1L12 3Z"
-                        />
-                      </svg>
-                    </span>
-                    Amika API key
-                  </label>
-                  <span
-                    data-role="credential-input-row"
-                  >
-                    <input
-                      id="credential-amika_api_key"
-                      placeholder=""
-                      type="password"
-                      value=""
-                    />
+                        GitHub
+                      </span>
+                      <span
+                        data-role="integration-blurb"
+                      >
+                        Lets agents clone, read, and push to your repo.
+                      </span>
+                    </div>
                     <span
-                      data-name="amika_api_key"
-                      data-role="credential-status"
-                      data-status="skipped"
-                    />
+                      data-connected="true"
+                      data-role="integration-connected"
+                    >
+                      Connected
+                    </span>
+                    <div
+                      data-role="integration-action"
+                    >
+                      <span
+                        data-name="github_auth_token"
+                        data-role="credential-status"
+                        data-status="skipped"
+                      />
+                      <a
+                        data-provider="github"
+                        data-role="github-switch-account"
+                        data-status="unknown"
+                        href="/auth/github/connect"
+                      >
+                        Switch account
+                      </a>
+                    </div>
+                  </div>
+                  <span
+                    data-role="github-account"
+                  >
+                    @
+                    octocat
                   </span>
+                  <span
+                    data-role="github-repo-count"
+                  >
+                    1
+                     
+                    repository
+                     
+                    available to link to a project.
+                  </span>
+                  <p
+                    data-role="github-access-note"
+                  >
+                    Connecting grants Kiln read and write access to your repositories — it needs that to clone your repo, read it, and push the branches your agents produce.
+                  </p>
+                </div>
+                <div
+                  data-connected="false"
+                  data-provider="amika"
+                  data-role="integration-card"
+                >
+                  <div
+                    data-role="integration-header"
+                  >
+                    <div
+                      data-role="integration-identity"
+                    >
+                      <span
+                        data-role="integration-title"
+                      >
+                        Amika
+                      </span>
+                      <span
+                        data-role="integration-blurb"
+                      >
+                        Provisions and runs the sandboxes your agents work in.
+                      </span>
+                    </div>
+                    <span
+                      data-connected="false"
+                      data-role="integration-connected"
+                    >
+                      Not connected
+                    </span>
+                    <div
+                      data-role="integration-action"
+                    >
+                      <span
+                        data-name="amika_api_key"
+                        data-role="credential-status"
+                        data-status="skipped"
+                      />
+                      <button
+                        data-provider="amika"
+                        data-role="integration-connect"
+                        type="button"
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  </div>
                   <span
                     data-name="amika_api_key"
                     data-role="secret-status"
@@ -386,57 +410,61 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   >
                     not configured
                   </span>
+                  <label
+                    data-role="amika-cred-id"
+                  >
+                    Amika Claude credential ID
+                    <input
+                      type="text"
+                      value="cred-1"
+                    />
+                  </label>
                 </div>
                 <div
-                  data-name="devin_api_key"
-                  data-role="credential-row"
+                  data-connected="false"
+                  data-provider="devin"
+                  data-role="integration-card"
                 >
-                  <label
-                    for="credential-devin_api_key"
+                  <div
+                    data-role="integration-header"
                   >
-                    <span
-                      aria-hidden="true"
-                      data-role="credential-icon"
+                    <div
+                      data-role="integration-identity"
                     >
-                      <svg
-                        aria-hidden="true"
-                        data-icon="bot"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.75"
-                        viewBox="0 0 24 24"
+                      <span
+                        data-role="integration-title"
                       >
-                        <rect
-                          height="12"
-                          rx="3.5"
-                          width="16"
-                          x="4"
-                          y="8"
-                        />
-                        <path
-                          d="M12 4v4M9.5 14h.01M14.5 14h.01M10 17.2h4M2.5 12.5v3M21.5 12.5v3"
-                        />
-                      </svg>
-                    </span>
-                    Devin API key
-                  </label>
-                  <span
-                    data-role="credential-input-row"
-                  >
-                    <input
-                      id="credential-devin_api_key"
-                      placeholder=""
-                      type="password"
-                      value=""
-                    />
+                        Devin
+                      </span>
+                      <span
+                        data-role="integration-blurb"
+                      >
+                        Runs tickets through Devin sessions.
+                      </span>
+                    </div>
                     <span
-                      data-name="devin_api_key"
-                      data-role="credential-status"
-                      data-status="skipped"
-                    />
-                  </span>
+                      data-connected="false"
+                      data-role="integration-connected"
+                    >
+                      Not connected
+                    </span>
+                    <div
+                      data-role="integration-action"
+                    >
+                      <span
+                        data-name="devin_api_key"
+                        data-role="credential-status"
+                        data-status="skipped"
+                      />
+                      <button
+                        data-provider="devin"
+                        data-role="integration-connect"
+                        type="button"
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  </div>
                   <span
                     data-name="devin_api_key"
                     data-role="secret-status"
@@ -445,109 +473,7 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                     not configured
                   </span>
                 </div>
-                <div
-                  data-name="github_auth_token"
-                  data-role="credential-row"
-                >
-                  <label
-                    for="credential-github_auth_token"
-                  >
-                    <span
-                      aria-hidden="true"
-                      data-role="credential-icon"
-                    >
-                      <svg
-                        aria-hidden="true"
-                        data-icon="github"
-                        fill="currentColor"
-                        viewBox="0 0 16 16"
-                      >
-                        <path
-                          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
-                        />
-                      </svg>
-                    </span>
-                    GitHub token
-                  </label>
-                  <span
-                    data-role="credential-input-row"
-                  >
-                    <input
-                      id="credential-github_auth_token"
-                      placeholder="configured · …abcd"
-                      type="password"
-                      value=""
-                    />
-                    <span
-                      data-name="github_auth_token"
-                      data-role="credential-status"
-                      data-status="skipped"
-                    />
-                  </span>
-                  <span
-                    data-name="github_auth_token"
-                    data-role="secret-status"
-                    data-set="true"
-                  >
-                    configured · …abcd
-                  </span>
-                </div>
-                <div
-                  data-name="amika_claude_cred_id"
-                  data-role="credential-row"
-                >
-                  <label
-                    for="credential-amika-claude-cred-id"
-                  >
-                    <span
-                      aria-hidden="true"
-                      data-role="credential-icon"
-                    >
-                      <svg
-                        aria-hidden="true"
-                        data-icon="id"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.75"
-                        viewBox="0 0 24 24"
-                      >
-                        <rect
-                          height="13"
-                          rx="2.5"
-                          width="18"
-                          x="3"
-                          y="5.5"
-                        />
-                        <circle
-                          cx="9"
-                          cy="11"
-                          r="1.9"
-                        />
-                        <path
-                          d="M6 16a3.4 3.4 0 0 1 6 0M15 10h3.5M15 13.5h2.5"
-                        />
-                      </svg>
-                    </span>
-                    Amika Claude credential ID
-                  </label>
-                  <span
-                    data-role="credential-input-row"
-                  >
-                    <input
-                      id="credential-amika-claude-cred-id"
-                      type="text"
-                      value="cred-1"
-                    />
-                  </span>
-                  <span
-                    data-role="credential-hint"
-                  >
-                    Not a secret — the id Amika resolves your Claude credential by.
-                  </span>
-                </div>
-              </form>
+              </section>
             </div>
           </section>
           <section

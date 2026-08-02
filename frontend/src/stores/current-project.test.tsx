@@ -36,6 +36,7 @@ function makeMe(projects: MeProject[]): Me {
       amika_api_key: { set: false, tail: '' },
       devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: false, tail: '' },
+      github_connection: { status: 'disconnected', login: '', scopes: [] },
       amika_claude_cred_id: '',
     },
   };

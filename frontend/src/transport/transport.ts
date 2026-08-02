@@ -517,6 +517,16 @@ function isSecretStatus(value: unknown): value is SecretStatus {
   return isRecord(value) && typeof value.set === 'boolean' && typeof value.tail === 'string';
 }
 
+function isGitHubConnection(value: unknown): value is MeSettings['github_connection'] {
+  return (
+    isRecord(value) &&
+    typeof value.status === 'string' &&
+    typeof value.login === 'string' &&
+    Array.isArray(value.scopes) &&
+    value.scopes.every((scope) => typeof scope === 'string')
+  );
+}
+
 function isMeSettings(value: unknown): value is MeSettings {
   return (
     isRecord(value) &&
@@ -524,6 +534,7 @@ function isMeSettings(value: unknown): value is MeSettings {
     isSecretStatus(value.amika_api_key) &&
     isSecretStatus(value.devin_api_key) &&
     isSecretStatus(value.github_auth_token) &&
+    isGitHubConnection(value.github_connection) &&
     typeof value.amika_claude_cred_id === 'string'
   );
 }

@@ -32,6 +32,12 @@ func (a *stubAuthenticator) CompleteLogin(context.Context, string) (identity.Use
 	return identity.User{}, nil
 }
 
+func (a *stubAuthenticator) ConnectURL(string) string { return "" }
+
+func (a *stubAuthenticator) CompleteConnect(context.Context, string) (identity.User, error) {
+	return identity.User{}, nil
+}
+
 func (a *stubAuthenticator) CreateSession(context.Context, string) (string, time.Time, error) {
 	return "", time.Time{}, nil
 }

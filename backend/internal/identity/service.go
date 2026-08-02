@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,13 +41,22 @@ const (
 // GitHub is the service's port onto the OAuth provider — satisfied directly
 // by *githubapi.Client (the consumer declares the interface, 02 §2).
 type GitHub interface {
-	AuthorizeURL(state string) string
-	ExchangeCode(ctx context.Context, code string) (string, error)
+	// AuthorizeURL builds the authorize redirect for a state nonce and scope;
+	// an empty scope is the plain sign-in grant (no `scope` param at all).
+	AuthorizeURL(state, scope string) string
+	// ExchangeCode returns the access token AND the scope string GitHub
+	// actually granted it — which can be narrower than the one requested.
+	ExchangeCode(ctx context.Context, code string) (string, string, error)
 	FetchUser(ctx context.Context, accessToken string) (githubapi.GitHubUser, error)
 	// ListRepos returns the repos the access token can reach, for the settings
-	// repo picker. A token GitHub rejects (revoked, or minted before Kiln
-	// requested the repo scope) yields githubapi.ErrUnauthorized.
+	// repo picker. A token GitHub rejects (revoked, or one that never carried
+	// the repo scope) yields githubapi.ErrUnauthorized.
 	ListRepos(ctx context.Context, accessToken string) ([]githubapi.Repo, error)
+	// TokenScopes reports the scopes an already-stored token carries, so a
+	// credential Kiln did not mint (a PAT carried over from the old manual
+	// field) can be classified without the user re-entering anything. An
+	// error means "could not determine", never "no scopes".
+	TokenScopes(ctx context.Context, accessToken string) (string, error)
 }
 
 // Verifier is the service's port onto live connection checks — satisfied by
@@ -83,54 +93,119 @@ func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) 
 	return &Service{store: store, cipher: cipher, gh: gh, allowed: allowed, now: time.Now}
 }
 
-func (s *Service) LoginURL(state string) string { return s.gh.AuthorizeURL(state) }
+// LoginURL is the plain sign-in grant: identity only, no scopes (11 §2 D2).
+func (s *Service) LoginURL(state string) string { return s.gh.AuthorizeURL(state, "") }
+
+// ConnectURL is the dashboard's "Connect GitHub" grant: the same OAuth dance,
+// but asking for `repo` — full read/write repository access. The resulting
+// token is what CompleteConnect stores as the user's GitHubToken, so it is the
+// credential the brain's clone/fetch, the `gh` PR gate, and the sandbox's
+// clone/push all authenticate with. This is the ONLY path that grants repo
+// access now that the manual PAT field is gone from the dashboard.
+func (s *Service) ConnectURL(state string) string {
+	return s.gh.AuthorizeURL(state, githubapi.ScopeRepo)
+}
 
 // CompleteLogin exchanges the OAuth code, enforces the allowlist on every
-// login (11 §2), finds-or-creates the user, and KEEPS the access token as that
-// user's GitHub credential.
+// login (11 §2), and finds-or-creates the user. The access token is used only
+// to read the profile and is then discarded.
 //
-// Keeping the token is what makes sign-in double as "connect your GitHub
-// account" (settings repo picker): the authorize URL requests the repo scope,
-// so this one token both identified the user and can list/clone their repos.
-// It lands in the same slot a hand-entered PAT would (GitHubTokenEnc), so every
-// downstream reader — repo verify, clone, the sandbox env — is unchanged and
-// simply sees a fresher credential.
-//
-// A failure to store it does NOT fail the login: the user is authenticated
-// either way, and the dashboard will show them as not-connected and offer the
-// re-authorize link. Locking someone out of the app over a credential write
-// would be the worse outcome.
+// Signing in deliberately grants NOTHING (11 §2 D2): the authorize URL carries
+// no scope, so this token could not clone or push even if it were kept. Repo
+// access is a separate, explicit act — CompleteConnect — which is what makes
+// the consent screen's `repo` prompt something the user opted into rather than
+// a toll on logging in. The settings repo picker reads the credential that
+// grant stores, so a user who has not connected sees its "not connected"
+// state, not a broken list.
 func (s *Service) CompleteLogin(ctx context.Context, code string) (User, error) {
-	token, err := s.gh.ExchangeCode(ctx, code)
-	if err != nil {
-		return User{}, fmt.Errorf("identity: complete login: %w", err)
-	}
-	ghUser, err := s.gh.FetchUser(ctx, token)
-	if err != nil {
-		return User{}, fmt.Errorf("identity: complete login: %w", err)
-	}
-	login := strings.ToLower(ghUser.Login)
-	if !s.allowed[login] {
-		return User{}, ErrNotAllowed
-	}
-	user, err := s.upsertFromGitHub(ctx, ghUser)
+	user, _, _, err := s.completeOAuth(ctx, code, "complete login")
+	return user, err
+}
+
+// CompleteConnect completes the repo-scoped grant (ConnectURL): same
+// allowlist + find-or-create as CompleteLogin, and then it PERSISTS the access
+// token as the user's GitHubToken — the same encrypted slot the old manual
+// token field wrote to, which is why this flow fully replaces that field and
+// why a token stored by the old field keeps working until replaced here.
+//
+// Storing the token is what makes "Connected" on the dashboard card mean the
+// repo is actually reachable, rather than merely "you signed in with GitHub".
+func (s *Service) CompleteConnect(ctx context.Context, code string) (User, error) {
+	user, token, scope, err := s.completeOAuth(ctx, code, "complete connect")
 	if err != nil {
 		return User{}, err
 	}
-	if serr := s.UpdateSettings(ctx, user.ID, SettingsUpdate{GitHubToken: token}); serr != nil {
-		slog.ErrorContext(ctx, "identity: store github oauth token", "user_id", user.ID, "err", serr)
+	// GitHub can hand back a NARROWER grant than the one asked for — the user
+	// unticks an org, or the OAuth app isn't approved there. Storing such a
+	// token would light the dashboard card up as "Connected" while every clone
+	// and push still failed, so refuse it: the caller turns this into a page
+	// that says what happened and offers to retry.
+	if !grantsRepoScope(scope) {
+		return User{}, ErrRepoScopeNotGranted
+	}
+	if err := s.storeGitHubConnection(ctx, user.ID, token, scope, user.GitHubLogin); err != nil {
+		return User{}, fmt.Errorf("identity: complete connect: %w", err)
 	}
 	return user, nil
 }
 
+// grantsRepoScope reports whether GitHub's granted-scope string carries full
+// `repo`. The string is comma-separated (e.g. "repo,gist"), and the match is
+// exact per element on purpose: `public_repo` is a strictly narrower scope that
+// cannot clone or push a private repo, so it must not pass for `repo`.
+func grantsRepoScope(scope string) bool {
+	return slices.Contains(splitScopes(scope), githubapi.ScopeRepo)
+}
+
+// splitScopes normalizes GitHub's scope string into its non-empty elements.
+// GitHub uses commas in the token-exchange body and (historically) commas with
+// spaces in the X-OAuth-Scopes header, so both are tolerated. An empty string
+// yields an empty (never nil) slice, so the wire field is always an array.
+func splitScopes(scope string) []string {
+	out := []string{}
+	for part := range strings.SplitSeq(scope, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// gitHubConnection derives the account view's repo-credential state from the
+// stored row. The ordering encodes the carry-forward guarantee: a credential
+// with NO scope record — every token carried over from the old manual field —
+// reads as connected-with-unknown-scopes, never as disconnected and never as
+// needing a reconnect. Only a scope list Kiln actually holds, and which
+// actually lacks `repo`, downgrades the connection, so nobody is pushed through
+// a fresh OAuth grant merely because of this refactor.
+func gitHubConnection(cfg UserConfig) GitHubConnection {
+	if len(cfg.GitHubTokenEnc) == 0 {
+		return GitHubConnection{Status: GitHubDisconnected, Scopes: []string{}}
+	}
+	conn := GitHubConnection{Login: cfg.GitHubConnectedLogin, Scopes: splitScopes(cfg.GitHubTokenScopes)}
+	switch {
+	case len(conn.Scopes) == 0:
+		conn.Status = GitHubUnknownScopes
+	case grantsRepoScope(cfg.GitHubTokenScopes):
+		conn.Status = GitHubConnected
+	default:
+		conn.Status = GitHubNeedsReconnect
+	}
+	return conn
+}
+
 // ListGitHubRepos returns the repos the caller's connected GitHub account can
 // reach — the source of the settings repo picker, replacing hand-typed repo
-// URLs. Private repos are included: the sign-in token carries the repo scope.
+// URLs. Private repos are included: the credential the "Connect GitHub" grant
+// stores carries the repo scope.
 //
-// Returns ErrGitHubNotConnected when the caller has no stored credential, or
-// when GitHub rejects the one they have (revoked, or predating the repo scope —
-// the state of every session minted before this feature). Both mean "sign in
-// again to re-authorize", which is the only remedy the UI offers.
+// It reads the SAME credential the Integrations card reports on
+// (GitHubTokenEnc), so the picker and the card can never disagree about whether
+// the account is connected. Returns ErrGitHubNotConnected when the caller has
+// no stored credential — the ordinary state before they connect, since signing
+// in grants nothing (11 §2 D2) — or when GitHub rejects the one they have
+// (revoked, or a carried-over manual token that never had the scope). Both mean
+// "run the Connect GitHub grant", which is the remedy the picker offers.
 func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, error) {
 	cfg, err := s.store.GetUserConfig(ctx, userID)
 	if err != nil {
@@ -277,6 +352,7 @@ func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
 		AmikaKey:          s.secretStatus(cfg.AmikaKeyEnc),
 		DevinKey:          s.secretStatus(cfg.DevinKeyEnc),
 		GitHubToken:       s.secretStatus(cfg.GitHubTokenEnc),
+		GitHub:            gitHubConnection(cfg),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 	}}
 	views, err := s.ListProjects(ctx, userID)
@@ -330,20 +406,19 @@ func (s *Service) UpdateSettings(ctx context.Context, userID string, upd Setting
 	if upd.AmikaClaudeCredID != "" {
 		cfg.AmikaClaudeCredID = upd.AmikaClaudeCredID
 	}
+	// A GitHub token written through THIS path (the API, which still accepts the
+	// field for back-compat) came with no scope record, so the old token's record
+	// must not be inherited by the new one — reset both to unknown and let the
+	// next verify's scope probe classify it. CompleteConnect never comes through
+	// here; it records the real scope itself.
+	if upd.GitHubToken != "" {
+		cfg.GitHubTokenScopes = ""
+		cfg.GitHubConnectedLogin = ""
+	}
 	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("identity: update settings: %w", err)
 	}
-	// Config is per-user and shared by every brain the user owns (12 §2), so a
-	// credential change must rebuild ALL of the owner's projects, not just one.
-	// A user who hasn't onboarded a project yet has nothing to invalidate.
-	projects, perr := s.store.ListProjectsByOwner(ctx, userID)
-	if perr != nil {
-		return fmt.Errorf("identity: update settings: %w", perr)
-	}
-	for _, proj := range projects {
-		s.fireInvalidate(proj.ID)
-	}
-	return nil
+	return s.invalidateOwnedProjects(ctx, userID, "update settings")
 }
 
 // minWorkerCount and maxWorkerCount mirror the DB's CHECK (worker_count
@@ -627,6 +702,98 @@ func (s *Service) VerifyProject(ctx context.Context, userID, projectID string) (
 	return s.verifyRepo(ctx, userID, proj.RepoURL)
 }
 
+// refreshGitHubScopes classifies a stored repo credential whose scopes aren't
+// recorded yet — the carried-over manual token. It asks GitHub what the token
+// actually carries and persists the answer, so the dashboard can stop guessing
+// and either leave the card green or prompt a reconnect.
+//
+// Best-effort by design, and only ever run from the verify path (never from a
+// read): a probe failure means "still unknown" — a revoked or network-blocked
+// token must NOT be recorded as scopeless, because that would show a reconnect
+// prompt for a credential that may be perfectly fine. It also never re-probes a
+// credential whose scopes are already recorded, so the common case costs
+// nothing.
+func (s *Service) refreshGitHubScopes(ctx context.Context, userID string, cfg UserConfig) {
+	if s.gh == nil || len(cfg.GitHubTokenEnc) == 0 || cfg.GitHubTokenScopes != "" {
+		return
+	}
+	scope, err := s.gh.TokenScopes(ctx, s.decrypt(cfg.GitHubTokenEnc))
+	if err != nil || strings.TrimSpace(scope) == "" {
+		// Unknown stays unknown: see the doc comment. A fine-grained PAT
+		// legitimately reports no scopes, so an empty answer is not evidence
+		// that the credential is insufficient.
+		return
+	}
+	cfg.UserID = userID
+	cfg.GitHubTokenScopes = scope
+	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
+		slog.Warn("identity: record github token scopes", "err", err)
+	}
+}
+
+// completeOAuth is the shared half of both callbacks: exchange the code, read
+// the profile, enforce the allowlist, find-or-create the user. It returns the
+// access token and its granted scope alongside the user so the connect path can
+// vet and store it; the login path drops both on the floor. The token is a live
+// secret — never log it.
+func (s *Service) completeOAuth(ctx context.Context, code, op string) (User, string, string, error) {
+	token, scope, err := s.gh.ExchangeCode(ctx, code)
+	if err != nil {
+		return User{}, "", "", fmt.Errorf("identity: %s: %w", op, err)
+	}
+	ghUser, err := s.gh.FetchUser(ctx, token)
+	if err != nil {
+		return User{}, "", "", fmt.Errorf("identity: %s: %w", op, err)
+	}
+	login := strings.ToLower(ghUser.Login)
+	if !s.allowed[login] {
+		return User{}, "", "", ErrNotAllowed
+	}
+	user, err := s.upsertFromGitHub(ctx, ghUser)
+	if err != nil {
+		return User{}, "", "", err
+	}
+	return user, token, scope, nil
+}
+
+// invalidateOwnedProjects rebuilds every project the user owns after a config
+// write. Config is per-user and shared by every brain the user owns (12 §2), so
+// a credential change must rebuild ALL of them, not just one. A user who hasn't
+// onboarded a project yet has nothing to invalidate.
+func (s *Service) invalidateOwnedProjects(ctx context.Context, userID, op string) error {
+	projects, err := s.store.ListProjectsByOwner(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("identity: %s: %w", op, err)
+	}
+	for _, proj := range projects {
+		s.fireInvalidate(proj.ID)
+	}
+	return nil
+}
+
+// storeGitHubConnection persists a freshly granted repo credential: the token
+// itself (into the SAME encrypted column the old manual field wrote to, so the
+// two paths are interchangeable), plus the scope GitHub granted it and the
+// account it belongs to. Recording the scope is what lets the dashboard tell
+// "connected" apart from "stored but can't reach the repo" without re-probing
+// GitHub on every page load.
+func (s *Service) storeGitHubConnection(ctx context.Context, userID, token, scope, login string) error {
+	cfg, err := s.store.GetUserConfig(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("identity: store github connection: %w", err)
+	}
+	cfg.UserID = userID
+	if err := s.mergeSecret(&cfg.GitHubTokenEnc, token); err != nil {
+		return err
+	}
+	cfg.GitHubTokenScopes = scope
+	cfg.GitHubConnectedLogin = login
+	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("identity: store github connection: %w", err)
+	}
+	return s.invalidateOwnedProjects(ctx, userID, "store github connection")
+}
+
 // verifyRepo runs live checks for each configured credential group against the
 // given repo url; unconfigured groups report "skipped" (11 §4). Order is fixed:
 // anthropic, amika, devin, repo.
@@ -639,6 +806,11 @@ func (s *Service) verifyRepo(ctx context.Context, userID, repoURL string) ([]Che
 	amikaKey := s.decrypt(cfg.AmikaKeyEnc)
 	devinKey := s.decrypt(cfg.DevinKeyEnc)
 	ghToken := s.decrypt(cfg.GitHubTokenEnc)
+	// Verify is the one user-facing action that is already allowed to touch the
+	// network, so it is where a carried-over GitHub token gets its scopes
+	// classified — turning the card's provisional "connected" into either a
+	// confirmed one or a reconnect prompt. No-op once the scopes are recorded.
+	s.refreshGitHubScopes(ctx, userID, cfg)
 	checks := make([]CheckResult, 0, verifyCheckCount)
 	checks = append(checks, s.check(ctx, "anthropic", anthropicKey != "", func(ctx context.Context) CheckResult {
 		return s.verifier.VerifyAnthropic(ctx, anthropicKey)

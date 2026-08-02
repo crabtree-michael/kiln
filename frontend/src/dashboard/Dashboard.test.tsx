@@ -5,7 +5,7 @@
 // a `MemoryRouter` (the real app always mounts this screen under one) rather
 // than reaching into the store directly.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Dashboard } from '@/dashboard/Dashboard';
@@ -51,6 +51,7 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       amika_api_key: { set: false, tail: '' },
       devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: false, tail: '' },
+      github_connection: { status: 'disconnected', login: '', scopes: [] },
       amika_claude_cred_id: '',
     },
     ...overrides,
@@ -63,6 +64,26 @@ function renderDashboard(): RenderResult {
       <Dashboard />
     </MemoryRouter>,
   );
+}
+
+/** An integration card by provider, asserting it rendered. */
+function integrationCard(provider: string): HTMLElement {
+  const card = document.querySelector<HTMLElement>(
+    `[data-role="integration-card"][data-provider="${provider}"]`,
+  );
+  if (card === null) {
+    throw new Error(`expected an integration card for ${provider}`);
+  }
+  return card;
+}
+
+/** Click a provider card's Connect / Update key button and return the API-key
+ * modal's input — the only way to enter a key now that the flat credential
+ * form is gone. */
+async function openConnectModal(provider: string, label: string): Promise<HTMLElement> {
+  const card = await waitFor(() => integrationCard(provider));
+  fireEvent.click(within(card).getByRole('button'));
+  return screen.getByLabelText(label);
 }
 
 describe('Dashboard', () => {
@@ -133,6 +154,7 @@ describe('Dashboard', () => {
           amika_api_key: { set: true, tail: 'x4Kd' },
           devin_api_key: { set: false, tail: '' },
           github_auth_token: { set: true, tail: 'abcd' },
+          github_connection: { status: 'unknown', login: '', scopes: [] },
           amika_claude_cred_id: 'cred-1',
         },
       }),
@@ -164,16 +186,93 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    // The Amika field still renders — the settings form is mounted — but the
-    // Anthropic key input and its status row are gone (SHOW_ANTHROPIC_KEY_FIELD).
-    await screen.findByLabelText('Amika API key');
-    expect(screen.queryByLabelText('Anthropic API key')).toBeNull();
+    // The Amika card still renders — the Integrations section is mounted — but
+    // the Anthropic card is gone entirely (SHOW_ANTHROPIC_KEY_FIELD).
+    await waitFor(() => integrationCard('amika'));
+    expect(
+      document.querySelector('[data-role="integration-card"][data-provider="anthropic"]'),
+    ).toBeNull();
     expect(
       document.querySelector('[data-role="secret-status"][data-name="anthropic_api_key"]'),
     ).toBeNull();
   });
 
-  it('blurring a filled credential field auto-saves only that field, then auto-verifies', async () => {
+  // Signing in with GitHub is NOT the same as connecting it: sign-in grants no
+  // scopes, so a session alone leaves the card disconnected until the
+  // repo-scoped grant runs. That separation is the whole point of the flow.
+  it('the GitHub card connects through the repo-scoped OAuth grant — no token field anywhere', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
+      }),
+    );
+    renderDashboard();
+
+    const card = await waitFor(() => integrationCard('github'));
+    expect(card).toHaveAttribute('data-connected', 'false');
+
+    // The manual "GitHub token" input is gone from the whole screen.
+    expect(screen.queryByLabelText('GitHub token')).toBeNull();
+    expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();
+
+    // Connect is a full-page anchor to the backend-owned repo-scoped route,
+    // not a router Link, and lives in the card's right-hand action slot.
+    const link = within(card).getByRole('link', { name: 'Connect' });
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
+    expect(link.parentElement).toHaveAttribute('data-role', 'integration-action');
+    // And the card says what that grant authorizes.
+    expect(within(card).getByText(/read and write access/i)).toBeInTheDocument();
+  });
+
+  it('a connected GitHub card right-aligns "Switch account"', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
+        settings: {
+          anthropic_api_key: { set: false, tail: '' },
+          amika_api_key: { set: false, tail: '' },
+          devin_api_key: { set: false, tail: '' },
+          github_auth_token: { set: true, tail: 'abcd' },
+          github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
+          amika_claude_cred_id: '',
+        },
+      }),
+    );
+    renderDashboard();
+
+    const card = await waitFor(() => integrationCard('github'));
+    expect(card).toHaveAttribute('data-connected', 'true');
+    expect(within(card).getByText('@octocat')).toBeInTheDocument();
+
+    const link = within(card).getByRole('link', { name: 'Switch account' });
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
+    expect(link).toHaveAttribute('data-role', 'github-switch-account');
+    expect(link.parentElement).toHaveAttribute('data-role', 'integration-action');
+  });
+
+  it('connecting an API-key provider saves only that field from the modal, then auto-verifies', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -217,15 +316,15 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue(response);
     renderDashboard();
 
-    const input = await screen.findByLabelText('Amika API key');
+    const input = await openConnectModal('amika', 'Amika API key');
     fireEvent.change(input, { target: { value: 'sk-new-ab' } });
-    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
       expect(transport.putSettings).toHaveBeenCalledWith({ amika_api_key: 'sk-new-ab' });
     });
-    // Only the one filled field made it into the request — the untouched
-    // secret/text fields (empty by default here) are left out entirely.
+    // Only the one field the modal collects made it into the request — no
+    // other provider's credential rides along.
     expect(transport.putSettings).toHaveBeenCalledTimes(1);
 
     // A successful credential save automatically chains a verify run — no
@@ -238,9 +337,14 @@ describe('Dashboard', () => {
     expect(indicator).toHaveAttribute('data-role', 'credential-status');
     expect(indicator).toHaveAttribute('data-name', 'amika_api_key');
     expect(indicator).toHaveAttribute('data-status', 'ok');
+
+    // The modal dismisses itself once the key is actually stored.
+    await waitFor(() => {
+      expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();
+    });
   });
 
-  it('blurring the Devin API key auto-saves it and reads its own verify check', async () => {
+  it('connecting Devin saves its own field and reads its own verify check', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -282,9 +386,9 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue(response);
     renderDashboard();
 
-    const input = await screen.findByLabelText('Devin API key');
+    const input = await openConnectModal('devin', 'Devin API key');
     fireEvent.change(input, { target: { value: 'cog-new-xy' } });
-    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
       expect(transport.putSettings).toHaveBeenCalledWith({ devin_api_key: 'cog-new-xy' });
@@ -301,7 +405,7 @@ describe('Dashboard', () => {
     expect(indicator).toHaveAttribute('data-status', 'ok');
   });
 
-  it('blurring an empty credential field does not save', async () => {
+  it('an empty modal cannot be submitted, and Cancel closes it without saving', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -320,9 +424,15 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    const input = await screen.findByLabelText('Amika API key');
-    fireEvent.focus(input);
-    fireEvent.blur(input);
+    const input = await openConnectModal('amika', 'Amika API key');
+    // Whitespace only still counts as empty — Save stays disabled.
+    fireEvent.change(input, { target: { value: '   ' } });
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();
 
     // Nothing to await on success, so give any errant async work a tick to
     // land before asserting the negative.
@@ -331,7 +441,7 @@ describe('Dashboard', () => {
     expect(transport.postVerify).not.toHaveBeenCalled();
   });
 
-  it('Enter in a filled credential field fires exactly one save, with no form submission', async () => {
+  it('Enter in the modal fires exactly one save', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -367,13 +477,16 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
     renderDashboard();
 
-    const input = await screen.findByLabelText('Amika API key');
-    const form = document.querySelector('[data-role="settings-form"]');
-    const submitSpy = vi.fn();
-    form?.addEventListener('submit', submitSpy);
+    const input = await openConnectModal('amika', 'Amika API key');
+    const form = document.querySelector('[data-role="api-key-modal"]');
+    if (form === null) {
+      throw new Error('expected the api-key modal to be open');
+    }
 
-    fireEvent.change(input, { target: { value: 'sk-enter' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: '  sk-enter  ' } });
+    // Enter in a single-input form is an implicit submit — the same path the
+    // Save button takes. The value is trimmed on its way out.
+    fireEvent.submit(form);
 
     await waitFor(() => {
       expect(transport.putSettings).toHaveBeenCalledWith({ amika_api_key: 'sk-enter' });
@@ -383,12 +496,9 @@ describe('Dashboard', () => {
       expect(transport.postVerify).toHaveBeenCalledTimes(1);
     });
     expect(transport.putSettings).toHaveBeenCalledTimes(1);
-    // Enter is preventDefault-ed inside the handler — it must never bubble up
-    // into a form submission (the credentials form has no submit path at all).
-    expect(submitSpy).not.toHaveBeenCalled();
   });
 
-  it('Enter followed immediately by blur fires exactly one save (per-field in-flight guard)', async () => {
+  it('a second submit while the first is in flight is swallowed (one save)', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -424,13 +534,16 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue({ checks: [] });
     renderDashboard();
 
-    const input = await screen.findByLabelText('Amika API key');
+    const input = await openConnectModal('amika', 'Amika API key');
+    const form = document.querySelector('[data-role="api-key-modal"]');
+    if (form === null) {
+      throw new Error('expected the api-key modal to be open');
+    }
     fireEvent.change(input, { target: { value: 'sk-once' } });
-    // The classic double-fire: committing with Enter also moves focus away
-    // (or the user tabs out immediately) — the blur lands while the Enter
-    // save is still in flight and must be swallowed by the guard.
-    fireEvent.keyDown(input, { key: 'Enter' });
-    fireEvent.blur(input);
+    // The classic double-fire: Enter submits, and an impatient second Enter (or
+    // a click on Save) lands while the first save is still in flight.
+    fireEvent.submit(form);
+    fireEvent.submit(form);
 
     await waitFor(() => {
       expect(transport.putSettings).toHaveBeenCalledWith({ amika_api_key: 'sk-once' });
@@ -483,9 +596,9 @@ describe('Dashboard', () => {
     vi.mocked(transport.postVerify).mockResolvedValue(response);
     renderDashboard();
 
-    const input = await screen.findByLabelText('Amika API key');
+    const input = await openConnectModal('amika', 'Amika API key');
     fireEvent.change(input, { target: { value: 'sk-bad' } });
-    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
       const indicator = document.querySelector(
@@ -517,6 +630,7 @@ describe('Dashboard', () => {
           amika_api_key: { set: true, tail: 'y7Bc' },
           devin_api_key: { set: false, tail: '' },
           github_auth_token: { set: true, tail: 'abcd' },
+          github_connection: { status: 'unknown', login: '', scopes: [] },
           amika_claude_cred_id: 'cred-1',
         },
       }),
@@ -555,6 +669,35 @@ describe('Dashboard', () => {
     );
   }
 
+  /** As mockPopulatedSettings, but with the repo credential the "Connect
+   * GitHub" grant stores — the state a user reaches after connecting. */
+  function mockConnectedSettings(): void {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
+        settings: {
+          anthropic_api_key: { set: false, tail: '' },
+          amika_api_key: { set: false, tail: '' },
+          devin_api_key: { set: false, tail: '' },
+          github_auth_token: { set: true, tail: 'abcd' },
+          github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
+          amika_claude_cred_id: '',
+        },
+      }),
+    );
+  }
+
   it('groups settings into four sections, each indexed by a nav anchor', async () => {
     mockPopulatedSettings();
     renderDashboard();
@@ -586,7 +729,7 @@ describe('Dashboard', () => {
 
     // One assertion per section, all true at once: nothing is behind a tab.
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Amika API key')).toBeInTheDocument();
+    expect(integrationCard('amika')).toBeInTheDocument();
     expect(document.querySelector('[data-role="notifications-field"]')).not.toBeNull();
     // Projects is the one deliberate exception: the SECTION is mounted and its
     // list is visible, but a project's fields live in a dialog (see
@@ -667,20 +810,21 @@ describe('Dashboard', () => {
   });
 
   it('surfaces the account-level GitHub connection in Integrations', async () => {
-    mockPopulatedSettings();
+    mockConnectedSettings();
     renderDashboard();
     await screen.findByRole('button', { name: 'Sign out' });
 
-    await waitFor(() => {
-      expect(document.querySelector('[data-role="github-connection"]')).toHaveAttribute(
-        'data-state',
-        'connected',
-      );
-    });
-    // Connecting and switching are the same single OAuth flow, so this is a
-    // full-page nav to the backend route — never a router Link.
-    const action = screen.getByRole('link', { name: 'Switch account' });
-    expect(action).toHaveAttribute('href', '/auth/github/login');
+    const card = await waitFor(() => integrationCard('github'));
+    expect(card).toHaveAttribute('data-connected', 'true');
+    // Switching re-runs the repo-scoped grant, so this is a full-page nav to
+    // the backend route — never a router Link.
+    const action = within(card).getByRole('link', { name: 'Switch account' });
+    expect(action).toHaveAttribute('href', '/auth/github/connect');
+    // The card reports what that grant bought, from the same credential the
+    // project form's repo picker reads.
+    expect(card.querySelector('[data-role="github-repo-count"]')?.textContent).toMatch(
+      /repositor/i,
+    );
   });
 
   it('offers a connect link when the GitHub account is not connected', async () => {
@@ -689,23 +833,21 @@ describe('Dashboard', () => {
     renderDashboard();
     await screen.findByRole('button', { name: 'Sign out' });
 
-    await waitFor(() => {
-      expect(document.querySelector('[data-role="github-connection"]')).toHaveAttribute(
-        'data-state',
-        'disconnected',
-      );
-    });
-    expect(screen.getByRole('link', { name: 'Connect' })).toHaveAttribute(
+    const card = await waitFor(() => integrationCard('github'));
+    expect(card).toHaveAttribute('data-connected', 'false');
+    // Signing in grants nothing (11 §2 D2), so a signed-in user with no
+    // credential is genuinely not connected until they run this grant.
+    expect(within(card).getByRole('link', { name: 'Connect' })).toHaveAttribute(
       'href',
-      '/auth/github/login',
+      '/auth/github/connect',
     );
   });
 
   it("a credential field's accessible name stays the label once its validity glyph lands", async () => {
-    // The regression the htmlFor/id wiring guards: with the input WRAPPED in its
-    // label, the ✓ rendered beside it joins the computed name, and every
-    // getByLabel('Amika API key') — here and in the Playwright suite — breaks
-    // the moment a verify comes back.
+    // The glyph now lives on the CARD, not beside the modal input, so it can no
+    // longer join the input's computed name. Asserted anyway: the Playwright
+    // suite still reaches this field by label, and the card's ✓ landing behind
+    // the open dialog must not change what that label resolves to.
     mockPopulatedSettings();
     vi.mocked(transport.putSettings).mockResolvedValue(
       makeMe({
@@ -728,12 +870,20 @@ describe('Dashboard', () => {
     });
     renderDashboard();
 
-    const input = await screen.findByLabelText('Amika API key');
-    fireEvent.change(input, { target: { value: 'sk-named' } });
-    fireEvent.blur(input);
-
-    await screen.findByText('✓');
+    const input = await openConnectModal('amika', 'Amika API key');
+    // The label resolves to the input, and the validity glyph is nowhere inside
+    // it — the card owns the glyph, so it cannot join the computed name.
     expect(screen.getByLabelText('Amika API key')).toBe(input);
+    const modal = document.querySelector('[data-role="api-key-modal"]');
+    expect(modal?.querySelector('[data-role="credential-status"]')).toBeNull();
+
+    fireEvent.change(input, { target: { value: 'sk-named' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // The glyph lands on the card once the verify returns, and the dialog closes.
+    const glyph = await screen.findByText('✓');
+    expect(glyph).toHaveAttribute('data-name', 'amika_api_key');
+    expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();
   });
 
   // ------------------------------------------------------------ projects
@@ -879,6 +1029,7 @@ describe('Dashboard', () => {
           amika_api_key: { set: false, tail: '' },
           devin_api_key: { set: false, tail: '' },
           github_auth_token: { set: true, tail: 'abcd' },
+          github_connection: { status: 'unknown', login: '', scopes: [] },
           amika_claude_cred_id: 'cred-1',
         },
       }),

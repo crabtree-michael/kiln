@@ -509,12 +509,6 @@ html:has([data-role='settings']) {
   padding: 1px var(--space-2);
 }
 
-[data-role='integration-state'][data-state='connected'] {
-  color: var(--calm-strong);
-  background: var(--calm-soft);
-  border-color: transparent;
-}
-
 /* Push blocked at the browser level is the one push state worth flagging —
    the rest ("Unavailable", "Checking…") are neutral facts, not warnings. */
 [data-role='integration-state'][data-state='disconnected'],
@@ -568,127 +562,6 @@ html:has([data-role='settings']) {
 
 [data-role='account-card'] button {
   margin-left: auto;
-}
-
-/* --------------------------------------------------------- integrations */
-
-/* The account-level GitHub connection: icon, name + detail, state chip, action.
-   Same row shape the credential list uses, so Integrations reads as one thing. */
-[data-role='github-connection'] {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-}
-
-[data-role='integration-icon'] {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  color: var(--text-body);
-}
-
-[data-role='integration-icon'] svg[data-icon] {
-  width: 15px;
-  height: 15px;
-}
-
-[data-role='integration-text'] {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-[data-role='integration-name'] {
-  font: var(--type-small);
-  font-weight: 600;
-  color: var(--text-body);
-}
-
-[data-role='integration-detail'] {
-  font: var(--type-caption);
-  color: var(--text-muted);
-}
-
-[data-role='github-connection-action'] {
-  flex-shrink: 0;
-  font: var(--type-caption);
-  color: var(--text-secondary);
-  text-decoration: none;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--surface-card);
-  padding: var(--space-1) var(--space-3);
-  line-height: 22px;
-}
-
-[data-role='github-connection-action']:hover {
-  color: var(--accent);
-  border-color: var(--border-strong);
-}
-
-/* --------------------------------------------------------- credentials */
-
-/* Auto-save + auto-verify: each secret input sits in a row with its own live
-   validity indicator pinned to the right — no "Save credentials" / "Test
-   connections" buttons, just type, blur/Enter, and watch the mark update. Two
-   per row on desktop; the list is short and every field is one line, so a
-   single column would waste most of the width. */
-[data-role='settings-form'] {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-4) var(--space-5);
-}
-
-[data-role='credential-row'] {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-[data-role='credential-row'] label {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-2);
-  font: var(--type-caption);
-  color: var(--text-secondary);
-}
-
-[data-role='credential-icon'] {
-  display: inline-flex;
-  color: var(--text-faint);
-}
-
-[data-role='credential-icon'] svg[data-icon] {
-  width: 14px;
-  height: 14px;
-}
-
-/* The row you're editing lights its glyph — a cheap, quiet focus cue that
-   doesn't need a border color change. */
-[data-role='credential-row']:focus-within [data-role='credential-icon'] {
-  color: var(--accent);
-}
-
-[data-role='credential-input-row'] {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-[data-role='credential-input-row'] input {
-  flex: 1;
-  min-width: 0;
 }
 
 [data-role='credential-status'] {
@@ -747,9 +620,6 @@ html:has([data-role='settings']) {
   font-weight: 600;
   color: var(--text-body);
 }
-
-/* The reason chip itself is the shared state pill, styled up with
-   [data-role='integration-state']. */
 
 /* The switch: a pill track that fills with ember when on, knob sliding across.
    Sized off the track so the two stay in step if the height changes. Scoped
@@ -1336,10 +1206,6 @@ html:has([data-role='settings']) {
     margin-left: 0;
   }
 
-  [data-role='github-connection'] {
-    flex-wrap: wrap;
-  }
-
   [data-role='sign-in-card'] {
     padding: var(--space-8) var(--space-5);
   }
@@ -1370,4 +1236,195 @@ html:has([data-role='settings']) {
   [data-role='project-danger-zone'] {
     flex-wrap: wrap;
   }
+}
+
+/* ----------------------------------------------------------- integrations */
+
+/* One card per provider. Each card is a header row — identity on the left,
+   connection state next to it, and the card's action pinned to the RIGHT edge
+   — over an optional detail block (stored-key status, the linked GitHub
+   account, extra provider config). The action slot is what keeps "Switch
+   account" off the identity line. */
+
+[data-role='integration-card'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+}
+
+[data-role='integration-card'][data-connected='true'] {
+  border-color: var(--border-strong);
+}
+
+[data-role='integration-header'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+[data-role='integration-identity'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+[data-role='integration-title'] {
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='integration-blurb'] {
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='integration-connected'] {
+  flex-shrink: 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-2);
+}
+
+[data-role='integration-connected'][data-connected='true'] {
+  color: var(--calm-strong);
+  border-color: var(--calm-strong);
+}
+
+/* The right-hand action slot: Connect / Update key / Switch account, plus the
+   live validity mark. `margin-left: auto` is the whole point — it pushes the
+   action to the card's right edge instead of letting it sit inline after the
+   identity text. */
+[data-role='integration-action'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+[data-role='dashboard'] [data-role='integration-action'] button {
+  align-self: center;
+  font: var(--type-caption);
+  padding: var(--space-1) var(--space-4);
+}
+
+/* GitHub's actions are anchors (a backend OAuth route, not an SPA path) —
+   styled to match the sibling cards' buttons. "Switch account" stays quiet:
+   the account is already connected, so it is a secondary affordance. */
+[data-role='integration-action'] a {
+  display: inline-flex;
+  align-items: center;
+  font: var(--type-caption);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-4);
+  text-decoration: none;
+  color: var(--text-on-accent);
+  background: var(--accent);
+}
+
+[data-role='integration-action'] a:hover {
+  background: var(--accent-hover);
+}
+
+[data-role='integration-action'] a[data-role='github-switch-account'] {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+}
+
+[data-role='integration-action'] a[data-role='github-switch-account']:hover {
+  background: var(--surface-subtle);
+  border-color: var(--border-strong);
+}
+
+[data-role='github-account'] {
+  font: var(--type-small);
+  color: var(--text-body);
+}
+
+/* What the `repo` grant on GitHub's consent screen actually authorizes, stated
+   on the card so it reads as expected rather than alarming. Quiet by default. */
+[data-role='github-access-note'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-faint);
+}
+
+/* The stored credential can't reach the repo — the one case the card raises its
+   voice, since everything downstream will fail until it's re-granted. */
+[data-role='github-reconnect-note'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--danger);
+}
+
+/* Only a credential that needs re-granting is an alarm state. "Not connected"
+   is merely unconfigured and stays neutral. */
+[data-role='integration-connected'][data-attention='true'] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+[data-role='amika-cred-id'] {
+  margin-top: var(--space-1);
+}
+
+/* ------------------------------------------------------- api-key modal */
+
+/* The "paste your key" dialog an API-key card's Connect opens. Fixed overlay so
+   it centres over the whole dashboard, not just the card it grew out of. */
+[data-role='api-key-backdrop'] {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--page-gutter);
+  background: rgb(0 0 0 / 45%);
+}
+
+[data-role='dashboard'] form[data-role='api-key-modal'] {
+  width: 100%;
+  max-width: 420px;
+  gap: var(--space-4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+[data-role='api-key-title'] {
+  margin: 0;
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='api-key-actions'] {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+[data-role='api-key-actions'] button {
+  align-self: center;
+}
+
+/* Cancel is the quiet half of the pair — a ghost button beside the solid
+   Save, so the primary action stays unambiguous. Scoped under the dashboard
+   root so it outranks the blanket `[data-role='dashboard'] button` fill. */
+[data-role='dashboard'] button[data-role='api-key-cancel'] {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+}
+
+[data-role='dashboard'] button[data-role='api-key-cancel']:hover {
+  background: var(--surface-subtle);
+  border-color: var(--border-strong);
 }

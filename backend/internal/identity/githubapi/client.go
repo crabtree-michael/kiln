@@ -35,14 +35,6 @@ const (
 	// maxErrorBody caps how much of a provider error response we read.
 	maxErrorBody = 1 << 20
 
-	// repoScope is the one OAuth scope Kiln asks for beyond the default public
-	// identity. Sign-in and repo access are the SAME credential (there is no
-	// second OAuth app or callback): the token the callback exchanges is what
-	// lists the repos in the settings picker and what clones the one the user
-	// selects, private repos included. Widening this scope means every user
-	// re-consents on their next sign-in.
-	repoScope = "repo"
-
 	// reposPerPage is GitHub's maximum page size for /user/repos, and
 	// maxRepoPages bounds how many pages one listing walks — an account with
 	// thousands of repos must not stall the request. Together: 500 repos.
@@ -111,17 +103,29 @@ func New(cfg Config, hc *http.Client) *Client {
 	}
 }
 
+// ScopeRepo is GitHub's full read/write repository scope — what an access
+// token needs to clone a private repo, push to it, and read/write its pull
+// requests. It is what the dashboard's "Connect GitHub" grant requests; plain
+// sign-in requests nothing (see AuthorizeURL).
+const ScopeRepo = "repo"
+
 // AuthorizeURL builds the GitHub authorize-redirect URL for the given OAuth
-// state nonce. It requests the `repo` scope on top of the default public
-// identity, because sign-in and repo access are one credential: the resulting
-// token both identifies the user and backs the settings repo picker. No
-// redirect_uri is sent — GitHub uses the OAuth app's single registered callback
-// URL (11 §2), which is exactly why there is no second flow to register.
-func (c *Client) AuthorizeURL(state string) string {
+// state nonce and scope. An EMPTY scope sends no `scope` param at all, which
+// is the plain sign-in grant: default public identity only (11 §2 D2 — signing
+// in never asks for repo access). A non-empty scope (ScopeRepo) is the
+// dashboard's "Connect GitHub" grant, whose token is stored as the user's repo
+// credential and backs the settings repo picker.
+//
+// No redirect_uri is sent in either case: GitHub uses the OAuth app's single
+// registered callback URL, which is why both grants share one callback route
+// and neither needs a second registration.
+func (c *Client) AuthorizeURL(state, scope string) string {
 	q := url.Values{
 		"client_id": {c.clientID},
 		"state":     {state},
-		"scope":     {repoScope},
+	}
+	if scope != "" {
+		q.Set("scope", scope)
 	}
 	return fmt.Sprintf("%s/login/oauth/authorize?%s", c.oauthBaseURL, q.Encode())
 }
@@ -135,26 +139,34 @@ type exchangeRequest struct {
 
 // exchangeResponse is GitHub's token-exchange response body. GitHub returns
 // HTTP 200 even for OAuth errors, signaled instead by a populated Error
-// field — both that case and a non-2xx HTTP status must be handled.
+// field — both that case and a non-2xx HTTP status must be handled. Scope is
+// the comma-separated list GitHub actually granted, which can be NARROWER than
+// what the authorize URL asked for (the user may decline an org, or the OAuth
+// app may not be approved there) — so it is the granted scope, never the
+// requested one, that decides whether the token is a usable repo credential.
 type exchangeResponse struct {
 	AccessToken      string `json:"access_token"`
+	Scope            string `json:"scope"`
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
 }
 
-// ExchangeCode exchanges an OAuth callback code for an access token.
-func (c *Client) ExchangeCode(ctx context.Context, code string) (string, error) {
+// ExchangeCode exchanges an OAuth callback code for an access token, returning
+// the token and the scope string GitHub granted it (see exchangeResponse). A
+// plain sign-in grant returns an empty scope; that is a real answer ("no
+// scopes"), not an unknown one.
+func (c *Client) ExchangeCode(ctx context.Context, code string) (string, string, error) {
 	var body exchangeResponse
 	if err := c.doExchange(ctx, code, &body); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if body.Error != "" {
-		return "", fmt.Errorf("githubapi: exchange: %w: %s (%s)", ErrExchange, body.Error, body.ErrorDescription)
+		return "", "", fmt.Errorf("githubapi: exchange: %w: %s (%s)", ErrExchange, body.Error, body.ErrorDescription)
 	}
 	if body.AccessToken == "" {
-		return "", fmt.Errorf("githubapi: exchange: %w: empty access token in response", ErrExchange)
+		return "", "", fmt.Errorf("githubapi: exchange: %w: empty access token in response", ErrExchange)
 	}
-	return body.AccessToken, nil
+	return body.AccessToken, body.Scope, nil
 }
 
 // GitHubUser is the subset of GitHub's `/user` response Kiln cares about.
@@ -172,7 +184,7 @@ type GitHubUser struct {
 // obtained from ExchangeCode.
 func (c *Client) FetchUser(ctx context.Context, accessToken string) (GitHubUser, error) {
 	var user GitHubUser
-	if err := c.doFetchUser(ctx, accessToken, &user); err != nil {
+	if _, err := c.doFetchUser(ctx, accessToken, &user); err != nil {
 		return GitHubUser{}, err
 	}
 	return user, nil
@@ -210,6 +222,34 @@ func (c *Client) ListRepos(ctx context.Context, accessToken string) ([]Repo, err
 		}
 	}
 	return repos, nil
+}
+
+// scopesHeader is the response header GitHub stamps on every authenticated API
+// response, listing the scopes the presented token actually carries. Spelled in
+// Go's canonical MIME form (http.Header canonicalizes on both set and get, so
+// this matches GitHub's "X-OAuth-Scopes" on the wire).
+const scopesHeader = "X-Oauth-Scopes"
+
+// TokenScopes reports the scopes an EXISTING access token carries, by making
+// the cheapest authenticated call there is (`GET /user`) and reading GitHub's
+// X-OAuth-Scopes response header.
+//
+// This is how a credential Kiln did not mint — a personal access token typed
+// into the old manual field, carried forward by the integrations redesign —
+// gets classified without asking the user to re-enter anything. An error means
+// "could not determine" (network, or the token is revoked/invalid); it never
+// means "no scopes", so callers must not downgrade a stored credential on it.
+//
+// Fine-grained PATs report no scopes here (they carry resource permissions
+// instead), so they read as unknown rather than insufficient — deliberately,
+// since a working fine-grained token must not be declared broken.
+func (c *Client) TokenScopes(ctx context.Context, accessToken string) (string, error) {
+	var user GitHubUser
+	header, err := c.doFetchUser(ctx, accessToken, &user)
+	if err != nil {
+		return "", err
+	}
+	return header.Get(scopesHeader), nil
 }
 
 // doListRepos issues GET /user/repos for one page and decodes the 200 body into
@@ -311,21 +351,25 @@ func (c *Client) doExchange(ctx context.Context, code string, out *exchangeRespo
 	return nil
 }
 
-// doFetchUser issues GET /user and decodes the 200 body into out. The lone
-// named error return lets the deferred body-close surface its error without
-// a blank assignment (errcheck check-blank), the same shape as doExchange.
-func (c *Client) doFetchUser(ctx context.Context, accessToken string, out *GitHubUser) (err error) {
+// doFetchUser issues GET /user, decodes the 200 body into out, and returns the
+// response headers (TokenScopes reads X-OAuth-Scopes off them; FetchUser
+// ignores them). The lone named error return lets the deferred body-close
+// surface its error without a blank assignment (errcheck check-blank), the
+// same shape as doExchange.
+func (c *Client) doFetchUser(
+	ctx context.Context, accessToken string, out *GitHubUser,
+) (_ http.Header, err error) {
 	u := c.apiBaseURL + "/user"
 	req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if rerr != nil {
-		return fmt.Errorf("githubapi: build fetch-user request: %w", rerr)
+		return nil, fmt.Errorf("githubapi: build fetch-user request: %w", rerr)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, derr := c.http.Do(req)
 	if derr != nil {
-		return fmt.Errorf("githubapi: fetch user: %w: %w", ErrFetchUser, derr)
+		return nil, fmt.Errorf("githubapi: fetch user: %w: %w", ErrFetchUser, derr)
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil && err == nil {
@@ -336,13 +380,13 @@ func (c *Client) doFetchUser(ctx context.Context, accessToken string, out *GitHu
 	if resp.StatusCode != http.StatusOK {
 		errBody, rerr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 		if rerr != nil {
-			return fmt.Errorf("githubapi: fetch user: %w: http %d", ErrFetchUser, resp.StatusCode)
+			return nil, fmt.Errorf("githubapi: fetch user: %w: http %d", ErrFetchUser, resp.StatusCode)
 		}
-		return fmt.Errorf("githubapi: fetch user: %w: http %d: %s", ErrFetchUser, resp.StatusCode, string(errBody))
+		return nil, fmt.Errorf("githubapi: fetch user: %w: http %d: %s", ErrFetchUser, resp.StatusCode, string(errBody))
 	}
 
 	if jerr := json.NewDecoder(resp.Body).Decode(out); jerr != nil {
-		return fmt.Errorf("githubapi: decode user response: %w", jerr)
+		return nil, fmt.Errorf("githubapi: decode user response: %w", jerr)
 	}
-	return nil
+	return resp.Header, nil
 }

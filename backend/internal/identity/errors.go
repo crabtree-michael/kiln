@@ -13,9 +13,14 @@ var (
 	// with a worker count outside the DB's 1-10 CHECK constraint.
 	ErrInvalidProject = errors.New("identity: project needs a name, a repo_url, and worker_count 1-10")
 	// ErrGitHubNotConnected reports that the caller has no usable GitHub
-	// credential for repo access: they have never stored one, or the one they
-	// have was rejected/unscoped (a session that predates the repo scope). The
-	// fix is always the same — sign in again to re-authorize — so the api maps
-	// this to a "not connected" listing rather than an error.
+	// credential for repo access: they have never connected one, or the one
+	// they have was rejected/unscoped. The fix is always the same — run the
+	// "Connect GitHub" grant — so the api maps this to a "not connected"
+	// listing rather than an error.
 	ErrGitHubNotConnected = errors.New("identity: no authorized github credential")
+	// ErrRepoScopeNotGranted rejects a "Connect GitHub" callback whose token
+	// came back without full `repo` — the grant the dashboard card asks for.
+	// The token is discarded rather than stored, so a card never reads
+	// "Connected" without a credential that can actually clone and push.
+	ErrRepoScopeNotGranted = errors.New("identity: github connect did not grant repo scope")
 )

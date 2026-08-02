@@ -74,12 +74,13 @@ const CHECKLIST: { need: string; forWhat: string; where: JSX.Element }[] = [
     ),
   },
   {
-    need: 'A GitHub token (PAT)',
+    need: 'A connected GitHub account',
     forWhat: 'Lets agents clone, read, and push to your repo',
     where: (
       <>
-        GitHub → Settings → Developer settings → Personal access tokens (grant <code>repo</code>{' '}
-        access)
+        Settings → Integrations → GitHub → <strong>Connect</strong>. This grants Kiln{' '}
+        <strong>read and write access to your repositories</strong> — separate from signing in,
+        which grants nothing.
       </>
     ),
   },
@@ -402,22 +403,38 @@ export function Guide(): JSX.Element {
                 <div className="guide-step__body">
                   <h3 className="guide-step__title">Add and verify your credentials</h3>
                   <p>
-                    Settings is where your credentials live. It opens with your{' '}
+                    Settings is where your connections live. It opens with your{' '}
                     <strong>account card</strong> (your GitHub avatar, name, and a{' '}
-                    <strong>Sign out</strong> button) at the top, followed by the credential fields:
+                    <strong>Sign out</strong> button), followed by <strong>Integrations</strong> —
+                    one card per provider:
                   </p>
                   <ul className="guide-list">
-                    <li>Anthropic API key</li>
-                    <li>Amika API key</li>
-                    <li>GitHub token</li>
-                    <li>Amika Claude credential ID</li>
+                    <li>
+                      <strong>GitHub</strong> — <strong>Connect</strong> sends you through GitHub’s
+                      authorization screen, which will ask you to grant the <code>repo</code>{' '}
+                      permission. That is expected: it is{' '}
+                      <strong>read and write access to your repositories</strong>, and Kiln needs it
+                      to clone your repo, read it, and push the branches your agents produce.
+                      Signing in to Kiln does <em>not</em> grant this on its own. Once connected the
+                      card names the account, with a <strong>Switch account</strong> link on the
+                      right if you want to authorize a different one. If you already had a GitHub
+                      token saved in the old settings field, it carries over — you stay connected
+                      and don’t need to redo anything.
+                    </li>
+                    <li>
+                      <strong>Amika</strong> — provisions the sandboxes your agents work in. It also
+                      carries the Amika Claude credential ID.
+                    </li>
+                    <li>
+                      <strong>Devin</strong> — runs tickets through Devin sessions.
+                    </li>
                   </ul>
                   <p>
-                    These fields <strong>auto-save</strong> — there’s no “Save credentials” button.
-                    Type a value and either press <strong>Enter</strong> or click away from the
-                    field; that one field saves on its own. Saving any of the three secret keys
+                    For the key-based providers, <strong>Connect</strong> opens a small dialog with
+                    a single field: paste the key and hit <strong>Save</strong>. There’s no “Save
+                    credentials” button and no free-text token field anywhere — saving a key
                     immediately kicks off a <strong>live verification</strong>, so a status mark
-                    appears to the right of each field:
+                    appears on that provider’s card:
                   </p>
                   <div className="guide-table-wrap">
                     <table className="guide-table guide-table--marks">
@@ -440,19 +457,19 @@ export function Guide(): JSX.Element {
                     </table>
                   </div>
                   <p>
-                    The keys are <strong>write-only</strong>: once saved, the field never shows the
-                    value again — only a masked placeholder like <code>configured · …x4Kd</code>.
-                    Leaving a field blank keeps whatever was already stored, so you never have to
-                    re-type a key you didn’t change.
+                    The keys are <strong>write-only</strong>: once saved, nothing ever shows the
+                    value again — only a masked line like <code>configured · …x4Kd</code> on the
+                    card. A connected card’s button becomes <strong>Update key</strong>, so you only
+                    ever re-enter a key you actually want to change.
                   </p>
                   <Figure
-                    caption="Figure 3 — Credentials in Settings after verification."
-                    capture="The credential fields showing ✓ marks, plus the account card above them."
+                    caption="Figure 3 — Integrations in Settings after verification."
+                    capture="The provider cards showing ✓ marks, plus the account card above them."
                   />
                   <p>
-                    <strong>Wait for all three checks to go green</strong> before moving on. A red ✗
-                    means that connection won’t work at runtime — fix the key and it re-verifies as
-                    you go.
+                    <strong>Wait for every card to go green</strong> before moving on. A red ✗ means
+                    that connection won’t work at runtime — fix the key and it re-verifies as you
+                    go.
                   </p>
                 </div>
               </li>
@@ -464,7 +481,7 @@ export function Guide(): JSX.Element {
                     Turn on notifications <span className="guide-optional">(optional)</span>
                   </h3>
                   <p>
-                    Below the credentials is a <strong>Notifications</strong> row. If your browser
+                    Below Integrations is a <strong>Notifications</strong> row. If your browser
                     supports it, flip the switch on so Kiln can reach you when a ticket needs a
                     decision while the app is closed. You can skip this and enable it later.
                   </p>

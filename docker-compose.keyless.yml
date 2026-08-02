@@ -29,6 +29,14 @@ services:
       # Seed the e2e-user's project at boot so the board renders without the
       # onboarding step (the onboarding spec uses a different, fresh login).
       KILN_BOOTSTRAP_GITHUB_USER: e2e-user
+      # Connect the bootstrap user's GitHub credential AT BOOT, before any spec
+      # runs. Otherwise the first session mint writes it mid-run — and a
+      # credential write invalidates the owner's projects, which CLOSES the
+      # tenant bundle and kills whatever agent turn another spec has in flight
+      # (the shared e2e-user is driven by three specs in parallel). Fresh
+      # throwaway logins are unaffected: they own no project, so their write
+      # invalidates nothing. Any non-empty value works — githubmock ignores it.
+      GITHUB_AUTH_TOKEN: mock-github-token
       AMIKA_REPO_URL: https://example.com/keyless/repo.git
       KILN_WORKER_COUNT: '3'
       # Identity must be mounted for dev sessions + bootstrap: a fixed test

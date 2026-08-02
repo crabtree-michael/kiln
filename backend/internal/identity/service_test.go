@@ -952,6 +952,34 @@ func TestDevSignInStoresConfiguredGitHubToken(t *testing.T) {
 	}
 }
 
+// The dev credential is written ONCE, not on every mint. A credential write
+// invalidates the owner's projects, and invalidation closes the tenant bundle —
+// so a repeat mint used to tear down another spec's in-flight agent turn (specs
+// share one dev login). Signing in again must be side-effect-free.
+func TestDevSignInWritesTheDevTokenOnlyOnce(t *testing.T) {
+	store := newFakeStore()
+	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc.SetDevGitHubToken("mock-github-token")
+	var invalidated int
+	svc.SetInvalidator(func(string) { invalidated++ })
+
+	u := mustDevSignIn(t, svc, "keyless-user")
+	if _, err := svc.CreateProject(context.Background(), u.ID, identity.ProjectUpdate{
+		Name: testProjectName, RepoURL: testProjectRepoURL,
+	}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	invalidated = 0 // ignore the create's own invalidation
+
+	for range 3 {
+		mustDevSignIn(t, svc, "keyless-user")
+	}
+
+	if invalidated != 0 {
+		t.Errorf("repeat DevSignIn invalidated the project %d times, want 0", invalidated)
+	}
+}
+
 // Without that opt-in — every real deployment — DevSignIn must not write a
 // credential at all: a real-service e2e run's stored GitHub token would
 // otherwise be clobbered by a synthetic one.

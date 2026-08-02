@@ -164,15 +164,21 @@ func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, e
 // connected. Without that call this is a pure find-or-create and touches no
 // credential — a real-service e2e run can never have its stored GitHub token
 // clobbered by a synthetic one.
+//
+// The write happens ONCE per user, only when they have no GitHub credential yet.
+// That is not an optimization: a credential write invalidates every project the
+// user owns, and invalidation CLOSES the tenant bundle (tenant.Registry). Specs
+// share one dev login, so writing on every mint let one spec's session mint tear
+// down another spec's in-flight agent turn mid-run — the completion event was
+// then never delivered. Minting a session must stay side-effect-free for a user
+// who is already connected.
 func (s *Service) DevSignIn(ctx context.Context, login string) (User, error) {
 	user, err := s.EnsureUser(ctx, login)
 	if err != nil {
 		return User{}, err
 	}
 	if s.devGitHubToken != "" {
-		if serr := s.UpdateSettings(ctx, user.ID, SettingsUpdate{GitHubToken: s.devGitHubToken}); serr != nil {
-			slog.ErrorContext(ctx, "identity: store dev github token", "user_id", user.ID, "err", serr)
-		}
+		s.ensureDevGitHubToken(ctx, user.ID)
 	}
 	return user, nil
 }
@@ -706,6 +712,24 @@ func (s *Service) decrypt(enc []byte) string {
 		return ""
 	}
 	return plain
+}
+
+// ensureDevGitHubToken stores the configured dev credential only for a user who
+// has none, so repeat sign-ins cause no config write (and therefore no tenant
+// invalidation). Best-effort: a failure leaves the user unconnected, which the
+// dashboard renders as the connect prompt, and is never fatal to signing in.
+func (s *Service) ensureDevGitHubToken(ctx context.Context, userID string) {
+	cfg, err := s.store.GetUserConfig(ctx, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "identity: read config for dev github token", "user_id", userID, "err", err)
+		return
+	}
+	if len(cfg.GitHubTokenEnc) > 0 {
+		return
+	}
+	if serr := s.UpdateSettings(ctx, userID, SettingsUpdate{GitHubToken: s.devGitHubToken}); serr != nil {
+		slog.ErrorContext(ctx, "identity: store dev github token", "user_id", userID, "err", serr)
+	}
 }
 
 func (s *Service) upsertFromGitHub(ctx context.Context, gh githubapi.GitHubUser) (User, error) {

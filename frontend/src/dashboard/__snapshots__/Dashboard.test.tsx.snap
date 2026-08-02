@@ -601,26 +601,33 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
               <section
                 data-role="notifications-field"
               >
-                <div
-                  data-role="notifications-header"
+                <span
+                  data-role="notifications-title"
+                  id="notifications-title"
+                >
+                  Push notifications
+                </span>
+                <span
+                  data-role="notifications-reason"
+                  data-status="unsupported"
+                >
+                  Unavailable
+                </span>
+                <button
+                  aria-busy="false"
+                  aria-checked="false"
+                  aria-labelledby="notifications-title"
+                  data-role="notifications-toggle"
+                  data-status="unsupported"
+                  disabled=""
+                  role="switch"
+                  type="button"
                 >
                   <span
-                    data-role="notifications-title"
-                  >
-                    Push notifications
-                  </span>
-                  <span
-                    data-role="notifications-status"
-                    data-status="unsupported"
-                  >
-                    Unavailable
-                  </span>
-                </div>
-                <p
-                  data-role="notifications-note"
-                >
-                  This browser doesn’t support push notifications.
-                </p>
+                    aria-hidden="true"
+                    data-role="notifications-knob"
+                  />
+                </button>
               </section>
             </div>
           </section>

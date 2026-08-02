@@ -464,10 +464,9 @@ export function Guide(): JSX.Element {
                     Turn on notifications <span className="guide-optional">(optional)</span>
                   </h3>
                   <p>
-                    Below the credentials is a <strong>Notifications</strong> section. If your
-                    browser supports it, click <strong>Enable notifications</strong> so Kiln can
-                    reach you when a ticket needs a decision while the app is closed. You can skip
-                    this and enable it later.
+                    Below the credentials is a <strong>Notifications</strong> row. If your browser
+                    supports it, flip the switch on so Kiln can reach you when a ticket needs a
+                    decision while the app is closed. You can skip this and enable it later.
                   </p>
                 </div>
               </li>

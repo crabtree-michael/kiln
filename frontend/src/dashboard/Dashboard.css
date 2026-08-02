@@ -491,9 +491,10 @@ html:has([data-role='settings']) {
   color: var(--text-faint);
 }
 
-/* Shared chip: a small state pill (GitHub connection, push status). */
+/* Shared chip: a small state pill (the GitHub connection state, the push
+   status). One rule so a state chip reads the same wherever it appears. */
 [data-role='integration-state'],
-[data-role='notifications-status'] {
+[data-role='notifications-reason'] {
   flex-shrink: 0;
   font: var(--type-caption);
   color: var(--text-muted);
@@ -503,15 +504,16 @@ html:has([data-role='settings']) {
   padding: 1px var(--space-2);
 }
 
-[data-role='integration-state'][data-state='connected'],
-[data-role='notifications-status'][data-status='enabled'] {
+[data-role='integration-state'][data-state='connected'] {
   color: var(--calm-strong);
   background: var(--calm-soft);
   border-color: transparent;
 }
 
+/* Push blocked at the browser level is the one push state worth flagging —
+   the rest ("Unavailable", "Checking…") are neutral facts, not warnings. */
 [data-role='integration-state'][data-state='disconnected'],
-[data-role='notifications-status'][data-status='denied'] {
+[data-role='notifications-reason'][data-status='denied'] {
   color: var(--warn-strong);
   background: var(--warn-soft);
   border-color: transparent;
@@ -718,39 +720,127 @@ html:has([data-role='settings']) {
 
 /* ------------------------------------------------------- notifications */
 
+/* Push opt-in (02 §10) is one setting, so it renders as one line: label left,
+   switch right, no explanatory copy. It takes the same inset row as the GitHub
+   connection — both are a single integration and its state — rather than card
+   chrome of its own, since the section-body around it is already a card. */
 [data-role='notifications-field'] {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
 }
 
-[data-role='notifications-header'] {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
+/* Pushes the reason + switch to the right edge as one pair. */
 [data-role='notifications-title'] {
+  margin-right: auto;
   font: var(--type-small);
   font-weight: 600;
   color: var(--text-body);
 }
 
-[data-role='notifications-field'] button {
-  margin-left: auto;
+/* The reason chip itself is the shared state pill, styled up with
+   [data-role='integration-state']. */
+
+/* The switch: a pill track that fills with ember when on, knob sliding across.
+   Sized off the track so the two stay in step if the height changes. Scoped
+   under [data-role='settings'] to outrank the page's ghost-button styling. */
+[data-role='settings'] [data-role='notifications-toggle'] {
+  --track-width: 40px;
+  --track-height: 22px;
+  --knob-inset: 3px;
+  position: relative;
+  flex-shrink: 0;
+  width: var(--track-width);
+  height: var(--track-height);
+  /* The page's compact buttons carry min-height: 32px — a track is not a
+     button-sized target, so it has to be cleared explicitly, not just `height`. */
+  min-height: var(--track-height);
+  padding: 0;
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
-[data-role='notifications-note'],
+[data-role='settings'] [data-role='notifications-toggle'][aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+[data-role='settings'] [data-role='notifications-toggle']:hover:not(:disabled) {
+  background: var(--surface-inset);
+  border-color: var(--border-strong);
+}
+
+[data-role='settings']
+  [data-role='notifications-toggle'][aria-checked='true']:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* The generic button:active ember flash would otherwise fire on the off track. */
+[data-role='settings'] [data-role='notifications-toggle']:active:not(:disabled) {
+  background: var(--surface-inset);
+}
+
+[data-role='settings']
+  [data-role='notifications-toggle'][aria-checked='true']:active:not(:disabled) {
+  background: var(--accent-press);
+}
+
+[data-role='settings'] [data-role='notifications-toggle']:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+[data-role='settings'] [data-role='notifications-toggle']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+[data-role='notifications-knob'] {
+  position: absolute;
+  top: var(--knob-inset);
+  left: var(--knob-inset);
+  /* The track's inner box minus the inset on both sides (border-box, so the
+     1px border is already outside `top`/`left`'s origin). */
+  width: calc(var(--track-height) - 2px - 2 * var(--knob-inset));
+  height: calc(var(--track-height) - 2px - 2 * var(--knob-inset));
+  border-radius: var(--radius-pill);
+  /* Off, the knob has to read against a track that is itself pale, so it takes
+     the strong border tone; on, it flips to the on-accent cream. */
+  background: var(--border-strong);
+  transition:
+    transform 120ms ease,
+    background 120ms ease;
+}
+
+[data-role='notifications-toggle'][aria-checked='true'] [data-role='notifications-knob'] {
+  background: var(--text-on-accent);
+  transform: translateX(calc(var(--track-width) - var(--track-height)));
+}
+
+/* Sits after the switch rules, not up with the spinner's reduced-motion block:
+   these selectors only tie with the ones above, so source order decides. */
+@media (prefers-reduced-motion: reduce) {
+  [data-role='settings'] [data-role='notifications-toggle'],
+  [data-role='notifications-knob'] {
+    transition: none;
+  }
+}
+
+/* Wraps onto its own line under the row, the same way the note used to. */
 [data-role='notifications-error'] {
   flex-basis: 100%;
   margin: 0;
   font: var(--type-caption);
-  color: var(--text-muted);
-}
-
-[data-role='notifications-error'] {
   color: var(--danger);
 }
 
@@ -1020,8 +1110,7 @@ html:has([data-role='settings']) {
     align-items: flex-start;
   }
 
-  [data-role='account-card'] button,
-  [data-role='notifications-field'] button {
+  [data-role='account-card'] button {
     margin-left: 0;
   }
 

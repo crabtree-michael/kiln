@@ -1,66 +1,60 @@
-// Push-notification opt-in for the account view (02 §10). A single "Enable
-// notifications" control that reflects the browser + backend capability and the
-// current subscription state, driven by the `useWebPush` hook. It renders
-// nothing actionable when notifications are unsupported or unconfigured — just
-// an explanation — so it degrades cleanly on a browser or deployment without
-// push.
+// Push-notification opt-in for the account view (02 §10). One compact row —
+// the same inset row shape the GitHub connection uses, since it sits inside the
+// settings page's Notifications section: a label and a switch, driven by the
+// `useWebPush` hook. The switch carries the state, so there is no explanatory
+// copy — the states push can't be turned on from (unsupported / unconfigured /
+// denied) render it inert beside a one-word reason, so it still degrades
+// cleanly on a browser or deployment without push.
 import type { JSX } from 'react';
 import { useWebPush, type WebPushStatus } from '@/stores/use-web-push';
 
-/** A short label for the status chip. */
-const CHIP_LABEL: Record<WebPushStatus, string> = {
+/** Why the switch is inert, for the states it can't be flipped in. One word
+ * each, so the section stays a row; the actionable states (default / enabling /
+ * enabled / error) say nothing, because the switch itself is the status. */
+const REASON: Partial<Record<WebPushStatus, string>> = {
   checking: 'Checking…',
   unsupported: 'Unavailable',
   unconfigured: 'Unavailable',
-  default: 'Off',
   denied: 'Blocked',
-  enabling: 'Working…',
-  enabled: 'On',
-  error: 'Off',
-};
-
-/** The one-line explanation shown beneath the chip, when a state warrants one. */
-const NOTE: Partial<Record<WebPushStatus, string>> = {
-  unsupported: 'This browser doesn’t support push notifications.',
-  unconfigured: 'Push notifications aren’t configured on the server.',
-  denied: 'Notifications are blocked — allow them in your browser settings, then reload.',
-  enabled: 'Notifications are on for this device.',
 };
 
 export function NotificationsField(): JSX.Element {
-  const { status, error, enable } = useWebPush();
+  const { status, error, enable, disable } = useWebPush();
 
-  // A button is offered only when the user can start or retry the flow.
-  const canEnable = status === 'default' || status === 'error';
-  const enabling = status === 'enabling';
-  const note = NOTE[status];
+  const on = status === 'enabled';
+  // Flippable only where a click does something: off → on from a fresh or
+  // failed state, on → off to unsubscribe this browser.
+  const actionable = on || status === 'default' || status === 'error';
+  const reason = REASON[status];
 
   return (
     <section data-role="notifications-field">
       {/* "Push notifications", not "Notifications": on the settings page this
           field sits under a section already titled Notifications, and naming the
           transport is what actually distinguishes it. */}
-      <div data-role="notifications-header">
-        <span data-role="notifications-title">Push notifications</span>
-        <span data-role="notifications-status" data-status={status}>
-          {CHIP_LABEL[status]}
+      <span id="notifications-title" data-role="notifications-title">
+        Push notifications
+      </span>
+      {reason !== undefined ? (
+        <span data-role="notifications-reason" data-status={status}>
+          {reason}
         </span>
-      </div>
-
-      {canEnable || enabling ? (
-        <button
-          type="button"
-          data-role="notifications-enable"
-          disabled={enabling}
-          onClick={() => {
-            void enable();
-          }}
-        >
-          {enabling ? 'Enabling…' : 'Enable notifications'}
-        </button>
       ) : null}
-
-      {note !== undefined ? <p data-role="notifications-note">{note}</p> : null}
+      <button
+        type="button"
+        role="switch"
+        data-role="notifications-toggle"
+        data-status={status}
+        aria-checked={on}
+        aria-labelledby="notifications-title"
+        aria-busy={status === 'enabling'}
+        disabled={!actionable}
+        onClick={() => {
+          void (on ? disable() : enable());
+        }}
+      >
+        <span data-role="notifications-knob" aria-hidden="true" />
+      </button>
 
       {error !== null ? (
         <p data-role="notifications-error" role="alert">

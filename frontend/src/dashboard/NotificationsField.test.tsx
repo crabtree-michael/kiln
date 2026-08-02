@@ -1,6 +1,6 @@
-// NotificationsField renders the push opt-in control off the useWebPush hook
+// NotificationsField renders the push opt-in switch off the useWebPush hook
 // (02 §10). The hook itself is unit-tested separately; here it is mocked so we
-// assert the field's per-state presentation.
+// assert the row's per-state presentation.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { NotificationsField } from '@/dashboard/NotificationsField';
@@ -18,51 +18,78 @@ function setStatus(status: WebPushStatus, error: string | null = null): void {
   hookValue = { status, error, enable, disable };
 }
 
+/** The single switch the section renders, labelled by the row's title. */
+function toggle(): HTMLElement {
+  return screen.getByRole('switch', { name: 'Push notifications' });
+}
+
 describe('NotificationsField', () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it('offers an enable button in the default state and drives enable()', () => {
+  it('renders an off switch in the default state and drives enable()', () => {
     setStatus('default');
     render(<NotificationsField />);
-    const button = screen.getByRole('button', { name: 'Enable notifications' });
-    fireEvent.click(button);
+    expect(toggle()).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(toggle());
     expect(enable).toHaveBeenCalledTimes(1);
+    expect(disable).not.toHaveBeenCalled();
   });
 
-  it('shows a disabled Enabling… button while the flow runs', () => {
-    setStatus('enabling');
-    render(<NotificationsField />);
-    expect(screen.getByRole('button', { name: 'Enabling…' })).toBeDisabled();
-  });
-
-  it('shows the on-state without a button when enabled', () => {
+  it('renders an on switch when enabled and drives disable()', () => {
     setStatus('enabled');
     render(<NotificationsField />);
-    expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByText(/notifications are on/i)).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(toggle());
+    expect(disable).toHaveBeenCalledTimes(1);
+    expect(enable).not.toHaveBeenCalled();
   });
 
-  it('explains unavailability without a button when unsupported', () => {
+  it('disables the switch while the flow runs', () => {
+    setStatus('enabling');
+    render(<NotificationsField />);
+    expect(toggle()).toBeDisabled();
+    expect(toggle()).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('carries no explanatory copy in the on state — just the switch', () => {
+    setStatus('enabled');
+    render(<NotificationsField />);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('switch')).toBeInTheDocument();
+    // The row is the label and the switch, nothing else.
+    expect(screen.getByText('Push notifications')).toBeInTheDocument();
+    expect(screen.queryByText(/notifications are on/i)).toBeNull();
+  });
+
+  it('renders an inert switch with a one-word reason when unsupported', () => {
     setStatus('unsupported');
     render(<NotificationsField />);
-    expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.getByText(/doesn’t support push notifications/i)).toBeInTheDocument();
+    expect(toggle()).toBeDisabled();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
   });
 
-  it('explains unavailability without a button when unconfigured', () => {
+  it('renders an inert switch with a one-word reason when unconfigured', () => {
     setStatus('unconfigured');
     render(<NotificationsField />);
-    expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.getByText(/aren’t configured on the server/i)).toBeInTheDocument();
+    expect(toggle()).toBeDisabled();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
   });
 
-  it('surfaces an error and offers a retry button', () => {
+  it('renders an inert switch with a one-word reason when denied', () => {
+    setStatus('denied');
+    render(<NotificationsField />);
+    expect(toggle()).toBeDisabled();
+    expect(screen.getByText('Blocked')).toBeInTheDocument();
+  });
+
+  it('surfaces an error and keeps the switch flippable for a retry', () => {
     setStatus('error', 'subscribe failed');
     render(<NotificationsField />);
-    expect(screen.getByRole('button', { name: 'Enable notifications' })).toBeInTheDocument();
+    expect(toggle()).toBeEnabled();
     expect(screen.getByRole('alert')).toHaveTextContent('subscribe failed');
+    fireEvent.click(toggle());
+    expect(enable).toHaveBeenCalledTimes(1);
   });
 });

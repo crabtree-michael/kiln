@@ -22,3 +22,39 @@ start_script = "scripts/amika/setup.sh"
 # Note: the base snapshot is selected by Kiln's AMIKA_SNAPSHOT env var at
 # sandbox-create time (backend/internal/agent/amika), so no [sandbox].snapshot
 # label is pinned here.
+
+# Environment variables Amika sets inside every sandbox it provisions for this
+# repo. `{ secret = "..." }` is a reference, not a value: Amika resolves the
+# named entry from its own remote secrets store at sandbox-create time and
+# injects it as this env var, so no credential is committed here.
+#
+# This is deliberately the *Amika* secret path, not Kiln's. Kiln has a second,
+# unrelated mechanism — per-project `amika_secrets` (migration 0003), set in the
+# dashboard, encrypted in Kiln's DB, and sent as `secret_env_vars` on
+# POST /sandboxes. RENDER_API_KEY is NOT registered there; it lives in Amika's
+# store and is declared below. To reverse this choice, drop the [env] entry and
+# add RENDER_API_KEY as a project secret in the Kiln dashboard instead.
+#
+# Sources merge per-key (API request > web UI/database > this file), and Kiln
+# omits `secret_env_vars` entirely when a project has no secrets configured, so
+# this entry is not shadowed. Don't also register RENDER_API_KEY as a Kiln
+# project secret — that higher-priority source would win and the two would
+# silently diverge.
+#
+# The referenced secret must exist in the store *before* a sandbox is created,
+# and must be visible to the Amika account Kiln authenticates as (AMIKA_API_KEY).
+# RENDER_API_KEY is registered org-scope (sec_de2f3f24, org_01KWKYK2Y5NHAPC8J3HSN6HQ8R,
+# 2026-08-02) — org rather than user scope is what makes it resolvable here, since
+# a private user-scoped secret is invisible to the org's API key even when the
+# same person owns both. To re-check or to add a sibling secret:
+#
+#   curl -H "Authorization: Bearer $AMIKA_API_KEY" $AMIKA_API_URL/api/v0beta1/secrets
+#   amika secret push SOME_KEY=value --scope org
+#
+# Amika's docs don't say what a *missing* secret name does at create time — the
+# documented failure mode is malformed input, where the whole [env] section is
+# skipped with a warning and the other sections still apply. So a sandbox that
+# boots with RENDER_API_KEY unset means the store lookup came back empty; check
+# the list call above before suspecting this file.
+[env]
+RENDER_API_KEY = { secret = "RENDER_API_KEY" }

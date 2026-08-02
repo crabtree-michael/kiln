@@ -10,11 +10,16 @@ import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { CredentialFields, ProjectFields } from '@/dashboard/ConfigFields';
 import { NotificationsField } from '@/dashboard/NotificationsField';
 import { useSandboxCatalog } from '@/dashboard/use-sandbox-catalog';
+import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
 import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
 
 interface ProjectCardProps {
   project: MeProject;
   providers: ProviderDescriptor[];
+  /** The account-level GitHub connection, loaded once by `Settings` and shared
+   * by every card — the credential is per-user, so per-card fetching would be
+   * the same request N times. */
+  github: GitHubRepos;
   saving: boolean;
   onSave: (id: string, body: ProjectUpdateRequest) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -25,6 +30,7 @@ interface ProjectCardProps {
 function ProjectCard({
   project,
   providers,
+  github,
   saving,
   onSave,
   onDelete,
@@ -49,6 +55,7 @@ function ProjectCard({
     <section data-role="project-card" data-project-id={project.id}>
       <ProjectFields
         project={project}
+        github={github}
         providers={providers}
         snapshots={catalog.snapshots}
         catalogAvailable={catalog.catalogAvailable}
@@ -82,6 +89,9 @@ export function Settings(): JSX.Element {
     error,
   } = useDashboardStore();
   const [creating, setCreating] = useState(false);
+  // One fetch for the whole page: the GitHub connection is per-user, so every
+  // project card and the new-project form pick from the same repo list.
+  const github = useGitHubRepos();
   if (me === null) {
     // See Onboarding's identical guard: Dashboard only mounts this view for a
     // populated `me` — narrows the type without an escape hatch.
@@ -140,6 +150,7 @@ export function Settings(): JSX.Element {
             key={project.id}
             project={project}
             providers={providers}
+            github={github}
             saving={saving}
             onSave={updateProject}
             onDelete={removeProject}
@@ -150,7 +161,12 @@ export function Settings(): JSX.Element {
       {creating ? (
         <section data-role="new-project-card">
           <h2>New project</h2>
-          <ProjectFields providers={providers} saving={saving} onSave={handleCreate} />
+          <ProjectFields
+            github={github}
+            providers={providers}
+            saving={saving}
+            onSave={handleCreate}
+          />
           <button
             type="button"
             data-role="cancel-new-project"

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -498,5 +499,117 @@ func TestDevSessionAbsentByDefault(t *testing.T) {
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 when EnableDevSession was never called", resp.StatusCode)
+	}
+}
+
+// ---- GET /api/github/repos (settings repo picker) --------------------------
+
+// errFakeGitHubReposFailed stands in for a GitHub-side failure that is NOT a
+// re-authorize prompt (err113: wrapped static errors, never dynamic ones).
+var errFakeGitHubReposFailed = errors.New("fakeAccount: synthetic github failure")
+
+// gitHubRepoListBody is the wire shape of GET /api/github/repos.
+type gitHubRepoListBody struct {
+	Connected bool `json:"connected"`
+	Repos     []struct {
+		FullName string `json:"full_name"`
+		URL      string `json:"url"`
+		Private  bool   `json:"private"`
+	} `json:"repos"`
+}
+
+func decodeRepoList(t *testing.T, resp *http.Response) gitHubRepoListBody {
+	t.Helper()
+	var body gitHubRepoListBody
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	return body
+}
+
+func TestGitHubRepos(t *testing.T) {
+	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
+	account := &fakeAccount{repos: []identity.Repo{
+		{FullName: "acme/api", URL: "https://github.com/acme/api", Private: true},
+		{FullName: "nobody/blog", URL: "https://github.com/nobody/blog"},
+	}}
+	srv := newIdentityServer(auth, account)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/github/repos")
+	defer closeBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", resp.StatusCode, readBody(t, resp))
+	}
+	body := decodeRepoList(t, resp)
+	if !body.Connected {
+		t.Error("connected = false, want true")
+	}
+	if len(body.Repos) != 2 {
+		t.Fatalf("len(repos) = %d, want 2", len(body.Repos))
+	}
+	if body.Repos[0].FullName != "acme/api" || body.Repos[0].URL != "https://github.com/acme/api" {
+		t.Errorf("repos[0] = %+v, want acme/api with its https url", body.Repos[0])
+	}
+	// The picker marks private repos, so the flag must survive the mapping.
+	if !body.Repos[0].Private || body.Repos[1].Private {
+		t.Errorf("private flags = %v/%v, want true/false", body.Repos[0].Private, body.Repos[1].Private)
+	}
+}
+
+// Not-yet-authorized is an ordinary state, not a failure: 200 + connected=false
+// is what makes the client render the "Connect GitHub account" prompt instead
+// of an error banner.
+func TestGitHubReposNotConnected(t *testing.T) {
+	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
+	account := &fakeAccount{reposErr: identity.ErrGitHubNotConnected}
+	srv := newIdentityServer(auth, account)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/github/repos")
+	defer closeBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", resp.StatusCode, readBody(t, resp))
+	}
+	body := decodeRepoList(t, resp)
+	if body.Connected {
+		t.Error("connected = true, want false")
+	}
+	// Never null: the client iterates this without a nil guard.
+	if body.Repos == nil || len(body.Repos) != 0 {
+		t.Errorf("repos = %v, want an empty array", body.Repos)
+	}
+}
+
+func TestGitHubReposUpstreamFailure(t *testing.T) {
+	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
+	account := &fakeAccount{reposErr: errFakeGitHubReposFailed}
+	srv := newIdentityServer(auth, account)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/github/repos")
+	defer closeBody(t, resp)
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
+	}
+}
+
+func TestGitHubReposRequiresSession(t *testing.T) {
+	auth := &fakeAuth{resolveErr: identity.ErrNoSession}
+	srv := newIdentityServer(auth, &fakeAccount{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/github/repos")
+	defer closeBody(t, resp)
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 }

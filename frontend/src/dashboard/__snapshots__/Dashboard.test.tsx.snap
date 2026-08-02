@@ -174,14 +174,30 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                 value="kiln"
               />
             </label>
-            <label>
-              Repo URL
-              <input
-                required=""
-                type="text"
-                value="https://github.com/crabtree-michael/kiln"
-              />
-            </label>
+            <div
+              data-role="repo-field"
+              data-state="connected"
+            >
+              <label>
+                Repository
+                <select
+                  data-role="repo-select"
+                  required=""
+                >
+                  <option
+                    value="https://github.com/crabtree-michael/kiln"
+                  >
+                    crabtree-michael/kiln
+                  </option>
+                </select>
+              </label>
+              <a
+                data-role="switch-github"
+                href="/auth/github/login"
+              >
+                Switch GitHub account
+              </a>
+            </div>
             <label>
               Amika snapshot
               <input

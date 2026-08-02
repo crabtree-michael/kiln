@@ -114,6 +114,16 @@ type SecretStatus struct {
 	Tail string
 }
 
+// Repo is one repository the caller's connected GitHub account can reach — the
+// domain shape behind the settings repo picker. URL is the https web URL
+// (`https://github.com/owner/name`), which is exactly what a project stores as
+// its RepoURL, so picking a repo and saving it is a straight assignment.
+type Repo struct {
+	FullName string // owner/name — the label the picker lists
+	URL      string
+	Private  bool
+}
+
 // MeSettings is the config-status view: never secret values.
 type MeSettings struct {
 	AnthropicKey      SecretStatus

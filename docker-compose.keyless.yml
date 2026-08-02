@@ -20,6 +20,11 @@ services:
       KILN_BRAIN_SCRIPT: /fixtures/brain/keyless.json
       KILN_VOICE_MODE: mock
       KILN_VERIFY_MODE: mock
+      # The settings repo picker lists the caller's GitHub repos, so onboarding
+      # through the real form needs a GitHub answer: mock serves a canned listing
+      # and gives dev sessions a synthetic credential, keeping the form usable
+      # with no GitHub account anywhere.
+      KILN_GITHUB_MODE: mock
       KILN_DEV_ENDPOINTS: '1'
       # Seed the e2e-user's project at boot so the board renders without the
       # onboarding step (the onboarding spec uses a different, fresh login).

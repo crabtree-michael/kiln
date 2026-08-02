@@ -13,9 +13,22 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   await page.goto('/dashboard');
   // Fresh user → onboarding.
   await expect(page.getByRole('heading', { name: 'Set up your project' })).toBeVisible();
-  await page.getByLabel('Project name').fill('kiln-e2e');
-  await page.getByLabel('Repo URL').fill('https://github.com/crabtree-michael/kiln');
-  await page.getByRole('button', { name: 'Save project' }).click();
+  // The project is seeded over the API rather than through the form, because the
+  // repo now comes from the caller's connected GitHub account (settings repo
+  // picker) and a dev-minted session has no GitHub credential — its picker shows
+  // the "Connect GitHub account" prompt, which no headless test can complete
+  // against real GitHub. The keyless lane covers the form path instead, via
+  // KILN_GITHUB_MODE=mock. This spec's subject is the credential store + live
+  // verify below, which is unaffected.
+  const created = await page.request.put('/api/project', {
+    data: {
+      name: 'kiln-e2e',
+      repo_url: 'https://github.com/crabtree-michael/kiln',
+      worker_count: 1,
+    },
+  });
+  expect(created.ok(), 'seeding the project over PUT /api/project failed').toBe(true);
+  await page.reload();
 
   // Project saved → settings view; credentials auto-save as entered — fill
   // and blur (no submit button exists anymore). The Anthropic key is now a

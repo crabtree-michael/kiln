@@ -19,12 +19,16 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { DashboardProvider } from '@/dashboard/dashboard-store';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { ProjectFields } from '@/dashboard/ConfigFields';
+import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
 import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
 import '@/projects/ProjectsManager.css';
 
 interface ProjectRowProps {
   project: MeProject;
   providers: ProviderDescriptor[];
+  /** The account-level GitHub connection backing the repo picker, loaded once by
+   * `ProjectsBody` and shared by every row (the credential is per-user). */
+  github: GitHubRepos;
   saving: boolean;
   onSave: (id: string, body: ProjectUpdateRequest) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -37,6 +41,7 @@ interface ProjectRowProps {
 function ProjectRow({
   project,
   providers,
+  github,
   saving,
   onSave,
   onDelete,
@@ -72,7 +77,13 @@ function ProjectRow({
       </button>
       {open ? (
         <div data-role="project-row-body">
-          <ProjectFields project={project} providers={providers} saving={saving} onSave={save} />
+          <ProjectFields
+            project={project}
+            providers={providers}
+            github={github}
+            saving={saving}
+            onSave={save}
+          />
           <button type="button" data-role="delete-project" disabled={saving} onClick={handleDelete}>
             Delete project
           </button>
@@ -91,6 +102,9 @@ function ProjectsBody(): JSX.Element {
   // straight away (preserving the old one-tap "Add" feel); a bare `/projects`
   // visit lands on the list.
   const [creating, setCreating] = useState(() => params.get('new') === '1');
+  // One fetch for the page: the GitHub connection is per-user, so every row's
+  // picker and the create form share the same repo list.
+  const github = useGitHubRepos();
 
   if (me === null) {
     // ProjectsManager only mounts this body for a populated `me` — this guard
@@ -135,6 +149,7 @@ function ProjectsBody(): JSX.Element {
               key={project.id}
               project={project}
               providers={providers}
+              github={github}
               saving={saving}
               onSave={updateProject}
               onDelete={removeProject}
@@ -146,7 +161,12 @@ function ProjectsBody(): JSX.Element {
       {creating ? (
         <section data-role="new-project-form">
           <h2>New project</h2>
-          <ProjectFields providers={providers} saving={saving} onSave={handleCreate} />
+          <ProjectFields
+            providers={providers}
+            github={github}
+            saving={saving}
+            onSave={handleCreate}
+          />
           <button
             type="button"
             data-role="cancel-new-project"

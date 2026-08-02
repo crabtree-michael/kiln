@@ -315,11 +315,14 @@ type fakeGitHub struct {
 	mu          sync.Mutex
 	token       string
 	user        githubapi.GitHubUser
+	repos       []githubapi.Repo
 	exchangeErr error
 	fetchErr    error
+	reposErr    error
 
-	gotCode  string
-	gotToken string
+	gotCode       string
+	gotToken      string
+	gotReposToken string
 }
 
 func (g *fakeGitHub) AuthorizeURL(state string) string {
@@ -344,6 +347,16 @@ func (g *fakeGitHub) FetchUser(_ context.Context, accessToken string) (githubapi
 		return githubapi.GitHubUser{}, g.fetchErr
 	}
 	return g.user, nil
+}
+
+func (g *fakeGitHub) ListRepos(_ context.Context, accessToken string) ([]githubapi.Repo, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gotReposToken = accessToken
+	if g.reposErr != nil {
+		return nil, g.reposErr
+	}
+	return g.repos, nil
 }
 
 var _ identity.GitHub = (*fakeGitHub)(nil)

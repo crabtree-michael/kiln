@@ -20,6 +20,7 @@ import {
   fetchNotificationMode,
   putNotificationMode,
   setActiveProjectId,
+  fetchGitHubRepos,
   type Board,
   type FeedSnapshot,
   type SayEvent,
@@ -316,6 +317,53 @@ describe('transport', () => {
       expect(urlOf(requestedUrl)).toContain('/api/project');
       expect(init?.method).toBe('PUT');
       expect(result).toEqual(me);
+    });
+  });
+
+  describe('fetchGitHubRepos (GET /api/github/repos)', () => {
+    it('GETs /api/github/repos and resolves the listing', async () => {
+      const list = {
+        connected: true,
+        repos: [{ full_name: 'acme/api', url: 'https://github.com/acme/api', private: true }],
+      };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(list))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await fetchGitHubRepos();
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      // User-scoped: no project id in the path (one GitHub credential per user).
+      expect(urlOf(requestedUrl)).toContain('/api/github/repos');
+      expect(result).toEqual(list);
+    });
+
+    it('resolves a disconnected listing rather than throwing', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ connected: false, repos: [] }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchGitHubRepos()).resolves.toEqual({ connected: false, repos: [] });
+    });
+
+    it('throws on a non-2xx response', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 502 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchGitHubRepos()).rejects.toThrow('HTTP 502');
+    });
+
+    it('throws on an unexpected response shape', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify({ connected: true, repos: [{ name: 'x' }] }))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchGitHubRepos()).rejects.toThrow('unexpected response shape');
     });
   });
 

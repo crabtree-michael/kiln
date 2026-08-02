@@ -252,6 +252,10 @@ type AccountService interface {
 	// VerifyProject runs the checks against a specific project's repo
 	// (POST /api/projects/{id}/verify, 12 §3.1); ErrNotFound for a foreign project.
 	VerifyProject(ctx context.Context, userID, projectID string) ([]identity.CheckResult, error)
+	// ListGitHubRepos returns the repos the caller's connected GitHub account can
+	// reach (GET /api/github/repos) — the settings repo picker's source.
+	// identity.ErrGitHubNotConnected when they must (re-)authorize.
+	ListGitHubRepos(ctx context.Context, userID string) ([]identity.Repo, error)
 }
 
 // ProjectDeleter deletes a project the caller owns (12 §5, DP6): an
@@ -601,6 +605,9 @@ func (s *Server) mountIdentityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))
 	mux.HandleFunc("PUT /api/settings", s.withSession(s.handlePutSettings))
 	mux.HandleFunc("POST /api/settings/verify", s.withSession(s.handleVerify))
+	// User-scoped, not project-scoped: one GitHub credential (the caller's
+	// sign-in token) backs the repo picker on every project they own.
+	mux.HandleFunc("GET /api/github/repos", s.withSession(s.handleGitHubRepos))
 	// The project collection (12 §3.1): the id-less singular writes become an id'd
 	// collection. The old singular PUT /api/project stays alive (back-compat, 12
 	// §9), mapped to the caller's first project.

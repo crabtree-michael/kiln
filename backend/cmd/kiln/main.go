@@ -86,6 +86,11 @@ type Config struct {
 	// runs with no key. Empty is the real adapter.
 	VoiceMode  string // KILN_VOICE_MODE: "" (AssemblyAI) or "mock" (canned token)
 	VerifyMode string // KILN_VERIFY_MODE: "" (live checks) or "mock" (offline ok)
+	// GitHubMode: "" (real GitHub) or "mock" (canned repo listing + a synthetic
+	// credential stored for dev sessions). The settings repo picker reads the
+	// caller's GitHub account, so a keyless stack needs this to onboard a project
+	// through the real dashboard form.
+	GitHubMode string // KILN_GITHUB_MODE
 
 	// The brain's repo-inspection bash tool (design 2026-07-04): a maintained
 	// local clone the brain runs allowlisted git/gh/rg commands in to verify an
@@ -185,6 +190,7 @@ func loadConfig() Config {
 		AssemblyAIBaseURL: os.Getenv("ASSEMBLYAI_BASE_URL"),
 		VoiceMode:         os.Getenv("KILN_VOICE_MODE"),
 		VerifyMode:        os.Getenv("KILN_VERIFY_MODE"),
+		GitHubMode:        os.Getenv("KILN_GITHUB_MODE"),
 
 		GitHubRepoURL:   os.Getenv("GITHUB_REPO_URL"),
 		GitHubAuthToken: os.Getenv("GITHUB_AUTH_TOKEN"),

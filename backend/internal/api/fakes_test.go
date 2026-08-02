@@ -481,6 +481,9 @@ type fakeAccount struct {
 
 	verifyChecks []identity.CheckResult
 	verifyErr    error
+
+	repos    []identity.Repo
+	reposErr error
 }
 
 func (f *fakeAccount) Me(context.Context, string) (identity.Me, error) {
@@ -543,6 +546,12 @@ func (f *fakeAccount) VerifyProject(_ context.Context, _, projectID string) ([]i
 	defer f.mu.Unlock()
 	f.projectIDSeen = projectID
 	return f.verifyChecks, f.verifyErr
+}
+
+func (f *fakeAccount) ListGitHubRepos(context.Context, string) ([]identity.Repo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.repos, f.reposErr
 }
 
 func (f *fakeAccount) lastSettingsUpdate() identity.SettingsUpdate {

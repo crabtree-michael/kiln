@@ -29,6 +29,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain/scripted"
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/githubapi"
+	"github.com/crabtree-michael/kiln/backend/internal/identity/githubmock"
 	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/verify"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
@@ -412,6 +413,20 @@ func newVoiceMinter(cfg Config) api.VoiceTokenMinter {
 	})
 }
 
+// newGitHub builds identity's GitHub adapter (11 §2, plus the settings repo
+// picker). KILN_GITHUB_MODE=mock swaps it for the offline stand-in so a keyless
+// stack can list repos — and therefore onboard through the real form — with no
+// GitHub credential anywhere (keyless design §3).
+func newGitHub(cfg Config) identity.GitHub {
+	if cfg.GitHubMode == modeMock {
+		return githubmock.New()
+	}
+	return githubapi.New(githubapi.Config{
+		ClientID:     cfg.GitHubOAuthClientID,
+		ClientSecret: cfg.GitHubOAuthClientSecret,
+	}, nil)
+}
+
 // newVerifier builds identity's live-check adapter (11 §4). KILN_VERIFY_MODE=mock
 // swaps it for the offline verifier so a keyless stack's onboarding checks come
 // back green with no real credentials to probe (design §Test 3).
@@ -622,12 +637,14 @@ func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service,
 		if err != nil {
 			return nil, fmt.Errorf("kiln: identity cipher: %w", err)
 		}
-		gh := githubapi.New(githubapi.Config{
-			ClientID:     cfg.GitHubOAuthClientID,
-			ClientSecret: cfg.GitHubOAuthClientSecret,
-		}, nil)
-		idSvc := identity.NewService(identitypg.New(db), cipher, gh, cfg.AllowedGitHubUsers)
+		idSvc := identity.NewService(identitypg.New(db), cipher, newGitHub(cfg), cfg.AllowedGitHubUsers)
 		idSvc.SetVerifier(newVerifier(cfg))
+		// Keyless only: make a dev-minted session carry a GitHub credential, so the
+		// onboarding form's repo picker is populated with the mock listing. Never
+		// set against real GitHub — it would overwrite a user's real token.
+		if cfg.GitHubMode == modeMock {
+			idSvc.SetDevGitHubToken(githubmock.MockToken)
+		}
 		return idSvc, nil
 	case cfg.GitHubOAuthClientID != "" || cfg.GitHubOAuthClientSecret != "" || cfg.SecretsKey != "":
 		log.Warn("identity disabled: need all of GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY")

@@ -32,6 +32,7 @@ import type {
 } from '@/transport/transport';
 import type { components } from '@/schema/generated';
 import type { CredentialName } from '@/dashboard/dashboard-context';
+import { GITHUB_CONNECT_PATH, type GitHubRepos } from '@/dashboard/use-github-repos';
 
 // `MeSettings`/`SecretStatus` aren't among transport.ts's re-exports (only the
 // types its own functions traffic in are) — pull them the same way it derives
@@ -60,6 +61,147 @@ interface SecretDraft {
 /** The exact contract string (task-13 e2e binds to it): "configured · …<tail>". */
 function secretStatusText(status: SecretStatus): string {
   return status.set ? `configured · …${status.tail}` : 'not configured';
+}
+
+/** Compares two repo URLs for "same repo". Stored `repo_url` values predate the
+ * picker and were typed by hand, so they vary in case and in the trailing `/`
+ * and `.git` GitHub's own `html_url` never carries — normalizing all three is
+ * what lets an existing project preselect its repo instead of falling through to
+ * the "(current)" escape hatch. */
+function sameRepo(a: string, b: string): boolean {
+  const normalize = (url: string): string =>
+    url
+      .trim()
+      .toLowerCase()
+      .replace(/\/+$/, '')
+      .replace(/\.git$/, '');
+  return normalize(a) === normalize(b);
+}
+
+/** Above this many repos the picker grows a filter box. Below it, scanning the
+ * list is faster than typing, and an always-present filter is just clutter. */
+const REPO_FILTER_THRESHOLD = 8;
+
+interface RepoFieldProps {
+  /** The project's `repo_url` — '' for a project being created. */
+  value: string;
+  onChange: (repoUrl: string) => void;
+  github: GitHubRepos;
+}
+
+/** The project's repo, chosen from the connected GitHub account rather than
+ * typed (settings repo picker). Three states, in the order a user meets them:
+ *
+ *  1. loading — a quiet placeholder, so the connect prompt never flashes up
+ *     before we know whether the account is actually connected;
+ *  2. disconnected — the "Connect GitHub account" link. Connecting IS signing in
+ *     again (one OAuth flow, one callback), which is what re-prompts the user to
+ *     grant repo access. A project that already has a repo_url keeps it: it is
+ *     shown read-only and still submitted, so editing an unrelated field on an
+ *     older project can't silently unlink its repo;
+ *  3. connected — the repo dropdown, filterable past REPO_FILTER_THRESHOLD, plus
+ *     a "Switch account" link that re-runs the same flow against a different
+ *     GitHub login. */
+function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
+  const [filter, setFilter] = useState('');
+
+  if (github.loading) {
+    return (
+      <div data-role="repo-field" data-state="loading">
+        <span>Repository</span>
+        <p data-role="repo-loading">Loading your GitHub repos…</p>
+      </div>
+    );
+  }
+
+  if (!github.connected) {
+    return (
+      <div data-role="repo-field" data-state="disconnected">
+        <span>Repository</span>
+        <p data-role="repo-connect-hint">
+          Connect your GitHub account to pick a repository. Kiln uses the same GitHub sign-in you
+          already use — connecting just grants it access to your repos, including private ones.
+        </p>
+        {/* A backend route, so a real navigation — never a router Link. */}
+        <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
+          Connect GitHub account
+        </a>
+        {value !== '' && (
+          <p data-role="repo-current">
+            Currently linked: <span data-role="repo-current-url">{value}</span>
+          </p>
+        )}
+        {github.error !== null && (
+          <p data-role="repo-error" role="alert">
+            {github.error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // The stored URL matched against the live list. An unmatched non-empty value —
+  // a repo the account can no longer see, or one beyond the listing cap — stays
+  // selectable as "(current)" so saving the form never silently drops it (the
+  // same guarantee the snapshot picker makes).
+  const matched = github.repos.find((repo) => sameRepo(repo.url, value));
+  const query = filter.trim().toLowerCase();
+  const visible = github.repos.filter(
+    // Never filter out the current selection: it must stay in the list to stay
+    // selected, however narrow the query is.
+    (repo) => repo === matched || query === '' || repo.full_name.toLowerCase().includes(query),
+  );
+
+  return (
+    <div data-role="repo-field" data-state="connected">
+      <label>
+        Repository
+        <select
+          data-role="repo-select"
+          value={matched?.url ?? value}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+            onChange(event.target.value);
+          }}
+          required
+        >
+          {/* Only offered until a repo is chosen — the field is required, so it
+              must not become a way to un-set one. */}
+          {value === '' && <option value="">Select a repository…</option>}
+          {matched === undefined && value !== '' && (
+            <option value={value}>{value} (current)</option>
+          )}
+          {visible.map((repo) => (
+            <option key={repo.url} value={repo.url}>
+              {repo.full_name}
+              {repo.private ? ' (private)' : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      {github.repos.length > REPO_FILTER_THRESHOLD && (
+        <label>
+          Filter
+          <input
+            type="text"
+            data-role="repo-filter"
+            value={filter}
+            placeholder="owner/name"
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              setFilter(event.target.value);
+            }}
+          />
+        </label>
+      )}
+      <a href={GITHUB_CONNECT_PATH} data-role="switch-github">
+        Switch GitHub account
+      </a>
+      {github.error !== null && (
+        <p data-role="repo-error" role="alert">
+          {github.error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** The label a snapshot shows in the picker: its name, annotated when it is not
@@ -157,6 +299,12 @@ function CredentialStatusIndicator({
 export interface ProjectFieldsProps {
   /** Absent in onboarding (no project yet) — every field starts blank. */
   project?: MeProject;
+  /** The caller's connected GitHub account and its repos (settings repo picker).
+   * Required, and deliberately not optional: the repo is always chosen from the
+   * connected account, so there is no free-text fallback path to drift. Load it
+   * once per view with `useGitHubRepos` — it is user-scoped, so several project
+   * cards share one result. */
+  github: GitHubRepos;
   /** The coding-agent providers this deployment offers (multi-provider design
    * §8, §9). The provider select renders from these; with 0–1 offered it is
    * hidden — a single-provider deployment is unchanged. */
@@ -184,6 +332,7 @@ export interface ProjectFieldsProps {
 
 export function ProjectFields({
   project,
+  github,
   providers,
   snapshots,
   catalogAvailable = false,
@@ -325,17 +474,7 @@ export function ProjectFields({
           required
         />
       </label>
-      <label>
-        Repo URL
-        <input
-          type="text"
-          value={repoUrl}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setRepoUrl(event.target.value);
-          }}
-          required
-        />
-      </label>
+      <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />
       {providerOptions.length > 1 && (
         <label>
           Agent provider
@@ -538,7 +677,10 @@ export function ProjectFields({
           Add secret
         </button>
       </fieldset>
-      <button type="submit" disabled={saving}>
+      {/* The repo is required and can only come from the picker, so a project
+          with none selected — a new one on a disconnected account — can't be
+          saved yet. Blocking here beats a server-side 400 the user can't act on. */}
+      <button type="submit" disabled={saving || repoUrl.trim() === ''}>
         Save project
       </button>
     </form>

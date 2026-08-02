@@ -540,6 +540,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/github/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the repos the caller's connected GitHub account can reach — the source of the settings repo picker, which replaced hand-typed repo URLs. User-scoped, not project-scoped: the credential is the caller's GitHub sign-in token (the OAuth flow requests the `repo` scope), so every project the caller owns picks from the same list, private repos included. `connected: false` with an empty list is the ordinary not-yet-authorized state — a caller who has never signed in since Kiln began requesting the repo scope, or whose token was revoked — and the client renders a "Connect GitHub account" prompt rather than an error. */
+        get: operations["listGitHubRepos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -894,6 +911,18 @@ export interface components {
         };
         DevBoxList: {
             dev_boxes: components["schemas"]["DevBox"][];
+        };
+        /** @description One repository the caller's connected GitHub account can reach. `full_name` is the `owner/name` label the picker lists and filters on; `url` is the https web URL, which is exactly what the project stores as its `repo_url`, so selecting a repo is a straight assignment. */
+        GitHubRepo: {
+            full_name: string;
+            url: string;
+            private: boolean;
+        };
+        GitHubRepoList: {
+            /** @description Whether the caller has a GitHub credential that GitHub currently accepts for repo access. False means the picker cannot be populated and the user must (re-)authorize by signing in again — the same single OAuth flow they signed in with, not a separate connection. */
+            connected: boolean;
+            /** @description Sorted by full name; empty when connected is false. */
+            repos: components["schemas"]["GitHubRepo"][];
         };
         /** @description Capture a running dev box as a new named snapshot (POST /api/project/snapshots). */
         SaveSnapshotRequest: {
@@ -1867,6 +1896,40 @@ export interface operations {
                 content?: never;
             };
             /** @description The provider could not be reached. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listGitHubRepos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's repos, or connected=false when re-authorization is needed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubRepoList"];
+                };
+            };
+            /** @description No valid session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description GitHub could not be reached. */
             502: {
                 headers: {
                     [name: string]: unknown;

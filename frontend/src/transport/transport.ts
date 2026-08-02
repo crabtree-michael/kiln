@@ -44,6 +44,8 @@ export type ProviderDescriptor = components['schemas']['ProviderDescriptor'];
 export type Snapshot = components['schemas']['Snapshot'];
 export type DevBox = components['schemas']['DevBox'];
 export type SaveSnapshotRequest = components['schemas']['SaveSnapshotRequest'];
+export type GitHubRepo = components['schemas']['GitHubRepo'];
+export type GitHubRepoList = components['schemas']['GitHubRepoList'];
 
 type MeUser = components['schemas']['MeUser'];
 type MeSettings = components['schemas']['MeSettings'];
@@ -561,6 +563,24 @@ function isDevBoxArray(value: unknown): value is DevBox[] {
   return Array.isArray(value) && value.every(isDevBox);
 }
 
+function isGitHubRepo(value: unknown): value is GitHubRepo {
+  return (
+    isRecord(value) &&
+    typeof value.full_name === 'string' &&
+    typeof value.url === 'string' &&
+    typeof value.private === 'boolean'
+  );
+}
+
+function isGitHubRepoList(value: unknown): value is GitHubRepoList {
+  return (
+    isRecord(value) &&
+    typeof value.connected === 'boolean' &&
+    Array.isArray(value.repos) &&
+    value.repos.every(isGitHubRepo)
+  );
+}
+
 function isMe(value: unknown): value is Me {
   return (
     isRecord(value) &&
@@ -913,6 +933,24 @@ export async function fetchDevBoxes(projectId: string): Promise<DevBox[] | null>
     throw new Error('fetchDevBoxes: unexpected response shape');
   }
   return payload.dev_boxes;
+}
+
+/** `GET /api/github/repos` — the repos the caller's connected GitHub account can
+ * reach, which the settings repo picker lists instead of a free-text URL field.
+ * User-scoped (one GitHub sign-in credential serves every project), so unlike
+ * the snapshot calls it takes no project id. `connected: false` is a normal
+ * answer, not an error — it means "sign in again to authorize repo access" and
+ * the dashboard renders the connect prompt. */
+export async function fetchGitHubRepos(): Promise<GitHubRepoList> {
+  const response = await fetch('/api/github/repos');
+  if (!response.ok) {
+    throw new Error(`fetchGitHubRepos: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isGitHubRepoList(payload)) {
+    throw new Error('fetchGitHubRepos: unexpected response shape');
+  }
+  return payload;
 }
 
 /** `POST /api/projects/{id}/snapshots` — capture a running dev box as a new named

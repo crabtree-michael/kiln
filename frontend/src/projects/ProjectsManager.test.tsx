@@ -20,6 +20,7 @@ vi.mock('@/transport/transport', () => ({
   deleteProject: vi.fn(),
   postVerify: vi.fn(),
   postLogout: vi.fn(),
+  fetchGitHubRepos: vi.fn(),
 }));
 
 function makeProject(overrides: Partial<MeProject> = {}): MeProject {
@@ -66,6 +67,13 @@ function renderManager(entry = '/projects'): RenderResult {
 describe('ProjectsManager', () => {
   beforeEach(() => {
     vi.mocked(transport.fetchMe).mockReset();
+    // Every row's repo picker reads the connected account; default to connected
+    // with one repo so the create form can pick one.
+    vi.mocked(transport.fetchGitHubRepos).mockReset();
+    vi.mocked(transport.fetchGitHubRepos).mockResolvedValue({
+      connected: true,
+      repos: [{ full_name: 'a/b', url: 'https://github.com/a/b', private: false }],
+    });
     vi.mocked(transport.createProject).mockReset();
     vi.mocked(transport.updateProject).mockReset();
     vi.mocked(transport.deleteProject).mockReset();
@@ -153,11 +161,11 @@ describe('ProjectsManager', () => {
     const form = document.querySelector('[data-role="new-project-form"] form');
     expect(form).not.toBeNull();
 
-    // Fill the two required fields and submit.
-    const nameInput = screen.getByLabelText('Project name');
-    const repoInput = screen.getByLabelText('Repo URL');
-    fireEvent.change(nameInput, { target: { value: 'new-one' } });
-    fireEvent.change(repoInput, { target: { value: 'https://github.com/a/b' } });
+    // Fill the name and pick the repo from the connected account — the repo is
+    // no longer typed (settings repo picker).
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'new-one' } });
+    const repoSelect = await screen.findByRole('combobox', { name: 'Repository' });
+    fireEvent.change(repoSelect, { target: { value: 'https://github.com/a/b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
 
     await waitFor(() => {

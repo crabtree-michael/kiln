@@ -92,6 +92,22 @@ func TestNewVerifierMode(t *testing.T) {
 	}
 }
 
+// TestNewGitHubMode covers KILN_GITHUB_MODE (settings repo picker): mock lists
+// the canned repos offline so the keyless lane can onboard through the real
+// dashboard form; default builds the live GitHub adapter.
+func TestNewGitHubMode(t *testing.T) {
+	repos, err := newGitHub(Config{GitHubMode: modeMock}).ListRepos(context.Background(), "any")
+	if err != nil {
+		t.Fatalf("mock ListRepos: %v", err)
+	}
+	if len(repos) == 0 {
+		t.Error("mock ListRepos returned no repos, want the canned listing")
+	}
+	if newGitHub(Config{}) == nil {
+		t.Error("default github adapter is nil")
+	}
+}
+
 func writeScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "script.json")

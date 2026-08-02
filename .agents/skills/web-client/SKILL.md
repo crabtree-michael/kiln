@@ -119,6 +119,31 @@ session-free.
   GitHub OAuth redirect (`GET /auth/github/login` → `/callback`) needs to hit the backend
   directly, not be intercepted by the SPA's client-side router.
 
+### The repo picker — sign-in IS the GitHub connection
+
+`ProjectFields` has **no free-text repo URL field**. The repo is picked from the connected
+GitHub account (`RepoField` in `ConfigFields.tsx`, fed by `useGitHubRepos` →
+`GET /api/github/repos`). The load-bearing decision: there is **one** OAuth flow and **one**
+registered callback — the sign-in authorize URL requests the `repo` scope, and
+`CompleteLogin` keeps the resulting token as the user's GitHub credential (the same slot a
+hand-entered PAT uses). So "Connect GitHub account" is just `/auth/github/login` again.
+**Never add a second OAuth app, flow, or callback for repo access.**
+
+- `useGitHubRepos` is **user-scoped**, unlike `useSandboxCatalog` (per-project, because each
+  project resolves its own agent provider). Mount it once per view — `Settings`,
+  `ProjectsBody`, `Onboarding` — and pass it down; one credential serves every project card.
+- Three render states, and the ordering matters: `loading` shows a placeholder (so the
+  connect prompt never flashes before we know), `!connected` shows the connect link,
+  connected shows the dropdown. `connected: false` is a normal 200, **not** an error — a
+  failed *request* sets `error` instead and deliberately leaves `connected` alone, so a
+  transient blip can't demote a working picker mid-edit.
+- An existing `repo_url` preselects via `sameRepo`, which normalizes case, a trailing `/`,
+  and `.git` — hand-typed values predate the picker and carry all three. An unmatched value
+  stays selectable as `(current)` and is still submitted, so editing an unrelated field can
+  never silently unlink a project's repo. Same guarantee the snapshot picker makes.
+- **Every `ProjectFields` render site and test must pass `github`** — it's a required prop on
+  purpose, so no free-text fallback path can drift back in.
+
 ## Common footguns
 
 - Reaching for a TS escape hatch to get past the type checker instead of fixing the schema/types.

@@ -43,6 +43,10 @@ type GitHub interface {
 	AuthorizeURL(state string) string
 	ExchangeCode(ctx context.Context, code string) (string, error)
 	FetchUser(ctx context.Context, accessToken string) (githubapi.GitHubUser, error)
+	// ListRepos returns the repos the access token can reach, for the settings
+	// repo picker. A token GitHub rejects (revoked, or minted before Kiln
+	// requested the repo scope) yields githubapi.ErrUnauthorized.
+	ListRepos(ctx context.Context, accessToken string) ([]githubapi.Repo, error)
 }
 
 // Verifier is the service's port onto live connection checks — satisfied by
@@ -64,6 +68,9 @@ type Service struct {
 	allowed    map[string]bool
 	now        func() time.Time
 	invalidate func(projectID string)
+	// devGitHubToken is the synthetic GitHub credential DevSignIn stores, empty
+	// (the default) outside a keyless stack — see SetDevGitHubToken.
+	devGitHubToken string
 }
 
 func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) *Service {
@@ -79,7 +86,20 @@ func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) 
 func (s *Service) LoginURL(state string) string { return s.gh.AuthorizeURL(state) }
 
 // CompleteLogin exchanges the OAuth code, enforces the allowlist on every
-// login (11 §2), and finds-or-creates the user.
+// login (11 §2), finds-or-creates the user, and KEEPS the access token as that
+// user's GitHub credential.
+//
+// Keeping the token is what makes sign-in double as "connect your GitHub
+// account" (settings repo picker): the authorize URL requests the repo scope,
+// so this one token both identified the user and can list/clone their repos.
+// It lands in the same slot a hand-entered PAT would (GitHubTokenEnc), so every
+// downstream reader — repo verify, clone, the sandbox env — is unchanged and
+// simply sees a fresher credential.
+//
+// A failure to store it does NOT fail the login: the user is authenticated
+// either way, and the dashboard will show them as not-connected and offer the
+// re-authorize link. Locking someone out of the app over a credential write
+// would be the worse outcome.
 func (s *Service) CompleteLogin(ctx context.Context, code string) (User, error) {
 	token, err := s.gh.ExchangeCode(ctx, code)
 	if err != nil {
@@ -93,15 +113,74 @@ func (s *Service) CompleteLogin(ctx context.Context, code string) (User, error) 
 	if !s.allowed[login] {
 		return User{}, ErrNotAllowed
 	}
-	return s.upsertFromGitHub(ctx, ghUser)
+	user, err := s.upsertFromGitHub(ctx, ghUser)
+	if err != nil {
+		return User{}, err
+	}
+	if serr := s.UpdateSettings(ctx, user.ID, SettingsUpdate{GitHubToken: token}); serr != nil {
+		slog.ErrorContext(ctx, "identity: store github oauth token", "user_id", user.ID, "err", serr)
+	}
+	return user, nil
+}
+
+// ListGitHubRepos returns the repos the caller's connected GitHub account can
+// reach — the source of the settings repo picker, replacing hand-typed repo
+// URLs. Private repos are included: the sign-in token carries the repo scope.
+//
+// Returns ErrGitHubNotConnected when the caller has no stored credential, or
+// when GitHub rejects the one they have (revoked, or predating the repo scope —
+// the state of every session minted before this feature). Both mean "sign in
+// again to re-authorize", which is the only remedy the UI offers.
+func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, error) {
+	cfg, err := s.store.GetUserConfig(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list github repos: %w", err)
+	}
+	token := s.decrypt(cfg.GitHubTokenEnc)
+	if token == "" {
+		return nil, ErrGitHubNotConnected
+	}
+	found, err := s.gh.ListRepos(ctx, token)
+	if err != nil {
+		if errors.Is(err, githubapi.ErrUnauthorized) {
+			return nil, ErrGitHubNotConnected
+		}
+		return nil, fmt.Errorf("identity: list github repos: %w", err)
+	}
+	repos := make([]Repo, 0, len(found))
+	for _, r := range found {
+		repos = append(repos, Repo{FullName: r.FullName, URL: r.HTMLURL, Private: r.Private})
+	}
+	return repos, nil
 }
 
 // DevSignIn is the KILN_DEV_ENDPOINTS-only seam (11 §7): find-or-create with
 // NO allowlist check, so e2e can mint sessions without real OAuth. It shares
 // EnsureUser's find-or-create mechanics.
+//
+// When a dev GitHub credential is configured (SetDevGitHubToken — keyless
+// stacks only), it is stored for the user the way CompleteLogin stores the real
+// OAuth token, so a dev-minted session reaches the settings repo picker already
+// connected. Without that call this is a pure find-or-create and touches no
+// credential — a real-service e2e run can never have its stored GitHub token
+// clobbered by a synthetic one.
 func (s *Service) DevSignIn(ctx context.Context, login string) (User, error) {
-	return s.EnsureUser(ctx, login)
+	user, err := s.EnsureUser(ctx, login)
+	if err != nil {
+		return User{}, err
+	}
+	if s.devGitHubToken != "" {
+		if serr := s.UpdateSettings(ctx, user.ID, SettingsUpdate{GitHubToken: s.devGitHubToken}); serr != nil {
+			slog.ErrorContext(ctx, "identity: store dev github token", "user_id", user.ID, "err", serr)
+		}
+	}
+	return user, nil
 }
+
+// SetDevGitHubToken configures the synthetic GitHub credential DevSignIn stores
+// (keyless e2e). Setter, not a constructor arg, for the same reason as
+// SetVerifier — and so it is off unless a composition root explicitly opts in.
+func (s *Service) SetDevGitHubToken(token string) { s.devGitHubToken = token }
 
 // EnsureUser finds-or-creates a user by GitHub login WITHOUT the allowlist
 // check — the shared find-or-create used by DevSignIn (11 §7) and the phase-2

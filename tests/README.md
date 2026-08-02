@@ -16,7 +16,8 @@ The specs split into two lanes:
   loop with every paid boundary mocked — `AGENT_MODE=mock`, the scripted brain
   (`KILN_BRAIN_MODE=scripted` + `tests/fixtures/brain/keyless.json`), the mock STT minter
   (`KILN_VOICE_MODE=mock`) + `tests/mock-stt/`, the offline verifier (`KILN_VERIFY_MODE=mock`),
-  and a test VAPID pair delivering to `tests/mock-push/`. Design + rationale:
+  the offline GitHub adapter (`KILN_GITHUB_MODE=mock`), and a test VAPID pair delivering to
+  `tests/mock-push/`. Design + rationale:
   `docs/keyless-e2e-tests-design.md`. Run them with the keyless overlay (no keys, no onboarding):
 
   ```sh
@@ -28,6 +29,14 @@ The specs split into two lanes:
   ```
 
   CI runs this lane on every push and PR (`.github/workflows/e2e-keyless.yml`).
+
+  **Onboarding through the dashboard form is keyless-only now.** The project's repo is picked
+  from the caller's connected GitHub account (there is no free-text repo URL field), and a
+  dev-minted session has no GitHub credential — so on a real-service stack the picker shows
+  "Connect GitHub account", which a headless test can't complete. `KILN_GITHUB_MODE=mock`
+  serves a canned repo listing AND gives dev sessions a synthetic credential, which is what
+  keeps `keyless-onboarding.spec.ts` on the real form. Real-service specs that just need a
+  project (`dashboard-config.spec.ts`) seed it over `PUT /api/project` instead.
 
 ## What's here
 

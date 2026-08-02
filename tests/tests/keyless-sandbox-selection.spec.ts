@@ -26,7 +26,13 @@ test('@keyless the projects page picks a snapshot and shows a captured dev box',
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Set up your project' })).toBeVisible();
   await page.getByLabel('Project name').fill('keyless-sandbox');
-  await page.getByLabel('Repo URL').fill('https://example.com/keyless/repo.git');
+  // Pick the repo from the connected GitHub account — the repo is no longer
+  // typed (settings repo picker). KILN_GITHUB_MODE=mock serves the canned
+  // listing and gives this dev-minted session its GitHub credential, so the
+  // picker is populated with no real GitHub account involved.
+  await page
+    .getByLabel('Repository')
+    .selectOption('https://example.com/keyless/demo');
   await page.getByRole('button', { name: 'Save project' }).click();
 
   // On the settings view the project card renders the snapshot PICKER (a select),

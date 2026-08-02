@@ -499,6 +499,22 @@ type FeedSummary struct {
 	UpdateCount int `json:"update_count"`
 }
 
+// GitHubRepo One repository the caller's connected GitHub account can reach. `full_name` is the `owner/name` label the picker lists and filters on; `url` is the https web URL, which is exactly what the project stores as its `repo_url`, so selecting a repo is a straight assignment.
+type GitHubRepo struct {
+	FullName string `json:"full_name"`
+	Private  bool   `json:"private"`
+	Url      string `json:"url"`
+}
+
+// GitHubRepoList defines model for GitHubRepoList.
+type GitHubRepoList struct {
+	// Connected Whether the caller has a GitHub credential that GitHub currently accepts for repo access. False means the picker cannot be populated and the user must (re-)authorize by signing in again — the same single OAuth flow they signed in with, not a separate connection.
+	Connected bool `json:"connected"`
+
+	// Repos Sorted by full name; empty when connected is false.
+	Repos []GitHubRepo `json:"repos"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	Status  HealthStatus `json:"status"`

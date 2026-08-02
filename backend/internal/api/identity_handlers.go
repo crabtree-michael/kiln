@@ -158,6 +158,29 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request, user ident
 	writeJSON(w, http.StatusOK, verifyChecksToWire(checks))
 }
 
+// handleGitHubRepos lists the repos the caller's connected GitHub account can
+// reach (GET /api/github/repos) — what the settings repo picker renders instead
+// of a free-text repo URL. User-scoped: the credential is the caller's GitHub
+// sign-in token, so it serves every project they own.
+//
+// A caller who has not authorized (or whose token no longer works) is NOT an
+// error: it is the ordinary pre-connection state, answered 200 with
+// connected=false so the client shows the "Connect GitHub account" prompt. Only
+// a genuine GitHub failure is a 502.
+func (s *Server) handleGitHubRepos(w http.ResponseWriter, r *http.Request, user identity.User) {
+	repos, err := s.account.ListGitHubRepos(r.Context(), user.ID)
+	if err != nil {
+		if errors.Is(err, identity.ErrGitHubNotConnected) {
+			writeJSON(w, http.StatusOK, wire.GitHubRepoList{Connected: false, Repos: []wire.GitHubRepo{}})
+			return
+		}
+		slog.Error("api: list github repos", "err", err)
+		http.Error(w, "list github repos", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, wire.GitHubRepoList{Connected: true, Repos: gitHubReposToWire(repos)})
+}
+
 // handleVerifyProject runs the checks against a specific project's repo (POST
 // /api/projects/{pid}/verify, 12 §3.1): the repo check is per-project, the
 // credential checks per-user. A project the caller does not own is 404.
@@ -208,6 +231,16 @@ func verifyChecksToWire(checks []identity.CheckResult) wire.VerifyResponse {
 		})
 	}
 	return wire.VerifyResponse{Checks: out}
+}
+
+// gitHubReposToWire maps the caller's reachable repos onto the wire list,
+// preserving the service's full-name order (the order the picker lists them in).
+func gitHubReposToWire(repos []identity.Repo) []wire.GitHubRepo {
+	out := make([]wire.GitHubRepo, 0, len(repos))
+	for _, r := range repos {
+		out = append(out, wire.GitHubRepo{FullName: r.FullName, Url: r.URL, Private: r.Private})
+	}
+	return out
 }
 
 // handleDevSession mints a session straight from a GitHub login (dev only),

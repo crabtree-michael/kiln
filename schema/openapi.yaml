@@ -702,6 +702,29 @@ paths:
           description: The project's provider offers no snapshot catalog.
         '502':
           description: The provider could not be reached.
+  /api/github/repos:
+    get:
+      operationId: listGitHubRepos
+      summary: >
+        List the repos the caller's connected GitHub account can reach — the
+        source of the settings repo picker, which replaced hand-typed repo URLs.
+        User-scoped, not project-scoped: the credential is the caller's GitHub
+        sign-in token (the OAuth flow requests the `repo` scope), so every
+        project the caller owns picks from the same list, private repos
+        included. `connected: false` with an empty list is the ordinary
+        not-yet-authorized state — a caller who has never signed in since Kiln
+        began requesting the repo scope, or whose token was revoked — and the
+        client renders a "Connect GitHub account" prompt rather than an error.
+      responses:
+        '200':
+          description: The caller's repos, or connected=false when re-authorization is needed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GitHubRepoList' }
+        '401':
+          description: No valid session.
+        '502':
+          description: GitHub could not be reached.
 components:
   schemas:
     Health:
@@ -1446,6 +1469,33 @@ components:
         dev_boxes:
           type: array
           items: { $ref: '#/components/schemas/DevBox' }
+    GitHubRepo:
+      type: object
+      description: >
+        One repository the caller's connected GitHub account can reach.
+        `full_name` is the `owner/name` label the picker lists and filters on;
+        `url` is the https web URL, which is exactly what the project stores as
+        its `repo_url`, so selecting a repo is a straight assignment.
+      required: [full_name, url, private]
+      properties:
+        full_name: { type: string }
+        url: { type: string }
+        private: { type: boolean }
+    GitHubRepoList:
+      type: object
+      required: [connected, repos]
+      properties:
+        connected:
+          type: boolean
+          description: >
+            Whether the caller has a GitHub credential that GitHub currently
+            accepts for repo access. False means the picker cannot be populated
+            and the user must (re-)authorize by signing in again — the same
+            single OAuth flow they signed in with, not a separate connection.
+        repos:
+          type: array
+          description: Sorted by full name; empty when connected is false.
+          items: { $ref: '#/components/schemas/GitHubRepo' }
     SaveSnapshotRequest:
       type: object
       description: >

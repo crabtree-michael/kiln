@@ -41,8 +41,11 @@ func TestAuthorizeURL(t *testing.T) {
 	if q.Get("state") != "state-abc" {
 		t.Errorf("state = %q, want state-abc", q.Get("state"))
 	}
-	if q.Has("scope") {
-		t.Errorf("expected no scope param, got %q", q.Get("scope"))
+	// Sign-in and repo access are one credential (settings repo picker), so the
+	// authorize URL asks for `repo` on top of the default public identity — this
+	// is the only place that scope is requested.
+	if q.Get("scope") != "repo" {
+		t.Errorf("scope = %q, want repo", q.Get("scope"))
 	}
 	if !strings.HasPrefix(got, "https://github.example/") {
 		t.Errorf("AuthorizeURL = %q, want prefix https://github.example/", got)
@@ -195,5 +198,133 @@ func TestFetchUserUnauthorized(t *testing.T) {
 	}
 	if !errors.Is(err, githubapi.ErrFetchUser) {
 		t.Errorf("error = %v, want wrapping ErrFetchUser", err)
+	}
+}
+
+func TestListReposSuccess(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	var gotQuery url.Values
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		body := `[{"full_name":"acme/api","html_url":"https://github.com/acme/api","private":true},` +
+			`{"full_name":"nobody/blog","html_url":"https://github.com/nobody/blog","private":false}]`
+		if _, werr := w.Write([]byte(body)); werr != nil {
+			t.Errorf("write response: %v", werr)
+		}
+	}))
+	defer ts.Close()
+
+	c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL}, nil)
+
+	repos, err := c.ListRepos(context.Background(), "gho_x")
+	if err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/user/repos" {
+		t.Errorf("request = %s %s, want GET /user/repos", gotMethod, gotPath)
+	}
+	if gotAuth != "Bearer gho_x" {
+		t.Errorf("Authorization = %q, want Bearer gho_x", gotAuth)
+	}
+	// Org repos the user merely collaborates on are the common real-world case,
+	// so the affiliation filter must not narrow to owned repos.
+	if got := gotQuery.Get("affiliation"); got != "owner,collaborator,organization_member" {
+		t.Errorf("affiliation = %q, want owner,collaborator,organization_member", got)
+	}
+	if got := gotQuery.Get("per_page"); got != "100" {
+		t.Errorf("per_page = %q, want 100", got)
+	}
+	want := []githubapi.Repo{
+		{FullName: "acme/api", HTMLURL: "https://github.com/acme/api", Private: true},
+		{FullName: "nobody/blog", HTMLURL: "https://github.com/nobody/blog", Private: false},
+	}
+	if len(repos) != len(want) {
+		t.Fatalf("ListRepos returned %d repos, want %d", len(repos), len(want))
+	}
+	for i := range want {
+		if repos[i] != want[i] {
+			t.Errorf("repos[%d] = %+v, want %+v", i, repos[i], want[i])
+		}
+	}
+}
+
+// A full page means "there may be more": the client must walk to the next page
+// and stop at the first short one, so an account with more than 100 repos does
+// not silently lose the tail of its list.
+func TestListReposPaginates(t *testing.T) {
+	var pages []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		pages = append(pages, page)
+		w.Header().Set("Content-Type", "application/json")
+		var batch []githubapi.Repo
+		if page == "1" {
+			batch = make([]githubapi.Repo, 100)
+			for i := range batch {
+				batch[i] = githubapi.Repo{FullName: "acme/full-page"}
+			}
+		} else {
+			batch = []githubapi.Repo{{FullName: "acme/tail"}}
+		}
+		if werr := json.NewEncoder(w).Encode(batch); werr != nil {
+			t.Errorf("encode response: %v", werr)
+		}
+	}))
+	defer ts.Close()
+
+	c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL}, nil)
+
+	repos, err := c.ListRepos(context.Background(), "gho_x")
+	if err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	}
+	if len(repos) != 101 {
+		t.Errorf("len(repos) = %d, want 101", len(repos))
+	}
+	if strings.Join(pages, ",") != "1,2" {
+		t.Errorf("requested pages = %v, want [1 2]", pages)
+	}
+}
+
+// 403 is what GitHub answers when the token is valid but carries no repo scope —
+// the exact state of every token minted before Kiln started asking for it. It
+// must surface as ErrUnauthorized ("re-authorize"), never as a transport error.
+func TestListReposMissingScopeIsUnauthorized(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "no", status)
+		}))
+
+		c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL}, nil)
+		_, err := c.ListRepos(context.Background(), "gho_stale")
+		ts.Close()
+
+		if !errors.Is(err, githubapi.ErrUnauthorized) {
+			t.Errorf("http %d: error = %v, want wrapping ErrUnauthorized", status, err)
+		}
+		if !errors.Is(err, githubapi.ErrListRepos) {
+			t.Errorf("http %d: error = %v, want wrapping ErrListRepos too", status, err)
+		}
+	}
+}
+
+func TestListReposServerError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL}, nil)
+
+	_, err := c.ListRepos(context.Background(), "gho_x")
+	if !errors.Is(err, githubapi.ErrListRepos) {
+		t.Errorf("error = %v, want wrapping ErrListRepos", err)
+	}
+	// A plain outage is NOT a re-authorize prompt.
+	if errors.Is(err, githubapi.ErrUnauthorized) {
+		t.Errorf("error = %v, want it not to wrap ErrUnauthorized", err)
 	}
 }

@@ -21,6 +21,20 @@ vi.mock('@/transport/transport', () => ({
   deleteProject: vi.fn(),
   postVerify: vi.fn(),
   postLogout: vi.fn(),
+  // The repo picker's source: connected, listing the project's own repo so the
+  // settings view renders its ordinary (preselected) state.
+  fetchGitHubRepos: vi.fn(() =>
+    Promise.resolve({
+      connected: true,
+      repos: [
+        {
+          full_name: 'crabtree-michael/kiln',
+          url: 'https://github.com/crabtree-michael/kiln',
+          private: false,
+        },
+      ],
+    }),
+  ),
   fetchSnapshots: vi.fn(() => Promise.resolve(null)),
   fetchDevBoxes: vi.fn(() => Promise.resolve(null)),
   saveSnapshot: vi.fn(),

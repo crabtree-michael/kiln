@@ -6,9 +6,13 @@
 import type { JSX } from 'react';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { ProjectFields } from '@/dashboard/ConfigFields';
+import { useGitHubRepos } from '@/dashboard/use-github-repos';
 
 export function Onboarding(): JSX.Element {
   const { me, saveProject, saving, error } = useDashboardStore();
+  // First-run users have just signed in, so their GitHub account is already
+  // connected and the repo picker is populated — no token step to get through.
+  const github = useGitHubRepos();
   if (me === null) {
     // Dashboard only mounts this view once `phase` is 'ready', which the store
     // contract pairs with a populated `me` — this guard just lets TS narrow
@@ -19,7 +23,12 @@ export function Onboarding(): JSX.Element {
   return (
     <div data-role="onboarding">
       <h1>Set up your project</h1>
-      <ProjectFields providers={me.providers ?? []} saving={saving} onSave={saveProject} />
+      <ProjectFields
+        github={github}
+        providers={me.providers ?? []}
+        saving={saving}
+        onSave={saveProject}
+      />
       {error !== null ? (
         <p data-role="dashboard-error" role="alert">
           {error}

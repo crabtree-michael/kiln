@@ -30,13 +30,16 @@ The specs split into two lanes:
 
   CI runs this lane on every push and PR (`.github/workflows/e2e-keyless.yml`).
 
-  **Onboarding through the dashboard form is keyless-only now.** The project's repo is picked
-  from the caller's connected GitHub account (there is no free-text repo URL field), and a
-  dev-minted session has no GitHub credential — so on a real-service stack the picker shows
-  "Connect GitHub account", which a headless test can't complete. `KILN_GITHUB_MODE=mock`
-  serves a canned repo listing AND gives dev sessions a synthetic credential, which is what
-  keeps `keyless-onboarding.spec.ts` on the real form. Real-service specs that just need a
-  project (`dashboard-config.spec.ts`) seed it over `PUT /api/project` instead.
+  **Onboarding through the guided setup flow is keyless-only now.** First-run setup is a
+  three-step flow — connect GitHub → choose the project → choose the provider — and its very
+  first step is a GitHub authorization a headless test cannot complete against real GitHub.
+  A dev-minted session has no GitHub credential on a real-service stack, so the flow correctly
+  refuses to advance past step 1. `KILN_GITHUB_MODE=mock` serves a canned repo listing AND
+  gives dev sessions a synthetic credential, which is what keeps
+  `keyless-onboarding.spec.ts` on the real flow — it is the ONE spec that drives it end to
+  end. Every other spec, keyless or not, treats a project as a precondition and seeds it over
+  `PUT /api/project` (`dashboard-config.spec.ts`, `keyless-sandbox-selection.spec.ts`) rather
+  than coupling itself to the flow's steps.
 
 ## What's here
 
@@ -108,7 +111,7 @@ Playwright's `baseURL` is the frontend under test:
 2. **Onboard a project for the test user** (once per fresh DB). Since spec 11 (multi-user)
    every `/api/*` route is project-scoped: these specs mint a dev session for `e2e-user` (or
    `KILN_BOOTSTRAP_GITHUB_USER`), but that user has **no project on a fresh stack**, so the app
-   shows the "connect a project" onboarding screen and the `Board` region never renders — the
+   shows the guided setup flow instead and the `Board` region never renders — the
    specs fail at `expect(board).toBeVisible()`. Seed a project the way the dashboard would,
    against the **same login the specs mint** (default `e2e-user`; needs `KILN_DEV_ENDPOINTS=1`,
    which docker-compose defaults on):

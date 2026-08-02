@@ -47,7 +47,12 @@ interface RepoFieldProps {
 }
 
 /** The project's repo, chosen from the connected GitHub account rather than
- * typed (settings repo picker). Three states, in the order a user meets them:
+ * typed (settings repo picker). Exported because the guided setup flow
+ * (`Onboarding`) renders the same picker as its own step: there is exactly one
+ * repo-picking control in the app, so a free-text fallback can't drift back in
+ * through a second implementation.
+ *
+ * Three states, in the order a user meets them:
  *
  *  1. loading — a quiet placeholder, so the connect prompt never flashes up
  *     before we know whether the account is actually connected;
@@ -60,7 +65,7 @@ interface RepoFieldProps {
  *     the same flow against a different GitHub login. The dropdown carries no
  *     filter box: a native select already types-to-jump, so a second search
  *     control beside it only raised the question of which one to use. */
-function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
+export function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
   if (github.loading) {
     return (
       <div data-role="repo-field" data-state="loading">

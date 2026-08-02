@@ -80,15 +80,319 @@ html:has([data-role='settings']) {
   margin: 0 auto;
 }
 
-[data-role='onboarding'] form {
+/* =================================================================
+   ONBOARDING — the guided setup flow (Connect GitHub → project → provider)
+   =================================================================
+
+   One screen per step, so the styling job is the opposite of settings': a
+   single narrow column, one card, and a progress rail above it that makes
+   "where am I / how much is left" answerable at a glance. Everything is
+   scoped under [data-role='onboarding'] so none of it reaches the settings
+   page, whose own rules are scoped under [data-role='settings']. */
+
+/* Onboarding's icons size off their own text, exactly like settings'. Without
+   this rule every SVG renders at the 300×150 default — the icons carry no
+   width/height attributes by design (see icons.tsx). */
+[data-role='onboarding'] svg[data-icon] {
+  width: 1.15em;
+  height: 1.15em;
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------- progress rail */
+
+[data-role='onboarding-steps'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+[data-role='onboarding-step'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font: var(--type-caption);
+  color: var(--text-faint);
+}
+
+/* The connector between steps: a hairline that fills the space rather than a
+   fixed rule, so two steps and three steps both distribute evenly. */
+[data-role='onboarding-step'] + [data-role='onboarding-step']::before {
+  content: '';
+  flex: 1;
+  min-width: var(--space-4);
+  height: 1px;
+  background: var(--border-default);
+}
+
+[data-role='onboarding-step']:not(:last-child) {
+  flex: 1;
+}
+
+[data-role='onboarding-step-mark'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-card);
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='onboarding-step-label'] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-role='onboarding-step'][data-state='current'] {
+  color: var(--text-body);
+}
+
+[data-role='onboarding-step'][data-state='current'] [data-role='onboarding-step-mark'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+[data-role='onboarding-step'][data-state='done'] {
+  color: var(--text-secondary);
+}
+
+[data-role='onboarding-step'][data-state='done'] [data-role='onboarding-step-mark'] {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------ the card */
+
+[data-role='onboarding-panel'] {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-6);
+  gap: var(--space-5);
+  padding: var(--space-8) var(--space-6) var(--space-6);
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
+}
+
+[data-role='onboarding-heading'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+[data-role='onboarding-eyebrow'] {
+  margin: 0;
+  font: var(--type-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+[data-role='onboarding'] h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+[data-role='onboarding-heading-icon'] {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+[data-role='onboarding-blurb'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-muted);
+  max-width: 52ch;
+}
+
+[data-role='onboarding-fields'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* --------------------------------------------------- step 1: connect */
+
+[data-role='github-connect'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+[data-role='github-connect'] p {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-secondary);
+  max-width: 56ch;
+}
+
+/* The connected reading is the step's "you're done here" signal, so it reads
+   as a state chip rather than as another paragraph of prose. */
+[data-role='github-connect'][data-state='connected'] [data-role='github-connected-as'] {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--accent-faint);
+  color: var(--text-body);
+}
+
+/* "Connect GitHub" IS the step's action here (there is nothing else to do on
+   it), so unlike the same link in settings it gets button weight. */
+[data-role='onboarding'] [data-role='connect-github'] {
+  align-self: flex-start;
+  font: var(--type-body-strong);
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-6);
+  text-decoration: none;
+}
+
+[data-role='onboarding'] [data-role='connect-github']:hover {
+  background: var(--accent-hover);
+}
+
+[data-role='onboarding'] [data-role='switch-github'] {
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+[data-role='onboarding'] [data-role='switch-github']:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------------------------------------------------- step 2: project */
+
+[data-role='onboarding'] [data-role='repo-field'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+[data-role='onboarding'] [data-role='repo-field'] > span:first-child {
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+
+[data-role='onboarding'] [data-role='repo-loading'],
+[data-role='onboarding'] [data-role='repo-connect-hint'],
+[data-role='onboarding'] [data-role='repo-current'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='onboarding'] [data-role='repo-error'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--danger);
+}
+
+/* --------------------------------------------------- step 3: provider */
+
+[data-role='provider-choice'] {
+  gap: var(--space-2);
+}
+
+/* One row per provider: radio, glyph, name, and the one line that says whether
+   it will ask for a key. The whole row is the label, so the entire strip is
+   the click target rather than just the 16px control. */
+[data-role='provider-option'] {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-settle);
+}
+
+[data-role='provider-option']:hover {
+  border-color: var(--border-strong);
+}
+
+[data-role='provider-option'][data-selected='true'] {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+}
+
+[data-role='provider-option'] input[type='radio'] {
+  grid-row: span 2;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+[data-role='provider-option-icon'] {
+  display: inline-flex;
+  grid-row: span 2;
+  color: var(--text-secondary);
+}
+
+[data-role='provider-option'][data-selected='true'] [data-role='provider-option-icon'] {
+  color: var(--accent);
+}
+
+/* Scoped through [data-role='onboarding'] so it outranks the dashboard-wide
+   `label { display: flex; flex-direction: column }` rule — this label names a
+   radio beside it, it is not a field wrapper stacking its own control. */
+[data-role='onboarding'] [data-role='provider-option-label'] {
+  display: block;
+  font: var(--type-body-strong);
+  color: var(--text-body);
+  cursor: pointer;
+}
+
+[data-role='provider-option-hint'] {
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+/* ----------------------------------------------------------- actions */
+
+[data-role='onboarding-actions'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* Back is secondary and sits left; the primary action is pinned right, so the
+   forward direction is always in the same place from step to step. */
+[data-role='onboarding-back'] {
+  background: none;
+  color: var(--text-secondary);
+  padding-left: 0;
+}
+
+[data-role='onboarding'] [data-role='onboarding-back']:hover {
+  background: none;
+  color: var(--text-body);
+}
+
+[data-role='onboarding-next'] {
+  margin-left: auto;
 }
 
 [data-role='dashboard'] h1 {
@@ -1189,8 +1493,14 @@ html:has([data-role='settings']) {
     padding: var(--space-6) var(--page-gutter);
   }
 
-  [data-role='onboarding'] form {
-    padding: var(--space-4);
+  [data-role='onboarding-panel'] {
+    padding: var(--space-6) var(--space-4) var(--space-4);
+  }
+
+  /* The rail keeps its marks but drops the labels — three step names do not
+     fit on a phone, and the numbered marks still carry the progression. */
+  [data-role='onboarding-step']:not([data-state='current']) [data-role='onboarding-step-label'] {
+    display: none;
   }
 
   [data-role='section-header'],

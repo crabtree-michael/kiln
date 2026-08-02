@@ -165,6 +165,15 @@ export function CloseIcon(): JSX.Element {
   );
 }
 
+/** A finished step in the guided setup flow's progress rail. */
+export function CheckIcon(): JSX.Element {
+  return (
+    <svg data-icon="check" {...STROKE}>
+      <path d="m5 12.5 4.5 4.5L19 7" />
+    </svg>
+  );
+}
+
 /** "This row opens something" — the affordance on a project panel. */
 export function ChevronRightIcon(): JSX.Element {
   return (

@@ -25,19 +25,23 @@ test('@keyless the projects page picks a snapshot and offers no sandbox capture'
   // A THROWAWAY login so the user is genuinely new (no project) on every run.
   await mintSession(page.request, { login: `keyless-sandbox-${Date.now()}` });
 
-  // Onboard a project. Its provider defaults to the deployment mock (AGENT_MODE=
-  // mock), which exposes a snapshot catalog — no credentials needed for this path.
+  // Seed the project over the API rather than through the guided setup flow.
+  // Onboarding is only a PRECONDITION here — this spec's subject is the snapshot
+  // picker — and driving a three-step flow to reach it would couple this spec to
+  // every future change in that flow (`keyless-onboarding.spec.ts` owns it, and
+  // `dashboard-config.spec.ts` seeds the same way for the same reason).
+  // Omitting agent_provider leaves the project on the deployment default
+  // (AGENT_MODE=mock), which exposes a snapshot catalog — no credentials needed.
+  const created = await page.request.put('/api/project', {
+    data: {
+      name: 'keyless-sandbox',
+      repo_url: 'https://example.com/keyless/demo',
+      worker_count: 1,
+    },
+  });
+  expect(created.ok(), 'seeding the project over PUT /api/project failed').toBe(true);
+
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Set up your project' })).toBeVisible();
-  await page.getByLabel('Project name').fill('keyless-sandbox');
-  // Pick the repo from the connected GitHub account — the repo is no longer
-  // typed (settings repo picker). KILN_GITHUB_MODE=mock serves the canned
-  // listing and gives this dev-minted session its GitHub credential, so the
-  // picker is populated with no real GitHub account involved.
-  await page
-    .getByLabel('Repository')
-    .selectOption('https://example.com/keyless/demo');
-  await page.getByRole('button', { name: 'Save project' }).click();
 
   // The settings view now lists the project as a compact PANEL; its
   // configuration lives in a dialog behind a click (projects-in-a-modal).

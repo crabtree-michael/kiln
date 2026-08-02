@@ -16,8 +16,8 @@ product rules they realize are `01` §5 and must not be re-opened here.
 blocked | done` (still exactly these five); column and zone are **derived render groupings,
 not stored fields** (D1). Beyond `state` the Ticket now carries a few stored fields added
 since scaffold: `ApprovalRequested` (0003, the 08 §5 proposal flag), `ArchivedAt` (0005, soft
-delete), `StateChangedAt` (0007, the "time in status" clock), and `DoneCommit` (0010, the
-landed commit). A worker row is a capacity slot (01 §5's "sandbox", made provider-neutral per
+delete), `StateChangedAt` (0007, the "time in status" clock), `DoneCommit` (0010, the
+landed commit), and `KeepSandbox` (0012, the per-ticket sandbox option — see below). A worker row is a capacity slot (01 §5's "sandbox", made provider-neutral per
 05 A2), not a live resource handle: N rows seeded from config *are* the WIP cap, and free vs
 busy is derived — busy iff an active (`working`/`blocked`) ticket references it (D2). The
 worker also carries a `health` column (0009, `'ok' | 'errored'`) that the pull filters on
@@ -34,10 +34,23 @@ commit + emits the done card), `ArchiveTicket` (soft delete — the brain's `del
 done — only *working* is refused, and a **blocked** delete releases the worker it held via
 `agent.release` + `pull.evaluate`, mirroring AcceptToDone, keeping state=blocked as history —
 2026-07-11-delete-blocked-ticket-design.md), `GetTicket`, `GetBoard`,
-`SetWorkerHealth` (driven by the agent-liveness reconciler), plus internal `RunPull`.
+`SetWorkerHealth` (driven by the agent-liveness reconciler),
+`SetKeepSandbox` (the per-ticket sandbox option — see below), plus internal `RunPull`.
 Preconditions are strict: invalid or repeated transitions are typed errors (`ErrNotFound`,
 `ErrInvalidTransition`), never no-ops (D8). Every mutation returns the updated Ticket and
 emits `board.updated`. (An archived ticket is `ErrNotFound` to every subsequent read/op.)
+
+**Per-ticket sandbox option (`KeepSandbox`, migration 0012).** The user's "save this
+ticket's sandbox" choice, set from the ticket detail sheet via `SetKeepSandbox` (behind
+`POST /api/tickets/{id}/sandbox`). Its whole mechanical effect is one **suppression**: the
+`agent.release` a ticket owes when it gives up its worker — `AcceptToDone`, and
+`ArchiveTicket` on a blocked ticket — is not emitted, so the agent module never
+destroys-and-recreates the slot's sandbox and the workspace survives for the next turn on
+that slot (`releaseEmissions` in service.go is the single seam; both exits go through it).
+Everything else is unchanged: the binding still clears and `pull.evaluate` still fires, so
+the *slot* is freed — only the sandbox behind it is kept. `SetKeepSandbox` is the module's
+one operation that is a **setting rather than a transition**: no precondition, legal in any
+state, emits only `board.updated`.
 
 **Deterministic pull (03 §5).** Ready→Working happens **only** via `RunPull`, never by
 brain action (I6) — it is not in the brain's tool set. Triggered by transactional
@@ -118,7 +131,8 @@ backend/internal/board/
                 0003–0011 (approval, outbox topics, archived_at, completion topic,
                 state_changed_at, project_id, worker_health, done_commit,
                 worker_binding_live: I3 scoped to live rows so a deleted blocked
-                ticket can be archived worker-less)
+                ticket can be archived worker-less), 0012_keep_sandbox.sql (the
+                per-ticket sandbox option)
 ```
 
 - Build/check from `/backend`: `gofmt -l . && go vet ./... && go build ./...` (module
@@ -141,6 +155,13 @@ backend/internal/board/
 - **`state_changed_at` vs `updated_at`.** A Working→Working nudge (`SendToAgent`) bumps
   `updated_at` but must **not** advance `state_changed_at` — that column is the "time in
   status" clock (0007), so only a real state change touches it.
+- **A new board migration does NOT reach an existing `kiln_test`.** The integration suite's
+  `ensureMigrationsApplied` bootstraps the schema only when the `tickets` table is *missing*
+  — it keeps no ledger (unlike `cmd/kiln`'s `schema_migrations`) — so on a box that has run
+  the suite before, a freshly added migration is silently skipped and every board integration
+  test fails with `column "…" does not exist`. Drop and recreate the scratch DB
+  (`DROP DATABASE kiln_test; CREATE DATABASE kiln_test OWNER kiln;`) — every module's helper
+  bootstraps its own tables, so the next run rebuilds all of them from the migration files.
 - **`done_commit` uniqueness is lock-then-check.** `recordDoneCommit` runs under the target
   ticket's row lock with the partial unique index as the backstop; skip the lock and two
   concurrent accepts can race the same commit onto two tickets.

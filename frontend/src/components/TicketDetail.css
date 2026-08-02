@@ -285,6 +285,44 @@
   text-align: left;
 }
 
+/* The per-ticket sandbox option, at the foot of the scroll region. An inset
+ * card separated by a rule, so it reads as "settings for this ticket" rather
+ * than as more of the ticket's body: the Markdown above ends, a divider closes
+ * it, and the switch sits in its own quiet panel. It scrolls with the body on
+ * purpose — it is a considered choice, not a one-tap action, so it never takes
+ * room from the dock. */
+[data-role='detail-sandbox'] {
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.7rem;
+  border-top: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+
+/* The label wraps the checkbox, so the whole row is the hit target — a
+ * comfortable one on a phone — and the accessible name comes from the text. */
+[data-role='detail-sandbox-switch'] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-role='detail-sandbox-switch'] input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+[data-role='detail-sandbox-hint'] {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
 /* The dock — the sheet's bottom region, the mirror of the primary screen's own
  * dock (08 §5): one surface carrying BOTH the action controls and the live voice
  * transcript, not a separate area for either. A flex column so the transcript

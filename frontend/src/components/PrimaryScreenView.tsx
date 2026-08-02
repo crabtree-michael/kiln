@@ -65,6 +65,12 @@ export interface PrimaryScreenViewProps {
    * through the brain (D5); omitted (presentational tests) leaves the sheet without
    * a Poke button. */
   onPoke?: ((ticketId: string) => void) | undefined;
+  /** Save (or stop saving) the open ticket's sandbox — the ticket detail's
+   * sandbox switch, shown on every state. The composing screen writes it straight
+   * to the board (a setting, not a transition, so it does NOT go through the
+   * brain); omitted (presentational tests) leaves the sheet without the switch, so
+   * the DOM/snapshots stay unchanged. */
+  onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
   /** Clear a single update/preview card by its notification id — the swipe-left
    * gesture (08 §3). When provided, notification-backed cards become swipeable;
    * omitted (presentational tests) leaves every card static, so the swipe wrapper
@@ -205,6 +211,7 @@ export function PrimaryScreenView({
   onAccept,
   onDelete,
   onPoke,
+  onSetKeepSandbox,
   onDismissCard,
   onDismissAll,
   onOpenTickets,
@@ -519,6 +526,11 @@ export function PrimaryScreenView({
                   closeTicket();
                 }
           }
+          // The sandbox switch shows on every ticket state. Passed straight
+          // through — unlike Accept/Delete/Poke it does NOT close the sheet: it
+          // is a setting the user flips while reading, not an action that ends
+          // the visit, and the new value arrives on the next board snapshot.
+          onSetKeepSandbox={onSetKeepSandbox}
         />
       )}
     </div>

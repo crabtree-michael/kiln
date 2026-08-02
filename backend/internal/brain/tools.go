@@ -890,6 +890,11 @@ func formatTicketDetail(t board.Ticket) string {
 	if t.ApprovalRequested {
 		b.WriteString(" approval_requested=true")
 	}
+	// The user's per-ticket sandbox option. Surfaced so the brain doesn't tell them
+	// the workspace is gone after accept_to_done when they asked to keep it.
+	if t.KeepSandbox {
+		b.WriteString(" keep_sandbox=true")
+	}
 	if t.BlockedReason != nil {
 		fmt.Fprintf(&b, "\nblocked_reason: %s", *t.BlockedReason)
 	}

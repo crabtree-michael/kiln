@@ -89,11 +89,6 @@ function ExistingProjectBody({
       providers={providers}
       snapshots={catalog.snapshots}
       catalogAvailable={catalog.catalogAvailable}
-      devBoxes={catalog.devBoxes}
-      onRefreshDevBoxes={() => {
-        void catalog.refreshDevBoxes();
-      }}
-      onSaveSnapshot={catalog.saveSnapshot}
       saving={saving}
       onSave={onSave}
     />

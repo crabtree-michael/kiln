@@ -682,6 +682,10 @@ func enableServerRoutes(
 	// posts an email to POST /api/beta-signup, always mounted (the store always
 	// exists) since the marketing page depends on it.
 	server.EnableBeta(&betaRegistrarAdapter{store: betaStore})
+	// The per-ticket sandbox option (POST /api/tickets/{id}/sandbox): the one
+	// client-driven board write, satisfied directly by the board service. Always
+	// mounted — the ticket detail sheet's toggle depends on it.
+	server.EnableTicketSandbox(boardSvc)
 	// The dev "fresh session" reset endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
 	// It re-seeds the worker pool to the project's configured worker count (so a

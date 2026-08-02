@@ -217,6 +217,28 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
 
 _(Accumulate more as you work.)_
 
+## The ticket detail sheet's one write (per-ticket sandbox option)
+
+The sheet is read-only inspection over a read-only board (D5) for the ticket's *content*, and
+Accept / Delete / Poke all express intent that the caller routes **through the brain**. The
+one exception is the **sandbox switch** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
+/api/tickets/{id}/sandbox`): saving a ticket's sandbox stops the board recycling its worker,
+so an agent can keep working in the same workspace across turns. It is a *setting on the
+ticket*, not a board transition, so it writes directly — round-tripping a toggle through an
+LLM pass would be slow and non-deterministic for no gain.
+
+Two consequences worth keeping when you touch it:
+
+- **It does not close the sheet.** Every other action closes on tap; a setting is flipped
+  while reading, so `PrimaryScreenView` passes this one straight through without
+  `closeTicket()`.
+- **The switch is optimistically controlled, time-boxed.** The value lives on the board
+  snapshot, which only comes back over the stream, so the switch renders `pendingKeep ??
+  ticket.keep_sandbox` and drops the overlay as soon as the snapshot agrees — or after
+  `SANDBOX_OPTIMISTIC_MS` if the write never lands, the same self-healing shape the feed
+  store's optimistic card hides use. `PrimaryScreen` also refreshes the board on a failed
+  write so it snaps back at once instead of on the time-box.
+
 ## Swipe-to-dismiss (feed cards, 08 §3)
 
 - `SwipeToDismiss.tsx` is the reusable swipe-left-to-clear wrapper (pure pointer

@@ -259,6 +259,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessagePostResponse'
+  /api/tickets/{id}/sandbox:
+    post:
+      operationId: setTicketSandbox
+      summary: Save (or stop saving) this ticket's sandbox.
+      description: >
+        The per-ticket sandbox option, toggled from the ticket detail sheet.
+        Saving a ticket's sandbox suppresses the `agent.release` its exit from
+        Developing would otherwise emit, so the worker is not destroyed and
+        recreated — the workspace survives and an agent can keep working in that
+        same sandbox across turns. Unlike Accept and Delete this does not route
+        through the brain: it is a per-ticket setting, not a board transition,
+        so it writes the flag directly and the resulting `board.updated` carries
+        the new value back over the stream.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The ticket's id.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketSandboxRequest'
+      responses:
+        '202':
+          description: Accepted — the ticket's sandbox setting was recorded.
+        '400':
+          description: Invalid request body.
+        '404':
+          description: No such ticket in the caller's project.
   /api/beta-signup:
     post:
       operationId: postBetaSignup
@@ -743,7 +776,7 @@ components:
       description: >
         One ticket as rendered on the board (03 §2.2). Column/zone placement
         is derived from `state`, never carried as a separate field (03 D1).
-      required: [id, title, body, state, priority, approval_requested, created_at, updated_at, state_changed_at]
+      required: [id, title, body, state, priority, approval_requested, keep_sandbox, created_at, updated_at, state_changed_at]
       properties:
         id:
           type: string
@@ -769,6 +802,16 @@ components:
             longer gates proposal-card visibility: every Shaping ticket surfaces
             as a `proposal` feed card regardless (08 §5, superseding D5).
             Cleared by mark_ready.
+        keep_sandbox:
+          type: boolean
+          description: >
+            Save this ticket's sandbox instead of recycling it. Normally a ticket
+            that leaves Developing (accepted to done, or a blocked ticket deleted)
+            releases its worker, which tears the sandbox down and recreates it —
+            the workspace is gone. With this set the release is skipped, so the
+            sandbox and everything in it survive and the next turn on that slot
+            continues in the same workspace. Set per ticket from the ticket detail
+            sheet (POST /api/tickets/{id}/sandbox); false by default.
         blocked_reason:
           type: string
           nullable: true
@@ -1168,6 +1211,19 @@ components:
         last_notification_id:
           type: integer
           format: int64
+      additionalProperties: false
+
+    TicketSandboxRequest:
+      type: object
+      description: >
+        POST /api/tickets/{id}/sandbox body — the per-ticket sandbox option.
+      required: [keep]
+      properties:
+        keep:
+          type: boolean
+          description: >
+            True saves the ticket's sandbox (its release is suppressed, so the
+            workspace survives); false returns it to the default recycle.
       additionalProperties: false
 
     ActivityEvent:

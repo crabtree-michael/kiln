@@ -36,8 +36,6 @@ vi.mock('@/transport/transport', () => ({
     }),
   ),
   fetchSnapshots: vi.fn(() => Promise.resolve(null)),
-  fetchDevBoxes: vi.fn(() => Promise.resolve(null)),
-  saveSnapshot: vi.fn(),
 }));
 
 function makeMe(overrides: Partial<Me> = {}): Me {

@@ -64,6 +64,21 @@ type BoardReader interface {
 	GetBoard(ctx context.Context, projectID string) (board.Snapshot, error)
 }
 
+// TicketSandboxSetter is the api's ONE direct write onto a ticket, behind POST
+// /api/tickets/{id}/sandbox: the per-ticket sandbox option (save this ticket's
+// sandbox instead of recycling it). It is a deliberate, narrow exception to D5
+// ("the client never mutates the board directly") and carries its own port, not
+// a method on BoardReader, so the exception stays visible: Accept and Delete are
+// board *transitions* and still route through the brain, while this is a
+// per-ticket *setting* the user flips from the detail sheet — round-tripping a
+// toggle through an LLM pass would make it slow and non-deterministic for no
+// gain, since it drives no decision the brain owns. Satisfied directly by
+// *board.Service (SetKeepSandbox), mirroring BoardReader. Optional: a nil setter
+// leaves the route unmounted.
+type TicketSandboxSetter interface {
+	SetKeepSandbox(ctx context.Context, projectID string, id board.TicketID, keep bool) (board.Ticket, error)
+}
+
 // AgentInspector is the api's read seam onto live worker status, joined into
 // the board snapshot for the Streams view (amended 2026-07-05). Satisfied by a
 // cmd/kiln adapter over *agent.Service — the api never imports internal/agent,
@@ -346,6 +361,7 @@ type DevSessionMinter interface {
 // Push registration arrives with the notification spec (02 §10); voice with 09.
 type Server struct {
 	boards     BoardReader
+	sandboxes  TicketSandboxSetter // non-nil ⇒ POST /api/tickets/{id}/sandbox is mounted
 	poster     MessagePoster
 	messages   MessagesReader
 	feed       FeedReader
@@ -395,6 +411,11 @@ func NewServer(
 		feed: feed, seen: seen, hub: hub, voice: voice,
 	}
 }
+
+// EnableTicketSandbox turns on POST /api/tickets/{id}/sandbox, the per-ticket
+// sandbox option (call before Handler). Satisfied by *board.Service; left unset
+// (presentational/unit wiring) the route simply isn't mounted.
+func (s *Server) EnableTicketSandbox(setter TicketSandboxSetter) { s.sandboxes = setter }
 
 // EnableDevTickets turns on the dev-only POST /api/dev/tickets route (call before
 // Handler). Local/e2e only — gated at the composition root by KILN_DEV_ENDPOINTS.
@@ -498,15 +519,7 @@ func (s *Server) Handler() http.Handler {
 	for _, ar := range s.appRoutes() {
 		s.mountProjectScoped(mux, ar.method, ar.path, ar.handler)
 	}
-	// The project sandbox-selection routes (sandbox selection) are project-scoped
-	// too, but gated on the snapshot catalog being wired — dual-mounted (bare +
-	// id'd) like the rest of the app surface. A provider without a catalog is
-	// handled per call (ErrNoSandboxCatalog ⇒ 404), not by leaving them unmounted.
-	if s.sandbox != nil {
-		s.mountProjectScoped(mux, http.MethodGet, "/snapshots", s.handleListSnapshots)
-		s.mountProjectScoped(mux, http.MethodPost, "/snapshots", s.handleSaveSnapshot)
-		s.mountProjectScoped(mux, http.MethodGet, "/dev-boxes", s.handleListDevBoxes)
-	}
+	s.mountSandboxRoutes(mux)
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
@@ -588,6 +601,28 @@ func (s *Server) appRoutes() []appRoute {
 func (s *Server) mountProjectScoped(mux *http.ServeMux, method, path string, h projectHandler) {
 	mux.HandleFunc(method+" /api"+path, s.withProject(h))
 	mux.HandleFunc(method+" /api/projects/{"+projectIDParam+"}"+path, s.withProjectID(h))
+}
+
+// mountSandboxRoutes registers the two sandbox-shaped route groups, both
+// project-scoped and dual-mounted (bare + id'd) like the rest of the app
+// surface. Extracted from Handler so that method stays within the complexity
+// budget as new route groups are added (the same reason mountIdentityRoutes
+// exists).
+//
+//   - The per-TICKET sandbox option (POST /tickets/{id}/sandbox): mounted when a
+//     setter is wired.
+//   - The per-PROJECT snapshot catalog (sandbox selection): mounted when the
+//     catalog is wired. A provider without a catalog is handled per call
+//     (ErrNoSandboxCatalog ⇒ 404), not by leaving these unmounted.
+func (s *Server) mountSandboxRoutes(mux *http.ServeMux) {
+	if s.sandboxes != nil {
+		s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/sandbox", s.handleTicketSandbox)
+	}
+	if s.sandbox != nil {
+		s.mountProjectScoped(mux, http.MethodGet, "/snapshots", s.handleListSnapshots)
+		s.mountProjectScoped(mux, http.MethodPost, "/snapshots", s.handleSaveSnapshot)
+		s.mountProjectScoped(mux, http.MethodGet, "/dev-boxes", s.handleListDevBoxes)
+	}
 }
 
 // mountIdentityRoutes registers the GitHub OAuth + cookie-session routes and the
@@ -932,6 +967,36 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request, _ identity
 		return
 	}
 	writeJSON(w, http.StatusAccepted, wire.MessagePostResponse{MessageId: messageID, EventId: eventID})
+}
+
+// handleTicketSandbox records the per-ticket sandbox option the user toggled in
+// the ticket-detail sheet: keep=true saves that ticket's sandbox (the board
+// suppresses its agent.release, so the workspace is never destroyed-and-recreated
+// and an agent can keep working in it across turns), keep=false restores the
+// default recycle. Unlike Accept and Delete this writes the board directly rather
+// than routing through the brain — see TicketSandboxSetter for why a setting is
+// treated differently from a transition. The write emits board.updated, so every
+// open client sees the new value over the stream. Returns 202; an unknown ticket
+// (including one belonging to another project) is 404.
+func (s *Server) handleTicketSandbox(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	var req wire.TicketSandboxRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	id := board.TicketID(r.PathValue("id"))
+	switch _, err := s.sandboxes.SetKeepSandbox(r.Context(), project.ID, id, req.Keep); {
+	case errors.Is(err, board.ErrNotFound):
+		http.Error(w, "no such ticket", http.StatusNotFound)
+		return
+	case err != nil:
+		slog.Error("api: set ticket sandbox", "err", err)
+		http.Error(w, "set ticket sandbox", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // handleDeleteTicket routes a tap-Delete in the ticket-detail sheet through the
@@ -1434,6 +1499,7 @@ func ticketToWire(t board.Ticket) wire.Ticket {
 		BlockedReason:     t.BlockedReason,
 		ReadyAt:           t.ReadyAt,
 		ApprovalRequested: t.ApprovalRequested,
+		KeepSandbox:       t.KeepSandbox,
 		CreatedAt:         t.CreatedAt,
 		UpdatedAt:         t.UpdatedAt,
 		StateChangedAt:    t.StateChangedAt,

@@ -24,6 +24,9 @@ export interface TicketFixtureInput {
    * omitted (fine for the many fixtures that don't exercise time-in-status). */
   statusChangedAt?: string;
   approvalRequested?: boolean;
+  /** The per-ticket sandbox option; defaults to false — the recycling default —
+   * so only the fixtures that exercise the switch have to name it. */
+  keepSandbox?: boolean;
   blockedReason?: string;
   readyAt?: string;
 }
@@ -39,6 +42,7 @@ export function makeTicket(input: TicketFixtureInput): Ticket {
     state: input.state,
     priority: input.priority,
     approval_requested: input.approvalRequested ?? false,
+    keep_sandbox: input.keepSandbox ?? false,
     created_at: input.createdAt,
     updated_at: input.updatedAt,
     state_changed_at: input.statusChangedAt ?? input.updatedAt,

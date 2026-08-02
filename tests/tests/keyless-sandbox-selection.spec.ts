@@ -8,15 +8,19 @@ import { mintSession } from '../session';
 // what flips the project form from a free-text snapshot handle to a real picker.
 //
 // Exercises the whole wired path the multi-project rebase re-architected: the
-// per-project `useSandboxCatalog` hook → GET /api/projects/{id}/snapshots +
-// /dev-boxes → the dual-mounted routes → sandboxCatalogAdapter → the tenant
-// registry's mock provider → back through the wire mapping into the picker.
+// per-project `useSandboxCatalog` hook → GET /api/projects/{id}/snapshots → the
+// dual-mounted routes → sandboxCatalogAdapter → the tenant registry's mock
+// provider → back through the wire mapping into the picker.
 //
-// The mock seeds no dev boxes, so a UI-driven capture can't pick a source (the
-// select is empty, Save stays disabled); the capture is driven via the API
-// instead (the mock accepts any ref), and the assertion is that the freshly
-// captured snapshot then shows up as an option in the picker after a reload.
-test('@keyless the projects page picks a snapshot and shows a captured dev box', async ({ page }) => {
+// The project form no longer captures a sandbox as a snapshot — saving a sandbox
+// is a per-TICKET choice now (the ticket detail sheet's switch) — so this asserts
+// the old capture section is GONE from the card. The capture endpoint itself is
+// still driven via the API here (the mock accepts any ref), so the picker's
+// refresh path stays covered: a freshly captured snapshot shows up as an option
+// after a reload.
+test('@keyless the projects page picks a snapshot and offers no sandbox capture', async ({
+  page,
+}) => {
   test.setTimeout(60_000);
   // A THROWAWAY login so the user is genuinely new (no project) on every run.
   await mintSession(page.request, { login: `keyless-sandbox-${Date.now()}` });
@@ -48,16 +52,14 @@ test('@keyless the projects page picks a snapshot and shows a captured dev box',
   await expect(picker).toHaveJSProperty('tagName', 'SELECT');
   await expect(picker.locator('option')).toContainText(['Default']);
 
-  // The "save a dev box as a snapshot" section is present, with an empty dev-box
-  // select and a Save button that stays disabled until a source + name are chosen
-  // (the mock seeds no dev boxes, so it can't be enabled through the UI here).
-  await expect(page.locator('[data-role="save-dev-box"]')).toBeVisible();
-  await expect(page.locator('[data-role="dev-box-select"]')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save snapshot' })).toBeDisabled();
+  // The "save a dev box as a snapshot" section is gone from the project card:
+  // saving a sandbox moved to the ticket detail sheet, per ticket.
+  await expect(page.locator('[data-role="save-dev-box"]')).toHaveCount(0);
+  await expect(page.locator('[data-role="dev-box-select"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save snapshot' })).toHaveCount(0);
 
-  // Capture a dev box as a snapshot via the API (the mock accepts any ref). This
-  // is the same POST the UI issues; driving it directly lets the test assert the
-  // catalog re-renders even though the mock offers no dev box to pick in the UI.
+  // Capture a snapshot via the API (the mock accepts any ref), so the picker's
+  // catalog-refresh path stays covered now that no UI drives the capture.
   const me = (await (await page.request.get('/api/me')).json()) as {
     projects: { id: string }[];
   };

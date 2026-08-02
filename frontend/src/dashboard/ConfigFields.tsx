@@ -11,7 +11,6 @@
 // `credential-status` indicator picks up the fresh check result with no
 // separate "test connections" step.
 import {
-  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -21,11 +20,9 @@ import {
   type ReactNode,
 } from 'react';
 import type {
-  DevBox,
   MeProject,
   ProjectUpdateRequest,
   ProviderDescriptor,
-  SaveSnapshotRequest,
   Snapshot,
   SettingsUpdateRequest,
   VerifyCheck,
@@ -276,18 +273,10 @@ export interface ProjectFieldsProps {
    * picker from these instead of a free-text handle. */
   snapshots?: Snapshot[];
   /** `true` when the project's provider is known to expose a snapshot catalog —
-   * the snapshot field becomes a picker and the "save a dev box as a snapshot"
-   * section appears. `false` (the default) keeps the free-text snapshot input, so
-   * a provider without a catalog (or onboarding, before a project exists) is
-   * unchanged. */
+   * the snapshot field becomes a picker. `false` (the default) keeps the
+   * free-text snapshot input, so a provider without a catalog (or onboarding,
+   * before a project exists) is unchanged. */
   catalogAvailable?: boolean;
-  /** The caller's running dev boxes a snapshot can be captured from — populated
-   * by `onRefreshDevBoxes`. */
-  devBoxes?: DevBox[];
-  /** Loads/refreshes `devBoxes` for the capture section (GET /api/project/dev-boxes). */
-  onRefreshDevBoxes?: () => void;
-  /** Captures a dev box as a new snapshot (POST /api/project/snapshots). */
-  onSaveSnapshot?: (body: SaveSnapshotRequest) => Promise<void>;
   /** Which shell the same fields render in (projects-in-a-modal):
    *
    *  * `form` (the default) — the flat field list onboarding and the app-native
@@ -391,9 +380,6 @@ export function ProjectFields({
   providers,
   snapshots,
   catalogAvailable = false,
-  devBoxes,
-  onRefreshDevBoxes,
-  onSaveSnapshot,
   layout = 'form',
   saving,
   onSave,
@@ -406,50 +392,12 @@ export function ProjectFields({
   const providerOptions = providers ?? [];
   const [agentProvider, setAgentProvider] = useState(project?.agent_provider ?? '');
   const [amikaSnapshot, setAmikaSnapshot] = useState(project?.amika_snapshot ?? '');
-  // The "save a dev box as a snapshot" capture form (sandbox management): which
-  // dev box to capture and what to name the resulting snapshot. Only rendered
-  // when the provider exposes a catalog (catalogAvailable).
-  const [captureDevBoxRef, setCaptureDevBoxRef] = useState('');
-  const [captureName, setCaptureName] = useState('');
-  const [captureDescription, setCaptureDescription] = useState('');
   const [workerCount, setWorkerCount] = useState(
     project?.worker_count === undefined ? '' : String(project.worker_count),
   );
   const [mergeGateMode, setMergeGateMode] = useState<MergeGateMode>(
     project?.merge_gate_mode ?? 'main',
   );
-  // Load the dev boxes once the capture section is available, so its select is
-  // populated without the user hunting for a refresh button. Gated on
-  // catalogAvailable so a provider without a catalog (or onboarding) never fires
-  // the fetch; the loader is a stable store action, so this runs once.
-  useEffect(() => {
-    if (catalogAvailable && onRefreshDevBoxes) {
-      onRefreshDevBoxes();
-    }
-  }, [catalogAvailable, onRefreshDevBoxes]);
-
-  const handleCaptureSnapshot = (): void => {
-    if (onSaveSnapshot === undefined) {
-      return;
-    }
-    const ref = captureDevBoxRef.trim();
-    const snapName = captureName.trim();
-    if (ref === '' || snapName === '') {
-      return;
-    }
-    const body: SaveSnapshotRequest = { dev_box_ref: ref, name: snapName };
-    const trimmedDescription = captureDescription.trim();
-    if (trimmedDescription !== '') {
-      body.description = trimmedDescription;
-    }
-    void onSaveSnapshot(body).then(() => {
-      // Clear the capture form on submit; the new snapshot lands in the picker
-      // once the store reloads the catalog.
-      setCaptureName('');
-      setCaptureDescription('');
-    });
-  };
-
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const body: ProjectUpdateRequest = { name: name.trim(), repo_url: repoUrl.trim() };
@@ -593,73 +541,6 @@ export function ProjectFields({
     </label>
   );
 
-  const captureFieldset =
-    catalogAvailable && onSaveSnapshot !== undefined ? (
-      <fieldset data-role="save-dev-box">
-        <legend>Save a dev box as a snapshot</legend>
-        <p data-role="save-dev-box-hint">
-          Capture one of your running dev boxes as a reusable snapshot; it then appears in the
-          snapshot picker above (its capture runs in the background).
-        </p>
-        <label>
-          Dev box
-          <select
-            data-role="dev-box-select"
-            value={captureDevBoxRef}
-            onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-              setCaptureDevBoxRef(event.target.value);
-            }}
-          >
-            <option value="">Select a dev box…</option>
-            {(devBoxes ?? []).map((box) => (
-              <option key={box.ref} value={box.ref}>
-                {box.name} ({box.status})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          data-role="refresh-dev-boxes"
-          onClick={() => {
-            onRefreshDevBoxes?.();
-          }}
-        >
-          Refresh
-        </button>
-        <label>
-          Snapshot name
-          <input
-            type="text"
-            data-field="snapshot-name"
-            value={captureName}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setCaptureName(event.target.value);
-            }}
-          />
-        </label>
-        <label>
-          Description
-          <input
-            type="text"
-            data-field="snapshot-description"
-            value={captureDescription}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setCaptureDescription(event.target.value);
-            }}
-          />
-        </label>
-        <button
-          type="button"
-          data-role="save-dev-box-snapshot"
-          disabled={saving || captureDevBoxRef.trim() === '' || captureName.trim() === ''}
-          onClick={handleCaptureSnapshot}
-        >
-          Save snapshot
-        </button>
-      </fieldset>
-    ) : null;
-
   // The repo is required and can only come from the picker, so a project with
   // none selected — a new one on a disconnected account — can't be saved yet.
   // Blocking here beats a server-side 400 the user can't act on.
@@ -678,7 +559,6 @@ export function ProjectFields({
         {snapshotField}
         {workerCountField}
         {mergeGateField}
-        {captureFieldset}
         {submitButton}
       </form>
     );
@@ -722,7 +602,6 @@ export function ProjectFields({
           snapshots={snapshots ?? []}
           selectedRef={amikaSnapshot}
         />
-        {captureFieldset}
       </section>
 
       <footer data-role="project-form-actions">{submitButton}</footer>

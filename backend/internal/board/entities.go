@@ -37,6 +37,14 @@ type Ticket struct {
 	// user to approve (08 §5 proposal card). True only while shaping — the DB
 	// CHECK ties it to state='shaping'; MarkReady clears it (08 §B).
 	ApprovalRequested bool
+	// KeepSandbox is the per-ticket sandbox option the user sets from the ticket
+	// detail sheet: save this ticket's sandbox instead of recycling it. A ticket
+	// leaving Developing normally emits agent.release, which destroys and
+	// recreates the slot's worker for a fresh workspace (05 §4) — the sandbox is
+	// gone. When this is set the release is skipped, so the sandbox survives and
+	// an agent can keep working in the same workspace across turns. False (the
+	// default) keeps the recycle.
+	KeepSandbox bool
 	// ArchivedAt is set when the ticket has been archived (soft-deleted) — the
 	// brain's delete_ticket (06 §4 amended). An archived ticket is invisible to
 	// every read path (Snapshot, GetTicket) and to the pull, and every targeted

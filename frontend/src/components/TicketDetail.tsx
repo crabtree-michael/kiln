@@ -1,9 +1,12 @@
 // Ticket detail sheet. Opening a board card slides a bottom sheet up into view
 // from the bottom edge (a classic mobile sheet) showing the ticket's full
 // record — everything the card elides: the complete body, priority, timestamps,
-// id, and (when blocked) the full blocked reason. This is read-only inspection
-// layered over the read-only board (D5); it never mutates state, so there is no
-// edit affordance here.
+// id, and (when blocked) the full blocked reason. It stays read-only inspection
+// over the read-only board (D5) as far as the ticket's *content* goes — there is
+// no edit affordance for title, body, or state. The one thing it does write is
+// the per-ticket sandbox option (`onSetKeepSandbox`), which is the user's own
+// setting on the ticket rather than a board transition, so it does not route
+// through the brain.
 //
 // The slide-up entrance + native rubber-band overscroll and drag-to-dismiss come
 // from `vaul` (direction="bottom") — the standard React drawer/sheet, adopted
@@ -12,7 +15,7 @@
 // threshold, clicking the scrim, and pressing Escape all route through
 // `onOpenChange(false)` → `onClose`, so this component adds none of that by
 // hand — dismiss stays low-friction, never a trap (07 §7–§8).
-import { type JSX, type ReactNode } from 'react';
+import { useEffect, useState, type JSX, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Drawer } from 'vaul';
@@ -48,6 +51,18 @@ export interface TicketDetailProps {
    * work is stalled by definition, so Poke shows whenever wired. Omitted → no Poke
    * affordance (read-only inspection). */
   onPoke?: ((ticketId: string) => void) | undefined;
+  /** When provided, the sheet shows the per-ticket **sandbox option** — a switch
+   * reading the ticket's own `keep_sandbox`. Saving a ticket's sandbox stops the
+   * board releasing its worker when the ticket leaves Developing, so the workspace
+   * survives and an agent can keep working in that same sandbox across turns.
+   * Unlike Accept/Delete/Poke this is a setting rather than an intent, so the
+   * caller writes it directly (POST /api/tickets/{id}/sandbox) rather than routing
+   * it through the brain, and the sheet stays open after the toggle — the user may
+   * well flip it and keep reading. Offered on every lifecycle state: the choice
+   * matters before the sandbox exists (a proposal the user already knows they want
+   * to keep working in) just as much as while it's running. Omitted → no switch,
+   * so a read-only sheet is unchanged. */
+  onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
   /** The live session status of this ticket's bound agent, from the board
    * snapshot's `agents` join (`AgentStatus.status === 'idle'`). A *working* ticket
    * only offers Poke when this is true — the agent is alive but between turns and
@@ -119,12 +134,20 @@ const DELETABLE_STATES = new Set<Ticket['state']>(['shaping', 'blocked']);
 const DELETE_BLOCKED_CONFIRM =
   "Delete this blocked ticket? Its in-progress work will be discarded and can't be recovered here.";
 
+/** How long the sandbox switch holds the user's choice before deferring to the
+ * board snapshot again. The write is fire-and-forget (the new value arrives on
+ * the next `board.updated`), so the switch shows the choice immediately and this
+ * time-box is what self-heals it if the write never lands — the same shape the
+ * feed store's optimistic card hides use. */
+const SANDBOX_OPTIMISTIC_MS = 5000;
+
 export function TicketDetail({
   ticket,
   onClose,
   onAccept,
   onDelete,
   onPoke,
+  onSetKeepSandbox,
   agentIdle = false,
   voiceControl,
   transcript,
@@ -149,6 +172,28 @@ export function TicketDetail({
   // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
   // optional chain, which the lint gate rejects (mirrors FeedCardItem).
+  // The sandbox switch renders the user's choice at once, then hands back to the
+  // board snapshot: `pendingKeep` is null whenever the snapshot is authoritative.
+  // It clears as soon as the snapshot agrees, and otherwise on the time-box — so a
+  // write that never lands can't leave the switch stuck on a lie.
+  const [pendingKeep, setPendingKeep] = useState<boolean | null>(null);
+  const serverKeep = ticket.keep_sandbox;
+  useEffect(() => {
+    if (pendingKeep === null) {
+      return;
+    }
+    if (pendingKeep === serverKeep) {
+      setPendingKeep(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setPendingKeep(null);
+    }, SANDBOX_OPTIMISTIC_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [pendingKeep, serverKeep]);
+
   const isShaping = ticket.state === 'shaping';
   const isBlocked = ticket.state === 'blocked';
   const isWorking = ticket.state === 'working';
@@ -249,6 +294,32 @@ export function TicketDetail({
               <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
             )}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{ticket.body}</ReactMarkdown>
+            {/* The per-ticket sandbox option, at the foot of the scroll region:
+                it is a setting the user reads and considers, not one of the
+                dock's one-tap actions, so it sits with the ticket's own record
+                rather than competing with Accept/Poke/Delete for the thumb. The
+                label wraps the checkbox, so the whole row is the hit target and
+                the accessible name needs no aria plumbing. */}
+            {onSetKeepSandbox !== undefined && (
+              <div data-role="detail-sandbox">
+                <label data-role="detail-sandbox-switch">
+                  <input
+                    type="checkbox"
+                    data-role="detail-keep-sandbox"
+                    checked={pendingKeep ?? serverKeep}
+                    onChange={(event) => {
+                      setPendingKeep(event.target.checked);
+                      onSetKeepSandbox(ticket.id, event.target.checked);
+                    }}
+                  />
+                  Save this ticket&rsquo;s sandbox
+                </label>
+                <p data-role="detail-sandbox-hint">
+                  A saved sandbox isn&rsquo;t torn down when the ticket leaves development, so an
+                  agent can keep working in the same workspace across turns.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Footer actions. Which affordances appear is decided purely by the

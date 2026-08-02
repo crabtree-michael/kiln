@@ -764,6 +764,9 @@ type Ticket struct {
 	CreatedAt     time.Time `json:"created_at"`
 	Id            string    `json:"id"`
 
+	// KeepSandbox Save this ticket's sandbox instead of recycling it. Normally a ticket that leaves Developing (accepted to done, or a blocked ticket deleted) releases its worker, which tears the sandbox down and recreates it — the workspace is gone. With this set the release is skipped, so the sandbox and everything in it survive and the next turn on that slot continues in the same workspace. Set per ticket from the ticket detail sheet (POST /api/tickets/{id}/sandbox); false by default.
+	KeepSandbox bool `json:"keep_sandbox"`
+
 	// Priority Backlog ordering for the pull; higher pulls first.
 	Priority int `json:"priority"`
 
@@ -783,6 +786,12 @@ type Ticket struct {
 
 // TicketState One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.
 type TicketState string
+
+// TicketSandboxRequest POST /api/tickets/{id}/sandbox body — the per-ticket sandbox option.
+type TicketSandboxRequest struct {
+	// Keep True saves the ticket's sandbox (its release is suppressed, so the workspace survives); false returns it to the default recycle.
+	Keep bool `json:"keep"`
+}
 
 // VerifyCheck defines model for VerifyCheck.
 type VerifyCheck struct {
@@ -861,3 +870,6 @@ type PutSettingsJSONRequestBody = SettingsUpdateRequest
 
 // SaveSnapshotJSONRequestBody defines body for SaveSnapshot for application/json ContentType.
 type SaveSnapshotJSONRequestBody = SaveSnapshotRequest
+
+// SetTicketSandboxJSONRequestBody defines body for SetTicketSandbox for application/json ContentType.
+type SetTicketSandboxJSONRequestBody = TicketSandboxRequest

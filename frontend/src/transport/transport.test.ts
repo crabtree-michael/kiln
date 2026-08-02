@@ -21,6 +21,7 @@ import {
   putNotificationMode,
   setActiveProjectId,
   fetchGitHubRepos,
+  setTicketSandbox,
   type Board,
   type FeedSnapshot,
   type SayEvent,
@@ -219,6 +220,31 @@ describe('transport', () => {
       expect(init?.method).toBe('POST');
       expect(init?.body).toBe(JSON.stringify({ text: 'build the widget' }));
       expect(result).toEqual(response);
+    });
+  });
+
+  describe('setTicketSandbox (POST /api/tickets/{id}/sandbox)', () => {
+    it('POSTs {keep} to the ticket sandbox route', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 202 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await setTicketSandbox('t-42', true);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/tickets/t-42/sandbox');
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBe(JSON.stringify({ keep: true }));
+    });
+
+    it('rejects on a non-2xx so the caller can roll its optimistic switch back', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
+      );
+      await expect(setTicketSandbox('t-gone', true)).rejects.toThrow('HTTP 404');
     });
   });
 

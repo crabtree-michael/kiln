@@ -26,6 +26,7 @@ export type FeedHistoryPage = components['schemas']['FeedHistoryPage'];
 export type ActivityEvent = components['schemas']['ActivityEvent'];
 export type ActivityStatus = components['schemas']['ActivityStatus'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
+export type TicketSandboxRequest = components['schemas']['TicketSandboxRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
@@ -42,8 +43,6 @@ export type VerifyResponse = components['schemas']['VerifyResponse'];
 export type VerifyCheck = components['schemas']['VerifyCheck'];
 export type ProviderDescriptor = components['schemas']['ProviderDescriptor'];
 export type Snapshot = components['schemas']['Snapshot'];
-export type DevBox = components['schemas']['DevBox'];
-export type SaveSnapshotRequest = components['schemas']['SaveSnapshotRequest'];
 export type GitHubRepo = components['schemas']['GitHubRepo'];
 export type GitHubRepoList = components['schemas']['GitHubRepoList'];
 
@@ -555,14 +554,6 @@ function isSnapshotArray(value: unknown): value is Snapshot[] {
   return Array.isArray(value) && value.every(isSnapshot);
 }
 
-function isDevBox(value: unknown): value is DevBox {
-  return isRecord(value) && typeof value.ref === 'string' && typeof value.name === 'string';
-}
-
-function isDevBoxArray(value: unknown): value is DevBox[] {
-  return Array.isArray(value) && value.every(isDevBox);
-}
-
 function isGitHubRepo(value: unknown): value is GitHubRepo {
   return (
     isRecord(value) &&
@@ -917,24 +908,6 @@ export async function fetchSnapshots(projectId: string): Promise<Snapshot[] | nu
   return payload.snapshots;
 }
 
-/** `GET /api/projects/{id}/dev-boxes` — the caller's running dev boxes a snapshot
- * can be captured from, scoped to the named project. Resolves `null` when the
- * provider offers no catalog (404), like `fetchSnapshots`. */
-export async function fetchDevBoxes(projectId: string): Promise<DevBox[] | null> {
-  const response = await fetch(`/api/projects/${projectId}/dev-boxes`);
-  if (response.status === 404) {
-    return null;
-  }
-  if (!response.ok) {
-    throw new Error(`fetchDevBoxes: HTTP ${String(response.status)}`);
-  }
-  const payload: unknown = await response.json();
-  if (!isRecord(payload) || !isDevBoxArray(payload.dev_boxes)) {
-    throw new Error('fetchDevBoxes: unexpected response shape');
-  }
-  return payload.dev_boxes;
-}
-
 /** `GET /api/github/repos` — the repos the caller's connected GitHub account can
  * reach, which the settings repo picker lists instead of a free-text URL field.
  * User-scoped (one GitHub sign-in credential serves every project), so unlike
@@ -949,28 +922,6 @@ export async function fetchGitHubRepos(): Promise<GitHubRepoList> {
   const payload: unknown = await response.json();
   if (!isGitHubRepoList(payload)) {
     throw new Error('fetchGitHubRepos: unexpected response shape');
-  }
-  return payload;
-}
-
-/** `POST /api/projects/{id}/snapshots` — capture a running dev box as a new named
- * snapshot for the named project; the capture runs in the background, so the
- * returned snapshot may still be `capturing`. */
-export async function saveSnapshot(
-  projectId: string,
-  body: SaveSnapshotRequest,
-): Promise<Snapshot> {
-  const response = await fetch(`/api/projects/${projectId}/snapshots`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw new Error(`saveSnapshot: HTTP ${String(response.status)}`);
-  }
-  const payload: unknown = await response.json();
-  if (!isSnapshot(payload)) {
-    throw new Error('saveSnapshot: unexpected response shape');
   }
   return payload;
 }
@@ -1022,6 +973,25 @@ export async function acceptTicket(id: string): Promise<MessagePostResponse> {
     throw new Error('acceptTicket: unexpected response shape');
   }
   return payload;
+}
+
+/** `POST /api/tickets/{id}/sandbox` — the per-ticket sandbox option. `keep: true`
+ * saves this ticket's sandbox: the board stops releasing its worker, so the
+ * workspace is never torn down and recreated and an agent can keep working in the
+ * same sandbox across turns. Unlike accept/delete this does NOT route through the
+ * brain — it is a setting, not a transition — so the new value comes straight back
+ * on the next `board` snapshot. Throws on a non-2xx so the caller can roll its
+ * optimistic toggle back. */
+export async function setTicketSandbox(id: string, keep: boolean): Promise<void> {
+  const body: TicketSandboxRequest = { keep };
+  const response = await fetch(appPath(`/tickets/${id}/sandbox`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`setTicketSandbox: HTTP ${String(response.status)}`);
+  }
 }
 
 /** `POST /api/tickets/{id}/delete` — routes a proposal deletion through the brain

@@ -6,15 +6,13 @@
 // an unlistable repo selectable so a save can't silently drop it.
 import { describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ProjectFields } from '@/dashboard/ConfigFields';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
 import type {
-  DevBox,
   MeProject,
   ProjectUpdateRequest,
   ProviderDescriptor,
-  SaveSnapshotRequest,
   Snapshot,
 } from '@/transport/transport';
 
@@ -291,105 +289,23 @@ describe('ProjectFields — snapshot selection (sandbox selection)', () => {
   });
 });
 
-describe('ProjectFields — save a dev box as a snapshot', () => {
-  const devBoxes: DevBox[] = [
-    { ref: 'sb-dev', name: 'my-dev-box', status: 'ready' },
-    { ref: 'sb-old', name: 'old-box', status: 'stopped' },
-  ];
-
-  it('loads dev boxes when the capture section is available', () => {
-    const onRefreshDevBoxes = vi.fn();
+// The project card no longer captures a sandbox as a snapshot: saving a sandbox
+// is a per-TICKET choice now (the ticket detail sheet's sandbox switch), so the
+// project form must offer no trace of the old capture section.
+describe('ProjectFields — no sandbox capture section', () => {
+  it('offers no dev-box capture form, even with a catalog', () => {
     render(
       <ProjectFields
         github={connectedGitHub()}
         project={baseProject()}
         catalogAvailable
-        devBoxes={devBoxes}
-        onRefreshDevBoxes={onRefreshDevBoxes}
-        onSaveSnapshot={vi.fn(() => Promise.resolve())}
-        saving={false}
-        onSave={vi.fn()}
-      />,
-    );
-    expect(onRefreshDevBoxes).toHaveBeenCalled();
-    const select = screen.getByRole('combobox', { name: /dev box/i });
-    expect(
-      within(select)
-        .getAllByRole('option')
-        .map((o) => o.textContent),
-    ).toEqual(['Select a dev box…', 'my-dev-box (ready)', 'old-box (stopped)']);
-  });
-
-  it('is hidden without a catalog', () => {
-    render(
-      <ProjectFields
-        github={connectedGitHub()}
-        project={baseProject()}
-        onSaveSnapshot={vi.fn(() => Promise.resolve())}
         saving={false}
         onSave={vi.fn()}
       />,
     );
     expect(screen.queryByRole('combobox', { name: /dev box/i })).toBeNull();
-  });
-
-  it('disables Save snapshot until a dev box and a name are chosen', () => {
-    render(
-      <ProjectFields
-        github={connectedGitHub()}
-        project={baseProject()}
-        catalogAvailable
-        devBoxes={devBoxes}
-        onRefreshDevBoxes={vi.fn()}
-        onSaveSnapshot={vi.fn(() => Promise.resolve())}
-        saving={false}
-        onSave={vi.fn()}
-      />,
-    );
-    const button = screen.getByRole('button', { name: 'Save snapshot' });
-    expect(button).toBeDisabled();
-    fireEvent.change(screen.getByRole('combobox', { name: /dev box/i }), {
-      target: { value: 'sb-dev' },
-    });
-    expect(button).toBeDisabled(); // still needs a name
-    fireEvent.change(screen.getByRole('textbox', { name: /snapshot name/i }), {
-      target: { value: 'my-base' },
-    });
-    expect(button).toBeEnabled();
-  });
-
-  it('captures the selected dev box with the given name and clears the form', async () => {
-    const onSaveSnapshot = vi.fn((_body: SaveSnapshotRequest) => Promise.resolve());
-    render(
-      <ProjectFields
-        github={connectedGitHub()}
-        project={baseProject()}
-        catalogAvailable
-        devBoxes={devBoxes}
-        onRefreshDevBoxes={vi.fn()}
-        onSaveSnapshot={onSaveSnapshot}
-        saving={false}
-        onSave={vi.fn()}
-      />,
-    );
-    fireEvent.change(screen.getByRole('combobox', { name: /dev box/i }), {
-      target: { value: 'sb-dev' },
-    });
-    const nameInput = screen.getByRole('textbox', { name: /snapshot name/i });
-    fireEvent.change(nameInput, { target: { value: 'my-base' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /description/i }), {
-      target: { value: 'warm tree' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save snapshot' }));
-    expect(onSaveSnapshot).toHaveBeenCalledWith({
-      dev_box_ref: 'sb-dev',
-      name: 'my-base',
-      description: 'warm tree',
-    });
-    // The form clears once the capture resolves.
-    await waitFor(() => {
-      expect(nameInput).toHaveValue('');
-    });
+    expect(screen.queryByRole('button', { name: 'Save snapshot' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /snapshot name/i })).toBeNull();
   });
 });
 

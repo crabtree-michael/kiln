@@ -460,6 +460,67 @@ func TestArchiveTicket_ArchivedReadyIsNotPulled(t *testing.T) {
 	}
 }
 
+// ---- keep_sandbox: the per-ticket sandbox option round-trips, and suppresses
+// the release the accept would otherwise emit (migration 0012) ---------------
+
+func TestKeepSandbox_RoundTripsAndSuppressesRelease(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	mustInsertWorker(ctx, t, db, projA)
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	created, err := svc.CreateTicket(ctx, projA, "keep my sandbox", "")
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	// The column defaults to false, so an untouched ticket recycles as before.
+	if created.KeepSandbox {
+		t.Fatal("a new ticket must default to KeepSandbox=false")
+	}
+
+	if _, err := svc.SetKeepSandbox(ctx, projA, created.ID, true); err != nil {
+		t.Fatalf("SetKeepSandbox: %v", err)
+	}
+	// Read back through the real SELECT projection, not the write's own RETURNING.
+	reread, err := svc.GetTicket(ctx, projA, created.ID)
+	if err != nil {
+		t.Fatalf("GetTicket: %v", err)
+	}
+	if !reread.KeepSandbox {
+		t.Fatal("KeepSandbox did not survive the round trip through Postgres")
+	}
+
+	// Drive it to done through the real pull, and prove no agent.release landed.
+	if _, err := svc.MarkReady(ctx, projA, created.ID); err != nil {
+		t.Fatalf("MarkReady: %v", err)
+	}
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+	if _, err := svc.AcceptToDone(ctx, projA, created.ID, board.CompletionLink{}, ""); err != nil {
+		t.Fatalf("AcceptToDone: %v", err)
+	}
+
+	var releases int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM outbox WHERE topic = $1`, string(board.TopicAgentRelease)).Scan(&releases); err != nil {
+		t.Fatalf("count agent.release: %v", err)
+	}
+	if releases != 0 {
+		t.Fatalf("agent.release rows = %d, want 0 — a saved sandbox is never recycled", releases)
+	}
+	// The option itself is retained on the done row (the sandbox is still saved).
+	var kept bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT keep_sandbox FROM tickets WHERE id = $1`, string(created.ID)).Scan(&kept); err != nil {
+		t.Fatalf("read keep_sandbox: %v", err)
+	}
+	if !kept {
+		t.Error("keep_sandbox must survive AcceptToDone")
+	}
+}
+
 func mustInsertWorker(ctx context.Context, t *testing.T, db *sql.DB, projectID string) string {
 	t.Helper()
 	var id string

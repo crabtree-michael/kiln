@@ -1261,26 +1261,6 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
-[data-role='save-dev-box-hint'] {
-  margin: 0;
-  font: var(--type-caption);
-  color: var(--text-faint);
-}
-
-/* The dev-box capture form is a row of short fields plus two buttons — it fits
-   on one line on a desktop width. */
-[data-role='settings'] [data-role='save-dev-box'] {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3) var(--space-4);
-  align-items: end;
-}
-
-[data-role='settings'] [data-role='save-dev-box'] legend,
-[data-role='settings'] [data-role='save-dev-box-hint'] {
-  grid-column: 1 / -1;
-}
-
 /* ----------------------------------------------------------------- misc */
 
 [data-role='dashboard-error'] {
@@ -1329,10 +1309,6 @@ html:has([data-role='settings']) {
   [data-role='settings-section'] {
     /* Clear the pinned nav strip when an anchor jump lands. */
     scroll-margin-top: 56px;
-  }
-
-  [data-role='settings'] [data-role='save-dev-box'] {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 

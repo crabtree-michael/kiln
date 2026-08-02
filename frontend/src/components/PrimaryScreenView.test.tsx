@@ -572,6 +572,51 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // The per-ticket sandbox option reaches the sheet from the composing screen and,
+  // unlike Accept/Delete/Poke, does NOT end the visit: it is a setting the user
+  // flips while reading, so the sheet stays open.
+  it('flows the sandbox option up from the ticket sheet without closing it', () => {
+    const proposal = makeFeedCard({
+      kind: 'proposal',
+      id: 'proposal:t-keep',
+      label: 'Long-running work',
+      body: 'Work that wants its sandbox kept between turns.',
+      ticketId: 't-keep',
+      createdAt: minutesAgo(1),
+    });
+    const ticket = makeTicket({
+      id: 't-keep',
+      title: 'Long-running work',
+      body: 'Work that wants its sandbox kept between turns.',
+      state: 'shaping',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    const onSetKeepSandbox = vi.fn();
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] })}
+        board={makeBoard({ shaping: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={noop}
+        onSetKeepSandbox={onSetKeepSandbox}
+        now={NOW}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Long-running work' }));
+    const dialog = screen.getByRole('dialog', { name: 'Long-running work' });
+
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /save this ticket.s sandbox/i }));
+
+    expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', true);
+    // Still open — the toggle is a setting, not an exit.
+    expect(screen.getByRole('dialog', { name: 'Long-running work' })).toBeInTheDocument();
+  });
+
   it('expands a ticket-linked update card in place instead of opening the ticket', () => {
     // A brain update is a self-contained note, not a shortcut into a ticket: even
     // when it carries a ticket_id (with that ticket live on the board), tapping it

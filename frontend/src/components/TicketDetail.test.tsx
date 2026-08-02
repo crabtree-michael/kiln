@@ -476,3 +476,90 @@ describe('TicketDetail', () => {
     });
   });
 });
+
+// The per-ticket sandbox option: the switch that replaced the project form's
+// "save a dev box as a snapshot" section. Saving a ticket's sandbox stops the
+// board recycling its worker, so an agent can keep working in the same workspace
+// across turns — the whole point of moving the choice onto the ticket.
+describe('TicketDetail — sandbox option', () => {
+  /** The sandbox switch inside the open sheet. */
+  function sandboxSwitch(): HTMLInputElement {
+    const el = within(screen.getByRole('dialog')).getByRole('checkbox', {
+      name: /save this ticket.s sandbox/i,
+    });
+    if (!(el instanceof HTMLInputElement)) {
+      throw new Error('sandbox switch is not an input');
+    }
+    return el;
+  }
+
+  it('is absent by default — read-only inspection offers no sandbox switch', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+    expect(screen.queryByRole('checkbox', { name: /sandbox/i })).toBeNull();
+  });
+
+  it('reflects the ticket\u2019s own keep_sandbox and reports a turn-on with the id', () => {
+    const onSetKeepSandbox = vi.fn();
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />);
+
+    expect(sandboxSwitch()).not.toBeChecked();
+    fireEvent.click(sandboxSwitch());
+
+    expect(onSetKeepSandbox).toHaveBeenCalledWith('t-42', true);
+    // Optimistic: the switch shows the choice at once, without waiting for the
+    // board snapshot to come back over the stream.
+    expect(sandboxSwitch()).toBeChecked();
+  });
+
+  it('starts checked for a ticket whose sandbox is already saved, and reports a turn-off', () => {
+    const saved = makeTicket({
+      id: 't-keep',
+      title: 'Long-running work',
+      body: 'body',
+      state: 'working',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+      keepSandbox: true,
+    });
+    const onSetKeepSandbox = vi.fn();
+    render(<TicketDetail ticket={saved} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />);
+
+    expect(sandboxSwitch()).toBeChecked();
+    fireEvent.click(sandboxSwitch());
+
+    expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', false);
+    expect(sandboxSwitch()).not.toBeChecked();
+  });
+
+  it('offers the switch on a shaping proposal too — the choice predates the sandbox', () => {
+    const proposal = makeTicket({
+      id: 't-prop',
+      title: 'Proposed work',
+      body: 'body',
+      state: 'shaping',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={proposal} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
+    expect(sandboxSwitch()).toBeInTheDocument();
+  });
+
+  it('defers to the board snapshot once it catches up', () => {
+    const onSetKeepSandbox = vi.fn();
+    const { rerender } = render(
+      <TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
+    );
+    fireEvent.click(sandboxSwitch());
+    expect(sandboxSwitch()).toBeChecked();
+
+    // The write landed and the next board snapshot carries it: the optimistic
+    // overlay drops and the switch is driven by the ticket again.
+    const confirmed = { ...working, keep_sandbox: true };
+    rerender(
+      <TicketDetail ticket={confirmed} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
+    );
+    expect(sandboxSwitch()).toBeChecked();
+  });
+});

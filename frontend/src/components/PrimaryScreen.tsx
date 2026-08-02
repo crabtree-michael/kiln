@@ -13,7 +13,7 @@ import { useActivityStore } from '@/stores/activity-context';
 import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
 import { usePresence } from '@/stores/use-presence';
-import { acceptTicket, deleteTicket, postMessage } from '@/transport/transport';
+import { acceptTicket, deleteTicket, postMessage, setTicketSandbox } from '@/transport/transport';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
@@ -85,6 +85,23 @@ function PrimaryScreenBody(): JSX.Element {
     void postMessage(`Poke the agent on ticket ${ticketId} to continue.`);
   }, []);
 
+  const onSetKeepSandbox = useCallback(
+    (ticketId: string, keep: boolean): void => {
+      // The per-ticket sandbox option is a setting on the ticket, not a board
+      // transition, so — unlike accept/delete/poke — it does not go through the
+      // brain: it writes the flag directly and the board.updated that write emits
+      // brings the new value back over the stream. Fire-and-forget: the sheet
+      // shows the choice at once and time-boxes it, so a dropped write just means
+      // the switch snaps back and the user can tap again. Refresh the board on
+      // failure so it snaps back to the truth immediately rather than on the
+      // time-box.
+      void setTicketSandbox(ticketId, keep).catch(() => {
+        refreshBoard();
+      });
+    },
+    [refreshBoard],
+  );
+
   return (
     <PrimaryScreenView
       brand={<ProjectSwitcher />}
@@ -98,6 +115,7 @@ function PrimaryScreenBody(): JSX.Element {
       onAccept={onAccept}
       onDelete={onDelete}
       onPoke={onPoke}
+      onSetKeepSandbox={onSetKeepSandbox}
       onDismissCard={dismissCard}
       onDismissAll={dismissAll}
       onOpenTickets={refreshBoard}

@@ -4,13 +4,30 @@
    reads the shared semantic tokens (src/styles/tokens.css) rather than
    redefining the paper/ember/font vocabulary, so both themes come for free.
    Scoped entirely under [data-role="dashboard"] so it never leaks onto the
-   `/` or `/app` screens. Desktop-first (this is a settings surface visited
-   from a laptop as often as a phone), with a single-column mobile fallback. */
+   `/` or `/app` screens.
+
+   The settings surface is DESKTOP-FIRST (settings redesign): a two-column
+   shell — sticky section nav, column of section cards — that collapses to a
+   single column with a horizontal nav strip on narrow screens. Three rules hold
+   the whole thing together:
+
+     1. Controls are compact. Body copy is 14px, labels and buttons 12.5px, and
+        inputs are ~32px tall. The old page was a phone screen stretched to a
+        laptop: 16px pill buttons stacked one per line.
+     2. Icons carry the scanning, text carries the meaning. Every icon is
+        decorative (`aria-hidden`) and sits beside a real label — which is what
+        lets the type stay small without the page becoming a wall of grey.
+     3. Forms use the horizontal space. A project form is a 2–3 column grid, the
+        credential list is a 2-column grid; only genuinely wide things (the
+        secrets fieldset, the submit row) span the full width.
+
+   The other phases (loading / sign-in / onboarding) keep the original narrow
+   centered column — they're single-purpose screens, not a management surface. */
 
 [data-role='dashboard'] {
   box-sizing: border-box;
   min-height: 100dvh;
-  padding: var(--space-12) var(--space-6);
+  padding: var(--space-10) var(--space-6);
   background: var(--surface-page);
   color: var(--text-body);
   font-family: var(--font-sans);
@@ -21,14 +38,24 @@
   box-sizing: border-box;
 }
 
+/* Anchor-nav jumps glide rather than teleport, so it stays obvious that the
+   nav moved you within one page instead of swapping it. */
+html:has([data-role='settings']) {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has([data-role='settings']) {
+    scroll-behavior: auto;
+  }
+}
+
 /* ------------------------------------------------------------------ layout */
 
-/* Shared column rhythm for every phase (loading / sign-in / onboarding /
-   settings): a centered, max-width stack of cards. */
+/* The single-purpose phases keep the original narrow centered column. */
 [data-role='dashboard-loading'],
 [data-role='sign-in'],
-[data-role='onboarding'],
-[data-role='settings'] {
+[data-role='onboarding'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
@@ -37,23 +64,18 @@
   margin: 0 auto;
 }
 
-/* A quiet link back to the board (the main app) from the account view. Settings
-   is a detour, so it sits at the top, above the profile card, and stays visually
-   subordinate to it — caption weight, muted until hovered. */
-[data-role='go-to-app'] {
-  align-self: flex-start;
-  font: var(--type-caption);
-  color: var(--text-secondary);
-  text-decoration: none;
+/* Settings is the management surface: wide enough for a nav column plus a
+   content column that can hold a 3-up form grid. */
+[data-role='settings'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 
-[data-role='go-to-app']:hover {
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-[data-role='dashboard'] section,
-[data-role='dashboard'] form {
+[data-role='onboarding'] form {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -74,24 +96,31 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  font: var(--type-small);
+  font: var(--type-caption);
   color: var(--text-secondary);
 }
 
 [data-role='dashboard'] input,
 [data-role='dashboard'] select {
-  font: var(--type-body);
+  font: var(--type-small);
   color: var(--text-body);
   background: var(--surface-page);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
+  min-height: 34px;
 }
 
 [data-role='dashboard'] input:focus-visible,
 [data-role='dashboard'] select:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
+}
+
+[data-role='dashboard'] input:disabled,
+[data-role='dashboard'] select:disabled {
+  background: var(--surface-subtle);
+  color: var(--text-faint);
 }
 
 [data-role='dashboard'] button {
@@ -194,13 +223,307 @@
   background: var(--accent-hover);
 }
 
+/* =================================================================
+   SETTINGS — the desktop management surface
+   ================================================================= */
+
+/* Every icon in the settings tree sizes off its own text, so a glyph in a
+   12.5px button and one in a 15px row stay proportional without per-site
+   width/height attributes on the SVGs. */
+[data-role='settings'] svg[data-icon] {
+  width: 1.15em;
+  height: 1.15em;
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------- masthead */
+
+[data-role='settings-masthead'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A quiet link back to the board (the main app). Settings is a detour, so it
+   sits above the page title and stays visually subordinate to it. */
+[data-role='go-to-app'] {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+[data-role='go-to-app']:hover {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------ two-column */
+
+[data-role='settings-layout'] {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+}
+
+[data-role='settings-nav'] {
+  position: sticky;
+  top: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+[data-role='settings-nav-item'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font: var(--type-small);
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-settle);
+}
+
+[data-role='settings-nav-item'] svg[data-icon] {
+  color: var(--text-faint);
+}
+
+[data-role='settings-nav-item']:hover {
+  background: var(--surface-subtle);
+  color: var(--text-body);
+}
+
+[data-role='settings-nav-item']:hover svg[data-icon] {
+  color: var(--text-secondary);
+}
+
+/* The active section. The highlight is the nav's whole job — without it a
+   table of contents is just a list of links. */
+[data-role='settings-nav-item'][data-active='true'] {
+  background: var(--accent-faint);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+[data-role='settings-nav-item'][data-active='true'] svg[data-icon] {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='settings-nav-item'] {
+    transition: none;
+  }
+}
+
+[data-role='settings-panes'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* --------------------------------------------------------- section card */
+
+[data-role='settings-section'] {
+  /* Clears the page padding when the nav scrolls a section to the top. */
+  scroll-margin-top: var(--space-6);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+[data-role='section-header'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-default);
+}
+
+[data-role='section-icon'] {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  color: var(--accent);
+}
+
+[data-role='section-icon'] svg[data-icon] {
+  width: 17px;
+  height: 17px;
+}
+
+[data-role='section-heading-text'] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+[data-role='settings'] h2 {
+  margin: 0;
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='section-description'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='section-action'] {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+[data-role='section-body'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+/* ---------------------------------------------------- settings controls */
+
+/* Compact by default, and a ghost rather than a filled pill: on a settings page
+   most buttons are secondary (sign out, cancel, refresh, remove a row), so the
+   accent is reserved for the one or two that actually commit something. */
+[data-role='settings'] button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  min-height: 32px;
+  /* A compact button's label is two or three words; letting it wrap turns a
+     32px control into a 48px one the moment the column narrows. */
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-role='settings'] button:hover {
+  background: var(--surface-inset);
+  border-color: var(--border-strong);
+  color: var(--text-body);
+}
+
+[data-role='settings'] button:active {
+  background: var(--surface-inset);
+}
+
+[data-role='settings'] button svg[data-icon] {
+  color: var(--text-faint);
+}
+
+[data-role='settings'] button:hover svg[data-icon] {
+  color: var(--text-secondary);
+}
+
+/* The committing actions: a project's Save, and New project. */
+[data-role='settings'] button[type='submit'],
+[data-role='settings'] button[data-variant='primary'] {
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+[data-role='settings'] button[type='submit']:hover,
+[data-role='settings'] button[data-variant='primary']:hover {
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
+  border-color: transparent;
+}
+
+[data-role='settings'] button[type='submit'] svg[data-icon],
+[data-role='settings'] button[data-variant='primary'] svg[data-icon],
+[data-role='settings'] button[type='submit']:hover svg[data-icon],
+[data-role='settings'] button[data-variant='primary']:hover svg[data-icon] {
+  color: currentColor;
+}
+
+/* Destructive, and dressed as such only on approach — a delete that shouts at
+   rest turns into background noise. */
+[data-role='settings'] button[data-variant='danger'] {
+  color: var(--danger);
+  background: transparent;
+}
+
+[data-role='settings'] button[data-variant='danger']:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+[data-role='settings'] button[data-variant='danger'] svg[data-icon],
+[data-role='settings'] button[data-variant='danger']:hover svg[data-icon] {
+  color: currentColor;
+}
+
+[data-role='settings'] button:disabled,
+[data-role='settings'] button:disabled:hover {
+  background: var(--surface-subtle);
+  border-color: var(--border-default);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+[data-role='settings'] button:disabled svg[data-icon] {
+  color: var(--text-faint);
+}
+
+/* Shared chip: a small state pill (GitHub connection, push status). */
+[data-role='integration-state'],
+[data-role='notifications-status'] {
+  flex-shrink: 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+}
+
+[data-role='integration-state'][data-state='connected'],
+[data-role='notifications-status'][data-status='enabled'] {
+  color: var(--calm-strong);
+  background: var(--calm-soft);
+  border-color: transparent;
+}
+
+[data-role='integration-state'][data-state='disconnected'],
+[data-role='notifications-status'][data-status='denied'] {
+  color: var(--warn-strong);
+  background: var(--warn-soft);
+  border-color: transparent;
+}
+
 /* -------------------------------------------------------------- account */
 
-/* Consolidated into one tight row: ember-ringed avatar, a name/login
-   identity block, sign-out pushed to the far right. The ring is the same
-   --accent used by the wordmark elsewhere (dashboard-wordmark, sign-in
-   link) — it reads as the product mark, not an alert. */
+/* One tight row: ember-ringed avatar, a name/login identity block, sign-out
+   pushed to the far right. The ring is the same --accent used by the wordmark
+   elsewhere — it reads as the product mark, not an alert. */
 [data-role='account-card'] {
+  display: flex;
   flex-direction: row;
   align-items: center;
   flex-wrap: wrap;
@@ -208,69 +531,148 @@
 }
 
 [data-role='account-avatar'] {
-  width: 64px;
-  height: 64px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-pill);
   flex-shrink: 0;
   /* A crisp ring with a card-colored gap between the photo and the ember
      line, rather than a plain border sitting flush on the image. */
   box-shadow:
-    0 0 0 3px var(--surface-card),
-    0 0 0 6px var(--accent);
+    0 0 0 2px var(--surface-card),
+    0 0 0 4px var(--accent);
 }
 
 [data-role='account-identity'] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+[data-role='account-name'] {
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='account-login'] {
+  font: var(--type-mono);
+  color: var(--text-muted);
+}
+
+[data-role='account-card'] button {
+  margin-left: auto;
+}
+
+/* --------------------------------------------------------- integrations */
+
+/* The account-level GitHub connection: icon, name + detail, state chip, action.
+   Same row shape the credential list uses, so Integrations reads as one thing. */
+[data-role='github-connection'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+[data-role='integration-icon'] {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  color: var(--text-body);
+}
+
+[data-role='integration-icon'] svg[data-icon] {
+  width: 15px;
+  height: 15px;
+}
+
+[data-role='integration-text'] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+[data-role='integration-name'] {
+  font: var(--type-small);
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+[data-role='integration-detail'] {
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='github-connection-action'] {
+  flex-shrink: 0;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  padding: var(--space-1) var(--space-3);
+  line-height: 22px;
+}
+
+[data-role='github-connection-action']:hover {
+  color: var(--accent);
+  border-color: var(--border-strong);
+}
+
+/* --------------------------------------------------------- credentials */
+
+/* Auto-save + auto-verify: each secret input sits in a row with its own live
+   validity indicator pinned to the right — no "Save credentials" / "Test
+   connections" buttons, just type, blur/Enter, and watch the mark update. Two
+   per row on desktop; the list is short and every field is one line, so a
+   single column would waste most of the width. */
+[data-role='settings-form'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+
+[data-role='credential-row'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
 }
 
-[data-role='account-name'] {
-  font: var(--type-title);
+[data-role='credential-row'] label {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+
+[data-role='credential-icon'] {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+[data-role='credential-icon'] svg[data-icon] {
+  width: 14px;
+  height: 14px;
+}
+
+/* The row you're editing lights its glyph — a cheap, quiet focus cue that
+   doesn't need a border color change. */
+[data-role='credential-row']:focus-within [data-role='credential-icon'] {
   color: var(--accent);
 }
 
-[data-role='account-login'] {
-  font: var(--type-small);
-  color: var(--text-muted);
-}
-
-/* Sign out: de-emphasized on purpose — a quiet ghost button, smaller than
-   the default dashboard button, so it never competes with the identity
-   block for attention. */
-[data-role='account-card'] button {
-  margin-left: auto;
-  align-self: center;
-  font: var(--type-caption);
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  padding: var(--space-1) var(--space-4);
-}
-
-[data-role='account-card'] button:hover {
-  background: var(--surface-subtle);
-  border-color: var(--border-strong);
-}
-
-/* --------------------------------------------------------- secret status */
-
-[data-role='secret-status'] {
-  font: var(--type-caption);
-  color: var(--text-muted);
-}
-
-[data-role='secret-status'][data-set='true'] {
-  color: var(--calm-strong);
-}
-
-/* ----------------------------------------------------- credential status */
-
-/* Auto-save + auto-verify (dashboard UX update): each secret input sits in a
-   row with its own live validity indicator pinned to the right — no more
-   "Save credentials" / "Test connections" buttons, just type, blur/Enter,
-   and watch the mark update. */
 [data-role='credential-input-row'] {
   display: flex;
   align-items: center;
@@ -304,30 +706,218 @@
   font-weight: 400;
 }
 
-/* -------------------------------------------------------- sandbox secrets */
-/* The project form's zero-or-more Amika secret rows (02 §8). Each row is an
-   Amika-secret-id + env-var-name pair with a Remove button; "Add secret"
-   appends a blank row. Bordered fieldset so the variable-length list reads as
-   one grouped section within the project form. */
+[data-role='secret-status'],
+[data-role='credential-hint'] {
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
 
-[data-role='amika-secrets'] {
+[data-role='secret-status'][data-set='true'] {
+  color: var(--calm-strong);
+}
+
+/* ------------------------------------------------------- notifications */
+
+[data-role='notifications-field'] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+[data-role='notifications-header'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+[data-role='notifications-title'] {
+  font: var(--type-small);
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+[data-role='notifications-field'] button {
+  margin-left: auto;
+}
+
+[data-role='notifications-note'],
+[data-role='notifications-error'] {
+  flex-basis: 100%;
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='notifications-error'] {
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------ projects */
+
+[data-role='project-list'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+[data-role='project-card'],
+[data-role='new-project-card'] {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-page);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* A project being created is the page's live edit — mark it so it doesn't read
+   as just another saved project. */
+[data-role='new-project-card'] {
+  border-color: var(--accent);
+}
+
+[data-role='project-card-header'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+}
+
+[data-role='project-card-icon'] {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+[data-role='project-card-icon'] svg[data-icon] {
+  width: 17px;
+  height: 17px;
+}
+
+[data-role='project-card-identity'] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+[data-role='project-card-name'] {
+  font: var(--type-small);
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+[data-role='project-card-repo'] {
+  font: var(--type-mono);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='project-card-header'] button {
+  margin-left: auto;
+}
+
+/* The project form is where the horizontal space actually pays off: six short
+   fields that used to stack into six full-width rows now sit 2–3 per line.
+   Anything genuinely wide — the repo picker's disconnected prompt, the secrets
+   and dev-box fieldsets, the submit row — spans every column. */
+[data-role='settings'] [data-role='project-form'] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+  padding: var(--space-4);
+}
+
+[data-role='settings'] [data-role='project-form'] > fieldset,
+[data-role='settings'] [data-role='project-form'] > button {
+  grid-column: 1 / -1;
+}
+
+/* Connected, the picker is one select — an ordinary field. Disconnected (or
+   loading) it carries a paragraph of explanation, so it takes the full width. */
+[data-role='settings'] [data-role='repo-field'][data-state='disconnected'],
+[data-role='settings'] [data-role='repo-field'][data-state='loading'] {
+  grid-column: 1 / -1;
+}
+
+[data-role='settings'] [data-role='repo-field'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+[data-role='settings'] [data-role='repo-field'] > span:first-child {
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+
+[data-role='settings'] [data-role='repo-loading'],
+[data-role='settings'] [data-role='repo-connect-hint'],
+[data-role='settings'] [data-role='repo-current'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='settings'] [data-role='connect-github'],
+[data-role='settings'] [data-role='switch-github'] {
+  align-self: flex-start;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+[data-role='settings'] [data-role='connect-github']:hover,
+[data-role='settings'] [data-role='switch-github']:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+[data-role='settings'] [data-role='repo-error'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--danger);
+}
+
+[data-role='settings'] [data-role='project-form'] > button[type='submit'] {
+  justify-self: flex-start;
+}
+
+/* ------------------------------------------------- sandbox secrets etc. */
+/* The project form's zero-or-more Amika secret rows (02 §8) and the dev-box
+   capture form. Bordered fieldsets so each variable-length list reads as one
+   grouped block within the form grid. */
+
+[data-role='dashboard'] fieldset {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: var(--space-4);
+  margin: 0;
+  min-width: 0;
 }
 
-[data-role='amika-secrets'] legend {
+[data-role='dashboard'] fieldset legend {
   padding: 0 var(--space-2);
-  font: var(--type-body-strong);
+  font: var(--type-caption);
+  font-weight: 600;
   color: var(--text-body);
 }
 
-[data-role='amika-secrets-hint'] {
+[data-role='amika-secrets-hint'],
+[data-role='save-dev-box-hint'] {
   margin: 0;
-  font: var(--type-small);
+  font: var(--type-caption);
   color: var(--text-faint);
 }
 
@@ -346,41 +936,124 @@
   flex-shrink: 0;
 }
 
+/* The dev-box capture form is a row of short fields plus two buttons — it fits
+   on one line on a desktop width. */
+[data-role='settings'] [data-role='save-dev-box'] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  align-items: end;
+}
+
+[data-role='settings'] [data-role='save-dev-box'] legend,
+[data-role='settings'] [data-role='save-dev-box-hint'] {
+  grid-column: 1 / -1;
+}
+
 /* ----------------------------------------------------------------- misc */
 
 [data-role='dashboard-error'] {
   margin: 0;
+  padding: var(--space-3) var(--space-4);
   color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
   font: var(--type-small);
+}
+
+[data-role='onboarding'] [data-role='dashboard-error'] {
+  padding: 0;
+  background: none;
 }
 
 [data-role='dashboard-footnote'] {
   margin: 0;
   color: var(--text-muted);
-  font: var(--type-editorial);
+  font: var(--type-caption);
   text-align: center;
 }
 
-/* ------------------------------------------------------------- mobile */
+/* ------------------------------------------------------------- tablet */
+
+/* Below the two-column threshold the nav becomes a horizontal strip pinned to
+   the top of the scroll — still an index, still showing the active section,
+   just laid out for a narrow viewport rather than dropped entirely. */
+@media (max-width: 900px) {
+  [data-role='settings-layout'] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  [data-role='settings-nav'] {
+    flex-direction: row;
+    gap: var(--space-1);
+    top: 0;
+    z-index: 1;
+    padding: var(--space-2) 0;
+    overflow-x: auto;
+    background: var(--surface-page);
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  [data-role='settings-section'] {
+    /* Clear the pinned nav strip when an anchor jump lands. */
+    scroll-margin-top: 56px;
+  }
+
+  [data-role='settings'] [data-role='project-form'],
+  [data-role='settings'] [data-role='save-dev-box'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ------------------------------------------------------------- desktop */
+
+/* Past ~1100px a project form gets a third column — the fields are short, and
+   three-up is where a full form stops needing a scroll on a laptop. */
+@media (min-width: 1100px) {
+  [data-role='settings'] [data-role='project-form'] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* -------------------------------------------------------------- mobile */
 
 @media (max-width: 600px) {
   [data-role='dashboard'] {
     padding: var(--space-6) var(--page-gutter);
   }
 
-  [data-role='dashboard'] section,
-  [data-role='dashboard'] form {
+  [data-role='onboarding'] form {
     padding: var(--space-4);
   }
 
+  [data-role='section-header'],
+  [data-role='section-body'] {
+    padding: var(--space-3) var(--space-4);
+  }
+
   [data-role='account-card'] {
-    flex-direction: column;
     align-items: flex-start;
   }
 
-  [data-role='account-card'] button {
+  [data-role='account-card'] button,
+  [data-role='notifications-field'] button {
     margin-left: 0;
-    align-self: flex-start;
+  }
+
+  [data-role='github-connection'] {
+    flex-wrap: wrap;
+  }
+
+  /* Name and value side by side leaves each ~120px — too narrow to read an env
+     var name in. Stack them, with Remove on its own line. */
+  [data-role='amika-secret-row'] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  [data-role='amika-secret-row'] button[data-role='remove-secret'] {
+    align-self: flex-end;
   }
 
   [data-role='sign-in-card'] {

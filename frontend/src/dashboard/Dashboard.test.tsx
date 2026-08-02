@@ -531,6 +531,208 @@ describe('Dashboard', () => {
     expect(link).toHaveAttribute('href', '/app');
   });
 
+  // ---------------------------------------------------------------- layout
+  // The settings redesign's contract: grouped sections + a nav that indexes
+  // them, with every field still mounted (the nav scrolls, it never swaps
+  // panes — see Settings.tsx's header).
+
+  /** A settings view with one project and a couple of configured secrets — the
+   * ordinary steady state the layout assertions below run against. */
+  function mockPopulatedSettings(): void {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
+      }),
+    );
+  }
+
+  it('groups settings into four sections, each indexed by a nav anchor', async () => {
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    const items = document.querySelectorAll('[data-role="settings-nav-item"]');
+    expect([...items].map((item) => item.getAttribute('href'))).toEqual([
+      '#account',
+      '#integrations',
+      '#notifications',
+      '#projects',
+    ]);
+    // Every anchor resolves to a real section, and every section is named by a
+    // heading (so the nav order IS the document outline).
+    for (const id of ['account', 'integrations', 'notifications', 'projects']) {
+      const section = document.getElementById(id);
+      expect(section).not.toBeNull();
+      expect(section).toHaveAttribute('data-role', 'settings-section');
+    }
+    expect(
+      [...document.querySelectorAll('[data-role="settings-section"] h2')].map((h) => h.textContent),
+    ).toEqual(['Account', 'Integrations', 'Notifications', 'Projects']);
+  });
+
+  it('keeps every section mounted — the nav scrolls, it does not hide fields behind tabs', async () => {
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    // One assertion per section, all true at once: nothing is behind a tab.
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Amika API key')).toBeInTheDocument();
+    expect(document.querySelector('[data-role="notifications-field"]')).not.toBeNull();
+    expect(document.querySelector('[data-role="project-form"]')).not.toBeNull();
+  });
+
+  it('highlights the first section by default, and survives a missing IntersectionObserver', async () => {
+    // jsdom ships no IntersectionObserver, so this is also the real fallback
+    // path: the nav must render as a plain table of contents, not throw.
+    expect(typeof globalThis.IntersectionObserver).toBe('undefined');
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    const active = document.querySelectorAll('[data-role="settings-nav-item"][data-active="true"]');
+    expect(active).toHaveLength(1);
+    expect(active[0]).toHaveAttribute('data-section', 'account');
+  });
+
+  it('moves the nav highlight to the section scrolled into view', async () => {
+    interface FakeEntry {
+      target: Element;
+      isIntersecting: boolean;
+    }
+    // A holder object rather than a bare `let`: TypeScript keeps the
+    // `null`-narrowing of a local across a constructor call in a nested class,
+    // so `fire?.()` below would be typed `never`.
+    const spy: { fire: ((entries: FakeEntry[]) => void) | null; observed: Element[] } = {
+      fire: null,
+      observed: [],
+    };
+    class FakeIntersectionObserver {
+      constructor(callback: (entries: FakeEntry[]) => void) {
+        spy.fire = callback;
+      }
+      observe(element: Element): void {
+        spy.observed.push(element);
+      }
+      disconnect(): void {
+        spy.fire = null;
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+
+    try {
+      mockPopulatedSettings();
+      renderDashboard();
+      await screen.findByRole('button', { name: 'Sign out' });
+
+      // All four sections are observed, in document order.
+      expect(spy.observed.map((element) => element.id)).toEqual([
+        'account',
+        'integrations',
+        'notifications',
+        'projects',
+      ]);
+
+      const projects = document.getElementById('projects');
+      const account = document.getElementById('account');
+      expect(projects).not.toBeNull();
+      expect(account).not.toBeNull();
+      expect(spy.fire).not.toBeNull();
+      await waitFor(() => {
+        spy.fire?.([
+          { target: account!, isIntersecting: false },
+          { target: projects!, isIntersecting: true },
+        ]);
+        expect(
+          document.querySelector('[data-role="settings-nav-item"][data-active="true"]'),
+        ).toHaveAttribute('data-section', 'projects');
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('surfaces the account-level GitHub connection in Integrations', async () => {
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-role="github-connection"]')).toHaveAttribute(
+        'data-state',
+        'connected',
+      );
+    });
+    // Connecting and switching are the same single OAuth flow, so this is a
+    // full-page nav to the backend route — never a router Link.
+    const action = screen.getByRole('link', { name: 'Switch account' });
+    expect(action).toHaveAttribute('href', '/auth/github/login');
+  });
+
+  it('offers a connect link when the GitHub account is not connected', async () => {
+    vi.mocked(transport.fetchGitHubRepos).mockResolvedValueOnce({ connected: false, repos: [] });
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-role="github-connection"]')).toHaveAttribute(
+        'data-state',
+        'disconnected',
+      );
+    });
+    expect(screen.getByRole('link', { name: 'Connect' })).toHaveAttribute(
+      'href',
+      '/auth/github/login',
+    );
+  });
+
+  it("a credential field's accessible name stays the label once its validity glyph lands", async () => {
+    // The regression the htmlFor/id wiring guards: with the input WRAPPED in its
+    // label, the ✓ rendered beside it joins the computed name, and every
+    // getByLabel('Amika API key') — here and in the Playwright suite — breaks
+    // the moment a verify comes back.
+    mockPopulatedSettings();
+    vi.mocked(transport.putSettings).mockResolvedValue(
+      makeMe({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+        ],
+      }),
+    );
+    vi.mocked(transport.postVerify).mockResolvedValue({
+      checks: [{ name: 'amika', status: 'ok', message: 'reachable' }],
+    });
+    renderDashboard();
+
+    const input = await screen.findByLabelText('Amika API key');
+    fireEvent.change(input, { target: { value: 'sk-named' } });
+    fireEvent.blur(input);
+
+    await screen.findByText('✓');
+    expect(screen.getByLabelText('Amika API key')).toBe(input);
+  });
+
   it('matches the DOM-structure snapshot: settings view', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({

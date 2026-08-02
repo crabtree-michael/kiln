@@ -144,6 +144,34 @@ hand-entered PAT uses). So "Connect GitHub account" is just `/auth/github/login`
 - **Every `ProjectFields` render site and test must pass `github`** — it's a required prop on
   purpose, so no free-text fallback path can drift back in.
 
+### The settings page is desktop-first (settings redesign)
+
+`/dashboard`'s settings view is the one surface in this repo that is **not** mobile-first — it's
+a management page visited from a laptop. `Settings.tsx` is a two-column shell (sticky section
+nav + a column of section cards: Account / Integrations / Notifications / Projects), and
+`Dashboard.css` keeps every control compact: 14px body, 12.5px labels and buttons, ~32px
+inputs, a 2–3-column project-form grid and a 2-column credential grid.
+
+- **The nav scrolls to sections; it does NOT swap panes.** Every field stays mounted. That is
+  what keeps find-in-page working, keeps a section deep link from hiding the rest of the page,
+  and — load-bearing for the suite — keeps `dashboard-config.spec.ts`'s
+  `getByLabel('Amika API key')` reachable on load instead of behind a tab it would have to
+  discover. If you add a section, add it to `SECTIONS` in `Settings.tsx` (one source of truth
+  for the nav and the headers) and keep the pane mounted.
+- **Know which config component you're touching.** `CredentialFields` is **Settings-only**, so
+  it's free to restructure. `ProjectFields` is shared by **three** surfaces (Settings,
+  `ProjectsManager`, Onboarding) — restyle it from `Dashboard.css` (everything there is scoped
+  under `[data-role='settings']`/`[data-role='dashboard']`, so the app-native projects page is
+  untouched), don't reshape its DOM.
+- **Icons decorate, they never replace a label** — hand-rolled inline SVGs in
+  `src/dashboard/icons.tsx` (no icon library; deps are gated on approval per D4). They carry no
+  `width`/`height`: one rule, `[data-role='settings'] svg[data-icon]`, sizes the whole tree in
+  `em`. Drop that rule and every icon renders at the SVG default 300×150. All are
+  `aria-hidden`, so accessible names come only from the visible text.
+- **Layout-critical CSS is asserted as a string** (`Dashboard.desktop-layout.test.ts`, the
+  `?raw` technique) — jsdom does no layout, so without it the page could silently revert to one
+  mobile-style column and every DOM test would still pass.
+
 ## Common footguns
 
 - Reaching for a TS escape hatch to get past the type checker instead of fixing the schema/types.
@@ -170,6 +198,20 @@ _(Accumulate more as you work.)_
   transition is suppressed and `transitionend` would never fire.
 
 ## Potential gotchas
+
+- **A wrapping `<label>` absorbs everything inside it into the field's accessible name.** The
+  dashboard's credential inputs each sit beside a live validity glyph; while the glyph was
+  inside the label, `getByLabel('Amika API key')` worked right up until the first ✓ rendered,
+  then silently stopped matching (in Vitest *and* in Playwright). Fix, and the rule for any new
+  field with an adornment: wire the label with `htmlFor`/`id` and keep only the label text
+  inside it.
+
+- **jsdom ships no `IntersectionObserver`** — the settings nav's scroll-spy guards with
+  `typeof IntersectionObserver === 'undefined'` and degrades to a static first-section
+  highlight. To test the observing path, `vi.stubGlobal` a fake, and capture its callback on a
+  **holder object** (`const spy = { fire: null }`), not a bare `let`: TypeScript keeps the
+  `null`-narrowing of a local across an assignment made inside a nested class constructor, so
+  `fire?.(...)` type-checks as `never`.
 
 - **jsdom ships no `PointerEvent`** — `new PointerEvent(...)` throws, and
   testing-library's `fireEvent.pointer*` silently drops `clientX/clientY`, so a

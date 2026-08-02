@@ -19,6 +19,7 @@ import {
   type FormEvent,
   type JSX,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import type {
   DevBox,
@@ -33,6 +34,7 @@ import type {
 import type { components } from '@/schema/generated';
 import type { CredentialName } from '@/dashboard/dashboard-context';
 import { GITHUB_CONNECT_PATH, type GitHubRepos } from '@/dashboard/use-github-repos';
+import { BotIcon, GitHubIcon, IdIcon, KeyIcon, SparkIcon } from '@/dashboard/icons';
 
 // `MeSettings`/`SecretStatus` aren't among transport.ts's re-exports (only the
 // types its own functions traffic in are) — pull them the same way it derives
@@ -687,6 +689,85 @@ export function ProjectFields({
   );
 }
 
+interface SecretCredentialRowProps {
+  name: CredentialName;
+  label: string;
+  /** The row's leading glyph. Decorative: the accessible name is the label. */
+  icon: ReactNode;
+  /** The stored secret's presence + tail — drives the placeholder and the
+   * "configured · …tail" line beneath the input. Never the value itself. */
+  status: SecretStatus;
+  value: string;
+  onChange: (value: string) => void;
+  /** Commit this one field. Fired on blur AND on Enter. */
+  onCommit: () => void;
+  pendingCredentials: ReadonlySet<CredentialName>;
+  verifying: boolean;
+  check: VerifyCheck | undefined;
+}
+
+/** One secret credential, as a compact icon-forward row: glyph, label, input
+ * with its live validity mark pinned right, and the stored-secret status line
+ * beneath. The four secrets differ only in name/label/icon, so they all render
+ * through here rather than as four near-identical blocks.
+ *
+ * The label is wired by `htmlFor`/`id` rather than by wrapping the input,
+ * deliberately: a wrapping label's accessible name absorbs everything inside it,
+ * so the validity glyph would silently append itself to the field's name (a
+ * `getByLabel('Amika API key')` that works until the first ✓ lands). */
+function SecretCredentialRow({
+  name,
+  label,
+  icon,
+  status,
+  value,
+  onChange,
+  onCommit,
+  pendingCredentials,
+  verifying,
+  check,
+}: SecretCredentialRowProps): JSX.Element {
+  const id = `credential-${name}`;
+  return (
+    <div data-role="credential-row" data-name={name}>
+      {/* The glyph rides inside the label so it sits on the label's line without
+          any vertical-alignment guesswork; `aria-hidden` keeps it out of the
+          computed name, which stays exactly the label text. */}
+      <label htmlFor={id}>
+        <span data-role="credential-icon" aria-hidden="true">
+          {icon}
+        </span>
+        {label}
+      </label>
+      <span data-role="credential-input-row">
+        <input
+          id={id}
+          type="password"
+          value={value}
+          placeholder={status.set ? secretStatusText(status) : ''}
+          disabled={pendingCredentials.has(name)}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => {
+            onChange(event.target.value);
+          }}
+          onBlur={onCommit}
+          onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              onCommit();
+            }
+          }}
+        />
+        <CredentialStatusIndicator
+          name={name}
+          status={credentialIndicatorStatus(name, pendingCredentials, verifying, check)}
+          message={check?.message}
+        />
+      </span>
+      <SecretStatusRow name={name} status={status} />
+    </div>
+  );
+}
+
 export interface CredentialFieldsProps {
   settings: MeSettings;
   /** The credential fields whose save/verify is currently in flight —
@@ -812,149 +893,92 @@ export function CredentialFields({
     commit('amika_claude_cred_id', { amika_claude_cred_id: trimmed });
   };
 
-  const onEnter =
-    (commit: () => void) =>
-    (event: KeyboardEvent<HTMLInputElement>): void => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        commit();
-      }
-    };
-
   return (
     <form data-role="settings-form">
       {SHOW_ANTHROPIC_KEY_FIELD && (
-        <>
-          <label>
-            Anthropic API key
-            <span data-role="credential-input-row">
-              <input
-                type="password"
-                value={anthropicApiKey}
-                placeholder={
-                  settings.anthropic_api_key.set ? secretStatusText(settings.anthropic_api_key) : ''
-                }
-                disabled={pendingCredentials.has('anthropic_api_key')}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  setAnthropicApiKey(event.target.value);
-                }}
-                onBlur={commitAnthropic}
-                onKeyDown={onEnter(commitAnthropic)}
-              />
-              <CredentialStatusIndicator
-                name="anthropic_api_key"
-                status={credentialIndicatorStatus(
-                  'anthropic_api_key',
-                  pendingCredentials,
-                  verifying,
-                  checkFor('anthropic_api_key'),
-                )}
-                message={checkFor('anthropic_api_key')?.message}
-              />
-            </span>
-          </label>
-          <SecretStatusRow name="anthropic_api_key" status={settings.anthropic_api_key} />
-        </>
+        <SecretCredentialRow
+          name="anthropic_api_key"
+          label="Anthropic API key"
+          icon={<KeyIcon />}
+          status={settings.anthropic_api_key}
+          value={anthropicApiKey}
+          onChange={setAnthropicApiKey}
+          onCommit={commitAnthropic}
+          pendingCredentials={pendingCredentials}
+          verifying={verifying}
+          check={checkFor('anthropic_api_key')}
+        />
       )}
 
-      <label>
-        Amika API key
+      <SecretCredentialRow
+        name="amika_api_key"
+        label="Amika API key"
+        icon={<SparkIcon />}
+        status={settings.amika_api_key}
+        value={amikaApiKey}
+        onChange={setAmikaApiKey}
+        onCommit={commitAmika}
+        pendingCredentials={pendingCredentials}
+        verifying={verifying}
+        check={checkFor('amika_api_key')}
+      />
+
+      <SecretCredentialRow
+        name="devin_api_key"
+        label="Devin API key"
+        icon={<BotIcon />}
+        status={settings.devin_api_key}
+        value={devinApiKey}
+        onChange={setDevinApiKey}
+        onCommit={commitDevin}
+        pendingCredentials={pendingCredentials}
+        verifying={verifying}
+        check={checkFor('devin_api_key')}
+      />
+
+      <SecretCredentialRow
+        name="github_auth_token"
+        label="GitHub token"
+        icon={<GitHubIcon />}
+        status={settings.github_auth_token}
+        value={githubAuthToken}
+        onChange={setGithubAuthToken}
+        onCommit={commitGithub}
+        pendingCredentials={pendingCredentials}
+        verifying={verifying}
+        check={checkFor('github_auth_token')}
+      />
+
+      {/* The one non-secret field: no placeholder tail, no verify check, so it
+          renders through the same row shape but without an indicator. */}
+      <div data-role="credential-row" data-name="amika_claude_cred_id">
+        <label htmlFor="credential-amika-claude-cred-id">
+          <span data-role="credential-icon" aria-hidden="true">
+            <IdIcon />
+          </span>
+          Amika Claude credential ID
+        </label>
         <span data-role="credential-input-row">
           <input
-            type="password"
-            value={amikaApiKey}
-            placeholder={settings.amika_api_key.set ? secretStatusText(settings.amika_api_key) : ''}
-            disabled={pendingCredentials.has('amika_api_key')}
+            id="credential-amika-claude-cred-id"
+            type="text"
+            value={amikaClaudeCredId}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setAmikaApiKey(event.target.value);
+              setAmikaClaudeCredId(event.target.value);
             }}
-            onBlur={commitAmika}
-            onKeyDown={onEnter(commitAmika)}
-          />
-          <CredentialStatusIndicator
-            name="amika_api_key"
-            status={credentialIndicatorStatus(
-              'amika_api_key',
-              pendingCredentials,
-              verifying,
-              checkFor('amika_api_key'),
-            )}
-            message={checkFor('amika_api_key')?.message}
+            onBlur={commitCredId}
+            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitCredId();
+              }
+            }}
           />
         </span>
-      </label>
-      <SecretStatusRow name="amika_api_key" status={settings.amika_api_key} />
-
-      <label>
-        Devin API key
-        <span data-role="credential-input-row">
-          <input
-            type="password"
-            value={devinApiKey}
-            placeholder={settings.devin_api_key.set ? secretStatusText(settings.devin_api_key) : ''}
-            disabled={pendingCredentials.has('devin_api_key')}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setDevinApiKey(event.target.value);
-            }}
-            onBlur={commitDevin}
-            onKeyDown={onEnter(commitDevin)}
-          />
-          <CredentialStatusIndicator
-            name="devin_api_key"
-            status={credentialIndicatorStatus(
-              'devin_api_key',
-              pendingCredentials,
-              verifying,
-              checkFor('devin_api_key'),
-            )}
-            message={checkFor('devin_api_key')?.message}
-          />
+        <span data-role="credential-hint">
+          Not a secret — the id Amika resolves your Claude credential by.
         </span>
-      </label>
-      <SecretStatusRow name="devin_api_key" status={settings.devin_api_key} />
-
-      <label>
-        GitHub token
-        <span data-role="credential-input-row">
-          <input
-            type="password"
-            value={githubAuthToken}
-            placeholder={
-              settings.github_auth_token.set ? secretStatusText(settings.github_auth_token) : ''
-            }
-            disabled={pendingCredentials.has('github_auth_token')}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setGithubAuthToken(event.target.value);
-            }}
-            onBlur={commitGithub}
-            onKeyDown={onEnter(commitGithub)}
-          />
-          <CredentialStatusIndicator
-            name="github_auth_token"
-            status={credentialIndicatorStatus(
-              'github_auth_token',
-              pendingCredentials,
-              verifying,
-              checkFor('github_auth_token'),
-            )}
-            message={checkFor('github_auth_token')?.message}
-          />
-        </span>
-      </label>
-      <SecretStatusRow name="github_auth_token" status={settings.github_auth_token} />
-
-      <label>
-        Amika Claude credential ID
-        <input
-          type="text"
-          value={amikaClaudeCredId}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setAmikaClaudeCredId(event.target.value);
-          }}
-          onBlur={commitCredId}
-          onKeyDown={onEnter(commitCredId)}
-        />
-      </label>
+      </div>
     </form>
   );
 }

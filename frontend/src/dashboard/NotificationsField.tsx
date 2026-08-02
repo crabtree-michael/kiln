@@ -37,8 +37,11 @@ export function NotificationsField(): JSX.Element {
 
   return (
     <section data-role="notifications-field">
+      {/* "Push notifications", not "Notifications": on the settings page this
+          field sits under a section already titled Notifications, and naming the
+          transport is what actually distinguishes it. */}
       <div data-role="notifications-header">
-        <span data-role="notifications-title">Notifications</span>
+        <span data-role="notifications-title">Push notifications</span>
         <span data-role="notifications-status" data-status={status}>
           {CHIP_LABEL[status]}
         </span>

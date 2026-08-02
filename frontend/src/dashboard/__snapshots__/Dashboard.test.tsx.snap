@@ -8,270 +8,863 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
     <div
       data-role="settings"
     >
-      <a
-        data-discover="true"
-        data-role="go-to-app"
-        href="/app"
+      <header
+        data-role="settings-masthead"
       >
-        <span
-          aria-hidden="true"
+        <a
+          data-discover="true"
+          data-role="go-to-app"
+          href="/app"
         >
-          ←
-        </span>
-         Go to app
-      </a>
-      <section
-        data-role="account-card"
-      >
-        <img
-          alt=""
-          data-role="account-avatar"
-          src="https://example.com/a.png"
-        />
-        <div
-          data-role="account-identity"
-        >
-          <div
-            data-role="account-name"
+          <svg
+            aria-hidden="true"
+            data-icon="arrow-left"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.75"
+            viewBox="0 0 24 24"
           >
-            Octocat
-          </div>
-          <div
-            data-role="account-login"
-          >
-            @
-            octocat
-          </div>
-        </div>
-        <button
-          type="button"
-        >
-          Sign out
-        </button>
-      </section>
-      <form
-        data-role="settings-form"
-      >
-        <label>
-          Amika API key
-          <span
-            data-role="credential-input-row"
-          >
-            <input
-              placeholder=""
-              type="password"
-              value=""
+            <path
+              d="M15 19 8 12l7-7"
             />
-            <span
-              data-name="amika_api_key"
-              data-role="credential-status"
-              data-status="skipped"
-            />
-          </span>
-        </label>
-        <span
-          data-name="amika_api_key"
-          data-role="secret-status"
-          data-set="false"
-        >
-          not configured
-        </span>
-        <label>
-          Devin API key
-          <span
-            data-role="credential-input-row"
-          >
-            <input
-              placeholder=""
-              type="password"
-              value=""
-            />
-            <span
-              data-name="devin_api_key"
-              data-role="credential-status"
-              data-status="skipped"
-            />
-          </span>
-        </label>
-        <span
-          data-name="devin_api_key"
-          data-role="secret-status"
-          data-set="false"
-        >
-          not configured
-        </span>
-        <label>
-          GitHub token
-          <span
-            data-role="credential-input-row"
-          >
-            <input
-              placeholder="configured · …abcd"
-              type="password"
-              value=""
-            />
-            <span
-              data-name="github_auth_token"
-              data-role="credential-status"
-              data-status="skipped"
-            />
-          </span>
-        </label>
-        <span
-          data-name="github_auth_token"
-          data-role="secret-status"
-          data-set="true"
-        >
-          configured · …abcd
-        </span>
-        <label>
-          Amika Claude credential ID
-          <input
-            type="text"
-            value="cred-1"
-          />
-        </label>
-      </form>
-      <section
-        data-role="notifications-field"
-      >
-        <div
-          data-role="notifications-header"
-        >
-          <span
-            data-role="notifications-title"
-          >
-            Notifications
-          </span>
-          <span
-            data-role="notifications-status"
-            data-status="unsupported"
-          >
-            Unavailable
-          </span>
-        </div>
-        <p
-          data-role="notifications-note"
-        >
-          This browser doesn’t support push notifications.
-        </p>
-      </section>
+          </svg>
+          Go to app
+        </a>
+        <h1>
+          Settings
+        </h1>
+      </header>
       <div
-        data-role="project-list"
+        data-role="settings-layout"
       >
-        <section
-          data-project-id="proj-1"
-          data-role="project-card"
+        <nav
+          aria-label="Settings sections"
+          data-role="settings-nav"
         >
-          <form
-            data-role="project-form"
+          <a
+            aria-current="true"
+            data-active="true"
+            data-role="settings-nav-item"
+            data-section="account"
+            href="#account"
           >
-            <label>
-              Project name
-              <input
-                required=""
-                type="text"
-                value="kiln"
+            <svg
+              aria-hidden="true"
+              data-icon="user"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.75"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                cx="12"
+                cy="8"
+                r="3.75"
               />
-            </label>
+              <path
+                d="M4.75 20a7.25 7.25 0 0 1 14.5 0"
+              />
+            </svg>
+            Account
+          </a>
+          <a
+            data-active="false"
+            data-role="settings-nav-item"
+            data-section="integrations"
+            href="#integrations"
+          >
+            <svg
+              aria-hidden="true"
+              data-icon="plug"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.75"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0V8ZM12 17v4"
+              />
+            </svg>
+            Integrations
+          </a>
+          <a
+            data-active="false"
+            data-role="settings-nav-item"
+            data-section="notifications"
+            href="#notifications"
+          >
+            <svg
+              aria-hidden="true"
+              data-icon="bell"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.75"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M18 8.5a6 6 0 1 0-12 0c0 6.5-2.5 8.5-2.5 8.5h17S18 15 18 8.5Z"
+              />
+              <path
+                d="M13.7 20.5a2 2 0 0 1-3.4 0"
+              />
+            </svg>
+            Notifications
+          </a>
+          <a
+            data-active="false"
+            data-role="settings-nav-item"
+            data-section="projects"
+            href="#projects"
+          >
+            <svg
+              aria-hidden="true"
+              data-icon="box"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.75"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M20.5 8.2v7.6a1.8 1.8 0 0 1-.9 1.6l-6.7 3.8a1.8 1.8 0 0 1-1.8 0l-6.7-3.8a1.8 1.8 0 0 1-.9-1.6V8.2a1.8 1.8 0 0 1 .9-1.6l6.7-3.8a1.8 1.8 0 0 1 1.8 0l6.7 3.8a1.8 1.8 0 0 1 .9 1.6Z"
+              />
+              <path
+                d="m3.8 7.3 8.2 4.7 8.2-4.7M12 21v-9"
+              />
+            </svg>
+            Projects
+          </a>
+        </nav>
+        <div
+          data-role="settings-panes"
+        >
+          <section
+            aria-labelledby="account-heading"
+            data-role="settings-section"
+            data-section="account"
+            id="account"
+          >
+            <header
+              data-role="section-header"
+            >
+              <span
+                data-role="section-icon"
+              >
+                <svg
+                  aria-hidden="true"
+                  data-icon="user"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.75"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    cx="12"
+                    cy="8"
+                    r="3.75"
+                  />
+                  <path
+                    d="M4.75 20a7.25 7.25 0 0 1 14.5 0"
+                  />
+                </svg>
+              </span>
+              <div
+                data-role="section-heading-text"
+              >
+                <h2
+                  id="account-heading"
+                >
+                  Account
+                </h2>
+                <p
+                  data-role="section-description"
+                >
+                  The GitHub identity this Kiln account is signed in as.
+                </p>
+              </div>
+            </header>
             <div
-              data-role="repo-field"
-              data-state="connected"
+              data-role="section-body"
             >
-              <label>
-                Repository
-                <select
-                  data-role="repo-select"
-                  required=""
+              <div
+                data-role="account-card"
+              >
+                <img
+                  alt=""
+                  data-role="account-avatar"
+                  src="https://example.com/a.png"
+                />
+                <div
+                  data-role="account-identity"
                 >
-                  <option
-                    value="https://github.com/crabtree-michael/kiln"
+                  <div
+                    data-role="account-name"
                   >
-                    crabtree-michael/kiln
-                  </option>
-                </select>
-              </label>
-              <a
-                data-role="switch-github"
-                href="/auth/github/login"
-              >
-                Switch GitHub account
-              </a>
+                    Octocat
+                  </div>
+                  <div
+                    data-role="account-login"
+                  >
+                    @
+                    octocat
+                  </div>
+                </div>
+                <button
+                  data-role="sign-out"
+                  type="button"
+                >
+                  <svg
+                    aria-hidden="true"
+                    data-icon="sign-out"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.75"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M15 16.5 19.5 12 15 7.5M19.5 12H9M12 3.5H6.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2H12"
+                    />
+                  </svg>
+                  Sign out
+                </button>
+              </div>
             </div>
-            <label>
-              Amika snapshot
-              <input
-                type="text"
-                value="snap-1"
-              />
-            </label>
-            <label>
-              Worker count
-              <input
-                type="number"
-                value="3"
-              />
-            </label>
-            <label>
-              Merge gate
-              <select
-                data-role="merge-gate-mode"
-              >
-                <option
-                  value="main"
-                >
-                  Merged to main
-                </option>
-                <option
-                  value="pr"
-                >
-                  In a pull request
-                </option>
-              </select>
-            </label>
-            <fieldset
-              data-role="amika-secrets"
-            >
-              <legend>
-                Sandbox secrets
-              </legend>
-              <p
-                data-role="amika-secrets-hint"
-              >
-                Secrets injected into every sandbox this project starts. The name is the environment variable it lands under; the value is stored encrypted and never shown again.
-              </p>
-              <button
-                data-role="add-secret"
-                type="button"
-              >
-                Add secret
-              </button>
-            </fieldset>
-            <button
-              type="submit"
-            >
-              Save project
-            </button>
-          </form>
-          <button
-            data-role="delete-project"
-            type="button"
+          </section>
+          <section
+            aria-labelledby="integrations-heading"
+            data-role="settings-section"
+            data-section="integrations"
+            id="integrations"
           >
-            Delete project
-          </button>
-        </section>
+            <header
+              data-role="section-header"
+            >
+              <span
+                data-role="section-icon"
+              >
+                <svg
+                  aria-hidden="true"
+                  data-icon="plug"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.75"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0V8ZM12 17v4"
+                  />
+                </svg>
+              </span>
+              <div
+                data-role="section-heading-text"
+              >
+                <h2
+                  id="integrations-heading"
+                >
+                  Integrations
+                </h2>
+                <p
+                  data-role="section-description"
+                >
+                  Credentials Kiln uses to reach your coding agents, sandboxes, and repositories.
+                </p>
+              </div>
+            </header>
+            <div
+              data-role="section-body"
+            >
+              <div
+                data-role="github-connection"
+                data-state="connected"
+              >
+                <span
+                  data-role="integration-icon"
+                >
+                  <svg
+                    aria-hidden="true"
+                    data-icon="github"
+                    fill="currentColor"
+                    viewBox="0 0 16 16"
+                  >
+                    <path
+                      d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+                    />
+                  </svg>
+                </span>
+                <div
+                  data-role="integration-text"
+                >
+                  <span
+                    data-role="integration-name"
+                  >
+                    GitHub account
+                  </span>
+                  <span
+                    data-role="integration-detail"
+                  >
+                    1 repository available to link to a project.
+                  </span>
+                </div>
+                <span
+                  data-role="integration-state"
+                  data-state="connected"
+                >
+                  Connected
+                </span>
+                <a
+                  data-role="github-connection-action"
+                  href="/auth/github/login"
+                >
+                  Switch account
+                </a>
+              </div>
+              <form
+                data-role="settings-form"
+              >
+                <div
+                  data-name="amika_api_key"
+                  data-role="credential-row"
+                >
+                  <label
+                    for="credential-amika_api_key"
+                  >
+                    <span
+                      aria-hidden="true"
+                      data-role="credential-icon"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        data-icon="spark"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="m12 3 2.1 5.6 5.6 2.1-5.6 2.1L12 18.4l-2.1-5.6L4.3 10.7l5.6-2.1L12 3Z"
+                        />
+                      </svg>
+                    </span>
+                    Amika API key
+                  </label>
+                  <span
+                    data-role="credential-input-row"
+                  >
+                    <input
+                      id="credential-amika_api_key"
+                      placeholder=""
+                      type="password"
+                      value=""
+                    />
+                    <span
+                      data-name="amika_api_key"
+                      data-role="credential-status"
+                      data-status="skipped"
+                    />
+                  </span>
+                  <span
+                    data-name="amika_api_key"
+                    data-role="secret-status"
+                    data-set="false"
+                  >
+                    not configured
+                  </span>
+                </div>
+                <div
+                  data-name="devin_api_key"
+                  data-role="credential-row"
+                >
+                  <label
+                    for="credential-devin_api_key"
+                  >
+                    <span
+                      aria-hidden="true"
+                      data-role="credential-icon"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        data-icon="bot"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        viewBox="0 0 24 24"
+                      >
+                        <rect
+                          height="12"
+                          rx="3.5"
+                          width="16"
+                          x="4"
+                          y="8"
+                        />
+                        <path
+                          d="M12 4v4M9.5 14h.01M14.5 14h.01M10 17.2h4M2.5 12.5v3M21.5 12.5v3"
+                        />
+                      </svg>
+                    </span>
+                    Devin API key
+                  </label>
+                  <span
+                    data-role="credential-input-row"
+                  >
+                    <input
+                      id="credential-devin_api_key"
+                      placeholder=""
+                      type="password"
+                      value=""
+                    />
+                    <span
+                      data-name="devin_api_key"
+                      data-role="credential-status"
+                      data-status="skipped"
+                    />
+                  </span>
+                  <span
+                    data-name="devin_api_key"
+                    data-role="secret-status"
+                    data-set="false"
+                  >
+                    not configured
+                  </span>
+                </div>
+                <div
+                  data-name="github_auth_token"
+                  data-role="credential-row"
+                >
+                  <label
+                    for="credential-github_auth_token"
+                  >
+                    <span
+                      aria-hidden="true"
+                      data-role="credential-icon"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        data-icon="github"
+                        fill="currentColor"
+                        viewBox="0 0 16 16"
+                      >
+                        <path
+                          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+                        />
+                      </svg>
+                    </span>
+                    GitHub token
+                  </label>
+                  <span
+                    data-role="credential-input-row"
+                  >
+                    <input
+                      id="credential-github_auth_token"
+                      placeholder="configured · …abcd"
+                      type="password"
+                      value=""
+                    />
+                    <span
+                      data-name="github_auth_token"
+                      data-role="credential-status"
+                      data-status="skipped"
+                    />
+                  </span>
+                  <span
+                    data-name="github_auth_token"
+                    data-role="secret-status"
+                    data-set="true"
+                  >
+                    configured · …abcd
+                  </span>
+                </div>
+                <div
+                  data-name="amika_claude_cred_id"
+                  data-role="credential-row"
+                >
+                  <label
+                    for="credential-amika-claude-cred-id"
+                  >
+                    <span
+                      aria-hidden="true"
+                      data-role="credential-icon"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        data-icon="id"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        viewBox="0 0 24 24"
+                      >
+                        <rect
+                          height="13"
+                          rx="2.5"
+                          width="18"
+                          x="3"
+                          y="5.5"
+                        />
+                        <circle
+                          cx="9"
+                          cy="11"
+                          r="1.9"
+                        />
+                        <path
+                          d="M6 16a3.4 3.4 0 0 1 6 0M15 10h3.5M15 13.5h2.5"
+                        />
+                      </svg>
+                    </span>
+                    Amika Claude credential ID
+                  </label>
+                  <span
+                    data-role="credential-input-row"
+                  >
+                    <input
+                      id="credential-amika-claude-cred-id"
+                      type="text"
+                      value="cred-1"
+                    />
+                  </span>
+                  <span
+                    data-role="credential-hint"
+                  >
+                    Not a secret — the id Amika resolves your Claude credential by.
+                  </span>
+                </div>
+              </form>
+            </div>
+          </section>
+          <section
+            aria-labelledby="notifications-heading"
+            data-role="settings-section"
+            data-section="notifications"
+            id="notifications"
+          >
+            <header
+              data-role="section-header"
+            >
+              <span
+                data-role="section-icon"
+              >
+                <svg
+                  aria-hidden="true"
+                  data-icon="bell"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.75"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M18 8.5a6 6 0 1 0-12 0c0 6.5-2.5 8.5-2.5 8.5h17S18 15 18 8.5Z"
+                  />
+                  <path
+                    d="M13.7 20.5a2 2 0 0 1-3.4 0"
+                  />
+                </svg>
+              </span>
+              <div
+                data-role="section-heading-text"
+              >
+                <h2
+                  id="notifications-heading"
+                >
+                  Notifications
+                </h2>
+                <p
+                  data-role="section-description"
+                >
+                  How Kiln reaches you when the app is closed or in the background.
+                </p>
+              </div>
+            </header>
+            <div
+              data-role="section-body"
+            >
+              <section
+                data-role="notifications-field"
+              >
+                <div
+                  data-role="notifications-header"
+                >
+                  <span
+                    data-role="notifications-title"
+                  >
+                    Push notifications
+                  </span>
+                  <span
+                    data-role="notifications-status"
+                    data-status="unsupported"
+                  >
+                    Unavailable
+                  </span>
+                </div>
+                <p
+                  data-role="notifications-note"
+                >
+                  This browser doesn’t support push notifications.
+                </p>
+              </section>
+            </div>
+          </section>
+          <section
+            aria-labelledby="projects-heading"
+            data-role="settings-section"
+            data-section="projects"
+            id="projects"
+          >
+            <header
+              data-role="section-header"
+            >
+              <span
+                data-role="section-icon"
+              >
+                <svg
+                  aria-hidden="true"
+                  data-icon="box"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.75"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M20.5 8.2v7.6a1.8 1.8 0 0 1-.9 1.6l-6.7 3.8a1.8 1.8 0 0 1-1.8 0l-6.7-3.8a1.8 1.8 0 0 1-.9-1.6V8.2a1.8 1.8 0 0 1 .9-1.6l6.7-3.8a1.8 1.8 0 0 1 1.8 0l6.7 3.8a1.8 1.8 0 0 1 .9 1.6Z"
+                  />
+                  <path
+                    d="m3.8 7.3 8.2 4.7 8.2-4.7M12 21v-9"
+                  />
+                </svg>
+              </span>
+              <div
+                data-role="section-heading-text"
+              >
+                <h2
+                  id="projects-heading"
+                >
+                  Projects
+                </h2>
+                <p
+                  data-role="section-description"
+                >
+                  Each project has its own repository, worker pool, and sandbox configuration.
+                </p>
+              </div>
+              <div
+                data-role="section-action"
+              >
+                <button
+                  data-role="new-project"
+                  data-variant="primary"
+                  type="button"
+                >
+                  <svg
+                    aria-hidden="true"
+                    data-icon="plus"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.75"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M12 5v14M5 12h14"
+                    />
+                  </svg>
+                  New project
+                </button>
+              </div>
+            </header>
+            <div
+              data-role="section-body"
+            >
+              <div
+                data-role="project-list"
+              >
+                <section
+                  data-project-id="proj-1"
+                  data-role="project-card"
+                >
+                  <header
+                    data-role="project-card-header"
+                  >
+                    <span
+                      data-role="project-card-icon"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        data-icon="folder"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M3.5 7a2 2 0 0 1 2-2H9l2.2 2.6h7.3a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7Z"
+                        />
+                      </svg>
+                    </span>
+                    <div
+                      data-role="project-card-identity"
+                    >
+                      <span
+                        data-role="project-card-name"
+                      >
+                        kiln
+                      </span>
+                      <span
+                        data-role="project-card-repo"
+                      >
+                        https://github.com/crabtree-michael/kiln
+                      </span>
+                    </div>
+                    <button
+                      data-role="delete-project"
+                      data-variant="danger"
+                      type="button"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        data-icon="trash"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M4 6.5h16M9.5 6.5V5a1.8 1.8 0 0 1 1.8-1.8h1.4A1.8 1.8 0 0 1 14.5 5v1.5M10 11v6M14 11v6"
+                        />
+                        <path
+                          d="m6.5 6.5 .9 12.1a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12.1"
+                        />
+                      </svg>
+                      Delete project
+                    </button>
+                  </header>
+                  <form
+                    data-role="project-form"
+                  >
+                    <label>
+                      Project name
+                      <input
+                        required=""
+                        type="text"
+                        value="kiln"
+                      />
+                    </label>
+                    <div
+                      data-role="repo-field"
+                      data-state="connected"
+                    >
+                      <label>
+                        Repository
+                        <select
+                          data-role="repo-select"
+                          required=""
+                        >
+                          <option
+                            value="https://github.com/crabtree-michael/kiln"
+                          >
+                            crabtree-michael/kiln
+                          </option>
+                        </select>
+                      </label>
+                      <a
+                        data-role="switch-github"
+                        href="/auth/github/login"
+                      >
+                        Switch GitHub account
+                      </a>
+                    </div>
+                    <label>
+                      Amika snapshot
+                      <input
+                        type="text"
+                        value="snap-1"
+                      />
+                    </label>
+                    <label>
+                      Worker count
+                      <input
+                        type="number"
+                        value="3"
+                      />
+                    </label>
+                    <label>
+                      Merge gate
+                      <select
+                        data-role="merge-gate-mode"
+                      >
+                        <option
+                          value="main"
+                        >
+                          Merged to main
+                        </option>
+                        <option
+                          value="pr"
+                        >
+                          In a pull request
+                        </option>
+                      </select>
+                    </label>
+                    <fieldset
+                      data-role="amika-secrets"
+                    >
+                      <legend>
+                        Sandbox secrets
+                      </legend>
+                      <p
+                        data-role="amika-secrets-hint"
+                      >
+                        Secrets injected into every sandbox this project starts. The name is the environment variable it lands under; the value is stored encrypted and never shown again.
+                      </p>
+                      <button
+                        data-role="add-secret"
+                        type="button"
+                      >
+                        Add secret
+                      </button>
+                    </fieldset>
+                    <button
+                      type="submit"
+                    >
+                      Save project
+                    </button>
+                  </form>
+                </section>
+              </div>
+            </div>
+          </section>
+          <p
+            data-role="dashboard-footnote"
+          >
+            Open kiln on your phone at trykiln.dev — the app itself doesn't need sign-in yet.
+          </p>
+        </div>
       </div>
-      <button
-        data-role="new-project"
-        type="button"
-      >
-        New project
-      </button>
-      <p
-        data-role="dashboard-footnote"
-      >
-        Open kiln on your phone at trykiln.dev — the app itself doesn't need sign-in yet.
-      </p>
     </div>
   </div>
 </div>

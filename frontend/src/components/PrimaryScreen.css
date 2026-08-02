@@ -390,6 +390,39 @@
   display: block;
 }
 
+/* Dashboard link, beside the bell — an anchor, so it also has to clear the
+ * global link styling (colour/underline) to match the icon buttons it sits
+ * with. Otherwise identical to the bell/trash triggers so the cluster reads as
+ * one set. */
+[data-role='header-dashboard'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 5px;
+  margin: -5px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='header-dashboard']:hover {
+  color: var(--text-secondary);
+  background: var(--surface-inset);
+}
+
+[data-role='header-gear'] {
+  /* Matches the bell/trash (22px) so the cluster shares one scale. */
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
 /* Clear-all trash affordance (08 §3), beside the bell — mirrors the bell
  * trigger's sizing/hover so the two read as one header cluster. */
 [data-role='feed-clear-all'] {

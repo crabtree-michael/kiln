@@ -167,6 +167,34 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             </button>
           </div>
         </div>
+        <a
+          aria-label="Dashboard"
+          data-role="header-dashboard"
+          href="/dashboard"
+        >
+          <svg
+            aria-hidden="true"
+            data-role="header-gear"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+            />
+            <circle
+              cx="10"
+              cy="10"
+              fill="none"
+              r="2.4"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </a>
         <div
           data-role="header-status"
         >
@@ -495,6 +523,34 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             </button>
           </div>
         </div>
+        <a
+          aria-label="Dashboard"
+          data-role="header-dashboard"
+          href="/dashboard"
+        >
+          <svg
+            aria-hidden="true"
+            data-role="header-gear"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+            />
+            <circle
+              cx="10"
+              cy="10"
+              fill="none"
+              r="2.4"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </a>
         <div
           data-role="header-status"
         >
@@ -933,6 +989,34 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
             </button>
           </div>
         </div>
+        <a
+          aria-label="Dashboard"
+          data-role="header-dashboard"
+          href="/dashboard"
+        >
+          <svg
+            aria-hidden="true"
+            data-role="header-gear"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+            />
+            <circle
+              cx="10"
+              cy="10"
+              fill="none"
+              r="2.4"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </a>
         <div
           data-role="header-status"
         >
@@ -1305,6 +1389,34 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
             </button>
           </div>
         </div>
+        <a
+          aria-label="Dashboard"
+          data-role="header-dashboard"
+          href="/dashboard"
+        >
+          <svg
+            aria-hidden="true"
+            data-role="header-gear"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+            />
+            <circle
+              cx="10"
+              cy="10"
+              fill="none"
+              r="2.4"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </a>
         <div
           data-role="header-status"
         >
@@ -1655,6 +1767,34 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
             </button>
           </div>
         </div>
+        <a
+          aria-label="Dashboard"
+          data-role="header-dashboard"
+          href="/dashboard"
+        >
+          <svg
+            aria-hidden="true"
+            data-role="header-gear"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+            />
+            <circle
+              cx="10"
+              cy="10"
+              fill="none"
+              r="2.4"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </a>
         <div
           data-role="header-status"
         >

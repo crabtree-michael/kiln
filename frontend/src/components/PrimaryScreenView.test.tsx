@@ -1144,4 +1144,17 @@ describe('PrimaryScreenView', () => {
       expect(screen.getByRole('button', { name: 'Clear all notifications' })).toBeEnabled();
     });
   });
+
+  describe('dashboard link', () => {
+    it('offers an icon-only hop to the dashboard beside the bell', () => {
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }));
+      const link = screen.getByRole('link', { name: 'Dashboard' });
+      expect(link).toHaveAttribute('href', '/dashboard');
+      // Icon-only: the accessible name comes from aria-label, not visible text.
+      expect(link.textContent).toBe('');
+      // Paired with the alert button in the same header cluster.
+      const bell = screen.getByRole('button', { name: 'Notification settings' });
+      expect(link.parentElement).toBe(bell.closest("[data-role='notify-settings']")?.parentElement);
+    });
+  });
 });

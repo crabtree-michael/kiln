@@ -58,14 +58,16 @@ export interface DashboardStoreValue {
    * Never chains verify — only credential saves do. */
   saveProject: (body: ProjectUpdateRequest) => Promise<void>;
   /** `POST /api/projects` — create a new project (12 §3.1), then merge it into
-   * `me.projects`. */
-  createProject: (body: ProjectUpdateRequest) => Promise<void>;
+   * `me.projects`. Resolves `true` iff the write landed (a failure lands in
+   * `error` instead of rejecting, so this boolean is the only signal a caller
+   * has — the project modal closes on `true` and stays open on `false`). */
+  createProject: (body: ProjectUpdateRequest) => Promise<boolean>;
   /** `PUT /api/projects/{id}` — update the named project (12 §3.1), then merge
-   * the response back into `me.projects`. */
-  updateProject: (id: string, body: ProjectUpdateRequest) => Promise<void>;
+   * the response back into `me.projects`. Resolves `true` iff it landed. */
+  updateProject: (id: string, body: ProjectUpdateRequest) => Promise<boolean>;
   /** `DELETE /api/projects/{id}` — soft-delete the named project (12 §5), then
-   * drop it from `me.projects`. */
-  removeProject: (id: string) => Promise<void>;
+   * drop it from `me.projects`. Resolves `true` iff it landed. */
+  removeProject: (id: string) => Promise<boolean>;
   /** `POST /api/settings/verify`, populating `verifyChecks` from the response. */
   runVerify: () => Promise<void>;
   /** `POST /auth/logout`, then re-fetches `/api/me` to land on `signed-out`. */

@@ -546,7 +546,11 @@ describe('ProjectFields — repo picker', () => {
     );
   });
 
-  it('filters a long repo list, always keeping the current selection listed', () => {
+  // The filter box beside the dropdown is gone (projects-in-a-modal): a native
+  // select already types-to-jump, so a second search control next to it only
+  // raised the question of which one to use. However long the list, the picker
+  // is one control.
+  it('lists every repo in one control, with no filter box at any length', () => {
     render(
       <ProjectFields
         github={connectedGitHub({ repos: manyRepos(12) })}
@@ -559,27 +563,174 @@ describe('ProjectFields — repo picker', () => {
     // Scoped to the repo select — the form has other selects (merge gate, …)
     // whose options would otherwise be counted here.
     expect(within(repoSelect()).getAllByRole('option')).toHaveLength(12);
-    fireEvent.change(screen.getByLabelText('Filter'), { target: { value: 'repo-11' } });
-
-    const names = within(repoSelect())
-      .getAllByRole('option')
-      .map((option) => option.textContent);
-    expect(names).toContain('acme/repo-11');
-    // The selected repo survives a query that doesn't match it — otherwise the
-    // select would silently lose its value.
-    expect(names).toContain('acme/repo-0');
-    expect(names).not.toContain('acme/repo-5');
+    expect(screen.queryByLabelText('Filter')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="repo-filter"]')).toBeNull();
   });
+});
 
-  it('hides the filter for a short list', () => {
+// The modal shell's arrangement of the same fields (projects-in-a-modal). Same
+// state, same submit body — so these assert the arrangement, and the specific
+// thing the modal promises: the name and the repo picker together in a header,
+// with no raw URL field anywhere.
+describe('ProjectFields — detail layout', () => {
+  /** One of the detail shell's regions, narrowed without a type assertion
+   * (escape hatches are banned, 02 §4b) — it throws rather than silently
+   * scoping a `within` query to the whole document. */
+  function region(selector: string): HTMLElement {
+    const element = document.querySelector(selector);
+    if (!(element instanceof HTMLElement)) {
+      throw new Error(`expected an element matching ${selector}`);
+    }
+    return element;
+  }
+
+  it('puts the name and the repo picker in the identity header', () => {
     render(
       <ProjectFields
-        github={connectedGitHub({ repos: manyRepos(3) })}
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject()}
         saving={false}
         onSave={vi.fn(() => Promise.resolve())}
       />,
     );
 
-    expect(screen.queryByLabelText('Filter')).not.toBeInTheDocument();
+    const header = region('[data-role="project-identity"]');
+    expect(within(header).getByLabelText('Project name')).toHaveValue('demo');
+    // The repo is the picker itself, in the header — not a second, raw URL field.
+    expect(within(header).getByRole('combobox', { name: 'Repository' })).toHaveValue(
+      'https://github.com/acme/demo',
+    );
+    expect(screen.queryByRole('textbox', { name: /repo/i })).toBeNull();
+  });
+
+  it('groups the remaining fields under Agent and Sandbox', () => {
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject()}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+
+    expect(
+      [...document.querySelectorAll('[data-role="project-group"] h3')].map((h) => h.textContent),
+    ).toEqual(['Agent', 'Sandbox']);
+    const agent = region('[data-role="project-group"][data-group="agent"]');
+    expect(within(agent).getByRole('spinbutton', { name: /worker count/i })).toBeInTheDocument();
+    expect(within(agent).getByRole('combobox', { name: /merge gate/i })).toBeInTheDocument();
+  });
+
+  it('submits the same body the flat form does', () => {
+    const onSave: SaveMock = vi.fn(() => Promise.resolve());
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject()}
+        saving={false}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+
+    expect(lastBody(onSave)).toEqual({
+      name: 'renamed',
+      repo_url: 'https://github.com/acme/demo',
+      worker_count: 3,
+      merge_gate_mode: 'main',
+    });
+  });
+});
+
+// "Relevant Amika info about which sandbox to use": a snapshot ref alone says
+// nothing about what a worker boots into, so each state the picker can be in
+// gets a plain-language reading beside it.
+describe('ProjectFields — sandbox info', () => {
+  const snapshot: Snapshot = {
+    ref: 'org/base:1',
+    name: 'warm-base',
+    description: 'node 22, repo cloned',
+    source: 'dev-a',
+    state: 'ready',
+    created_at: '2026-07-01T10:00:00Z',
+  };
+
+  /** The sandbox-info block's declared state — the readings differ, so this is
+   * what distinguishes them without binding to the copy. */
+  function infoState(): string | null {
+    return document.querySelector('[data-role="sandbox-info"]')?.getAttribute('data-state') ?? null;
+  }
+
+  it('explains the deployment default when no snapshot is picked', () => {
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject()}
+        snapshots={[snapshot]}
+        catalogAvailable
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(infoState()).toBe('default');
+  });
+
+  it('names the picked snapshot, what it holds, and where it came from', () => {
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject({ amika_snapshot: 'org/base:1' })}
+        snapshots={[snapshot]}
+        catalogAvailable
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(infoState()).toBe('snapshot');
+    // Scoped to the info block: the snapshot's name is also an option label in
+    // the picker above it.
+    expect(document.querySelector('[data-role="sandbox-snapshot-name"]')).toHaveTextContent(
+      'warm-base',
+    );
+    expect(screen.getByText('node 22, repo cloned')).toBeInTheDocument();
+    expect(document.querySelector('[data-role="sandbox-snapshot-detail"]')?.textContent).toContain(
+      'captured from dev-a',
+    );
+  });
+
+  it('flags a stored handle the catalog no longer lists', () => {
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject({ amika_snapshot: 'legacy-handle' })}
+        snapshots={[snapshot]}
+        catalogAvailable
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(infoState()).toBe('unlisted');
+    expect(screen.getByText('legacy-handle')).toBeInTheDocument();
+  });
+
+  it('says so when the provider exposes no catalog at all', () => {
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject()}
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(infoState()).toBe('no-catalog');
   });
 });

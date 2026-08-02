@@ -53,23 +53,43 @@ describe('settings desktop layout', () => {
     expect(ruleBody("[data-role='settings-nav'] {")).toMatch(/position:\s*sticky/);
   });
 
-  it('lays the project form out in columns, widening to three on a large screen', () => {
-    const base = ruleBody("[data-role='settings'] [data-role='project-form'] {");
-    expect(base).toMatch(/display:\s*grid/);
-    expect(base).toMatch(/grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
-
-    const wide = mediaRuleBody(
-      'min-width: 1100px',
-      "[data-role='settings'] [data-role='project-form'] {",
-    );
-    expect(wide).toMatch(/grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  it('lays a project panel out as one full-width row', () => {
+    // The whole panel is the button, so it must override the compact
+    // settings-button defaults (inline, left-aligned, single-line).
+    const body = ruleBody("[data-role='settings'] [data-role='project-panel'] {");
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/width:\s*100%/);
+    expect(body).toMatch(/align-self:\s*stretch/);
   });
 
-  it('spans the full grid width for the form blocks that need it', () => {
-    const spanning = ruleBody(
-      "[data-role='settings'] [data-role='project-form'] > fieldset,\n[data-role='settings'] [data-role='project-form'] > button {",
+  it('centers the project dialog over a dimmed page, capped to the viewport', () => {
+    const scrim = ruleBody("[data-role='modal-scrim'] {");
+    expect(scrim).toMatch(/position:\s*fixed/);
+    expect(scrim).toMatch(/inset:\s*0/);
+    expect(scrim).toMatch(/background:\s*var\(--scrim\)/);
+
+    const panel = ruleBody("[data-role='project-modal'] {");
+    expect(panel).toMatch(/max-width:\s*680px/);
+    // Without a cap the dialog grows past the viewport and its own body — not
+    // the page — is what has to scroll.
+    expect(panel).toMatch(/max-height:\s*min\(88dvh, 880px\)/);
+    expect(ruleBody("[data-role='project-modal-body'] {")).toMatch(/overflow-y:\s*auto/);
+  });
+
+  it('puts the project name and its repository side by side in the dialog header', () => {
+    const body = ruleBody("[data-role='project-identity'] {");
+    expect(body).toMatch(/display:\s*grid/);
+    expect(body).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+    // They stack on a phone, where two ~160px columns would be unusable.
+    expect(mediaRuleBody('max-width: 600px', "[data-role='project-identity'] {")).toMatch(
+      /grid-template-columns:\s*minmax\(0, 1fr\)/,
     );
-    expect(spanning).toMatch(/grid-column:\s*1 \/ -1/);
+  });
+
+  it('lays the short fields inside a dialog group out in columns', () => {
+    const body = ruleBody("[data-role='project-group-fields'] {");
+    expect(body).toMatch(/display:\s*grid/);
+    expect(body).toMatch(/grid-template-columns:\s*repeat\(auto-fit, minmax\(180px, 1fr\)\)/);
   });
 
   it('lists the credentials in columns rather than one per line', () => {

@@ -156,6 +156,34 @@ export function TrashIcon(): JSX.Element {
   );
 }
 
+/** Dismiss the project modal. */
+export function CloseIcon(): JSX.Element {
+  return (
+    <svg data-icon="close" {...STROKE}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+/** "This row opens something" — the affordance on a project panel. */
+export function ChevronRightIcon(): JSX.Element {
+  return (
+    <svg data-icon="chevron-right" {...STROKE}>
+      <path d="m9.5 5 7 7-7 7" />
+    </svg>
+  );
+}
+
+/** A worker slot / the project's agent pool, on a project panel's meta chip. */
+export function UsersIcon(): JSX.Element {
+  return (
+    <svg data-icon="users" {...STROKE}>
+      <circle cx="9" cy="8" r="3.25" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.2a3.25 3.25 0 0 1 0 5.6M17.5 14.2a5.5 5.5 0 0 1 3 4.8" />
+    </svg>
+  );
+}
+
 /** The GitHub mark — the official filled path, not a stroked redraw. */
 export function GitHubIcon(): JSX.Element {
   return (

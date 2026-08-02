@@ -137,6 +137,10 @@ hand-entered PAT uses). So "Connect GitHub account" is just `/auth/github/login`
   connected shows the dropdown. `connected: false` is a normal 200, **not** an error — a
   failed *request* sets `error` instead and deliberately leaves `connected` alone, so a
   transient blip can't demote a working picker mid-edit.
+- **The dropdown has no filter box beside it** (removed with the project modal): a native
+  select already types-to-jump, and a second search control next to it only raised the
+  question of which one to use. Don't reintroduce one at "enough repos" — if long lists ever
+  need more, replace the select, don't grow a sidecar.
 - An existing `repo_url` preselects via `sameRepo`, which normalizes case, a trailing `/`,
   and `.git` — hand-typed values predate the picker and carry all three. An unmatched value
   stays selectable as `(current)` and is still submitted, so editing an unrelated field can
@@ -171,6 +175,40 @@ inputs, a 2–3-column project-form grid and a 2-column credential grid.
 - **Layout-critical CSS is asserted as a string** (`Dashboard.desktop-layout.test.ts`, the
   `?raw` technique) — jsdom does no layout, so without it the page could silently revert to one
   mobile-style column and every DOM test would still pass.
+
+### Projects: a panel list over a detail modal
+
+The Projects section lists **one compact panel per project** (`ProjectPanel` in `Settings.tsx`
+— name, `owner/name` repo, worker/agent chips) and opens the whole configuration in a dialog
+(`ProjectModal.tsx`). This is the page's **one deliberate exception** to "the nav scrolls, it
+never swaps panes": that rule is about the page's *sections* staying findable at once, and N
+inline project forms are exactly what made the list unscannable. "New project" opens the same
+dialog in create mode — `openProjectId` holds a project id or the `'new'` sentinel.
+
+- **`ProjectFields` now has a `layout` prop.** `form` (default) is the flat field list
+  Onboarding and `ProjectsManager` have always rendered — **its DOM must not move**, those
+  surfaces style it themselves. `detail` is the modal's shell: an identity header (name edited
+  in place + the repo picker, together — there is no raw URL field anywhere) over grouped
+  Agent and Sandbox sections. Both branches render the *same* field elements, built once above
+  the branch, so the two shells can't drift in what they render or submit.
+- **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words, in four
+  states (`data-state`: `no-catalog` / `default` / `snapshot` / `unlisted`). Keep it
+  provider-neutral outside the catalog case — a provider that manages its own sandboxes gets
+  the `no-catalog` reading, so the group's own hint text must not promise Amika.
+- **The modal is hand-rolled, not `<dialog>`.** jsdom 25 (the whole DOM suite) ships **no
+  `HTMLDialogElement`** — `showModal` is `undefined` — so a native dialog would be untestable
+  in the gate. `ProjectModal` therefore owns Escape, the scrim press (only one that *starts*
+  on the scrim dismisses), a Tab trap, body-scroll lock, and focus in/out itself. Vaul is not
+  the answer either: it's a bottom sheet for the mobile primary screen, and settings is
+  desktop-first.
+- **The store's project mutations resolve `boolean`** (`createProject`/`updateProject`/
+  `removeProject`): they fold failures into `error` rather than rejecting, so the boolean is
+  the only signal a caller has. The modal closes on `true` and stays open — with everything
+  typed into it — on `false`. Don't "simplify" these back to `Promise<void>`.
+- The per-project `useSandboxCatalog` now mounts **inside the open modal**, so only the
+  project actually being looked at fetches its catalog. E2e that asserts on the snapshot
+  picker or the dev-box capture form must click `[data-role="project-panel"]` first
+  (`tests/tests/keyless-sandbox-selection.spec.ts`).
 
 ## Common footguns
 

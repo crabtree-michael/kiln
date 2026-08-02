@@ -183,19 +183,24 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   // runProjectMutation wraps a project create/update/delete (12 §3.1, §5): it
   // sets saving/error, runs the transport call, and folds the result back into
   // `me.projects` via `mergeProjects` — a local splice, so the switcher and list
-  // reflect the change without a full `GET /api/me` round-trip.
+  // reflect the change without a full `GET /api/me` round-trip. It resolves
+  // whether the write landed: a failure is surfaced in `error` rather than
+  // rethrown, so the boolean is the only way a caller can tell (the project
+  // modal uses it to decide whether to close or keep the typed form open).
   const runProjectMutation = useCallback(
     async (
       label: string,
       mutate: () => Promise<(projects: MeProject[]) => MeProject[]>,
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       setSaving(true);
       setError(null);
       try {
         const apply = await mutate();
         setMe((prev) => (prev === null ? prev : { ...prev, projects: apply(prev.projects) }));
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : `${label} failed`);
+        return false;
       } finally {
         setSaving(false);
       }
@@ -204,7 +209,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   );
 
   const createProject = useCallback(
-    (body: ProjectUpdateRequest): Promise<void> =>
+    (body: ProjectUpdateRequest): Promise<boolean> =>
       runProjectMutation('createProject', async () => {
         const created = await createProjectRequest(body);
         return (projects) => [...projects, created];
@@ -213,7 +218,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   );
 
   const updateProject = useCallback(
-    (id: string, body: ProjectUpdateRequest): Promise<void> =>
+    (id: string, body: ProjectUpdateRequest): Promise<boolean> =>
       runProjectMutation('updateProject', async () => {
         const updated = await updateProjectRequest(id, body);
         return (projects) => projects.map((p) => (p.id === id ? updated : p));
@@ -222,7 +227,7 @@ export function DashboardProvider({ children }: DashboardProviderProps): JSX.Ele
   );
 
   const removeProject = useCallback(
-    (id: string): Promise<void> =>
+    (id: string): Promise<boolean> =>
       runProjectMutation('removeProject', async () => {
         await deleteProjectRequest(id);
         return (projects) => projects.filter((p) => p.id !== id);

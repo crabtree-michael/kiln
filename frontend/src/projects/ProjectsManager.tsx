@@ -30,8 +30,10 @@ interface ProjectRowProps {
    * `ProjectsBody` and shared by every row (the credential is per-user). */
   github: GitHubRepos;
   saving: boolean;
-  onSave: (id: string, body: ProjectUpdateRequest) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  /** Both resolve whether the write landed (the store folds failures into its
+   * `error` rather than rejecting); this row doesn't act on the result. */
+  onSave: (id: string, body: ProjectUpdateRequest) => Promise<boolean>;
+  onDelete: (id: string) => Promise<boolean>;
 }
 
 /** One project as a collapsible row: a summary header (name + repo) that toggles
@@ -48,7 +50,9 @@ function ProjectRow({
 }: ProjectRowProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const save = useCallback(
-    (body: ProjectUpdateRequest): Promise<void> => onSave(project.id, body),
+    async (body: ProjectUpdateRequest): Promise<void> => {
+      await onSave(project.id, body);
+    },
     [onSave, project.id],
   );
   const handleDelete = useCallback((): void => {

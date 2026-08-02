@@ -24,9 +24,9 @@
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
-import { CredentialFields, ProjectFields } from '@/dashboard/ConfigFields';
+import { CredentialFields } from '@/dashboard/ConfigFields';
 import { NotificationsField } from '@/dashboard/NotificationsField';
-import { useSandboxCatalog } from '@/dashboard/use-sandbox-catalog';
+import { ProjectModal } from '@/dashboard/ProjectModal';
 import {
   GITHUB_CONNECT_PATH,
   useGitHubRepos,
@@ -36,15 +36,20 @@ import {
   ArrowLeftIcon,
   BellIcon,
   BoxIcon,
+  ChevronRightIcon,
   FolderIcon,
   GitHubIcon,
   PlugIcon,
   PlusIcon,
   SignOutIcon,
-  TrashIcon,
   UserIcon,
+  UsersIcon,
 } from '@/dashboard/icons';
 import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
+
+/** The `openProjectId` value that means "the create form", not a project. A
+ * project id is server-generated, so this can never collide with one. */
+const NEW_PROJECT_ID = 'new';
 
 interface SectionDef {
   /** The DOM id the nav anchors to; also the `data-section` value. */
@@ -210,82 +215,67 @@ function GitHubConnectionRow({ github }: { github: GitHubRepos }): JSX.Element {
   );
 }
 
-interface ProjectCardProps {
-  project: MeProject;
-  providers: ProviderDescriptor[];
-  /** The account-level GitHub connection, loaded once by `Settings` and shared
-   * by every card — the credential is per-user, so per-card fetching would be
-   * the same request N times. */
-  github: GitHubRepos;
-  saving: boolean;
-  onSave: (id: string, body: ProjectUpdateRequest) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+/** The short `owner/name` a repo URL reads as in a list. The panel is a summary,
+ * so it shows the repo the way GitHub itself names it rather than a full URL that
+ * would push everything else off the row (the modal's picker shows the same
+ * `full_name`). Anything that doesn't look like `…/owner/name` — an enterprise
+ * host, a hand-typed value — falls through unchanged rather than being mangled. */
+function repoLabel(repoUrl: string): string {
+  const parts = repoUrl
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter((part) => part !== '');
+  return parts.length < 2 ? repoUrl.trim() : parts.slice(-2).join('/');
 }
 
-/** One project's edit form + delete, keyed on its id (12 §4.2). The card leads
- * with an identity header (name + repo) so a multi-project account can be scanned
- * without reading any form; Delete is a compact icon button in that header,
- * behind a confirm since the cascade is destructive and irreversible (12 §5). */
-function ProjectCard({
-  project,
-  providers,
-  github,
-  saving,
-  onSave,
-  onDelete,
-}: ProjectCardProps): JSX.Element {
-  const save = useCallback(
-    (body: ProjectUpdateRequest): Promise<void> => onSave(project.id, body),
-    [onSave, project.id],
-  );
-  const handleDelete = useCallback((): void => {
-    // A native confirm keeps the destructive gate simple; the app never mutates
-    // the board directly, but a project delete is a real cascade (12 §5).
-    if (window.confirm(`Delete project “${project.name}”? This can't be undone.`)) {
-      void onDelete(project.id);
-    }
-  }, [onDelete, project.id, project.name]);
-  // This project's own snapshot catalog (sandbox selection): the picker + capture
-  // form appear only when its provider exposes a catalog (a managed-sandbox
-  // provider), else ProjectFields falls back to the free-text snapshot handle.
-  const catalog = useSandboxCatalog(project.id);
+interface ProjectPanelProps {
+  project: MeProject;
+  /** Used only to name the project's provider on its chip — the select itself
+   * lives in the modal. */
+  providers: ProviderDescriptor[];
+  onOpen: (id: string) => void;
+}
 
+/** One project as a compact panel (projects-in-a-modal): the identity that tells
+ * projects apart — name, repo, worker pool, agent — and nothing else. The whole
+ * panel is the button, so the click target is the row rather than a small
+ * disclosure caret, and everything configurable sits one deliberate click away in
+ * `ProjectModal`. */
+function ProjectPanel({ project, providers, onOpen }: ProjectPanelProps): JSX.Element {
+  const provider = providers.find((candidate) => candidate.key === project.agent_provider);
   return (
-    <section data-role="project-card" data-project-id={project.id}>
-      <header data-role="project-card-header">
-        <span data-role="project-card-icon">
-          <FolderIcon />
+    <button
+      type="button"
+      data-role="project-panel"
+      data-project-id={project.id}
+      onClick={() => {
+        onOpen(project.id);
+      }}
+    >
+      <span data-role="project-panel-icon">
+        <FolderIcon />
+      </span>
+      <span data-role="project-panel-identity">
+        <span data-role="project-panel-name">{project.name}</span>
+        <span data-role="project-panel-repo">
+          {project.repo_url === '' ? 'No repository linked' : repoLabel(project.repo_url)}
         </span>
-        <div data-role="project-card-identity">
-          <span data-role="project-card-name">{project.name}</span>
-          <span data-role="project-card-repo">{project.repo_url || 'No repository linked'}</span>
-        </div>
-        <button
-          type="button"
-          data-role="delete-project"
-          data-variant="danger"
-          disabled={saving}
-          onClick={handleDelete}
-        >
-          <TrashIcon />
-          Delete project
-        </button>
-      </header>
-      <ProjectFields
-        project={project}
-        github={github}
-        providers={providers}
-        snapshots={catalog.snapshots}
-        catalogAvailable={catalog.catalogAvailable}
-        devBoxes={catalog.devBoxes}
-        onRefreshDevBoxes={() => {
-          void catalog.refreshDevBoxes();
-        }}
-        onSaveSnapshot={catalog.saveSnapshot}
-        saving={saving}
-        onSave={save}
-      />
-    </section>
+      </span>
+      <span data-role="project-panel-meta">
+        <span data-role="project-panel-chip" data-chip="workers">
+          <UsersIcon />
+          {project.worker_count} {project.worker_count === 1 ? 'worker' : 'workers'}
+        </span>
+        <span data-role="project-panel-chip" data-chip="provider">
+          {provider?.label ?? 'Default agent'}
+        </span>
+      </span>
+      <span data-role="project-panel-caret">
+        <ChevronRightIcon />
+      </span>
+    </button>
   );
 }
 
@@ -303,25 +293,42 @@ export function Settings(): JSX.Element {
     signOut,
     error,
   } = useDashboardStore();
-  const [creating, setCreating] = useState(false);
+  // Which project's modal is open, by id — `'new'` for the create form, `null`
+  // for none. An id (not the project object) so the open modal always renders the
+  // store's current copy after a save folds the response back in.
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   // One fetch for the whole page: the GitHub connection is per-user, so every
-  // project card and the new-project form pick from the same repo list.
+  // project panel and the new-project form pick from the same repo list.
   const github = useGitHubRepos();
   const activeSection = useActiveSection();
+
+  const closeModal = useCallback((): void => {
+    setOpenProjectId(null);
+  }, []);
+  const openModal = useCallback((id: string): void => {
+    setOpenProjectId(id);
+  }, []);
+
   if (me === null) {
     // See Onboarding's identical guard: Dashboard only mounts this view for a
     // populated `me` — narrows the type without an escape hatch.
     throw new Error('Settings rendered without a signed-in account');
   }
   const providers = me.providers ?? [];
+  const creating = openProjectId === NEW_PROJECT_ID;
+  // A stale id (the project was deleted in another tab) simply resolves to no
+  // project, so the modal doesn't render — never to a crash.
+  const openProject = creating
+    ? undefined
+    : me.projects.find((project) => project.id === openProjectId);
 
-  const handleCreate = useCallback(
-    async (body: ProjectUpdateRequest): Promise<void> => {
-      await createProject(body);
-      setCreating(false);
-    },
-    [createProject],
-  );
+  // The modal's two writes, both resolving "did it land" so it can close on
+  // success and keep the typed form on failure (the error shows in the page
+  // banner above). Which one a save is depends only on how the modal was opened.
+  const saveOpenProject = (body: ProjectUpdateRequest): Promise<boolean> =>
+    openProject === undefined ? createProject(body) : updateProject(openProject.id, body);
+  const deleteOpenProject = (): Promise<boolean> =>
+    openProject === undefined ? Promise.resolve(false) : removeProject(openProject.id);
 
   return (
     <div data-role="settings">
@@ -405,65 +412,35 @@ export function Settings(): JSX.Element {
           <SettingsSection
             section={PROJECTS_SECTION}
             action={
-              creating ? null : (
-                <button
-                  type="button"
-                  data-role="new-project"
-                  data-variant="primary"
-                  onClick={() => {
-                    setCreating(true);
-                  }}
-                >
-                  <PlusIcon />
-                  New project
-                </button>
-              )
+              <button
+                type="button"
+                data-role="new-project"
+                data-variant="primary"
+                onClick={() => {
+                  openModal(NEW_PROJECT_ID);
+                }}
+              >
+                <PlusIcon />
+                New project
+              </button>
             }
           >
-            {creating ? (
-              <section data-role="new-project-card">
-                <header data-role="project-card-header">
-                  <span data-role="project-card-icon">
-                    <FolderIcon />
-                  </span>
-                  <div data-role="project-card-identity">
-                    <span data-role="project-card-name">New project</span>
-                    <span data-role="project-card-repo">
-                      Pick a repository from your GitHub account.
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    data-role="cancel-new-project"
-                    onClick={() => {
-                      setCreating(false);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </header>
-                <ProjectFields
-                  github={github}
-                  providers={providers}
-                  saving={saving}
-                  onSave={handleCreate}
-                />
-              </section>
-            ) : null}
-
-            <div data-role="project-list">
-              {me.projects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  providers={providers}
-                  github={github}
-                  saving={saving}
-                  onSave={updateProject}
-                  onDelete={removeProject}
-                />
-              ))}
-            </div>
+            {me.projects.length === 0 ? (
+              <p data-role="projects-empty">
+                No projects yet. Add one to give Kiln a repository to work in.
+              </p>
+            ) : (
+              <div data-role="project-list">
+                {me.projects.map((project) => (
+                  <ProjectPanel
+                    key={project.id}
+                    project={project}
+                    providers={providers}
+                    onOpen={openModal}
+                  />
+                ))}
+              </div>
+            )}
           </SettingsSection>
 
           <p data-role="dashboard-footnote">
@@ -471,6 +448,20 @@ export function Settings(): JSX.Element {
           </p>
         </div>
       </div>
+
+      {/* Rendered last, and only while open: the whole of one project's
+          configuration, over the list it was opened from. */}
+      {creating || openProject !== undefined ? (
+        <ProjectModal
+          project={openProject}
+          providers={providers}
+          github={github}
+          saving={saving}
+          onSave={saveOpenProject}
+          onDelete={openProject === undefined ? undefined : deleteOpenProject}
+          onClose={closeModal}
+        />
+      ) : null}
     </div>
   );
 }

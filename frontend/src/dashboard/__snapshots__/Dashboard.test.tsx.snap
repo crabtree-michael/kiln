@@ -707,53 +707,53 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
               <div
                 data-role="project-list"
               >
-                <section
+                <button
                   data-project-id="proj-1"
-                  data-role="project-card"
+                  data-role="project-panel"
+                  type="button"
                 >
-                  <header
-                    data-role="project-card-header"
+                  <span
+                    data-role="project-panel-icon"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      data-icon="folder"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.75"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M3.5 7a2 2 0 0 1 2-2H9l2.2 2.6h7.3a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7Z"
+                      />
+                    </svg>
+                  </span>
+                  <span
+                    data-role="project-panel-identity"
                   >
                     <span
-                      data-role="project-card-icon"
+                      data-role="project-panel-name"
                     >
-                      <svg
-                        aria-hidden="true"
-                        data-icon="folder"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.75"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M3.5 7a2 2 0 0 1 2-2H9l2.2 2.6h7.3a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7Z"
-                        />
-                      </svg>
+                      kiln
                     </span>
-                    <div
-                      data-role="project-card-identity"
+                    <span
+                      data-role="project-panel-repo"
                     >
-                      <span
-                        data-role="project-card-name"
-                      >
-                        kiln
-                      </span>
-                      <span
-                        data-role="project-card-repo"
-                      >
-                        https://github.com/crabtree-michael/kiln
-                      </span>
-                    </div>
-                    <button
-                      data-role="delete-project"
-                      data-variant="danger"
-                      type="button"
+                      crabtree-michael/kiln
+                    </span>
+                  </span>
+                  <span
+                    data-role="project-panel-meta"
+                  >
+                    <span
+                      data-chip="workers"
+                      data-role="project-panel-chip"
                     >
                       <svg
                         aria-hidden="true"
-                        data-icon="trash"
+                        data-icon="users"
                         fill="none"
                         stroke="currentColor"
                         stroke-linecap="round"
@@ -761,89 +761,45 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                         stroke-width="1.75"
                         viewBox="0 0 24 24"
                       >
-                        <path
-                          d="M4 6.5h16M9.5 6.5V5a1.8 1.8 0 0 1 1.8-1.8h1.4A1.8 1.8 0 0 1 14.5 5v1.5M10 11v6M14 11v6"
+                        <circle
+                          cx="9"
+                          cy="8"
+                          r="3.25"
                         />
                         <path
-                          d="m6.5 6.5 .9 12.1a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12.1"
+                          d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.2a3.25 3.25 0 0 1 0 5.6M17.5 14.2a5.5 5.5 0 0 1 3 4.8"
                         />
                       </svg>
-                      Delete project
-                    </button>
-                  </header>
-                  <form
-                    data-role="project-form"
+                      3
+                       
+                      workers
+                    </span>
+                    <span
+                      data-chip="provider"
+                      data-role="project-panel-chip"
+                    >
+                      Default agent
+                    </span>
+                  </span>
+                  <span
+                    data-role="project-panel-caret"
                   >
-                    <label>
-                      Project name
-                      <input
-                        required=""
-                        type="text"
-                        value="kiln"
-                      />
-                    </label>
-                    <div
-                      data-role="repo-field"
-                      data-state="connected"
+                    <svg
+                      aria-hidden="true"
+                      data-icon="chevron-right"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.75"
+                      viewBox="0 0 24 24"
                     >
-                      <label>
-                        Repository
-                        <select
-                          data-role="repo-select"
-                          required=""
-                        >
-                          <option
-                            value="https://github.com/crabtree-michael/kiln"
-                          >
-                            crabtree-michael/kiln
-                          </option>
-                        </select>
-                      </label>
-                      <a
-                        data-role="switch-github"
-                        href="/auth/github/login"
-                      >
-                        Switch GitHub account
-                      </a>
-                    </div>
-                    <label>
-                      Amika snapshot
-                      <input
-                        type="text"
-                        value="snap-1"
+                      <path
+                        d="m9.5 5 7 7-7 7"
                       />
-                    </label>
-                    <label>
-                      Worker count
-                      <input
-                        type="number"
-                        value="3"
-                      />
-                    </label>
-                    <label>
-                      Merge gate
-                      <select
-                        data-role="merge-gate-mode"
-                      >
-                        <option
-                          value="main"
-                        >
-                          Merged to main
-                        </option>
-                        <option
-                          value="pr"
-                        >
-                          In a pull request
-                        </option>
-                      </select>
-                    </label>
-                    <button
-                      type="submit"
-                    >
-                      Save project
-                    </button>
-                  </form>
-                </section>
+                    </svg>
+                  </span>
+                </button>
               </div>
             </div>
           </section>

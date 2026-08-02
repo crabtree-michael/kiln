@@ -914,26 +914,10 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
-[data-role='amika-secrets-hint'],
 [data-role='save-dev-box-hint'] {
   margin: 0;
   font: var(--type-caption);
   color: var(--text-faint);
-}
-
-[data-role='amika-secret-row'] {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-2);
-}
-
-[data-role='amika-secret-row'] label {
-  flex: 1;
-  min-width: 0;
-}
-
-[data-role='amika-secret-row'] button[data-role='remove-secret'] {
-  flex-shrink: 0;
 }
 
 /* The dev-box capture form is a row of short fields plus two buttons — it fits
@@ -1043,17 +1027,6 @@ html:has([data-role='settings']) {
 
   [data-role='github-connection'] {
     flex-wrap: wrap;
-  }
-
-  /* Name and value side by side leaves each ~120px — too narrow to read an env
-     var name in. Stack them, with Remove on its own line. */
-  [data-role='amika-secret-row'] {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  [data-role='amika-secret-row'] button[data-role='remove-secret'] {
-    align-self: flex-end;
   }
 
   [data-role='sign-in-card'] {

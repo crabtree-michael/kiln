@@ -72,20 +72,10 @@ project."** Fill in the form:
   hard cap and it matters more than it looks — see [Why worker count is a real
   limit](#why-worker-count-is-a-real-limit).
 
-**Sandbox secrets (optional)**
+Fill in what you need, then press **Save project**.
 
-Under **Sandbox secrets**, add any environment variables your agents' sandboxes
-need (API keys the code itself calls, etc.). The on-screen hint says it plainly:
-
-> Secrets injected into every sandbox this project starts. The name is the
-> environment variable it lands under; the value is stored encrypted and never
-> shown again.
-
-Click **Add secret** for each one (a name and a value), or **Remove** to drop a
-row. Then press **Save project**.
-
-![The "Set up your project" form showing Project name, Repo URL, and the optional fields plus the Sandbox secrets section](images/onboarding/02-create-project.png)
-*Figure 2 — The first-run project form. Capture: the full form with the "Sandbox secrets" fieldset and the "Save project" button.*
+![The "Set up your project" form showing Project name, Repo URL, and the optional fields](images/onboarding/02-create-project.png)
+*Figure 2 — The first-run project form. Capture: the full form with the "Save project" button.*
 
 Once the project saves, the dashboard swaps this screen for **Settings**
 automatically — no navigation needed.

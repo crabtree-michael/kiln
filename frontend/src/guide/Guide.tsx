@@ -383,21 +383,12 @@ export function Guide(): JSX.Element {
                       it looks — see <a href="#worker-count">Why worker count is a real limit</a>.
                     </li>
                   </ul>
-                  <div className="guide-callout">
-                    <p className="guide-callout__label">Sandbox secrets (optional)</p>
-                    <p>
-                      Secrets injected into every sandbox this project starts. The name is the
-                      environment variable it lands under; the value is stored encrypted and never
-                      shown again.
-                    </p>
-                  </div>
                   <p>
-                    Click <strong>Add secret</strong> for each one (a name and a value), or{' '}
-                    <strong>Remove</strong> to drop a row. Then press <strong>Save project</strong>.
+                    Fill in what you need, then press <strong>Save project</strong>.
                   </p>
                   <Figure
                     caption="Figure 2 — The first-run project form."
-                    capture='The full form with the "Sandbox secrets" fieldset and the "Save project" button.'
+                    capture='The full form with the "Save project" button.'
                   />
                   <p>
                     Once the project saves, the dashboard swaps this screen for{' '}

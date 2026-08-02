@@ -1,6 +1,5 @@
 // Controlled forms for the dashboard's two config surfaces (11 §5): project
-// (name/repo/snapshot/workers + the Amika sandbox secrets, 02 §8) and
-// credentials (secrets + Amika config).
+// (name/repo/snapshot/workers) and credentials (secrets + Amika config).
 // Both are seeded from the current `Me`. Project still submits explicitly via
 // its "Save project" button; credentials auto-save per field instead (
 // dashboard UX update): each secret input commits on blur AND Enter, only
@@ -41,24 +40,10 @@ import { BotIcon, GitHubIcon, IdIcon, KeyIcon, SparkIcon } from '@/dashboard/ico
 // its own local aliases, straight off the generated wire schema.
 type MeSettings = components['schemas']['MeSettings'];
 type SecretStatus = components['schemas']['SecretStatus'];
-type AmikaSecretInput = components['schemas']['AmikaSecretInput'];
 // The merge-gate knob (06 §7): which condition marks a ticket done — its work
 // merged to main, or merely in a pull request. Non-optional here (the form
 // always carries a concrete choice) even though the request field is optional.
 type MergeGateMode = NonNullable<ProjectUpdateRequest['merge_gate_mode']>;
-
-// SecretDraft is one editable row in the Amika-secrets list (02 §8). `uid` is a
-// stable client-only key so add/remove never reuses a React key across rows.
-// `value` is a write-only draft, exactly like the credential inputs: it starts
-// blank and, left blank on save, keeps the stored value for this name; `status`
-// carries the stored value's presence+tail so the input can show the
-// "configured · …<tail>" placeholder without ever holding the value itself.
-interface SecretDraft {
-  uid: number;
-  name: string;
-  value: string;
-  status: SecretStatus;
-}
 
 /** The exact contract string (task-13 e2e binds to it): "configured · …<tail>". */
 function secretStatusText(status: SecretStatus): string {
@@ -364,35 +349,6 @@ export function ProjectFields({
   const [mergeGateMode, setMergeGateMode] = useState<MergeGateMode>(
     project?.merge_gate_mode ?? 'main',
   );
-  // The Amika sandbox secrets (02 §8): a zero-or-more list saved with the rest
-  // of the project on "Save project". Each draft carries a stable `uid` (React
-  // list identity across add/remove) that never leaves the component. Values are
-  // write-only (11 §3 D7): a row seeds with a blank value draft and the stored
-  // value's status (for the placeholder), and only the name plus any freshly
-  // typed value are sent.
-  const nextSecretUid = useRef(0);
-  const [secrets, setSecrets] = useState<SecretDraft[]>(() =>
-    (project?.amika_secrets ?? []).map((secret) => ({
-      uid: nextSecretUid.current++,
-      name: secret.name,
-      value: '',
-      status: secret.value,
-    })),
-  );
-
-  const addSecret = (): void => {
-    setSecrets((rows) => [
-      ...rows,
-      { uid: nextSecretUid.current++, name: '', value: '', status: { set: false, tail: '' } },
-    ]);
-  };
-  const removeSecret = (uid: number): void => {
-    setSecrets((rows) => rows.filter((row) => row.uid !== uid));
-  };
-  const patchSecret = (uid: number, patch: Partial<Pick<SecretDraft, 'name' | 'value'>>): void => {
-    setSecrets((rows) => rows.map((row) => (row.uid === uid ? { ...row, ...patch } : row)));
-  };
-
   // Load the dev boxes once the capture section is available, so its select is
   // populated without the user hunting for a refresh button. Gated on
   // catalogAvailable so a provider without a catalog (or onboarding) never fires
@@ -449,17 +405,10 @@ export function ProjectFields({
     // Always sent: the select carries a concrete choice ('main' by default), so
     // the server records the user's gate explicitly rather than inferring it.
     body.merge_gate_mode = mergeGateMode;
-    // Always send the list (even []) so clearing every secret persists — this
-    // is a wholesale upsert (11 §4). Rows with a blank name are dropped (an
-    // "Add secret" the user never filled). A blank value keeps the stored value
-    // for that name (write-only merge, 11 §3 D7), so the value key is omitted
-    // when the draft is empty; a typed value sets/replaces it.
-    body.amika_secrets = secrets
-      .map((row) => ({ name: row.name.trim(), value: row.value.trim() }))
-      .filter((row) => row.name !== '')
-      .map<AmikaSecretInput>((row) =>
-        row.value === '' ? { name: row.name } : { name: row.name, value: row.value },
-      );
+    // `amika_secrets` is deliberately never sent: the form no longer edits the
+    // project's sandbox secrets, and the field is a wholesale upsert (11 §4), so
+    // sending the list this form no longer holds would clear every stored secret
+    // on an unrelated save. Omitting it leaves them exactly as they are (12 §3).
     void onSave(body);
   };
 
@@ -627,58 +576,6 @@ export function ProjectFields({
           </button>
         </fieldset>
       )}
-      <fieldset data-role="amika-secrets">
-        <legend>Sandbox secrets</legend>
-        <p data-role="amika-secrets-hint">
-          Secrets injected into every sandbox this project starts. The name is the environment
-          variable it lands under; the value is stored encrypted and never shown again.
-        </p>
-        {secrets.map((row) => (
-          <div data-role="amika-secret-row" key={row.uid}>
-            <label>
-              Env var name
-              <input
-                type="text"
-                data-field="name"
-                value={row.name}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  patchSecret(row.uid, { name: event.target.value });
-                }}
-              />
-            </label>
-            <label>
-              Value
-              <input
-                type="password"
-                data-field="value"
-                value={row.value}
-                placeholder={row.status.set ? secretStatusText(row.status) : ''}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  patchSecret(row.uid, { value: event.target.value });
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              data-role="remove-secret"
-              onClick={() => {
-                removeSecret(row.uid);
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          data-role="add-secret"
-          onClick={() => {
-            addSecret();
-          }}
-        >
-          Add secret
-        </button>
-      </fieldset>
       {/* The repo is required and can only come from the picker, so a project
           with none selected — a new one on a disconnected account — can't be
           saved yet. Blocking here beats a server-side 400 the user can't act on. */}

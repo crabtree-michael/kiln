@@ -1,9 +1,10 @@
 {
   "_comment": "Scripted-brain fixture for the keyless e2e suite (design docs/keyless-e2e-tests-design.md §3.1). Loaded by KILN_BRAIN_MODE=scripted / KILN_BRAIN_SCRIPT. Each rule matches a pass's rendered round-1 context (transcript + event); rounds[i] is the canned response for the i-th LLM round. ${ticket} is substituted with the ticket id recovered from the tool results / event text, so a two-step create-then-ready works with no known-ahead id. See internal/brain/scripted.",
+  "_comment_matching": "ANCHOR A MESSAGE RULE TO THE EVENT, NOT JUST TO ITS WORDS. `contains` is a plain substring test over the WHOLE round-1 context — the transcript window as well as the '# Event' block — and the stack under test is persistent, so every spec's message stays in the transcript for the specs that run after it. Two entries like ['The user said', 'login form'] therefore keep matching long after that pass, on any later event, because each substring is found independently in a different part of the blob. Instead use ONE contiguous substring that starts with the event marker: renderEvent writes 'The user said: <text>' and transcript lines are prefixed '[role @ time]', so 'The user said: <text>' can only appear in the '# Event' block, and only for the message that actually triggered this pass.",
   "rules": [
     {
       "_comment": "keyless-core-loop.spec.ts: a login-form request creates a ticket and marks it ready (two rounds), then ends the turn.",
-      "when": { "contains": ["The user said", "login form"] },
+      "when": { "contains": ["The user said: Create a ticket to build a login form"] },
       "rounds": [
         {
           "tools": [
@@ -42,18 +43,19 @@
       ]
     },
     {
-      "_comment": "keyless-voice.spec.ts: a spoken (mock-STT) request to add a dark-mode toggle creates a ticket and replies on screen.",
-      "when": { "contains": ["The user said", "dark mode"] },
+      "_comment": "keyless-voice.spec.ts: a spoken (mock-STT) request to add a dark-mode toggle creates a ticket and replies on screen. The reply MUST go through the `say` tool: a StopEndTurn round's `text` is the model's own closing prose and the brain drops it (service.go returns on StopEndTurn without touching the transcript), so `say` is the only thing that puts a kiln message on screen — which is exactly what this spec asserts.",
+      "when": { "contains": ["The user said: Create a ticket to add a dark mode toggle"] },
       "rounds": [
         {
           "tools": [
             {
               "name": "create_ticket",
               "input": { "title": "Add a dark mode toggle", "body": "Add a dark mode toggle to the settings screen." }
-            }
+            },
+            { "name": "say", "input": { "text": "Added a ticket for the dark mode toggle." } }
           ]
         },
-        { "text": "Added a ticket for the dark mode toggle." }
+        { "text": "Standing by." }
       ]
     },
     {

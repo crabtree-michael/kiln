@@ -35,7 +35,11 @@ test('@keyless a spoken request becomes on-screen text and Kiln runs a turn', as
   // Open the app and tap the mic. The fake mic supplies the audio stream (its
   // content is irrelevant — the mock STT scripts the transcript), the user gesture
   // starts the AudioContext, and the whole real pipeline runs against the mock socket.
-  await page.goto('/');
+  //
+  // `/app`, not `/`: since sign-in landed (11), `/` is the marketing landing page
+  // and the primary screen (08) — feed + dock, and with it the Talk control — lives
+  // at `/app` behind the session gate, which the mint above satisfies.
+  await page.goto('/app');
   const talk = page.getByRole('button', { name: 'Talk' });
   await expect(talk).toBeVisible();
   await talk.click();

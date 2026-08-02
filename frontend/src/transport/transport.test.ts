@@ -336,6 +336,28 @@ describe('transport', () => {
       expect(init?.method).toBe('POST');
       expect(result).toEqual(response);
     });
+
+    // The response guard is an `every` over the checks, so ONE unrecognized
+    // check name rejects the entire payload and the dashboard's indicators all
+    // fall back to `skipped`. The server sends the full set on every call, so
+    // pin the guard to the whole `VerifyCheck.name` enum rather than the one
+    // name the happy-path test above happens to use.
+    it('accepts every check name in the wire schema enum', async () => {
+      const response = {
+        checks: [
+          { name: 'anthropic' as const, status: 'skipped' as const, message: 'not configured' },
+          { name: 'amika' as const, status: 'ok' as const, message: 'mock: not checked' },
+          { name: 'devin' as const, status: 'skipped' as const, message: 'not configured' },
+          { name: 'repo' as const, status: 'failed' as const, message: 'unreachable' },
+        ],
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((): Promise<Response> => Promise.resolve(new Response(JSON.stringify(response)))),
+      );
+
+      await expect(postVerify()).resolves.toEqual(response);
+    });
   });
 
   describe('postLogout (POST /auth/logout)', () => {

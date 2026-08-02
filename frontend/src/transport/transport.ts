@@ -572,8 +572,14 @@ function isMe(value: unknown): value is Me {
   );
 }
 
+/** Must list EVERY name in the wire schema's `VerifyCheck.name` enum
+ * (schema/openapi.yaml). One check the guard doesn't know rejects the WHOLE
+ * response — `isVerifyCheckArray` is an `every` — so a missed name doesn't
+ * degrade one indicator, it throws "unexpected response shape" and leaves every
+ * indicator reading `skipped`. That is exactly what `devin` did after it was
+ * added server-side without this list. */
 function isVerifyCheckName(value: unknown): value is VerifyCheck['name'] {
-  return value === 'anthropic' || value === 'amika' || value === 'repo';
+  return value === 'anthropic' || value === 'amika' || value === 'devin' || value === 'repo';
 }
 
 function isVerifyCheckStatus(value: unknown): value is VerifyCheck['status'] {

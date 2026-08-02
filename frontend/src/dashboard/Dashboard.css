@@ -17,9 +17,14 @@
      2. Icons carry the scanning, text carries the meaning. Every icon is
         decorative (`aria-hidden`) and sits beside a real label — which is what
         lets the type stay small without the page becoming a wall of grey.
-     3. Forms use the horizontal space. A project form is a 2–3 column grid, the
-        credential list is a 2-column grid; only genuinely wide things (the
-        secrets fieldset, the submit row) span the full width.
+     3. Forms use the horizontal space. The credential list is a 2-column grid,
+        and the project dialog groups its short fields two or three to a line;
+        only genuinely wide things (an explanation, a fieldset) take a row.
+     4. The Projects section lists panels, not forms (projects-in-a-modal): one
+        compact row per project, with its whole configuration in a dialog behind
+        a click. It is the page's one deliberate exception to "everything stays
+        mounted" — that rule is about the page's SECTIONS staying findable, and
+        N inline project forms are what made the section unscannable.
 
    The other phases (loading / sign-in / onboarding) keep the original narrow
    centered column — they're single-purpose screens, not a management surface. */
@@ -846,61 +851,87 @@ html:has([data-role='settings']) {
 
 /* ------------------------------------------------------------ projects */
 
+/* The section lists PANELS, not forms (projects-in-a-modal). One compact row per
+   project — the identity you tell projects apart by — with every field behind a
+   deliberate click. Several inline forms stacked in here read as one long wall
+   with no way to scan the list, which is exactly what the panel fixes. */
+
 [data-role='project-list'] {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-2);
 }
 
-[data-role='project-card'],
-[data-role='new-project-card'] {
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-page);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-/* A project being created is the page's live edit — mark it so it doesn't read
-   as just another saved project. */
-[data-role='new-project-card'] {
-  border-color: var(--accent);
-}
-
-[data-role='project-card-header'] {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-default);
-}
-
-[data-role='project-card-icon'] {
-  display: inline-flex;
-  flex-shrink: 0;
+[data-role='projects-empty'] {
+  margin: 0;
+  font: var(--type-small);
   color: var(--text-muted);
 }
 
-[data-role='project-card-icon'] svg[data-icon] {
-  width: 17px;
-  height: 17px;
+/* The whole panel is the button: a full-row target rather than a small caret,
+   which is also what lets the caret stay decorative. It overrides three things
+   from the compact settings-button rule — panels are full width, two lines tall,
+   and left-aligned. */
+[data-role='settings'] [data-role='project-panel'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  align-self: stretch;
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  white-space: normal;
+  background: var(--surface-page);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  transition:
+    background var(--duration-fast) var(--ease-settle),
+    border-color var(--duration-fast) var(--ease-settle);
 }
 
-[data-role='project-card-identity'] {
+[data-role='settings'] [data-role='project-panel']:hover {
+  background: var(--surface-subtle);
+  border-color: var(--border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='settings'] [data-role='project-panel'] {
+    transition: none;
+  }
+}
+
+[data-role='project-panel-icon'] {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  color: var(--accent);
+}
+
+[data-role='project-panel-icon'] svg[data-icon] {
+  width: 15px;
+  height: 15px;
+}
+
+[data-role='project-panel-identity'] {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
 }
 
-[data-role='project-card-name'] {
+[data-role='project-panel-name'] {
   font: var(--type-small);
   font-weight: 600;
   color: var(--text-body);
 }
 
-[data-role='project-card-repo'] {
+[data-role='project-panel-repo'] {
   font: var(--type-mono);
   color: var(--text-muted);
   overflow: hidden;
@@ -908,34 +939,264 @@ html:has([data-role='settings']) {
   white-space: nowrap;
 }
 
-[data-role='project-card-header'] button {
+/* Pushed right, and the first thing to go when the row runs out of room — the
+   name and repo are the identity; the chips are colour. */
+[data-role='project-panel-meta'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+[data-role='project-panel-chip'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--type-caption);
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+  white-space: nowrap;
+}
+
+[data-role='project-panel-chip'] svg[data-icon] {
+  color: var(--text-faint);
+}
+
+[data-role='project-panel-caret'] {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+[data-role='settings'] [data-role='project-panel']:hover [data-role='project-panel-caret'] {
+  color: var(--accent);
+}
+
+/* -------------------------------------------------------- project modal */
+
+/* A centered dialog over a dimmed page. `position: fixed` against the viewport
+   (no transformed ancestor in the settings tree), so the page keeps its own
+   scroll position underneath and the panel is never clipped by a section card. */
+[data-role='modal-scrim'] {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--scrim);
+}
+
+[data-role='project-modal'] {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 680px;
+  /* Caps at the viewport so the dialog itself never scrolls off screen; the body
+     below is the part that scrolls. */
+  max-height: min(88dvh, 880px);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+}
+
+/* Focus is moved here programmatically on open (so the keyboard lands inside the
+   dialog); the panel is not itself a control, so it shows no focus ring. */
+[data-role='project-modal']:focus {
+  outline: none;
+}
+
+[data-role='project-modal-bar'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-default);
+}
+
+[data-role='project-modal-eyebrow'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='project-modal-eyebrow'] svg[data-icon] {
+  color: var(--text-faint);
+}
+
+[data-role='settings'] [data-role='close-project-modal'] {
   margin-left: auto;
 }
 
-/* The project form is where the horizontal space actually pays off: six short
-   fields that used to stack into six full-width rows now sit 2–3 per line.
-   Anything genuinely wide — the repo picker's disconnected prompt, the secrets
-   and dev-box fieldsets, the submit row — spans every column. */
-[data-role='settings'] [data-role='project-form'] {
+[data-role='project-modal-body'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------- project detail */
+
+/* The modal's form is a stack of bands — identity, then one group per question
+   the fields answer — rather than the flat field grid the inline card used. */
+[data-role='settings'] [data-role='project-form'][data-layout='detail'] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The header: the name, edited in place, beside the repository it is linked to.
+   Those two facts belong together — every other field is relative to them — and
+   the repo appears here as the picker itself, so there is no separate raw URL
+   field to keep in sync. */
+[data-role='project-identity'] {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3) var(--space-5);
+  align-items: end;
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* Title-sized and rule-less: the name reads as the dialog's heading until you
+   click into it, at which point it is plainly a field. */
+[data-role='project-identity'] > label:first-child input {
+  font: var(--type-heading);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border-color: transparent;
+}
+
+[data-role='project-identity'] > label:first-child input:hover {
+  border-color: var(--border-default);
+}
+
+[data-role='project-identity'] > label:first-child input:focus {
+  background: var(--surface-page);
+  border-color: var(--border-strong);
+}
+
+/* Connected, the picker is one select and sits beside the name. Disconnected (or
+   loading) it carries a paragraph of explanation, so it takes the full width. */
+[data-role='project-identity'] [data-role='repo-field'][data-state='disconnected'],
+[data-role='project-identity'] [data-role='repo-field'][data-state='loading'] {
+  grid-column: 1 / -1;
+}
+
+[data-role='project-group'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+}
+
+[data-role='settings'] [data-role='project-group'] h3 {
+  margin: 0;
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='project-group-hint'] {
+  margin: calc(-1 * var(--space-2)) 0 0;
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+/* The short fields inside a group. auto-fit rather than a fixed column count:
+   the dialog is narrower than the settings column, and a group holds two or
+   three one-line controls. */
+[data-role='project-group-fields'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-4) var(--space-5);
   align-items: start;
-  padding: var(--space-4);
 }
 
-[data-role='settings'] [data-role='project-form'] > fieldset,
-[data-role='settings'] [data-role='project-form'] > button {
-  grid-column: 1 / -1;
+/* What the snapshot handle above actually means, in words. Quiet — it is
+   reference material sitting under a control, not a warning. */
+[data-role='sandbox-info'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
 }
 
-/* Connected, the picker is one select — an ordinary field. Disconnected (or
-   loading) it carries a paragraph of explanation, so it takes the full width. */
-[data-role='settings'] [data-role='repo-field'][data-state='disconnected'],
-[data-role='settings'] [data-role='repo-field'][data-state='loading'] {
-  grid-column: 1 / -1;
+[data-role='sandbox-info'] p {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-secondary);
 }
 
+[data-role='sandbox-info'] code {
+  font: var(--type-mono);
+  color: var(--text-body);
+}
+
+/* Scoped through the parent so it outranks the paragraph rule above without
+   reaching for !important. */
+[data-role='sandbox-info'] p[data-role='sandbox-snapshot-detail'] {
+  font: var(--type-mono);
+  color: var(--text-muted);
+}
+
+[data-role='project-form-actions'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+/* Deleting a project is a cascade, so it lives at the bottom of the dialog,
+   past everything else, with the consequence spelled out beside it. */
+[data-role='project-danger-zone'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-subtle);
+}
+
+[data-role='project-danger-text'] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+[data-role='project-danger-title'] {
+  font: var(--type-small);
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+[data-role='project-danger-hint'] {
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
+
+[data-role='settings'] [data-role='project-danger-zone'] button {
+  margin-left: auto;
+}
+
+/* The repo picker, wherever it renders (the modal header, onboarding's flat
+   form). No filter box beside it any more — a native select types-to-jump on
+   its own, and a second search control only raised the question of which one
+   to use. */
 [data-role='settings'] [data-role='repo-field'] {
   display: flex;
   flex-direction: column;
@@ -975,10 +1236,6 @@ html:has([data-role='settings']) {
   margin: 0;
   font: var(--type-caption);
   color: var(--danger);
-}
-
-[data-role='settings'] [data-role='project-form'] > button[type='submit'] {
-  justify-self: flex-start;
 }
 
 /* ------------------------------------------------- sandbox secrets etc. */
@@ -1074,19 +1331,8 @@ html:has([data-role='settings']) {
     scroll-margin-top: 56px;
   }
 
-  [data-role='settings'] [data-role='project-form'],
   [data-role='settings'] [data-role='save-dev-box'] {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* ------------------------------------------------------------- desktop */
-
-/* Past ~1100px a project form gets a third column — the fields are short, and
-   three-up is where a full form stops needing a scroll on a laptop. */
-@media (min-width: 1100px) {
-  [data-role='settings'] [data-role='project-form'] {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1120,5 +1366,32 @@ html:has([data-role='settings']) {
 
   [data-role='sign-in-card'] {
     padding: var(--space-8) var(--space-5);
+  }
+
+  /* On a phone the dialog is the screen: no gutter, no rounded corners fighting
+     the viewport edge, and the name and repo stack instead of sitting side by
+     side in ~160px each. */
+  [data-role='modal-scrim'] {
+    padding: 0;
+  }
+
+  [data-role='project-modal'] {
+    max-width: none;
+    max-height: 100dvh;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+  }
+
+  [data-role='project-identity'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-role='project-panel-meta'] {
+    display: none;
+  }
+
+  [data-role='project-danger-zone'] {
+    flex-wrap: wrap;
   }
 }

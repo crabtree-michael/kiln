@@ -35,7 +35,12 @@ test('@keyless the projects page picks a snapshot and shows a captured dev box',
     .selectOption('https://example.com/keyless/demo');
   await page.getByRole('button', { name: 'Save project' }).click();
 
-  // On the settings view the project card renders the snapshot PICKER (a select),
+  // The settings view now lists the project as a compact PANEL; its
+  // configuration lives in a dialog behind a click (projects-in-a-modal).
+  await page.locator('[data-role="project-panel"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  // Inside the dialog the sandbox group renders the snapshot PICKER (a select),
   // not the free-text handle, because the project's provider exposes a catalog
   // (the snapshots endpoint answered 200). It offers at least the Default option.
   const picker = page.locator('[data-role="amika-snapshot"]');
@@ -63,9 +68,11 @@ test('@keyless the projects page picks a snapshot and shows a captured dev box',
   });
   expect(captured.status(), 'capture accepted (202)').toBe(202);
 
-  // Reload: the per-project hook re-fetches the catalog, and the freshly captured
-  // (still-capturing) snapshot now appears as an option in the picker.
+  // Reload and reopen: the per-project hook re-fetches the catalog when the
+  // dialog mounts, and the freshly captured (still-capturing) snapshot now
+  // appears as an option in the picker.
   await page.reload();
+  await page.locator('[data-role="project-panel"]').click();
   await expect(page.locator('[data-role="amika-snapshot"] option')).toContainText([
     'Default',
     'e2e-warm-base (capturing)',

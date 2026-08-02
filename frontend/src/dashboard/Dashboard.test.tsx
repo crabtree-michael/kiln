@@ -590,7 +590,12 @@ describe('Dashboard', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(screen.getByLabelText('Amika API key')).toBeInTheDocument();
     expect(document.querySelector('[data-role="notifications-field"]')).not.toBeNull();
-    expect(document.querySelector('[data-role="project-form"]')).not.toBeNull();
+    // Projects is the one deliberate exception: the SECTION is mounted and its
+    // list is visible, but a project's fields live in a dialog (see
+    // ProjectModal.tsx) — several inline forms is what made the list
+    // unscannable in the first place.
+    expect(document.querySelector('[data-role="project-panel"]')).not.toBeNull();
+    expect(document.querySelector('[data-role="project-form"]')).toBeNull();
   });
 
   it('highlights the first section by default, and survives a missing IntersectionObserver', async () => {
@@ -731,6 +736,129 @@ describe('Dashboard', () => {
 
     await screen.findByText('✓');
     expect(screen.getByLabelText('Amika API key')).toBe(input);
+  });
+
+  // ------------------------------------------------------------ projects
+  // One panel per project, everything else behind a click (projects-in-a-modal).
+
+  it('lists one compact panel per project, summarising it without any form', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(
+      makeMe({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'kiln',
+            repo_url: 'https://github.com/crabtree-michael/kiln',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 3,
+            merge_gate_mode: 'main',
+            amika_secrets: [],
+          },
+          {
+            id: 'proj-2',
+            name: 'atlas',
+            repo_url: 'https://github.com/crabtree-michael/atlas.git',
+            agent_provider: '',
+            amika_snapshot: '',
+            worker_count: 1,
+            merge_gate_mode: 'pr',
+            amika_secrets: [],
+          },
+        ],
+      }),
+    );
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    const panels = document.querySelectorAll('[data-role="project-panel"]');
+    expect([...panels].map((panel) => panel.getAttribute('data-project-id'))).toEqual([
+      'proj-1',
+      'proj-2',
+    ]);
+    // The repo reads as GitHub names it, not as a full URL that would push the
+    // rest of the row off the panel (and `.git` is normalised away).
+    expect(
+      [...document.querySelectorAll('[data-role="project-panel-repo"]')].map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(['crabtree-michael/kiln', 'crabtree-michael/atlas']);
+    expect(document.querySelector('[data-role="project-form"]')).toBeNull();
+  });
+
+  it('opens a project panel into its settings dialog, and closes again', async () => {
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    const panel = document.querySelector('[data-role="project-panel"]');
+    expect(panel).not.toBeNull();
+    fireEvent.click(panel!);
+
+    const modal = await screen.findByRole('dialog', { name: 'Project settings: kiln' });
+    // The header carries the two facts the modal promises together: the name,
+    // editable in place, and the repository picker itself.
+    expect(screen.getByLabelText('Project name')).toHaveValue('kiln');
+    expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue(
+      'https://github.com/crabtree-michael/kiln',
+    );
+    expect(modal.querySelector('[data-role="sandbox-info"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('saves a project from the dialog, then closes it', async () => {
+    mockPopulatedSettings();
+    vi.mocked(transport.updateProject).mockResolvedValue({
+      id: 'proj-1',
+      name: 'renamed',
+      repo_url: 'https://github.com/crabtree-michael/kiln',
+      agent_provider: '',
+      amika_snapshot: '',
+      worker_count: 3,
+      merge_gate_mode: 'main',
+      amika_secrets: [],
+    });
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    fireEvent.click(document.querySelector('[data-role="project-panel"]')!);
+    await screen.findByRole('dialog');
+
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+
+    await waitFor(() => {
+      expect(transport.updateProject).toHaveBeenCalledWith('proj-1', {
+        name: 'renamed',
+        repo_url: 'https://github.com/crabtree-michael/kiln',
+        worker_count: 3,
+        merge_gate_mode: 'main',
+      });
+    });
+    // Closed, with the saved name folded back into the list behind it.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(document.querySelector('[data-role="project-panel-name"]')?.textContent).toBe('renamed');
+  });
+
+  it('"New project" opens the same dialog in create mode', async () => {
+    mockPopulatedSettings();
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Sign out' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'New project' }));
+
+    await screen.findByRole('dialog', { name: 'New project' });
+    expect(screen.getByLabelText('Project name')).toHaveValue('');
+    // Nothing to delete before the project exists.
+    expect(screen.queryByRole('button', { name: 'Delete project' })).toBeNull();
   });
 
   it('matches the DOM-structure snapshot: settings view', async () => {

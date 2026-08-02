@@ -65,10 +65,6 @@ function sameRepo(a: string, b: string): boolean {
   return normalize(a) === normalize(b);
 }
 
-/** Above this many repos the picker grows a filter box. Below it, scanning the
- * list is faster than typing, and an always-present filter is just clutter. */
-const REPO_FILTER_THRESHOLD = 8;
-
 interface RepoFieldProps {
   /** The project's `repo_url` — '' for a project being created. */
   value: string;
@@ -86,12 +82,11 @@ interface RepoFieldProps {
  *     grant repo access. A project that already has a repo_url keeps it: it is
  *     shown read-only and still submitted, so editing an unrelated field on an
  *     older project can't silently unlink its repo;
- *  3. connected — the repo dropdown, filterable past REPO_FILTER_THRESHOLD, plus
- *     a "Switch account" link that re-runs the same flow against a different
- *     GitHub login. */
+ *  3. connected — the repo dropdown, plus a "Switch account" link that re-runs
+ *     the same flow against a different GitHub login. The dropdown carries no
+ *     filter box: a native select already types-to-jump, so a second search
+ *     control beside it only raised the question of which one to use. */
 function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
-  const [filter, setFilter] = useState('');
-
   if (github.loading) {
     return (
       <div data-role="repo-field" data-state="loading">
@@ -132,12 +127,6 @@ function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
   // selectable as "(current)" so saving the form never silently drops it (the
   // same guarantee the snapshot picker makes).
   const matched = github.repos.find((repo) => sameRepo(repo.url, value));
-  const query = filter.trim().toLowerCase();
-  const visible = github.repos.filter(
-    // Never filter out the current selection: it must stay in the list to stay
-    // selected, however narrow the query is.
-    (repo) => repo === matched || query === '' || repo.full_name.toLowerCase().includes(query),
-  );
 
   return (
     <div data-role="repo-field" data-state="connected">
@@ -157,7 +146,7 @@ function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
           {matched === undefined && value !== '' && (
             <option value={value}>{value} (current)</option>
           )}
-          {visible.map((repo) => (
+          {github.repos.map((repo) => (
             <option key={repo.url} value={repo.url}>
               {repo.full_name}
               {repo.private ? ' (private)' : ''}
@@ -165,20 +154,6 @@ function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
           ))}
         </select>
       </label>
-      {github.repos.length > REPO_FILTER_THRESHOLD && (
-        <label>
-          Filter
-          <input
-            type="text"
-            data-role="repo-filter"
-            value={filter}
-            placeholder="owner/name"
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setFilter(event.target.value);
-            }}
-          />
-        </label>
-      )}
       <a href={GITHUB_CONNECT_PATH} data-role="switch-github">
         Switch GitHub account
       </a>
@@ -313,8 +288,101 @@ export interface ProjectFieldsProps {
   onRefreshDevBoxes?: () => void;
   /** Captures a dev box as a new snapshot (POST /api/project/snapshots). */
   onSaveSnapshot?: (body: SaveSnapshotRequest) => Promise<void>;
+  /** Which shell the same fields render in (projects-in-a-modal):
+   *
+   *  * `form` (the default) — the flat field list onboarding and the app-native
+   *    projects page have always used. Unchanged, deliberately: those two
+   *    surfaces style it themselves and their DOM must not move under them.
+   *  * `detail` — the settings project modal: an identity header (the name,
+   *    edited in place, beside the repository it is linked to) over grouped
+   *    Agent and Sandbox sections. Same state, same submit body — only the
+   *    arrangement differs. */
+  layout?: 'form' | 'detail';
   saving: boolean;
   onSave: (body: ProjectUpdateRequest) => Promise<void>;
+}
+
+/** One line of "what this snapshot actually is", for the modal's sandbox
+ * section: where it was captured from and when, so picking a base image isn't a
+ * guess from an opaque ref. */
+function snapshotDetail(snap: Snapshot): string {
+  const parts: string[] = [snap.ref];
+  if (snap.source !== '') {
+    parts.push(`captured from ${snap.source}`);
+  }
+  const captured = new Date(snap.created_at);
+  if (!Number.isNaN(captured.getTime())) {
+    parts.push(captured.toLocaleDateString(undefined, { dateStyle: 'medium' }));
+  }
+  return parts.join(' · ');
+}
+
+interface SandboxInfoProps {
+  catalogAvailable: boolean;
+  snapshots: Snapshot[];
+  /** The `amika_snapshot` handle the form currently holds; '' means "default". */
+  selectedRef: string;
+}
+
+/** What the snapshot picker above actually means, in words (projects-in-a-modal,
+ * "sandbox info"). A snapshot ref on its own says nothing about which sandbox a
+ * worker will boot into, so each of the four states the picker can be in gets a
+ * plain-language reading: no catalog at all, the deployment default, a snapshot
+ * from the catalog (with where it was captured from and when), or a stored handle
+ * the catalog no longer lists. */
+function SandboxInfo({ catalogAvailable, snapshots, selectedRef }: SandboxInfoProps): JSX.Element {
+  if (!catalogAvailable) {
+    return (
+      <div data-role="sandbox-info" data-state="no-catalog">
+        <p>
+          This project&apos;s agent provider manages its own sandboxes, so there is no Amika
+          snapshot catalog to pick from. The handle above is passed to the provider as written —
+          leave it blank to use the deployment&apos;s default image.
+        </p>
+      </div>
+    );
+  }
+
+  if (selectedRef === '') {
+    return (
+      <div data-role="sandbox-info" data-state="default">
+        <p>
+          Workers start from the deployment&apos;s default Amika image. Pick a snapshot to start
+          them pre-warmed instead — dependencies installed, repo cloned, tools already authenticated
+          — so a ticket begins with work rather than with setup.
+        </p>
+      </div>
+    );
+  }
+
+  const selected = snapshots.find((snap) => snap.ref === selectedRef);
+  if (selected === undefined) {
+    return (
+      <div data-role="sandbox-info" data-state="unlisted">
+        <p>
+          Workers start from <code>{selectedRef}</code>, which this project&apos;s catalog no longer
+          lists — it may have been deleted, or belong to another Amika account. It stays in use
+          until you pick another snapshot.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div data-role="sandbox-info" data-state="snapshot">
+      <p>
+        Workers start from{' '}
+        <strong data-role="sandbox-snapshot-name">
+          {selected.name === '' ? selected.ref : selected.name}
+        </strong>
+        {selected.state === 'ready' ? '.' : ` (${selected.state}).`}
+      </p>
+      {selected.description !== '' ? (
+        <p data-role="sandbox-snapshot-description">{selected.description}</p>
+      ) : null}
+      <p data-role="sandbox-snapshot-detail">{snapshotDetail(selected)}</p>
+    </div>
+  );
 }
 
 export function ProjectFields({
@@ -326,6 +394,7 @@ export function ProjectFields({
   devBoxes,
   onRefreshDevBoxes,
   onSaveSnapshot,
+  layout = 'form',
   saving,
   onSave,
 }: ProjectFieldsProps): JSX.Element {
@@ -412,176 +481,251 @@ export function ProjectFields({
     void onSave(body);
   };
 
-  return (
-    <form data-role="project-form" onSubmit={handleSubmit}>
+  // Every field is built once here and then arranged by the layout branch at the
+  // bottom, so the two shells can never drift into rendering different controls
+  // (or a different submit body) from each other.
+  const nameField = (
+    <label>
+      Project name
+      <input
+        type="text"
+        value={name}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          setName(event.target.value);
+        }}
+        required
+      />
+    </label>
+  );
+
+  const repoField = <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />;
+
+  const providerField =
+    providerOptions.length > 1 ? (
       <label>
-        Project name
-        <input
-          type="text"
-          value={name}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setName(event.target.value);
+        Agent provider
+        <select
+          data-role="agent-provider"
+          value={agentProvider}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+            setAgentProvider(event.target.value);
           }}
-          required
-        />
+        >
+          {/* Empty value = the deployment default (design §9), always offered. */}
+          <option value="">Default</option>
+          {providerOptions.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
       </label>
-      <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />
-      {providerOptions.length > 1 && (
+    ) : null;
+
+  const snapshotField = catalogAvailable ? (
+    <label>
+      Sandbox snapshot
+      <select
+        data-role="amika-snapshot"
+        value={amikaSnapshot}
+        onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+          setAmikaSnapshot(event.target.value);
+        }}
+      >
+        {/* Empty = the provider/deployment default snapshot. */}
+        <option value="">Default</option>
+        {/* Keep the currently-stored handle selectable even if it is no longer
+            in the catalog (an older/custom snapshot), so saving the form never
+            silently drops it. */}
+        {amikaSnapshot !== '' && !(snapshots ?? []).some((snap) => snap.ref === amikaSnapshot) && (
+          <option value={amikaSnapshot}>{amikaSnapshot} (current)</option>
+        )}
+        {(snapshots ?? []).map((snap) => (
+          // A snapshot still capturing is listed but not selectable — only a
+          // ready one is a valid base image (its capture has finished).
+          <option key={snap.ref} value={snap.ref} disabled={snap.state !== 'ready'}>
+            {snapshotOptionLabel(snap)}
+          </option>
+        ))}
+      </select>
+    </label>
+  ) : (
+    <label>
+      Amika snapshot
+      <input
+        type="text"
+        value={amikaSnapshot}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          setAmikaSnapshot(event.target.value);
+        }}
+      />
+    </label>
+  );
+
+  const workerCountField = (
+    <label>
+      Worker count
+      <input
+        type="number"
+        value={workerCount}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          setWorkerCount(event.target.value);
+        }}
+      />
+    </label>
+  );
+
+  const mergeGateField = (
+    <label>
+      Merge gate
+      <select
+        data-role="merge-gate-mode"
+        value={mergeGateMode}
+        onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+          // Narrow the raw option value to the union without an assertion; the
+          // select only ever offers these two, so anything else means 'main'.
+          setMergeGateMode(event.target.value === 'pr' ? 'pr' : 'main');
+        }}
+      >
+        <option value="main">Merged to main</option>
+        <option value="pr">In a pull request</option>
+      </select>
+    </label>
+  );
+
+  const captureFieldset =
+    catalogAvailable && onSaveSnapshot !== undefined ? (
+      <fieldset data-role="save-dev-box">
+        <legend>Save a dev box as a snapshot</legend>
+        <p data-role="save-dev-box-hint">
+          Capture one of your running dev boxes as a reusable snapshot; it then appears in the
+          snapshot picker above (its capture runs in the background).
+        </p>
         <label>
-          Agent provider
+          Dev box
           <select
-            data-role="agent-provider"
-            value={agentProvider}
+            data-role="dev-box-select"
+            value={captureDevBoxRef}
             onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-              setAgentProvider(event.target.value);
+              setCaptureDevBoxRef(event.target.value);
             }}
           >
-            {/* Empty value = the deployment default (design §9), always offered. */}
-            <option value="">Default</option>
-            {providerOptions.map((provider) => (
-              <option key={provider.key} value={provider.key}>
-                {provider.label}
+            <option value="">Select a dev box…</option>
+            {(devBoxes ?? []).map((box) => (
+              <option key={box.ref} value={box.ref}>
+                {box.name} ({box.status})
               </option>
             ))}
           </select>
         </label>
-      )}
-      {catalogAvailable ? (
+        <button
+          type="button"
+          data-role="refresh-dev-boxes"
+          onClick={() => {
+            onRefreshDevBoxes?.();
+          }}
+        >
+          Refresh
+        </button>
         <label>
-          Sandbox snapshot
-          <select
-            data-role="amika-snapshot"
-            value={amikaSnapshot}
-            onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-              setAmikaSnapshot(event.target.value);
-            }}
-          >
-            {/* Empty = the provider/deployment default snapshot. */}
-            <option value="">Default</option>
-            {/* Keep the currently-stored handle selectable even if it is no longer
-                in the catalog (an older/custom snapshot), so saving the form never
-                silently drops it. */}
-            {amikaSnapshot !== '' &&
-              !(snapshots ?? []).some((snap) => snap.ref === amikaSnapshot) && (
-                <option value={amikaSnapshot}>{amikaSnapshot} (current)</option>
-              )}
-            {(snapshots ?? []).map((snap) => (
-              // A snapshot still capturing is listed but not selectable — only a
-              // ready one is a valid base image (its capture has finished).
-              <option key={snap.ref} value={snap.ref} disabled={snap.state !== 'ready'}>
-                {snapshotOptionLabel(snap)}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <label>
-          Amika snapshot
+          Snapshot name
           <input
             type="text"
-            value={amikaSnapshot}
+            data-field="snapshot-name"
+            value={captureName}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              setAmikaSnapshot(event.target.value);
+              setCaptureName(event.target.value);
             }}
           />
         </label>
-      )}
-      <label>
-        Worker count
-        <input
-          type="number"
-          value={workerCount}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setWorkerCount(event.target.value);
-          }}
-        />
-      </label>
-      <label>
-        Merge gate
-        <select
-          data-role="merge-gate-mode"
-          value={mergeGateMode}
-          onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-            // Narrow the raw option value to the union without an assertion; the
-            // select only ever offers these two, so anything else means 'main'.
-            setMergeGateMode(event.target.value === 'pr' ? 'pr' : 'main');
-          }}
-        >
-          <option value="main">Merged to main</option>
-          <option value="pr">In a pull request</option>
-        </select>
-      </label>
-      {catalogAvailable && onSaveSnapshot !== undefined && (
-        <fieldset data-role="save-dev-box">
-          <legend>Save a dev box as a snapshot</legend>
-          <p data-role="save-dev-box-hint">
-            Capture one of your running dev boxes as a reusable snapshot; it then appears in the
-            snapshot picker above (its capture runs in the background).
-          </p>
-          <label>
-            Dev box
-            <select
-              data-role="dev-box-select"
-              value={captureDevBoxRef}
-              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                setCaptureDevBoxRef(event.target.value);
-              }}
-            >
-              <option value="">Select a dev box…</option>
-              {(devBoxes ?? []).map((box) => (
-                <option key={box.ref} value={box.ref}>
-                  {box.name} ({box.status})
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            data-role="refresh-dev-boxes"
-            onClick={() => {
-              onRefreshDevBoxes?.();
+        <label>
+          Description
+          <input
+            type="text"
+            data-field="snapshot-description"
+            value={captureDescription}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              setCaptureDescription(event.target.value);
             }}
-          >
-            Refresh
-          </button>
-          <label>
-            Snapshot name
-            <input
-              type="text"
-              data-field="snapshot-name"
-              value={captureName}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setCaptureName(event.target.value);
-              }}
-            />
-          </label>
-          <label>
-            Description
-            <input
-              type="text"
-              data-field="snapshot-description"
-              value={captureDescription}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setCaptureDescription(event.target.value);
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            data-role="save-dev-box-snapshot"
-            disabled={saving || captureDevBoxRef.trim() === '' || captureName.trim() === ''}
-            onClick={handleCaptureSnapshot}
-          >
-            Save snapshot
-          </button>
-        </fieldset>
-      )}
-      {/* The repo is required and can only come from the picker, so a project
-          with none selected — a new one on a disconnected account — can't be
-          saved yet. Blocking here beats a server-side 400 the user can't act on. */}
-      <button type="submit" disabled={saving || repoUrl.trim() === ''}>
-        Save project
-      </button>
+          />
+        </label>
+        <button
+          type="button"
+          data-role="save-dev-box-snapshot"
+          disabled={saving || captureDevBoxRef.trim() === '' || captureName.trim() === ''}
+          onClick={handleCaptureSnapshot}
+        >
+          Save snapshot
+        </button>
+      </fieldset>
+    ) : null;
+
+  // The repo is required and can only come from the picker, so a project with
+  // none selected — a new one on a disconnected account — can't be saved yet.
+  // Blocking here beats a server-side 400 the user can't act on.
+  const submitButton = (
+    <button type="submit" disabled={saving || repoUrl.trim() === ''}>
+      Save project
+    </button>
+  );
+
+  if (layout !== 'detail') {
+    return (
+      <form data-role="project-form" onSubmit={handleSubmit}>
+        {nameField}
+        {repoField}
+        {providerField}
+        {snapshotField}
+        {workerCountField}
+        {mergeGateField}
+        {captureFieldset}
+        {submitButton}
+      </form>
+    );
+  }
+
+  // The detail shell (projects-in-a-modal). The identity header answers "which
+  // project is this, and what repo is it pointed at" in a single band — the two
+  // facts every other field is relative to — and the rest is grouped by the
+  // question it answers rather than listed flat.
+  return (
+    <form data-role="project-form" data-layout="detail" onSubmit={handleSubmit}>
+      <header data-role="project-identity">
+        {nameField}
+        {repoField}
+      </header>
+
+      <section data-role="project-group" data-group="agent">
+        <h3>Agent</h3>
+        <p data-role="project-group-hint">
+          {providerField === null
+            ? 'How much of this project’s work runs at once, and what counts as finished.'
+            : 'Which coding agent runs this project’s work, how much of it runs at once, and what counts as finished.'}
+        </p>
+        <div data-role="project-group-fields">
+          {providerField}
+          {workerCountField}
+          {mergeGateField}
+        </div>
+      </section>
+
+      <section data-role="project-group" data-group="sandbox">
+        <h3>Sandbox</h3>
+        {/* Provider-neutral on purpose — what a sandbox actually is here depends
+            on the provider, and `SandboxInfo` below says which case this is. */}
+        <p data-role="project-group-hint">
+          The workspace each worker starts in: which base image its sandbox boots from.
+        </p>
+        <div data-role="project-group-fields">{snapshotField}</div>
+        <SandboxInfo
+          catalogAvailable={catalogAvailable}
+          snapshots={snapshots ?? []}
+          selectedRef={amikaSnapshot}
+        />
+        {captureFieldset}
+      </section>
+
+      <footer data-role="project-form-actions">{submitButton}</footer>
     </form>
   );
 }

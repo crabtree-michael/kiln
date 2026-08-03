@@ -21,7 +21,7 @@
 //   * Closing on a SUCCESSFUL write only. `onSave`/`onDelete` resolve a boolean
 //     from the store, so a failed save keeps the modal (and everything typed
 //     into it) open above the page's error banner instead of discarding it.
-import { useCallback, useEffect, useRef, type JSX, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, type JSX, type MouseEvent, type ReactNode } from 'react';
 import { ProjectFields } from '@/dashboard/ConfigFields';
 import { useSandboxCatalog } from '@/dashboard/use-sandbox-catalog';
 import { CloseIcon, FolderIcon, TrashIcon } from '@/dashboard/icons';
@@ -64,6 +64,9 @@ interface ProjectBodyProps {
   project: MeProject;
   providers: ProviderDescriptor[];
   github: GitHubRepos;
+  /** The delete control, rendered at the leading edge of the form's action bar
+   * (see `footerLead` on `ProjectFields`). */
+  footerLead: ReactNode;
   saving: boolean;
   onSave: (body: ProjectUpdateRequest) => Promise<void>;
 }
@@ -77,6 +80,7 @@ function ExistingProjectBody({
   project,
   providers,
   github,
+  footerLead,
   saving,
   onSave,
 }: ProjectBodyProps): JSX.Element {
@@ -89,6 +93,7 @@ function ExistingProjectBody({
       providers={providers}
       snapshots={catalog.snapshots}
       catalogAvailable={catalog.catalogAvailable}
+      footerLead={footerLead}
       saving={saving}
       onSave={onSave}
     />
@@ -191,6 +196,26 @@ export function ProjectModal({
     });
   }, [onDelete, onClose, project]);
 
+  // The trash glyph alone, at the leading edge of the form's action bar. It is
+  // the one control in the settings tree whose icon is not decorating a visible
+  // label, so its accessible name has to come from `aria-label` (and `title`
+  // gives a pointer user the same word on hover). A paragraph of danger-zone
+  // copy said nothing the confirm dialog doesn't say at the moment it matters.
+  const deleteButton =
+    onDelete !== undefined && project !== undefined ? (
+      <button
+        type="button"
+        data-role="delete-project"
+        data-variant="danger"
+        aria-label="Delete project"
+        title="Delete project"
+        disabled={saving}
+        onClick={handleDelete}
+      >
+        <TrashIcon />
+      </button>
+    ) : null;
+
   return (
     <div data-role="modal-scrim" onMouseDown={handleScrimMouseDown}>
       <div
@@ -216,6 +241,8 @@ export function ProjectModal({
 
         <div data-role="project-modal-body">
           {project === undefined ? (
+            // Create mode has nothing to delete, so its action bar is the save
+            // button alone — still at the trailing edge.
             <ProjectFields
               layout="detail"
               github={github}
@@ -228,31 +255,11 @@ export function ProjectModal({
               project={project}
               providers={providers}
               github={github}
+              footerLead={deleteButton}
               saving={saving}
               onSave={handleSave}
             />
           )}
-
-          {onDelete !== undefined && project !== undefined ? (
-            <footer data-role="project-danger-zone">
-              <div data-role="project-danger-text">
-                <span data-role="project-danger-title">Delete this project</span>
-                <span data-role="project-danger-hint">
-                  Its board, tickets, and workers go with it. This can&apos;t be undone.
-                </span>
-              </div>
-              <button
-                type="button"
-                data-role="delete-project"
-                data-variant="danger"
-                disabled={saving}
-                onClick={handleDelete}
-              >
-                <TrashIcon />
-                Delete project
-              </button>
-            </footer>
-          ) : null}
         </div>
       </div>
     </div>

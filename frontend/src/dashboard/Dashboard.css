@@ -124,8 +124,47 @@ html:has([data-role='settings']) {
 
 [data-role='dashboard'] input:disabled,
 [data-role='dashboard'] select:disabled {
-  background: var(--surface-subtle);
+  /* background-COLOR, not the shorthand: the shorthand would reset the chevron
+     background-image the select rule below draws. */
+  background-color: var(--surface-subtle);
   color: var(--text-faint);
+}
+
+/* A select of our own rather than the browser's. The native control renders its
+   own platform chrome — a grey system arrow, a different height, a different
+   corner radius per OS — which is the one thing on these pages that doesn't
+   look like Kiln. `appearance: none` strips it, and the chevron below replaces
+   it.
+
+   The chevron is TWO linear-gradient stripes, not an SVG data URI: a data URI
+   can't read a CSS variable, so its stroke would have to be a literal hex, and
+   component CSS consumes only the semantic tokens (a hex would also be stuck in
+   one theme). Gradients take `currentColor`, so the glyph follows the select's
+   own text color — including the muted tone it takes when disabled. Each stripe
+   is one diagonal of the "v": a 45deg gradient makes a "\", 135deg a "/", and
+   the two boxes sit adjacent so the strokes meet at the bottom. */
+[data-role='dashboard'] select {
+  appearance: none;
+  -webkit-appearance: none;
+  /* Room for the chevron, so a long option label never runs under it. */
+  padding-right: var(--space-8);
+  background-image:
+    linear-gradient(45deg, transparent 0 45%, currentColor 45% 55%, transparent 55% 100%),
+    linear-gradient(135deg, transparent 0 45%, currentColor 45% 55%, transparent 55% 100%);
+  background-position:
+    right 13px center,
+    right 8px center;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+[data-role='dashboard'] select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+[data-role='dashboard'] select:disabled {
+  cursor: default;
 }
 
 [data-role='dashboard'] button {
@@ -1023,44 +1062,42 @@ html:has([data-role='settings']) {
   color: var(--text-muted);
 }
 
+/* The dialog's one action bar, echoing the title bar at the other end of the
+   panel: destructive on the left, committing on the right, nothing in between.
+   `flex-end` rather than `space-between` so create mode — which has no delete —
+   still finishes with Save at the trailing edge instead of sliding it left. */
 [data-role='project-form-actions'] {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
-}
-
-/* Deleting a project is a cascade, so it lives at the bottom of the dialog,
-   past everything else, with the consequence spelled out beside it. */
-[data-role='project-danger-zone'] {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--border-default);
   background: var(--surface-subtle);
 }
 
-[data-role='project-danger-text'] {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
+/* Deleting a project is a cascade that can't be undone, but the confirm dialog
+   is where that gets said — at the moment it matters, not as a paragraph parked
+   at the bottom of every visit. Here it is the trash glyph alone, pushed to the
+   leading edge, named for a screen reader by its `aria-label`. */
+[data-role='settings'] [data-role='project-form-actions'] [data-role='delete-project'] {
+  margin-right: auto;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  /* An icon-only control at rest is quieter without a box around it; the danger
+     variant paints the border back on hover. */
+  border-color: transparent;
+  border-radius: var(--radius-pill);
 }
 
-[data-role='project-danger-title'] {
-  font: var(--type-small);
-  font-weight: 600;
-  color: var(--text-body);
-}
-
-[data-role='project-danger-hint'] {
-  font: var(--type-caption);
-  color: var(--text-muted);
-}
-
-[data-role='settings'] [data-role='project-danger-zone'] button {
-  margin-left: auto;
+[data-role='settings']
+  [data-role='project-form-actions']
+  [data-role='delete-project']
+  svg[data-icon] {
+  /* Sized in px, not the tree's 1.15em: there is no label text beside it for the
+     glyph to stay proportional to. */
+  width: 16px;
+  height: 16px;
 }
 
 /* The repo picker, wherever it renders (the modal header, onboarding's flat
@@ -1231,10 +1268,6 @@ html:has([data-role='settings']) {
 
   [data-role='project-panel-meta'] {
     display: none;
-  }
-
-  [data-role='project-danger-zone'] {
-    flex-wrap: wrap;
   }
 }
 

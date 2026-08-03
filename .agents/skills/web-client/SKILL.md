@@ -184,7 +184,16 @@ inputs, a 2–3-column project-form grid and a 2-column credential grid.
   `src/dashboard/icons.tsx` (no icon library; deps are gated on approval per D4). They carry no
   `width`/`height`: one rule, `[data-role='settings'] svg[data-icon]`, sizes the whole tree in
   `em`. Drop that rule and every icon renders at the SVG default 300×150. All are
-  `aria-hidden`, so accessible names come only from the visible text.
+  `aria-hidden`, so accessible names come only from the visible text. **One exception, by
+  request:** the project dialog's delete is the trash glyph alone, so it carries an explicit
+  `aria-label` (plus `title`) and is sized in px rather than `em` — there is no neighbouring
+  text for it to stay proportional to. Any other icon-only control needs the same two things.
+- **Selects are drawn by us, not the platform** — `appearance: none` plus a chevron made of two
+  `currentColor` `linear-gradient` stripes (`Dashboard.css`, mirrored in `ProjectsManager.css`).
+  Gradients, not an SVG data URI, because a data URI can't read a token and would hard-code a
+  hex in one theme. Consequences: any later rule touching a select must use `background-color`,
+  never the `background` shorthand (it resets the chevron), and the `padding-right` that keeps a
+  long option label out from under the glyph travels with it.
 - **Layout-critical CSS is asserted as a string** (`Dashboard.desktop-layout.test.ts`, the
   `?raw` technique) — jsdom does no layout, so without it the page could silently revert to one
   mobile-style column and every DOM test would still pass.

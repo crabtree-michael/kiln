@@ -32,20 +32,15 @@ export interface NotificationSettingsMenuProps {
 interface ModeOption {
   value: NotificationModeValue;
   label: string;
-  detail: string;
 }
 
 // Ordered least-to-most noisy: "Default" (the recommended selection) leads,
 // "All updates" (the tester's firehose) trails. "Default" is the selection
-// unless the user changes it.
+// unless the user changes it. Label-only, matching the Settings page dropdown.
 const MODE_OPTIONS: ModeOption[] = [
-  {
-    value: 'default',
-    label: 'Default',
-    detail: 'Notify when a ticket is blocked, completed, or started.',
-  },
-  { value: 'blocked', label: 'Blocked', detail: 'Notify only when a ticket needs you.' },
-  { value: 'all', label: 'All updates', detail: 'Notify on every feed update.' },
+  { value: 'default', label: 'Default' },
+  { value: 'blocked', label: 'Blocked' },
+  { value: 'all', label: 'All updates' },
 ];
 
 // The permission button's label per push state. `default`/`error` invite
@@ -151,10 +146,7 @@ export function NotificationSettingsMenu({
                   }}
                 >
                   <span data-role="notify-option-check" aria-hidden="true" />
-                  <span data-role="notify-option-text">
-                    <span data-role="notify-option-label">{option.label}</span>
-                    <span data-role="notify-option-detail">{option.detail}</span>
-                  </span>
+                  <span data-role="notify-option-label">{option.label}</span>
                 </button>
               </li>
             );

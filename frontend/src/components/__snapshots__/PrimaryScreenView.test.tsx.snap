@@ -83,18 +83,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Default
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify when a ticket is blocked, completed, or started.
-                    </span>
+                    Default
                   </span>
                 </button>
               </li>
@@ -112,18 +103,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Blocked
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify only when a ticket needs you.
-                    </span>
+                    Blocked
                   </span>
                 </button>
               </li>
@@ -141,18 +123,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      All updates
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify on every feed update.
-                    </span>
+                    All updates
                   </span>
                 </button>
               </li>
@@ -439,18 +412,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Default
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify when a ticket is blocked, completed, or started.
-                    </span>
+                    Default
                   </span>
                 </button>
               </li>
@@ -468,18 +432,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Blocked
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify only when a ticket needs you.
-                    </span>
+                    Blocked
                   </span>
                 </button>
               </li>
@@ -497,18 +452,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      All updates
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify on every feed update.
-                    </span>
+                    All updates
                   </span>
                 </button>
               </li>
@@ -905,18 +851,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Default
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify when a ticket is blocked, completed, or started.
-                    </span>
+                    Default
                   </span>
                 </button>
               </li>
@@ -934,18 +871,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Blocked
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify only when a ticket needs you.
-                    </span>
+                    Blocked
                   </span>
                 </button>
               </li>
@@ -963,18 +891,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      All updates
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify on every feed update.
-                    </span>
+                    All updates
                   </span>
                 </button>
               </li>
@@ -1305,18 +1224,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Default
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify when a ticket is blocked, completed, or started.
-                    </span>
+                    Default
                   </span>
                 </button>
               </li>
@@ -1334,18 +1244,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Blocked
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify only when a ticket needs you.
-                    </span>
+                    Blocked
                   </span>
                 </button>
               </li>
@@ -1363,18 +1264,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      All updates
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify on every feed update.
-                    </span>
+                    All updates
                   </span>
                 </button>
               </li>
@@ -1683,18 +1575,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Default
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify when a ticket is blocked, completed, or started.
-                    </span>
+                    Default
                   </span>
                 </button>
               </li>
@@ -1712,18 +1595,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      Blocked
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify only when a ticket needs you.
-                    </span>
+                    Blocked
                   </span>
                 </button>
               </li>
@@ -1741,18 +1615,9 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                     data-role="notify-option-check"
                   />
                   <span
-                    data-role="notify-option-text"
+                    data-role="notify-option-label"
                   >
-                    <span
-                      data-role="notify-option-label"
-                    >
-                      All updates
-                    </span>
-                    <span
-                      data-role="notify-option-detail"
-                    >
-                      Notify on every feed update.
-                    </span>
+                    All updates
                   </span>
                 </button>
               </li>

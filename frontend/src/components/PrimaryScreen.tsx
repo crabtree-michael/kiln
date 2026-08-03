@@ -13,7 +13,14 @@ import { useActivityStore } from '@/stores/activity-context';
 import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
 import { usePresence } from '@/stores/use-presence';
-import { acceptTicket, deleteTicket, postMessage, setTicketSandbox } from '@/transport/transport';
+import {
+  acceptTicket,
+  deleteTicket,
+  editTicketText,
+  postMessage,
+  setTicketSandbox,
+} from '@/transport/transport';
+import type { TicketTextEdit } from '@/components/TicketDetail';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
@@ -102,6 +109,25 @@ function PrimaryScreenBody(): JSX.Element {
     [refreshBoard],
   );
 
+  const onEditText = useCallback(
+    (ticketId: string, patch: TicketTextEdit): void => {
+      // A direct text edit is the one place the user's own words must land on
+      // the board untouched, so — like the sandbox option and unlike
+      // accept/delete/poke — it does not go through the brain: routing a
+      // correction through an LLM pass is exactly the drift this affordance
+      // exists to remove. Fire-and-forget: the sheet shows the typed text at
+      // once and time-boxes it, so a dropped write just means the old wording
+      // comes back and the user can edit again. Refresh the board on failure so
+      // it snaps back to the truth immediately rather than on the time-box —
+      // including the 409 the server returns if the ticket left the backlog
+      // while the sheet was open.
+      void editTicketText(ticketId, patch).catch(() => {
+        refreshBoard();
+      });
+    },
+    [refreshBoard],
+  );
+
   return (
     <PrimaryScreenView
       brand={<ProjectSwitcher />}
@@ -116,6 +142,7 @@ function PrimaryScreenBody(): JSX.Element {
       onDelete={onDelete}
       onPoke={onPoke}
       onSetKeepSandbox={onSetKeepSandbox}
+      onEditText={onEditText}
       onDismissCard={dismissCard}
       onDismissAll={dismissAll}
       onOpenTickets={refreshBoard}

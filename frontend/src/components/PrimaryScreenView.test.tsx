@@ -617,6 +617,54 @@ describe('PrimaryScreenView', () => {
     expect(screen.getByRole('dialog', { name: 'Long-running work' })).toBeInTheDocument();
   });
 
+  // A direct text edit reaches the sheet from the composing screen and, like the
+  // sandbox option, does NOT end the visit: the user corrected the wording and
+  // should be left looking at the corrected ticket.
+  it('flows a direct text edit up from the ticket sheet without closing it', () => {
+    const proposal = makeFeedCard({
+      kind: 'proposal',
+      id: 'proposal:t-edit',
+      label: 'Add teh login redirect',
+      body: 'Send the user to /app after sign-in.',
+      ticketId: 't-edit',
+      createdAt: minutesAgo(1),
+    });
+    const ticket = makeTicket({
+      id: 't-edit',
+      title: 'Add teh login redirect',
+      body: 'Send the user to /app after sign-in.',
+      state: 'shaping',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    const onEditText = vi.fn();
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [proposal] })}
+        board={makeBoard({ shaping: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={noop}
+        onEditText={onEditText}
+        now={NOW}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Add teh login redirect' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add teh login redirect' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('Title'), {
+      target: { value: 'Add the login redirect' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onEditText).toHaveBeenCalledWith('t-edit', { title: 'Add the login redirect' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('expands a ticket-linked update card in place instead of opening the ticket', () => {
     // A brain update is a self-contained note, not a shortcut into a ticket: even
     // when it carries a ticket_id (with that ticket live on the board), tapping it

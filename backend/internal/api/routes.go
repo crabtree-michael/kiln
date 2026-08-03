@@ -49,6 +49,13 @@ const healthPingTimeout = 3 * time.Second
 // larger up front.
 const maxMessageBody = 64 << 10
 
+// maxTicketTextBody caps the POST /api/tickets/{id}/text body before decoding,
+// for the same reason maxMessageBody does: the request carries free-form user
+// text, so without a cap a hostile client could make the server buffer an
+// arbitrarily large body. 256 KiB is far above any ticket a human writes (the
+// body is Markdown prose, not an upload) while still bounding the allocation.
+const maxTicketTextBody = 256 << 10
+
 // maxPushBody caps the POST /api/push/subscribe body before decoding. A browser
 // PushSubscription (endpoint URL + two short base64url keys) is well under 8 KiB.
 const maxPushBody = 8 << 10
@@ -77,6 +84,28 @@ type BoardReader interface {
 // leaves the route unmounted.
 type TicketSandboxSetter interface {
 	SetKeepSandbox(ctx context.Context, projectID string, id board.TicketID, keep bool) (board.Ticket, error)
+}
+
+// TicketTextEditor is the api's second direct write onto a ticket, behind POST
+// /api/tickets/{id}/text: the user's own literal edit of a ticket's title and/or
+// body, typed in the detail sheet. Like TicketSandboxSetter it is a deliberate,
+// narrow exception to D5 ("the client never mutates the board directly") and
+// carries its own port so the exception stays visible — but it earns the
+// exception for a sharper reason than the sandbox toggle does. The toggle skips
+// the brain because an LLM round-trip would be slow for no gain; a text edit
+// skips it because an LLM pass is precisely what the affordance exists to avoid.
+// Describing a wording change out loud and letting the brain rewrite the ticket
+// is what drifts from what the user meant, so a direct edit has to land the
+// typed text verbatim. Accept and Delete remain board *transitions* and still
+// route through the brain.
+//
+// Satisfied directly by *board.Service (ShapeTicket), which owns the state
+// precondition: a ticket's text is editable only while it is still in the
+// backlog (shaping or ready). Past that the board rejects the write with
+// *board.ErrInvalidTransition, surfaced here as 409. Optional: a nil editor
+// leaves the route unmounted.
+type TicketTextEditor interface {
+	ShapeTicket(ctx context.Context, projectID string, id board.TicketID, patch board.ShapePatch) (board.Ticket, error)
 }
 
 // AgentInspector is the api's read seam onto live worker status, joined into
@@ -371,6 +400,7 @@ type DevSessionMinter interface {
 type Server struct {
 	boards     BoardReader
 	sandboxes  TicketSandboxSetter // non-nil ⇒ POST /api/tickets/{id}/sandbox is mounted
+	ticketText TicketTextEditor    // non-nil ⇒ POST /api/tickets/{id}/text is mounted
 	poster     MessagePoster
 	messages   MessagesReader
 	feed       FeedReader
@@ -425,6 +455,12 @@ func NewServer(
 // sandbox option (call before Handler). Satisfied by *board.Service; left unset
 // (presentational/unit wiring) the route simply isn't mounted.
 func (s *Server) EnableTicketSandbox(setter TicketSandboxSetter) { s.sandboxes = setter }
+
+// EnableTicketText turns on POST /api/tickets/{id}/text, the ticket detail
+// sheet's direct edit of a ticket's title/body (call before Handler). Satisfied
+// by *board.Service; left unset (presentational/unit wiring) the route simply
+// isn't mounted.
+func (s *Server) EnableTicketText(editor TicketTextEditor) { s.ticketText = editor }
 
 // EnableDevTickets turns on the dev-only POST /api/dev/tickets route (call before
 // Handler). Local/e2e only — gated at the composition root by KILN_DEV_ENDPOINTS.
@@ -529,6 +565,7 @@ func (s *Server) Handler() http.Handler {
 		s.mountProjectScoped(mux, ar.method, ar.path, ar.handler)
 	}
 	s.mountSandboxRoutes(mux)
+	s.mountTicketTextRoute(mux)
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
@@ -632,6 +669,18 @@ func (s *Server) mountSandboxRoutes(mux *http.ServeMux) {
 		s.mountProjectScoped(mux, http.MethodPost, "/snapshots", s.handleSaveSnapshot)
 		s.mountProjectScoped(mux, http.MethodGet, "/dev-boxes", s.handleListDevBoxes)
 	}
+}
+
+// mountTicketTextRoute registers POST /tickets/{id}/text — the detail sheet's
+// direct text edit, the second of the two narrow D5 exceptions that write the
+// board without going through the brain. Project-scoped and dual-mounted (bare
+// + id'd) like the rest of the app surface, and mounted only when its port is
+// wired, mirroring the per-ticket sandbox option.
+func (s *Server) mountTicketTextRoute(mux *http.ServeMux) {
+	if s.ticketText == nil {
+		return
+	}
+	s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/text", s.handleTicketText)
 }
 
 // mountIdentityRoutes registers the GitHub OAuth + cookie-session routes and the
@@ -1009,6 +1058,64 @@ func (s *Server) handleTicketSandbox(
 	case err != nil:
 		slog.Error("api: set ticket sandbox", "err", err)
 		http.Error(w, "set ticket sandbox", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleTicketText applies the user's own literal edit of a ticket's title
+// and/or body, typed in the detail sheet. Like the sandbox option (and unlike
+// Accept and Delete) it writes the board directly rather than routing through
+// the brain — see TicketTextEditor for why an LLM pass is the thing a direct
+// edit must avoid, not the thing it needs. An omitted field is left untouched,
+// so the sheet may send only what changed; a present field replaces the stored
+// value verbatim.
+//
+// The board owns the state precondition: ShapeTicket accepts only a backlog
+// ticket (shaping or ready), reported here as 409 rather than 500 so the client
+// can say why the edit didn't take. The two body-level rejections happen before
+// any write: a request naming neither field has nothing to do, and a blank title
+// is never a legal edit — clearing a body is (an empty description is a real
+// choice), clearing a title is not, since the title is the ticket's whole
+// identity on the board and in the feed. The write emits board.updated (and,
+// while shaping, feed.updated), so every open client sees the new text over the
+// stream. Returns 202; an unknown ticket — including one belonging to another
+// project, which the board reports identically — is 404.
+func (s *Server) handleTicketText(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxTicketTextBody)
+	var req wire.TicketTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Title == nil && req.Body == nil {
+		http.Error(w, "no fields to edit", http.StatusBadRequest)
+		return
+	}
+	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
+		http.Error(w, "title must not be empty", http.StatusBadRequest)
+		return
+	}
+	id := board.TicketID(r.PathValue("id"))
+	patch := board.ShapePatch{Title: req.Title, Body: req.Body}
+	var invalid *board.ErrInvalidTransition
+	switch _, err := s.ticketText.ShapeTicket(r.Context(), project.ID, id, patch); {
+	case errors.Is(err, board.ErrNotFound):
+		http.Error(w, "no such ticket", http.StatusNotFound)
+		return
+	case errors.As(err, &invalid):
+		http.Error(w, "ticket text is no longer editable", http.StatusConflict)
+		return
+	case err != nil:
+		slog.Error("api: edit ticket text", "err", err)
+		http.Error(w, "edit ticket text", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

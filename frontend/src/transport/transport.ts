@@ -27,6 +27,7 @@ export type ActivityEvent = components['schemas']['ActivityEvent'];
 export type ActivityStatus = components['schemas']['ActivityStatus'];
 export type FeedSeenRequest = components['schemas']['FeedSeenRequest'];
 export type TicketSandboxRequest = components['schemas']['TicketSandboxRequest'];
+export type TicketTextRequest = components['schemas']['TicketTextRequest'];
 export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
@@ -1002,6 +1003,26 @@ export async function setTicketSandbox(id: string, keep: boolean): Promise<void>
   });
   if (!response.ok) {
     throw new Error(`setTicketSandbox: HTTP ${String(response.status)}`);
+  }
+}
+
+/** `POST /api/tickets/{id}/text` — the ticket detail sheet's direct text edit.
+ * The user's own typed title/body replaces the ticket's, verbatim: like the
+ * sandbox option this does NOT route through the brain, and for a sharper reason
+ * — describing a wording change out loud and letting the brain rewrite the ticket
+ * is exactly the drift a direct edit exists to avoid. Only fields present in
+ * `patch` are written (the sheet sends only what changed); the new text comes
+ * back on the next `board` snapshot. Throws on a non-2xx so the caller can roll
+ * its optimistic text back — including the 409 the server returns once the ticket
+ * has left the backlog and its text is frozen. */
+export async function editTicketText(id: string, patch: TicketTextRequest): Promise<void> {
+  const response = await fetch(appPath(`/tickets/${id}/text`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) {
+    throw new Error(`editTicketText: HTTP ${String(response.status)}`);
   }
 }
 

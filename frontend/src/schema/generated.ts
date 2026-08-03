@@ -241,6 +241,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tickets/{id}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit a ticket's title and/or body text directly.
+         * @description Direct text editing from the ticket detail sheet: the user's own literal wording replaces the ticket's title and/or body. Like the sandbox option — and unlike Accept and Delete — this does NOT route through the brain, and for a sharper reason: dictating a change and letting the brain rewrite the ticket is exactly what drifts from what the user meant, so the whole point of a direct edit is that the typed text lands verbatim. The write is the board's `shape_ticket` operation, so its precondition applies: only a ticket still in the backlog (`shaping` or `ready`) can be edited — once work has started, the text is what the agent was briefed with. The resulting `board.updated` (plus, while shaping, the `feed.updated` that re-renders the proposal card) carries the new text back over the stream.
+         */
+        post: operations["editTicketText"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/beta-signup": {
         parameters: {
             query?: never;
@@ -777,6 +797,13 @@ export interface components {
             /** @description True saves the ticket's sandbox (its release is suppressed, so the workspace survives); false returns it to the default recycle. */
             keep: boolean;
         };
+        /** @description POST /api/tickets/{id}/text body — a direct edit of the ticket's own text. Both fields are optional so the sheet can send only what changed, but at least one must be present (neither ⇒ 400). An omitted field is left untouched; a present one replaces the stored value verbatim, including an empty `body` — clearing the description is a legal edit, clearing the title is not. */
+        TicketTextRequest: {
+            /** @description The ticket's new title. Must contain a non-whitespace character; omit the field to leave the title unchanged. */
+            title?: string;
+            /** @description The ticket's new body, as Markdown source. May be empty (clears the description); omit the field to leave the body unchanged. */
+            body?: string;
+        };
         /** @description The `activity` SSE event payload (08 §4) — ephemeral, never stored. `thinking` brackets a brain pass (renders the spinner); `toast` confirms one side-effect board transition (renders the auto-dismissing pill). Fields are keyed by `kind`, mirroring Ticket.state's enum discriminator. */
         ActivityEvent: {
             /** @enum {string} */
@@ -1286,6 +1313,59 @@ export interface operations {
             };
             /** @description No such ticket in the caller's project. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    editTicketText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The ticket's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted — the ticket's text was updated. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body — malformed JSON, neither field present, or a title that is empty/whitespace-only. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such ticket in the caller's project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The ticket is past the backlog (working, blocked or done), so its text is no longer editable. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request body larger than the 256 KiB cap. */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

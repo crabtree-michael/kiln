@@ -64,12 +64,35 @@ backend/cmd/kiln/
 four SSE events: `board`, `say`, `feed`, `activity`), `GET /api/board`, `POST /api/message`,
 `GET /api/messages` — is now a subset of a much larger surface: `GET /api/activity`; the feed
 group (`GET /api/feed`, `/api/feed/history`, `POST /api/feed/seen`, `/api/feed/dismiss-all`,
-`POST /api/feed/{id}/dismiss`); ticket actions (`POST /api/tickets/{id}/accept|delete`);
+`POST /api/feed/{id}/dismiss`); ticket actions (`POST /api/tickets/{id}/accept|delete`, and
+the two direct writes `POST /api/tickets/{id}/sandbox|text` — see below);
 `POST /api/voice/token`; the push group (`POST`/`DELETE /api/push/subscribe`,
 `GET /api/push/key`, `GET`/`PUT /api/push/mode`); the identity group (see below); dev routes
 (`/api/dev/*`, gated); **`GET /healthz`** (liveness + DB ping, 200 ok / 503 degraded, mounted
 outside `/api`); and the SPA `/` catch-all. Every `/api/*` handler is wrapped in `withProject`
 (11 phase 2) — session-authenticated and project-scoped before it runs.
+
+**The two direct board writes (the D5 exceptions).** Everything the client does to the
+*board* goes through the brain — Accept and Delete are synthesized human messages, not
+mutations. Exactly two routes break that, each behind its own optional port so the exception
+stays visible in the type surface rather than hiding as a method on `BoardReader`:
+
+| Route | Port | Board op | Why it skips the brain |
+| --- | --- | --- | --- |
+| `POST /api/tickets/{id}/sandbox` | `TicketSandboxSetter` | `SetKeepSandbox` | A toggle; an LLM round-trip would be slow and non-deterministic for no gain. |
+| `POST /api/tickets/{id}/text` | `TicketTextEditor` | `ShapeTicket` | An LLM pass is the *thing being avoided* — dictating a wording change and letting the brain rewrite the ticket is what drifts from what the user meant. |
+
+Both are `Enable…`-gated (a nil port leaves the route unmounted) and wired to `boardSvc`
+directly in `enableServerRoutes`. Keep the list at two: a third "just this once" write is how
+D5 stops meaning anything. If you add one, it needs its own port, its own `Enable…`, and a
+reason in the port's doc comment that is about *this* operation, not about convenience.
+
+The text route is the only handler that maps a board precondition to **409**: `ShapeTicket`
+accepts only `shaping`/`ready`, so a ticket past the backlog gets `*board.ErrInvalidTransition`
+→ 409, not a 500 (the client can then say why the edit didn't take). Its body-level rejections
+run *before* the write — neither field present, or a whitespace-only title — because an empty
+patch would still fan a `board.updated` out to every open client, and a nameless ticket has no
+identity on the board or in the feed. An empty **body** is a legal edit; an empty title is not.
 
 - Build/check from `/backend`: `gofmt -l . && go vet ./... && go build ./...`.
 - The runtime consumes the board through the narrow `Puller`/`Blocker` ports it names, not

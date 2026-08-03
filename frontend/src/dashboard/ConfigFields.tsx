@@ -486,11 +486,6 @@ export function ProjectFields({
 
       <section data-role="project-group" data-group="agent">
         <h3>Agent</h3>
-        <p data-role="project-group-hint">
-          {providerField === null
-            ? 'How much of this project’s work runs at once, and what counts as finished.'
-            : 'Which coding agent runs this project’s work, how much of it runs at once, and what counts as finished.'}
-        </p>
         <div data-role="project-group-fields">
           {providerField}
           {workerCountField}
@@ -500,11 +495,6 @@ export function ProjectFields({
 
       <section data-role="project-group" data-group="sandbox">
         <h3>Sandbox</h3>
-        {/* Provider-neutral on purpose — what a sandbox actually is here depends
-            on the provider, and `SandboxInfo` below says which case this is. */}
-        <p data-role="project-group-hint">
-          The workspace each worker starts in: which base image its sandbox boots from.
-        </p>
         <div data-role="project-group-fields">{snapshotField}</div>
         <SandboxInfo
           catalogAvailable={catalogAvailable}

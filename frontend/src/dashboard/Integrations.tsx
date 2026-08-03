@@ -111,7 +111,6 @@ function CredentialStatusIndicator({
 interface IntegrationCardProps {
   provider: string;
   title: string;
-  blurb: string;
   connected: boolean;
   /** Overrides the chip's text when a card has a state finer than the
    * connected/not-connected pair (GitHub's "Reconnect needed"). */
@@ -131,7 +130,6 @@ interface IntegrationCardProps {
 function IntegrationCard({
   provider,
   title,
-  blurb,
   connected,
   statusLabel,
   attention = false,
@@ -141,10 +139,7 @@ function IntegrationCard({
   return (
     <div data-role="integration-card" data-provider={provider} data-connected={String(connected)}>
       <div data-role="integration-header">
-        <div data-role="integration-identity">
-          <span data-role="integration-title">{title}</span>
-          <span data-role="integration-blurb">{blurb}</span>
-        </div>
+        <span data-role="integration-title">{title}</span>
         <span
           data-role="integration-connected"
           data-connected={String(connected)}
@@ -294,7 +289,6 @@ function ApiKeyCard({
     <IntegrationCard
       provider={spec.provider}
       title={spec.title}
-      blurb={spec.blurb}
       connected={status.set}
       action={
         <>
@@ -390,7 +384,6 @@ function GitHubCard({
     <IntegrationCard
       provider="github"
       title="GitHub"
-      blurb="Lets agents clone, read, and push to your repo."
       connected={connected}
       statusLabel={needsReconnect ? 'Reconnect needed' : undefined}
       attention={needsReconnect}

@@ -51,8 +51,6 @@ export interface ApiKeyProvider {
   /** The key input's label. Kept identical to the pre-card field label so the
    * accessible name (`getByLabelText('Amika API key')`) is unchanged. */
   label: string;
-  /** One line under the heading: what connecting this provider buys. */
-  blurb: string;
 }
 
 /** The API-key providers, in card render order. Anthropic leads only when its
@@ -63,21 +61,18 @@ export const API_KEY_PROVIDERS: ApiKeyProvider[] = [
     provider: 'anthropic',
     title: 'Anthropic',
     label: 'Anthropic API key',
-    blurb: 'Powers the orchestrator’s brain.',
   },
   {
     credential: 'amika_api_key',
     provider: 'amika',
     title: 'Amika',
     label: 'Amika API key',
-    blurb: 'Provisions and runs the sandboxes your agents work in.',
   },
   {
     credential: 'devin_api_key',
     provider: 'devin',
     title: 'Devin',
     label: 'Devin API key',
-    blurb: 'Runs tickets through Devin sessions.',
   },
 ];
 

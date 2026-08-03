@@ -94,12 +94,37 @@ describe('settings desktop layout', () => {
 
   // Credentials are connect cards now, not a grid of inputs. Each card is a
   // header row whose action is pinned to the right edge — that `margin-left:
-  // auto` is what keeps "Switch account" off the identity line, so it is the
-  // part worth asserting.
+  // auto` is what keeps the button off the identity line, so it is the part
+  // worth asserting.
   it('pins each integration card’s action to the right edge', () => {
     const body = ruleBody("[data-role='integration-action'] {");
     expect(body).toMatch(/margin-left:\s*auto/);
     expect(ruleBody("[data-role='integration-header'] {")).toMatch(/display:\s*flex/);
+  });
+
+  // The cards are block-level siblings, so without a gap ON THE SECTION they
+  // butt straight together into one undifferentiated slab. Nothing else supplies
+  // it: `section-body`'s gap separates the section from its neighbours, not the
+  // rows inside it.
+  it('separates the provider rows from each other', () => {
+    const body = ruleBody("[data-role='integrations'] {");
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/flex-direction:\s*column/);
+    expect(body).toMatch(/gap:/);
+  });
+
+  // The key dialog is a bare <form>, and no rule on this page styles one. Miss
+  // the background and it renders see-through over the dimmed page behind it,
+  // with its own fields unreadable — which is exactly the bug this asserts is
+  // gone. `display: flex` matters too: it is what makes the `gap` mean anything.
+  it('gives the key dialog an opaque panel of its own', () => {
+    const body = ruleBody("[data-role='dashboard'] form[data-role='api-key-modal'] {");
+    expect(body).toMatch(/background:\s*var\(--surface-card\)/);
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/padding:/);
+    // A dialog floating over the page reads as raised only with a shadow under
+    // it; the flat card shadow is not enough at this elevation.
+    expect(body).toMatch(/box-shadow:\s*var\(--shadow-overlay\)/);
   });
 
   it('collapses to a single column below the two-column threshold', () => {

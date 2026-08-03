@@ -274,64 +274,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                 data-role="integrations"
               >
                 <div
-                  data-connected="true"
-                  data-provider="github"
-                  data-role="integration-card"
-                >
-                  <div
-                    data-role="integration-header"
-                  >
-                    <span
-                      data-role="integration-title"
-                    >
-                      GitHub
-                    </span>
-                    <span
-                      data-connected="true"
-                      data-role="integration-connected"
-                    >
-                      Connected
-                    </span>
-                    <div
-                      data-role="integration-action"
-                    >
-                      <span
-                        data-name="github_auth_token"
-                        data-role="credential-status"
-                        data-status="skipped"
-                      />
-                      <a
-                        data-provider="github"
-                        data-role="github-switch-account"
-                        data-status="unknown"
-                        href="/auth/github/connect"
-                      >
-                        Switch account
-                      </a>
-                    </div>
-                  </div>
-                  <span
-                    data-role="github-account"
-                  >
-                    @
-                    octocat
-                  </span>
-                  <span
-                    data-role="github-repo-count"
-                  >
-                    1
-                     
-                    repository
-                     
-                    available to link to a project.
-                  </span>
-                  <p
-                    data-role="github-access-note"
-                  >
-                    Connecting grants Kiln read and write access to your repositories — it needs that to clone your repo, read it, and push the branches your agents produce.
-                  </p>
-                </div>
-                <div
                   data-connected="false"
                   data-provider="amika"
                   data-role="integration-card"
@@ -339,6 +281,15 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   <div
                     data-role="integration-header"
                   >
+                    <span
+                      aria-hidden="true"
+                      data-role="integration-mark"
+                    >
+                      <img
+                        alt=""
+                        src="/logos/amika.svg"
+                      />
+                    </span>
                     <span
                       data-role="integration-title"
                     >
@@ -367,22 +318,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                       </button>
                     </div>
                   </div>
-                  <span
-                    data-name="amika_api_key"
-                    data-role="secret-status"
-                    data-set="false"
-                  >
-                    not configured
-                  </span>
-                  <label
-                    data-role="amika-cred-id"
-                  >
-                    Amika Claude credential ID
-                    <input
-                      type="text"
-                      value="cred-1"
-                    />
-                  </label>
                 </div>
                 <div
                   data-connected="false"
@@ -392,6 +327,15 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   <div
                     data-role="integration-header"
                   >
+                    <span
+                      aria-hidden="true"
+                      data-role="integration-mark"
+                    >
+                      <img
+                        alt=""
+                        src="/logos/devin.svg"
+                      />
+                    </span>
                     <span
                       data-role="integration-title"
                     >
@@ -420,13 +364,6 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                       </button>
                     </div>
                   </div>
-                  <span
-                    data-name="devin_api_key"
-                    data-role="secret-status"
-                    data-set="false"
-                  >
-                    not configured
-                  </span>
                 </div>
               </section>
             </div>
@@ -485,21 +422,34 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                 >
                   Unavailable
                 </span>
-                <button
+                <select
                   aria-busy="false"
-                  aria-checked="false"
                   aria-labelledby="notifications-title"
-                  data-role="notifications-toggle"
+                  data-role="notifications-mode"
                   data-status="unsupported"
                   disabled=""
-                  role="switch"
-                  type="button"
                 >
-                  <span
-                    aria-hidden="true"
-                    data-role="notifications-knob"
-                  />
-                </button>
+                  <option
+                    value="off"
+                  >
+                    Off
+                  </option>
+                  <option
+                    value="default"
+                  >
+                    Default
+                  </option>
+                  <option
+                    value="blocked"
+                  >
+                    Blocked
+                  </option>
+                  <option
+                    value="all"
+                  >
+                    All
+                  </option>
+                </select>
               </section>
             </div>
           </section>

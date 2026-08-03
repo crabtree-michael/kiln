@@ -1,13 +1,13 @@
-// Push-notification frequency (02 §10). A small self-contained hook — the bell
-// menu is the only surface for it — that reads the global mode on mount and
-// writes changes back. The mode gates when the runtime fires a Web Push: the
-// recommended `default` notifies on the genuine milestones (blocked, completed,
-// started); `blocked` narrows that to only when a ticket needs a human decision;
-// `all` notifies on every feed update (a testing aid). Single user in v1, so the
-// mode is one global value.
+// Push-notification frequency (02 §10). A small self-contained hook — its two
+// surfaces are the bell menu in the app and the settings page's Notifications
+// row — that reads the global mode on mount and writes changes back. The mode
+// gates when the runtime fires a Web Push: the recommended `default` notifies on
+// the genuine milestones (blocked, completed, started); `blocked` narrows that to
+// only when a ticket needs a human decision; `all` notifies on every feed update
+// (a testing aid). Single user in v1, so the mode is one global value.
 //
 // It degrades gracefully: while the initial read is in flight, or if it fails,
-// the hook reports the `default` mode so the menu renders the recommended
+// the hook reports the `default` mode so both surfaces render the recommended
 // behavior rather than erroring.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchNotificationMode, putNotificationMode } from '@/transport/transport';

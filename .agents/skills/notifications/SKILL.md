@@ -38,7 +38,13 @@ The `notify.send` outbox contract (03 §7.1) is unchanged — only its executor 
   `board.NotifyPayload` snapshot (Title/Reason → Title/Body).
 - **Registration (frontend):** `src/stores/use-web-push.ts` (`useWebPush` hook) runs the
   opt-in flow (permission → register `/push-sw.js` → subscribe with the VAPID key →
-  `POST /api/push/subscribe`). The toggle is `dashboard/NotificationsField.tsx` in Settings.
+  `POST /api/push/subscribe`). The Settings surface is
+  `dashboard/NotificationsField.tsx` — one row whose **dropdown** spans both halves of the
+  setting: **Off** is this browser's subscription (selecting it unsubscribes), and
+  **Default / Blocked / All** are the global mode the bell menu also offers (via
+  `useNotificationMode`), selecting one of which runs the opt-in too when the browser
+  hasn't subscribed yet. So the selection shown is the stored mode only once subscribed —
+  an unsubscribed browser reads "Off" whatever mode the account holds.
 - **Service worker:** `frontend/public/push-sw.js` — a **static, hand-written** worker
   (`push` + `notificationclick` only). It suppresses the notification when a Kiln tab is
   already foregrounded, and the deep link (`/app?project=<id>[&ticket=<id>]`; `/` is the

@@ -929,10 +929,10 @@ html:has([data-role='settings']) {
 
 /* ------------------------------------------------------- notifications */
 
-/* Push opt-in (02 §10) is one setting, so it renders as one line: label left,
-   switch right, no explanatory copy. It takes the same inset row as the GitHub
-   connection — both are a single integration and its state — rather than card
-   chrome of its own, since the section-body around it is already a card. */
+/* Push frequency (02 §10) is one setting, so it renders as one line: label
+   left, dropdown right, no explanatory copy. It takes the same inset row as the
+   GitHub connection — both are a single integration and its state — rather than
+   card chrome of its own, since the section-body around it is already a card. */
 [data-role='notifications-field'] {
   display: flex;
   align-items: center;
@@ -944,7 +944,7 @@ html:has([data-role='settings']) {
   border-radius: var(--radius-md);
 }
 
-/* Pushes the reason + switch to the right edge as one pair. */
+/* Pushes the reason + dropdown to the right edge as one pair. */
 [data-role='notifications-title'] {
   margin-right: auto;
   font: var(--type-small);
@@ -952,94 +952,16 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
-/* The switch: a pill track that fills with ember when on, knob sliding across.
-   Sized off the track so the two stay in step if the height changes. Scoped
-   under [data-role='settings'] to outrank the page's ghost-button styling. */
-[data-role='settings'] [data-role='notifications-toggle'] {
-  --track-width: 40px;
-  --track-height: 22px;
-  --knob-inset: 3px;
-  position: relative;
+/* The frequency dropdown. The page's own select styling (chrome-stripped, with
+   the gradient chevron) already applies; this only keeps it from being squeezed
+   by a long label and trims it to row height, since it sits inline rather than
+   under a stacked form label. Scoped under [data-role='settings'] to outrank
+   that page-wide rule. */
+[data-role='settings'] [data-role='notifications-mode'] {
   flex-shrink: 0;
-  width: var(--track-width);
-  height: var(--track-height);
-  /* The page's compact buttons carry min-height: 32px — a track is not a
-     button-sized target, so it has to be cleared explicitly, not just `height`. */
-  min-height: var(--track-height);
-  padding: 0;
-  background: var(--surface-inset);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
-
-[data-role='settings'] [data-role='notifications-toggle'][aria-checked='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-[data-role='settings'] [data-role='notifications-toggle']:hover:not(:disabled) {
-  background: var(--surface-inset);
-  border-color: var(--border-strong);
-}
-
-[data-role='settings']
-  [data-role='notifications-toggle'][aria-checked='true']:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-/* The generic button:active ember flash would otherwise fire on the off track. */
-[data-role='settings'] [data-role='notifications-toggle']:active:not(:disabled) {
-  background: var(--surface-inset);
-}
-
-[data-role='settings']
-  [data-role='notifications-toggle'][aria-checked='true']:active:not(:disabled) {
-  background: var(--accent-press);
-}
-
-[data-role='settings'] [data-role='notifications-toggle']:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-[data-role='settings'] [data-role='notifications-toggle']:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-[data-role='notifications-knob'] {
-  position: absolute;
-  top: var(--knob-inset);
-  left: var(--knob-inset);
-  /* The track's inner box minus the inset on both sides (border-box, so the
-     1px border is already outside `top`/`left`'s origin). */
-  width: calc(var(--track-height) - 2px - 2 * var(--knob-inset));
-  height: calc(var(--track-height) - 2px - 2 * var(--knob-inset));
-  border-radius: var(--radius-pill);
-  /* Off, the knob has to read against a track that is itself pale, so it takes
-     the strong border tone; on, it flips to the on-accent cream. */
-  background: var(--border-strong);
-  transition:
-    transform 120ms ease,
-    background 120ms ease;
-}
-
-[data-role='notifications-toggle'][aria-checked='true'] [data-role='notifications-knob'] {
-  background: var(--text-on-accent);
-  transform: translateX(calc(var(--track-width) - var(--track-height)));
-}
-
-/* Sits after the switch rules, not up with the spinner's reduced-motion block:
-   these selectors only tie with the ones above, so source order decides. */
-@media (prefers-reduced-motion: reduce) {
-  [data-role='settings'] [data-role='notifications-toggle'],
-  [data-role='notifications-knob'] {
-    transition: none;
-  }
+  min-height: 32px;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
 }
 
 /* Wraps onto its own line under the row, the same way the note used to. */
@@ -1565,17 +1487,26 @@ html:has([data-role='settings']) {
 
 /* ----------------------------------------------------------- integrations */
 
-/* One card per provider. Each card is a header row — identity on the left,
-   connection state next to it, and the card's action pinned to the RIGHT edge
-   — over an optional detail block (stored-key status, the linked GitHub
-   account, extra provider config). The action slot is what keeps "Switch
-   account" off the identity line. */
+/* One card per provider, and each card is a single row: brand mark, name,
+   connection state, and the action pinned to the RIGHT edge. Nothing sits under
+   that row — the state chip and the Connect/Update-key wording already say what
+   a detail line would, and everything else about a provider (the key itself,
+   Amika's credential ID) lives in the dialog the action opens. */
+
+/* The section is the list. Without its own gap the cards are block-level
+   siblings and run straight together — the surrounding `section-body` gap only
+   separates the section from its neighbours, not the rows inside it. */
+[data-role='integrations'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
 
 [data-role='integration-card'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--surface-page);
@@ -1589,6 +1520,30 @@ html:has([data-role='settings']) {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+/* The provider's brand mark, the same asset the landing page's agent orbit
+   uses. Both marks are near-black artwork, so — exactly as on the landing page
+   — they sit on a white disc and read identically in either theme. The initial
+   fallback covers a provider we hold no mark for. */
+[data-role='integration-mark'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid var(--border-default);
+  font: var(--type-body-strong);
+  color: #191815;
+}
+
+[data-role='integration-mark'] img {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
 }
 
 [data-role='integration-title'] {
@@ -1611,10 +1566,10 @@ html:has([data-role='settings']) {
   border-color: var(--calm-strong);
 }
 
-/* The right-hand action slot: Connect / Update key / Switch account, plus the
-   live validity mark. `margin-left: auto` is the whole point — it pushes the
-   action to the card's right edge instead of letting it sit inline after the
-   identity text. */
+/* The right-hand action slot: Connect / Update key, plus the live validity
+   mark. `margin-left: auto` is the whole point — it pushes the action to the
+   card's right edge instead of letting it sit inline after the identity
+   text. */
 [data-role='integration-action'] {
   display: flex;
   align-items: center;
@@ -1629,65 +1584,13 @@ html:has([data-role='settings']) {
   padding: var(--space-1) var(--space-4);
 }
 
-/* GitHub's actions are anchors (a backend OAuth route, not an SPA path) —
-   styled to match the sibling cards' buttons. "Switch account" stays quiet:
-   the account is already connected, so it is a secondary affordance. */
-[data-role='integration-action'] a {
-  display: inline-flex;
-  align-items: center;
-  font: var(--type-caption);
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-4);
-  text-decoration: none;
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
-
-[data-role='integration-action'] a:hover {
-  background: var(--accent-hover);
-}
-
-[data-role='integration-action'] a[data-role='github-switch-account'] {
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-}
-
-[data-role='integration-action'] a[data-role='github-switch-account']:hover {
-  background: var(--surface-subtle);
-  border-color: var(--border-strong);
-}
-
-[data-role='github-account'] {
-  font: var(--type-small);
-  color: var(--text-body);
-}
-
 /* What the `repo` grant on GitHub's consent screen actually authorizes, stated
-   on the card so it reads as expected rather than alarming. Quiet by default. */
+   wherever we ask for it (the setup flow's first step) so it reads as expected
+   rather than alarming. Quiet by default. */
 [data-role='github-access-note'] {
   margin: 0;
   font: var(--type-caption);
   color: var(--text-faint);
-}
-
-/* The stored credential can't reach the repo — the one case the card raises its
-   voice, since everything downstream will fail until it's re-granted. */
-[data-role='github-reconnect-note'] {
-  margin: 0;
-  font: var(--type-small);
-  color: var(--danger);
-}
-
-/* Only a credential that needs re-granting is an alarm state. "Not connected"
-   is merely unconfigured and stays neutral. */
-[data-role='integration-connected'][data-attention='true'] {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-
-[data-role='amika-cred-id'] {
-  margin-top: var(--space-1);
 }
 
 /* ------------------------------------------------------- api-key modal */
@@ -1702,15 +1605,25 @@ html:has([data-role='settings']) {
   align-items: center;
   justify-content: center;
   padding: var(--page-gutter);
-  background: rgb(0 0 0 / 45%);
+  background: var(--scrim);
 }
 
+/* An opaque panel, matching the project modal's surface. The background is not
+   optional decoration: without it the dialog renders see-through onto the
+   dimmed settings page behind it and its own fields become unreadable. It also
+   owns its layout — `display: flex` is what makes the `gap` below mean
+   anything, since nothing else styles a bare form on this page. */
 [data-role='dashboard'] form[data-role='api-key-modal'] {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 420px;
   gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
+  box-shadow: var(--shadow-overlay);
 }
 
 [data-role='api-key-title'] {

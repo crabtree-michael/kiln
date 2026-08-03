@@ -1,26 +1,25 @@
-// The account view's Integrations section (11 §5): one card per provider —
-// GitHub, Amika, Devin — replacing the old flat list of free-text credential
+// The account view's Integrations section (11 §5): one card per API-key
+// provider — Amika, Devin — replacing the old flat list of free-text credential
 // inputs that `CredentialFields` used to render.
 //
-// Two connect shapes, one card pattern:
-//   * API-key providers (Amika, Devin — and Anthropic when its retained field
-//     is re-enabled) — "Connect" opens a small modal whose single input takes
-//     the key. Submitting sends just that one field, exactly as the old
-//     blur/Enter auto-save did, so a successful save still chains straight
-//     into a verify run (dashboard-store's `saveSettings`) and the card's
-//     `credential-status` indicator picks up the fresh result.
-//   * GitHub — "Connect" is the REPO-SCOPED OAuth grant (`/auth/github/connect`,
-//     a backend route, so a plain full-page anchor and NOT a router Link).
-//     Signing in grants no scopes, so it is this grant — and only this grant —
-//     that yields a credential able to clone and push; the card says so out
-//     loud, since GitHub's consent screen will ask for `repo`. Once connected
-//     the card shows the linked account and offers "Switch account", which
-//     re-runs the same flow; that action sits in the card's right-hand action
-//     slot, never inline with the identity text.
+// GitHub is deliberately NOT here. Its credential comes from the repo-scoped
+// OAuth grant, not a pasted key, and the two surfaces that actually need it ask
+// for it in place: the guided setup flow's first step (`Onboarding`) and the
+// project form's repo picker (`ConfigFields`). A card here would be a third
+// place to connect the same thing, so this section covers only the providers
+// you connect by pasting a key.
 //
-// A token stored by the removed manual field lands in the same slot this flow
-// writes, so it carries forward: the card reports it as connected rather than
-// stranding it (see GitHubCard's status handling).
+// One card pattern, one row each: the provider's brand mark, its name, whether
+// it's connected, and the action. "Connect" (or "Update key" once a key is
+// stored) opens a small modal whose input takes the key. Submitting sends just
+// that one field, exactly as the old blur/Enter auto-save did, so a successful
+// save still chains straight into a verify run (dashboard-store's
+// `saveSettings`) and the card's `credential-status` indicator picks up the
+// fresh result.
+//
+// Everything about a provider beyond "is it connected" lives in that modal —
+// including Amika's Claude credential ID — so the section itself stays a
+// scannable list of one-line rows.
 //
 // Secrets stay write-only (11 §3 D7): the modal input never carries the stored
 // value, only a placeholder built from its status tail, and the draft only
@@ -33,7 +32,6 @@ import {
   type FormEvent,
   type JSX,
   type KeyboardEvent,
-  type ReactNode,
 } from 'react';
 import type { SettingsUpdateRequest, VerifyCheck } from '@/transport/transport';
 import type { components } from '@/schema/generated';
@@ -42,27 +40,17 @@ import type { CredentialName } from '@/dashboard/dashboard-context';
 import {
   API_KEY_PROVIDERS,
   CHECK_NAME_FOR_CREDENTIAL,
-  GITHUB_ACCESS_NOTE,
-  GITHUB_CONNECT_PATH,
   credentialIndicatorStatus,
   updateBodyFor,
   type ApiKeyProvider,
   type CredentialIndicatorStatus,
 } from '@/dashboard/integrations-config';
-import type { GitHubRepos } from '@/dashboard/use-github-repos';
 
 // `MeSettings`/`SecretStatus` aren't among transport.ts's re-exports (only the
 // types its own functions traffic in are) — pull them the same way it derives
 // its own local aliases, straight off the generated wire schema.
 type MeSettings = components['schemas']['MeSettings'];
 type SecretStatus = components['schemas']['SecretStatus'];
-type GitHubConnection = components['schemas']['GitHubConnection'];
-
-// Every affordance on the GitHub card (Connect, Reconnect, Switch account)
-// points at the shared `GITHUB_CONNECT_PATH` — the repo-scoped grant — imported
-// from `integrations-config` rather than restated here, so this card, the
-// settings repo picker, and the setup flow's first step can't drift onto
-// different routes.
 
 /** Per-user Anthropic key entry is HIDDEN for now: the deployment supplies the
  * Anthropic key as a global `ANTHROPIC_API_KEY` env setting, and onboarding no
@@ -108,102 +96,97 @@ function CredentialStatusIndicator({
   );
 }
 
-interface IntegrationCardProps {
-  provider: string;
-  title: string;
-  connected: boolean;
-  /** Overrides the chip's text when a card has a state finer than the
-   * connected/not-connected pair (GitHub's "Reconnect needed"). */
-  statusLabel?: string | undefined;
-  /** Marks the chip as an alarm state — something stored is broken and needs
-   * the user. Distinct from merely unconfigured, which stays neutral. */
-  attention?: boolean;
-  /** The card's right-hand action slot — Connect / Update key / Switch
-   * account. Always laid out at the card's right edge, never inline with the
-   * detail text. */
-  action: ReactNode;
-  /** Anything below the header row: the stored-secret status line, the linked
-   * GitHub account, extra provider config. */
-  children?: ReactNode;
+/** Extra, non-secret provider config carried in the key dialog (Amika's Claude
+ * credential ID). Described as DATA rather than as markup so the dialog owns
+ * the draft: the field resets with the dialog, Save commits it, and Cancel or
+ * Escape discards it. A field that rendered here but committed itself on blur
+ * would make Cancel save — the one thing Cancel must never do. */
+interface ExtraConfig {
+  /** `data-role` on the field — the stable selector tests bind to. */
+  role: string;
+  /** The field's visible label, and so its accessible name. */
+  label: string;
+  /** The stored value: where the draft starts, and what "unchanged" means. */
+  value: string;
+  /** The update-body fragment for a changed draft. */
+  body: (value: string) => SettingsUpdateRequest;
 }
 
-function IntegrationCard({
-  provider,
-  title,
-  connected,
-  statusLabel,
-  attention = false,
-  action,
-  children,
-}: IntegrationCardProps): JSX.Element {
-  return (
-    <div data-role="integration-card" data-provider={provider} data-connected={String(connected)}>
-      <div data-role="integration-header">
-        <span data-role="integration-title">{title}</span>
-        <span
-          data-role="integration-connected"
-          data-connected={String(connected)}
-          data-attention={attention ? 'true' : undefined}
-        >
-          {statusLabel ?? (connected ? 'Connected' : 'Not connected')}
-        </span>
-        <div data-role="integration-action">{action}</div>
-      </div>
-      {children}
-    </div>
-  );
+/** What the dialog submits: the pasted key (empty when it was left alone) and
+ * the extra field's draft. Either alone is a valid save. */
+interface ApiKeyDraft {
+  key: string;
+  extra: string;
+}
+
+/** Whether a draft is a real change worth sending. Blank never is: the field
+ * points at stored config, and emptying it was never a way to clear it. The
+ * type predicate lets the one caller that needs `extra.body` narrow to it. */
+function extraChanged(extra: ExtraConfig | undefined, draft: string): extra is ExtraConfig {
+  return extra !== undefined && draft.trim() !== '' && draft.trim() !== extra.value;
 }
 
 interface ApiKeyModalProps {
-  title: string;
-  label: string;
+  spec: ApiKeyProvider;
   /** The stored value's presence+tail, so the input can advertise
    * "configured · …<tail>" without ever holding the value itself. */
   status: SecretStatus;
   saving: boolean;
+  /** Extra, non-secret provider config rendered below the key input. Saved by
+   * this dialog's Save, in the SAME request as the key — so changing it never
+   * requires re-pasting a key you already stored, and neither half can commit
+   * behind the other's back. */
+  extra?: ExtraConfig | undefined;
   onCancel: () => void;
-  /** Resolves `true` when the key was actually stored — the modal only closes
-   * then, so a failed save leaves the typed value in place rather than
-   * silently discarding it. */
-  onSubmit: (value: string) => Promise<boolean>;
+  /** Resolves `true` when the change was actually stored — the modal only
+   * closes then, so a failed save leaves the typed values in place rather than
+   * silently discarding them. */
+  onSubmit: (draft: ApiKeyDraft) => Promise<boolean>;
 }
 
-/** The "paste your key" dialog. Deliberately small: one labelled input, Save,
- * Cancel. Escape and the backdrop both cancel. */
+/** The "paste your key" dialog. Deliberately small: one labelled input, any
+ * extra config for that provider, Save, Cancel. Escape and the backdrop both
+ * cancel. */
 function ApiKeyModal({
-  title,
-  label,
+  spec,
   status,
   saving,
+  extra,
   onCancel,
   onSubmit,
 }: ApiKeyModalProps): JSX.Element {
   const [value, setValue] = useState('');
+  // Seeded from the stored value, and owned by the dialog: closing unmounts it,
+  // so an abandoned edit leaves nothing behind to reappear on reopen.
+  const [extraDraft, setExtraDraft] = useState(extra?.value ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
   // In-flight guard, synchronous on purpose: Enter submits and an impatient
   // second Enter (or a click on Save) can land in the same task, long before
   // the store's `pendingCredentials` re-renders this as `saving` — a ref is
   // the only thing that reliably makes that pair a single save.
   const inFlight = useRef(false);
+  const heading = status.set ? `Update ${spec.title} key` : `Connect ${spec.title}`;
+  // Either half alone is a save: with a key already stored, changing just the
+  // credential ID must not require re-pasting the key to enable Save.
+  const canSubmit = value.trim() !== '' || extraChanged(extra, extraDraft);
 
-  // Land focus in the input on open: the dialog exists solely to take this one
-  // value, so the user should be able to paste immediately.
+  // Land focus in the input on open: the dialog exists primarily to take this
+  // one value, so the user should be able to paste immediately.
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const trimmed = value.trim();
-    if (trimmed === '' || saving || inFlight.current) {
+    if (!canSubmit || saving || inFlight.current) {
       return;
     }
     inFlight.current = true;
-    void onSubmit(trimmed)
+    void onSubmit({ key: value.trim(), extra: extraDraft })
       .then((succeeded) => {
         if (succeeded) {
           // Only on success: a failed save leaves the dialog open with the
-          // typed value in place rather than silently discarding it.
+          // typed values in place rather than silently discarding them.
           onCancel();
         }
       })
@@ -228,15 +211,15 @@ function ApiKeyModal({
         data-role="api-key-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Connect ${title}`}
+        aria-label={heading}
         onClick={(event) => {
           event.stopPropagation();
         }}
         onSubmit={handleSubmit}
       >
-        <h3 data-role="api-key-title">Connect {title}</h3>
+        <h3 data-role="api-key-title">{heading}</h3>
         <label>
-          {label}
+          {spec.label}
           <input
             ref={inputRef}
             type="password"
@@ -249,11 +232,26 @@ function ApiKeyModal({
             }}
           />
         </label>
+        {extra !== undefined && (
+          // Not a secret, so unlike the key it opens holding its stored value —
+          // there is nothing to hide, and seeing the current one is the point.
+          <label data-role={extra.role}>
+            {extra.label}
+            <input
+              type="text"
+              value={extraDraft}
+              disabled={saving}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                setExtraDraft(event.target.value);
+              }}
+            />
+          </label>
+        )}
         <div data-role="api-key-actions">
           <button type="button" data-role="api-key-cancel" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" data-role="api-key-save" disabled={saving || value.trim() === ''}>
+          <button type="submit" data-role="api-key-save" disabled={saving || !canSubmit}>
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
@@ -268,30 +266,52 @@ interface ApiKeyCardProps {
   pending: boolean;
   indicatorStatus: CredentialIndicatorStatus;
   message?: string | undefined;
+  /** Passed straight through to the dialog — extra config belongs with the key,
+   * not on the row. */
+  extra?: ExtraConfig | undefined;
   onSave: (body: SettingsUpdateRequest) => Promise<boolean>;
-  children?: ReactNode;
 }
 
+/** One provider as a single row: brand mark, name, connection state, and the
+ * action pinned to the right edge. No detail line under it — the state chip and
+ * the Connect/Update-key wording already say everything the row needs to, and
+ * the stored key's fingerprint shows in the dialog where you'd act on it. */
 function ApiKeyCard({
   spec,
   status,
   pending,
   indicatorStatus,
   message,
+  extra,
   onSave,
-  children,
 }: ApiKeyCardProps): JSX.Element {
   const [open, setOpen] = useState(false);
 
-  const submit = (value: string): Promise<boolean> => onSave(updateBodyFor(spec.credential, value));
+  // One request for whatever the dialog actually changed — a key, the extra
+  // config, or both — so a single save chains a single verify run.
+  const submit = (draft: ApiKeyDraft): Promise<boolean> =>
+    onSave({
+      ...(draft.key === '' ? {} : updateBodyFor(spec.credential, draft.key)),
+      ...(extraChanged(extra, draft.extra) ? extra.body(draft.extra.trim()) : {}),
+    });
 
   return (
-    <IntegrationCard
-      provider={spec.provider}
-      title={spec.title}
-      connected={status.set}
-      action={
-        <>
+    <div
+      data-role="integration-card"
+      data-provider={spec.provider}
+      data-connected={String(status.set)}
+    >
+      <div data-role="integration-header">
+        {/* Decorative: the provider's name sits right beside it, so the mark
+            adds no information a screen reader would miss. */}
+        <span data-role="integration-mark" aria-hidden="true">
+          {spec.logo === undefined ? spec.title.slice(0, 1) : <img src={spec.logo} alt="" />}
+        </span>
+        <span data-role="integration-title">{spec.title}</span>
+        <span data-role="integration-connected" data-connected={String(status.set)}>
+          {status.set ? 'Connected' : 'Not connected'}
+        </span>
+        <div data-role="integration-action">
           <CredentialStatusIndicator
             name={spec.credential}
             status={indicatorStatus}
@@ -308,135 +328,36 @@ function ApiKeyCard({
           >
             {status.set ? 'Update key' : 'Connect'}
           </button>
-        </>
-      }
-    >
-      <span data-role="secret-status" data-name={spec.credential} data-set={String(status.set)}>
-        {secretStatusText(status)}
-      </span>
-      {children}
+        </div>
+      </div>
       {open && (
         <ApiKeyModal
-          title={spec.title}
-          label={spec.label}
+          spec={spec}
           status={status}
           saving={pending}
+          extra={extra}
           onCancel={() => {
             setOpen(false);
           }}
           onSubmit={submit}
         />
       )}
-    </IntegrationCard>
+    </div>
   );
 }
 
-interface GitHubCardProps {
-  /** The repo-credential state, straight off `GET /api/me`. */
-  connection: GitHubConnection;
-  /** The connected account's repos — the project form's picker reads the same
-   * credential, so the card reports what that grant actually bought. */
-  github: GitHubRepos;
-  /** The account the SESSION signed in with — the fallback label for a
-   * carried-over credential, whose own account was never recorded. */
-  sessionLogin: string;
-  indicatorStatus: CredentialIndicatorStatus;
-  message?: string | undefined;
-}
-
-/** GitHub connects through the repo-scoped OAuth grant rather than a pasted
- * token. The card renders the four states of that credential:
- *
- *   disconnected    → "Connect"
- *   connected       → the linked account + "Switch account"
- *   unknown         → treated as connected: a token carried over from the
- *                     removed manual field, presumed good until a verify run
- *                     says otherwise. It is never downgraded by the refactor.
- *   needs_reconnect → GitHub reported scopes without `repo`, so the credential
- *                     cannot clone or push: say so and offer "Reconnect".
- *
- * Whatever the state, the action lives in the card's right-hand slot, never
- * inline with the account text. */
-function GitHubCard({
-  connection,
-  github,
-  sessionLogin,
-  indicatorStatus,
-  message,
-}: GitHubCardProps): JSX.Element {
-  const status = connection.status;
-  const needsReconnect = status === 'needs_reconnect';
-  // A stored credential counts as connected unless GitHub positively told us
-  // its scopes are insufficient — that is the carry-forward guarantee.
-  const connected = status === 'connected' || status === 'unknown';
-  // The credential's own account when it was recorded (a real connect), else
-  // the session's — a carried-over token has no recorded owner.
-  const login = connection.login || sessionLogin;
-
-  let action = 'Connect';
-  if (needsReconnect) {
-    action = 'Reconnect';
-  } else if (connected) {
-    action = 'Switch account';
-  }
-
-  return (
-    <IntegrationCard
-      provider="github"
-      title="GitHub"
-      connected={connected}
-      statusLabel={needsReconnect ? 'Reconnect needed' : undefined}
-      attention={needsReconnect}
-      action={
-        <>
-          <CredentialStatusIndicator
-            name="github_auth_token"
-            status={indicatorStatus}
-            message={message}
-          />
-          {/* A plain full-page anchor, NOT a router Link: the connect route is
-              backend-owned, so the browser must actually leave the app. */}
-          <a
-            href={GITHUB_CONNECT_PATH}
-            data-role={
-              connected && !needsReconnect ? 'github-switch-account' : 'integration-connect'
-            }
-            data-provider="github"
-            data-status={status}
-          >
-            {action}
-          </a>
-        </>
-      }
-    >
-      {connected && login !== '' && <span data-role="github-account">@{login}</span>}
-      {/* What the grant actually bought, from the same credential the project
-          form's repo picker reads — so the two can never disagree. */}
-      {connected && !github.loading && github.connected && (
-        <span data-role="github-repo-count">
-          {github.repos.length} {github.repos.length === 1 ? 'repository' : 'repositories'}{' '}
-          available to link to a project.
-        </span>
-      )}
-      {needsReconnect && (
-        <p data-role="github-reconnect-note">
-          The connected GitHub credential doesn’t include repository access, so agents can’t clone
-          or push. Reconnect to grant it — nothing else changes.
-        </p>
-      )}
-      {/* Stated up front, on the card, so the `repo` permission GitHub asks for
-          on the consent screen is expected rather than alarming. */}
-      <p data-role="github-access-note">{GITHUB_ACCESS_NOTE}</p>
-    </IntegrationCard>
-  );
-}
+/** Amika needs one more, non-secret, piece of config: which stored Claude
+ * credential its sandboxes run under. It rides inside the Amika key dialog
+ * rather than on the row — the row is a one-line summary, and this is something
+ * you set while you are already thinking about that provider's credentials. */
+const AMIKA_CRED_ID: Omit<ExtraConfig, 'value'> = {
+  role: 'amika-cred-id',
+  label: 'Amika Claude credential ID',
+  body: (value: string) => ({ amika_claude_cred_id: value }),
+};
 
 export interface IntegrationsProps {
   settings: MeSettings;
-  /** The connected account's repos, for the GitHub card's summary line. */
-  github: GitHubRepos;
-  /** The GitHub account the session signed in with (`me.user.github_login`). */
-  githubLogin: string;
   /** The credentials whose save/verify is currently in flight — threaded
    * straight through from the store; drives each card's indicator and its
    * connect button independently. */
@@ -450,38 +371,13 @@ export interface IntegrationsProps {
 
 export function Integrations({
   settings,
-  github,
-  githubLogin,
   pendingCredentials,
   verifying,
   verifyChecks,
   onSave,
 }: IntegrationsProps): JSX.Element {
-  const [amikaClaudeCredId, setAmikaClaudeCredId] = useState(settings.amika_claude_cred_id);
-  // In-flight guard for the credential-ID field, synchronous on purpose: Enter
-  // fires a commit and the resulting focus loss (or an explicit Tab) fires blur
-  // in the same task, long before the store's pending state re-renders — a ref
-  // is the only thing that reliably makes that pair a single save.
-  const credIdInFlight = useRef(false);
-
   const checkFor = (name: CredentialName): VerifyCheck | undefined =>
     verifyChecks?.find((candidate) => candidate.name === CHECK_NAME_FOR_CREDENTIAL[name]);
-
-  const indicatorFor = (name: CredentialName): CredentialIndicatorStatus =>
-    credentialIndicatorStatus(name, pendingCredentials, verifying, checkFor(name));
-
-  // Not a secret — the field just shows the live value, so there's nothing to
-  // clear on success; only save when it actually changed.
-  const commitCredId = (): void => {
-    const trimmed = amikaClaudeCredId.trim();
-    if (trimmed === '' || trimmed === settings.amika_claude_cred_id || credIdInFlight.current) {
-      return;
-    }
-    credIdInFlight.current = true;
-    void onSave({ amika_claude_cred_id: trimmed }).finally(() => {
-      credIdInFlight.current = false;
-    });
-  };
 
   const cards = API_KEY_PROVIDERS.filter(
     (spec) => spec.credential !== 'anthropic_api_key' || SHOW_ANTHROPIC_KEY_FIELD,
@@ -489,47 +385,26 @@ export function Integrations({
 
   return (
     <section data-role="integrations">
-      <GitHubCard
-        connection={settings.github_connection}
-        github={github}
-        sessionLogin={githubLogin}
-        indicatorStatus={indicatorFor('github_auth_token')}
-        message={checkFor('github_auth_token')?.message}
-      />
-
       {cards.map((spec) => (
         <ApiKeyCard
           key={spec.credential}
           spec={spec}
           status={settings[spec.credential]}
           pending={pendingCredentials.has(spec.credential)}
-          indicatorStatus={indicatorFor(spec.credential)}
-          message={checkFor(spec.credential)?.message}
-          onSave={onSave}
-        >
-          {/* Amika needs one more, non-secret, piece of config: which stored
-              Claude credential its sandboxes run under. It rides on the Amika
-              card rather than floating loose in the account view. */}
-          {spec.credential === 'amika_api_key' && (
-            <label data-role="amika-cred-id">
-              Amika Claude credential ID
-              <input
-                type="text"
-                value={amikaClaudeCredId}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  setAmikaClaudeCredId(event.target.value);
-                }}
-                onBlur={commitCredId}
-                onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    commitCredId();
-                  }
-                }}
-              />
-            </label>
+          indicatorStatus={credentialIndicatorStatus(
+            spec.credential,
+            pendingCredentials,
+            verifying,
+            checkFor(spec.credential),
           )}
-        </ApiKeyCard>
+          message={checkFor(spec.credential)?.message}
+          extra={
+            spec.credential === 'amika_api_key'
+              ? { ...AMIKA_CRED_ID, value: settings.amika_claude_cred_id }
+              : undefined
+          }
+          onSave={onSave}
+        />
       ))}
     </section>
   );

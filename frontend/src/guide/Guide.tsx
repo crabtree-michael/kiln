@@ -407,35 +407,33 @@ export function Guide(): JSX.Element {
                     Settings is where your connections live. It opens with your{' '}
                     <strong>account card</strong> (your GitHub avatar, name, and a{' '}
                     <strong>Sign out</strong> button), followed by <strong>Integrations</strong> —
-                    one card per provider:
+                    one row per coding-agent provider:
                   </p>
                   <ul className="guide-list">
                     <li>
-                      <strong>GitHub</strong> — <strong>Connect</strong> sends you through GitHub’s
-                      authorization screen, which will ask you to grant the <code>repo</code>{' '}
-                      permission. That is expected: it is{' '}
-                      <strong>read and write access to your repositories</strong>, and Kiln needs it
-                      to clone your repo, read it, and push the branches your agents produce.
-                      Signing in to Kiln does <em>not</em> grant this on its own. Once connected the
-                      card names the account, with a <strong>Switch account</strong> link on the
-                      right if you want to authorize a different one. If you already had a GitHub
-                      token saved in the old settings field, it carries over — you stay connected
-                      and don’t need to redo anything.
-                    </li>
-                    <li>
-                      <strong>Amika</strong> — provisions the sandboxes your agents work in. It also
-                      carries the Amika Claude credential ID.
+                      <strong>Amika</strong> — provisions the sandboxes your agents work in.
                     </li>
                     <li>
                       <strong>Devin</strong> — runs tickets through Devin sessions.
                     </li>
                   </ul>
                   <p>
-                    For the key-based providers, <strong>Connect</strong> opens a small dialog with
-                    a single field: paste the key and hit <strong>Save</strong>. There’s no “Save
-                    credentials” button and no free-text token field anywhere — saving a key
-                    immediately kicks off a <strong>live verification</strong>, so a status mark
-                    appears on that provider’s card:
+                    GitHub is not one of them: it isn’t a pasted key, so you connect it where you
+                    actually use it — step 1 of setup, and the <strong>Repository</strong> field of
+                    any project — both of which send you through GitHub’s authorization screen. That
+                    screen asks you to grant the <code>repo</code> permission, which is expected: it
+                    is <strong>read and write access to your repositories</strong>, and Kiln needs
+                    it to clone your repo, read it, and push the branches your agents produce.
+                    Signing in to Kiln does <em>not</em> grant this on its own.
+                  </p>
+                  <p>
+                    Each provider row gives you its <strong>Connect</strong> button, which opens a
+                    small dialog: paste the key and hit <strong>Save</strong>. (Amika’s dialog
+                    carries one more field, the <strong>Amika Claude credential ID</strong> — the
+                    stored Claude credential its sandboxes run under. Save commits both together.)
+                    There’s no “Save credentials” button and no free-text token field anywhere —
+                    saving a key immediately kicks off a <strong>live verification</strong>, so a
+                    status mark appears on that provider’s row:
                   </p>
                   <div className="guide-table-wrap">
                     <table className="guide-table guide-table--marks">
@@ -459,21 +457,22 @@ export function Guide(): JSX.Element {
                   </div>
                   <p>
                     The keys are <strong>write-only</strong>: once saved, nothing ever shows the
-                    value again — only a masked line like <code>configured · …x4Kd</code> on the
-                    card. A connected card’s button becomes <strong>Update key</strong>, so you only
-                    ever re-enter a key you actually want to change.
+                    value again. The row just reads <strong>Connected</strong>, and its button
+                    becomes <strong>Update key</strong> — so you only ever re-enter a key you
+                    actually want to change. Reopen that dialog and the field is empty, showing a
+                    masked reminder like <code>configured · …x4Kd</code> of the key already stored.
                   </p>
                   <p>
-                    The GitHub connection and the provider key you chose during setup are already
-                    here, and already verified — this section is where you change them later, or add
-                    a second provider’s key if you start a project on the other one.
+                    The provider key you chose during setup is already here, and already verified —
+                    this section is where you change it later, or add a second provider’s key if you
+                    start a project on the other one.
                   </p>
                   <Figure
                     caption="Figure 3 — Integrations in Settings after verification."
-                    capture="The provider cards showing ✓ marks, plus the account card above them."
+                    capture="The provider rows showing ✓ marks, plus the account card above them."
                   />
                   <p>
-                    <strong>Wait for every card to go green</strong> before moving on. A red ✗ means
+                    <strong>Wait for every row to go green</strong> before moving on. A red ✗ means
                     that connection won’t work at runtime — fix the key and it re-verifies as you
                     go.
                   </p>

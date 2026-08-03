@@ -141,7 +141,7 @@ describe('Dashboard', () => {
     expect(document.querySelectorAll('form')).toHaveLength(0);
   });
 
-  it('signed in with project + configured secrets: settings view shows the configured secret status', async () => {
+  it('signed in with project + configured secrets: settings view reports the stored key', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -168,10 +168,14 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    const status = await screen.findByText('configured · …x4Kd');
-    expect(status).toHaveAttribute('data-role', 'secret-status');
-    expect(status).toHaveAttribute('data-name', 'amika_api_key');
-    expect(status).toHaveAttribute('data-set', 'true');
+    // The row says "connected" and offers to replace the key; the stored key's
+    // fingerprint shows in the dialog, where you'd act on it.
+    const card = await waitFor(() => integrationCard('amika'));
+    expect(card).toHaveAttribute('data-connected', 'true');
+    expect(within(card).getByText('Connected')).toBeInTheDocument();
+
+    const input = await openConnectModal('amika', 'Amika API key');
+    expect(input).toHaveAttribute('placeholder', 'configured · …x4Kd');
   });
 
   it('per-user Anthropic key entry is hidden (now a global env setting)', async () => {
@@ -204,10 +208,11 @@ describe('Dashboard', () => {
     ).toBeNull();
   });
 
-  // Signing in with GitHub is NOT the same as connecting it: sign-in grants no
-  // scopes, so a session alone leaves the card disconnected until the
-  // repo-scoped grant runs. That separation is the whole point of the flow.
-  it('the GitHub card connects through the repo-scoped OAuth grant — no token field anywhere', async () => {
+  // GitHub is connected through the repo-scoped OAuth grant, which the setup
+  // flow and the project form ask for in place. The Integrations section covers
+  // only the providers you connect by pasting a key, so it holds neither a
+  // GitHub card nor a token field.
+  it('the Integrations section covers only API-key providers — no GitHub anywhere in it', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [
@@ -226,57 +231,20 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    const card = await waitFor(() => integrationCard('github'));
-    expect(card).toHaveAttribute('data-connected', 'false');
-
+    const section = await waitFor(() => {
+      const el = document.querySelector('[data-role="integrations"]');
+      if (el === null) {
+        throw new Error('expected the integrations section');
+      }
+      return el;
+    });
+    expect(
+      section.querySelector('[data-role="integration-card"][data-provider="github"]'),
+    ).toBeNull();
+    expect(section.querySelector('a[href="/auth/github/connect"]')).toBeNull();
     // The manual "GitHub token" input is gone from the whole screen.
     expect(screen.queryByLabelText('GitHub token')).toBeNull();
     expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();
-
-    // Connect is a full-page anchor to the backend-owned repo-scoped route,
-    // not a router Link, and lives in the card's right-hand action slot.
-    const link = within(card).getByRole('link', { name: 'Connect' });
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
-    expect(link.parentElement).toHaveAttribute('data-role', 'integration-action');
-    // And the card says what that grant authorizes.
-    expect(within(card).getByText(/read and write access/i)).toBeInTheDocument();
-  });
-
-  it('a connected GitHub card right-aligns "Switch account"', async () => {
-    vi.mocked(transport.fetchMe).mockResolvedValue(
-      makeMe({
-        projects: [
-          {
-            id: 'proj-1',
-            name: 'kiln',
-            repo_url: 'https://github.com/crabtree-michael/kiln',
-            agent_provider: '',
-            amika_snapshot: '',
-            worker_count: 1,
-            merge_gate_mode: 'main',
-            amika_secrets: [],
-          },
-        ],
-        settings: {
-          anthropic_api_key: { set: false, tail: '' },
-          amika_api_key: { set: false, tail: '' },
-          devin_api_key: { set: false, tail: '' },
-          github_auth_token: { set: true, tail: 'abcd' },
-          github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
-          amika_claude_cred_id: '',
-        },
-      }),
-    );
-    renderDashboard();
-
-    const card = await waitFor(() => integrationCard('github'));
-    expect(card).toHaveAttribute('data-connected', 'true');
-    expect(within(card).getByText('@octocat')).toBeInTheDocument();
-
-    const link = within(card).getByRole('link', { name: 'Switch account' });
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
-    expect(link).toHaveAttribute('data-role', 'github-switch-account');
-    expect(link.parentElement).toHaveAttribute('data-role', 'integration-action');
   });
 
   it('connecting an API-key provider saves only that field from the modal, then auto-verifies', async () => {
@@ -816,38 +784,22 @@ describe('Dashboard', () => {
     }
   });
 
-  it('surfaces the account-level GitHub connection in Integrations', async () => {
+  it('lists each API-key provider as one row, brand mark and all', async () => {
     mockConnectedSettings();
     renderDashboard();
     await screen.findByRole('button', { name: 'Sign out' });
 
-    const card = await waitFor(() => integrationCard('github'));
-    expect(card).toHaveAttribute('data-connected', 'true');
-    // Switching re-runs the repo-scoped grant, so this is a full-page nav to
-    // the backend route — never a router Link.
-    const action = within(card).getByRole('link', { name: 'Switch account' });
-    expect(action).toHaveAttribute('href', '/auth/github/connect');
-    // The card reports what that grant bought, from the same credential the
-    // project form's repo picker reads.
-    expect(card.querySelector('[data-role="github-repo-count"]')?.textContent).toMatch(
-      /repositor/i,
-    );
-  });
-
-  it('offers a connect link when the GitHub account is not connected', async () => {
-    vi.mocked(transport.fetchGitHubRepos).mockResolvedValueOnce({ connected: false, repos: [] });
-    mockPopulatedSettings();
-    renderDashboard();
-    await screen.findByRole('button', { name: 'Sign out' });
-
-    const card = await waitFor(() => integrationCard('github'));
-    expect(card).toHaveAttribute('data-connected', 'false');
-    // Signing in grants nothing (11 §2 D2), so a signed-in user with no
-    // credential is genuinely not connected until they run this grant.
-    expect(within(card).getByRole('link', { name: 'Connect' })).toHaveAttribute(
-      'href',
-      '/auth/github/connect',
-    );
+    const section = document.querySelector('[data-role="integrations"]');
+    const cards = section?.querySelectorAll('[data-role="integration-card"]') ?? [];
+    expect([...cards].map((card) => card.getAttribute('data-provider'))).toEqual([
+      'amika',
+      'devin',
+    ]);
+    for (const card of cards) {
+      // One row, nothing under it, and the provider's mark leading it.
+      expect(card.children).toHaveLength(1);
+      expect(card.querySelector('[data-role="integration-mark"] img')).not.toBeNull();
+    }
   });
 
   it("a credential field's accessible name stays the label once its validity glyph lands", async () => {

@@ -1,8 +1,12 @@
-// Integrations section (11 §5): a connect card per provider. These cover the
-// card-level contract in isolation — the GitHub card's two states and its
-// right-aligned "switch account" action, and the API-key modal's open/save/
-// dismiss behaviour. The wired-up flow (save → chained verify → indicator)
-// lives in Dashboard.test.tsx against the real store.
+// Integrations section (11 §5): a connect card per API-key provider. These
+// cover the card-level contract in isolation — the row each provider renders,
+// and the key modal's open/save/dismiss behaviour. The wired-up flow (save →
+// chained verify → indicator) lives in Dashboard.test.tsx against the real
+// store.
+//
+// GitHub is not part of this section: it connects through the repo-scoped OAuth
+// grant, asked for in the setup flow and the project form instead (see
+// Onboarding.test.tsx / Dashboard.test.tsx).
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Integrations } from '@/dashboard/Integrations';
@@ -10,13 +14,6 @@ import type { components } from '@/schema/generated';
 import type { VerifyCheck } from '@/transport/transport';
 
 type MeSettings = components['schemas']['MeSettings'];
-type GitHubConnection = components['schemas']['GitHubConnection'];
-
-/** The GitHub repo credential as `GET /api/me` reports it. Defaults to the
- * no-credential case; each test names the state it cares about. */
-function connection(overrides: Partial<GitHubConnection> = {}): GitHubConnection {
-  return { status: 'disconnected', login: '', scopes: [], ...overrides };
-}
 
 function settings(overrides: Partial<MeSettings> = {}): MeSettings {
   return {
@@ -24,17 +21,15 @@ function settings(overrides: Partial<MeSettings> = {}): MeSettings {
     amika_api_key: { set: false, tail: '' },
     devin_api_key: { set: false, tail: '' },
     github_auth_token: { set: false, tail: '' },
-    github_connection: connection(),
+    github_connection: { status: 'disconnected', login: '', scopes: [] },
     amika_claude_cred_id: '',
     ...overrides,
   };
 }
 
 interface RenderOptions {
-  githubLogin?: string;
   settingsOverrides?: Partial<MeSettings>;
   verifyChecks?: VerifyCheck[] | null;
-  pending?: ReadonlySet<never>;
   onSave?: (body: unknown) => Promise<boolean>;
 }
 
@@ -45,8 +40,6 @@ function renderIntegrations(options: RenderOptions = {}): {
   render(
     <Integrations
       settings={settings(options.settingsOverrides)}
-      github={{ repos: [], connected: false, loading: false, error: null, refresh: noRefresh }}
-      githubLogin={options.githubLogin ?? 'octocat'}
       pendingCredentials={new Set()}
       verifying={false}
       verifyChecks={options.verifyChecks ?? null}
@@ -55,9 +48,6 @@ function renderIntegrations(options: RenderOptions = {}): {
   );
   return { onSave };
 }
-
-/** The picker's refresh action — never invoked by these tests. */
-const noRefresh = (): Promise<void> => Promise.resolve();
 
 function card(provider: string): HTMLElement {
   const el = document.querySelector<HTMLElement>(
@@ -69,108 +59,68 @@ function card(provider: string): HTMLElement {
   return el;
 }
 
+/** Opens a provider's key dialog and returns its key input. */
+function openModal(provider: string, label: string): HTMLElement {
+  fireEvent.click(within(card(provider)).getByRole('button', { name: /Connect|Update key/ }));
+  return screen.getByLabelText(label);
+}
+
 describe('Integrations', () => {
-  it('renders one card per provider and no free-text token field', () => {
+  it('renders one card per API-key provider — and none for GitHub', () => {
     renderIntegrations();
-    // Anthropic stays hidden behind its retained env flag (off by default).
-    expect(document.querySelectorAll('[data-role="integration-card"]')).toHaveLength(3);
-    expect(card('github')).toBeInTheDocument();
+    // Anthropic stays hidden behind its retained env flag (off by default), so
+    // Amika and Devin are the whole section.
+    expect(document.querySelectorAll('[data-role="integration-card"]')).toHaveLength(2);
     expect(card('amika')).toBeInTheDocument();
     expect(card('devin')).toBeInTheDocument();
+
+    // GitHub is connected through OAuth in the setup flow and the project form,
+    // not from here — neither a card nor a free-text token field.
+    expect(
+      document.querySelector('[data-role="integration-card"][data-provider="github"]'),
+    ).toBeNull();
     expect(screen.queryByLabelText('GitHub token')).toBeNull();
+    expect(document.querySelector('a[href="/auth/github/connect"]')).toBeNull();
   });
 
-  it('GitHub disconnected: offers Connect through the repo-scoped OAuth route', () => {
-    renderIntegrations({ githubLogin: '' });
-    const github = card('github');
-    expect(github).toHaveAttribute('data-connected', 'false');
-    expect(within(github).getByText('Not connected')).toBeInTheDocument();
+  it('each row carries the provider’s brand mark and nothing under it', () => {
+    renderIntegrations();
+    const mark = (provider: string): Element | null =>
+      card(provider).querySelector('[data-role="integration-mark"] img');
+    // The same assets the landing page's agent orbit uses.
+    expect(mark('amika')).toHaveAttribute('src', '/logos/amika.svg');
+    expect(mark('devin')).toHaveAttribute('src', '/logos/devin.svg');
+    // Decorative — the provider's name is right beside it.
+    expect(mark('amika')).toHaveAttribute('alt', '');
 
-    const link = within(github).getByRole('link', { name: 'Connect' });
-    // The repo-scoped grant, NOT the scopeless /auth/github/login sign-in —
-    // this is the only path that yields a credential able to clone and push.
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
-    // No account line until there is a credential.
-    expect(github.querySelector('[data-role="github-account"]')).toBeNull();
-  });
-
-  it('states plainly that connecting grants repo read/write access', () => {
-    renderIntegrations({ githubLogin: '' });
-    const note = within(card('github')).getByText(/read and write access/i);
-    expect(note).toHaveAttribute('data-role', 'github-access-note');
-    expect(note.textContent).toMatch(/push/i);
-  });
-
-  it('GitHub connected: "Switch account" sits in the right-hand action slot', () => {
-    renderIntegrations({
-      settingsOverrides: {
-        github_auth_token: { set: true, tail: 'abcd' },
-        github_connection: connection({ status: 'connected', login: 'octocat', scopes: ['repo'] }),
-      },
-    });
-    const github = card('github');
-    expect(github).toHaveAttribute('data-connected', 'true');
-    expect(within(github).getByText('@octocat')).toBeInTheDocument();
-
-    const link = within(github).getByRole('link', { name: 'Switch account' });
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
-    // The action slot — not the identity block, not the detail line. This is
-    // what CSS pins to the card's right edge (`margin-left: auto`).
-    expect(link.parentElement).toHaveAttribute('data-role', 'integration-action');
-    // And it is NOT inline with the account text.
-    const account = within(github).getByText('@octocat');
-    expect(account.contains(link)).toBe(false);
-  });
-
-  // The migration guarantee, at the UI: a token carried over from the removed
-  // manual field reports status "unknown" and must still read as connected.
-  it('GitHub with a carried-over manual token reads as connected', () => {
-    renderIntegrations({
-      githubLogin: 'octocat',
-      settingsOverrides: {
-        github_auth_token: { set: true, tail: 'abcd' },
-        github_connection: connection({ status: 'unknown' }),
-      },
-    });
-    const github = card('github');
-    expect(github).toHaveAttribute('data-connected', 'true');
-    expect(within(github).getByText('Connected')).toBeInTheDocument();
-    // Its own account was never recorded, so the card falls back to the
-    // session's login rather than showing nothing.
-    expect(within(github).getByText('@octocat')).toBeInTheDocument();
-    expect(within(github).getByRole('link', { name: 'Switch account' })).toBeInTheDocument();
-    expect(github.querySelector('[data-role="github-reconnect-note"]')).toBeNull();
-  });
-
-  it('GitHub whose credential lacks repo scope prompts a reconnect', () => {
-    renderIntegrations({
-      settingsOverrides: {
-        github_auth_token: { set: true, tail: 'abcd' },
-        github_connection: connection({ status: 'needs_reconnect', scopes: ['gist'] }),
-      },
-    });
-    const github = card('github');
-    expect(github).toHaveAttribute('data-connected', 'false');
-    expect(within(github).getByText('Reconnect needed')).toBeInTheDocument();
-    expect(within(github).getByText(/doesn’t include repository access/i)).toBeInTheDocument();
-
-    const link = within(github).getByRole('link', { name: 'Reconnect' });
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
+    // The old stored-secret detail line is gone: the row is the header alone.
+    expect(document.querySelector('[data-role="secret-status"]')).toBeNull();
+    expect(card('amika').children).toHaveLength(1);
   });
 
   it('an unconfigured key card says Connect; a configured one says Update key', () => {
     renderIntegrations({ settingsOverrides: { devin_api_key: { set: true, tail: 'wxyz' } } });
+    expect(card('amika')).toHaveAttribute('data-connected', 'false');
+    expect(within(card('amika')).getByText('Not connected')).toBeInTheDocument();
     expect(within(card('amika')).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+
+    expect(card('devin')).toHaveAttribute('data-connected', 'true');
+    expect(within(card('devin')).getByText('Connected')).toBeInTheDocument();
     expect(within(card('devin')).getByRole('button', { name: 'Update key' })).toBeInTheDocument();
-    // The stored key's fingerprint is shown, never the value.
-    expect(within(card('devin')).getByText('configured · …wxyz')).toBeInTheDocument();
+  });
+
+  it('the stored key’s fingerprint shows in the dialog, never the value', () => {
+    renderIntegrations({ settingsOverrides: { devin_api_key: { set: true, tail: 'wxyz' } } });
+    const input = openModal('devin', 'Devin API key');
+    // Write-only: the input opens empty and only advertises the tail.
+    expect(input).toHaveValue('');
+    expect(input).toHaveAttribute('placeholder', 'configured · …wxyz');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Update Devin key');
   });
 
   it('Connect opens a modal that sends only that provider’s key', async () => {
     const { onSave } = renderIntegrations();
-    fireEvent.click(within(card('devin')).getByRole('button', { name: 'Connect' }));
-
-    const input = screen.getByLabelText('Devin API key');
+    const input = openModal('devin', 'Devin API key');
     fireEvent.change(input, { target: { value: '  cog-abc  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -182,9 +132,6 @@ describe('Integrations', () => {
 
   it('Escape and the backdrop both dismiss the modal without saving', () => {
     const { onSave } = renderIntegrations();
-    const open = (): void => {
-      fireEvent.click(within(card('amika')).getByRole('button', { name: 'Connect' }));
-    };
     const modal = (): Element | null => document.querySelector('[data-role="api-key-modal"]');
     const backdrop = (): Element => {
       const el = document.querySelector('[data-role="api-key-backdrop"]');
@@ -194,17 +141,15 @@ describe('Integrations', () => {
       return el;
     };
 
-    open();
-    fireEvent.keyDown(screen.getByLabelText('Amika API key'), { key: 'Escape' });
+    fireEvent.keyDown(openModal('amika', 'Amika API key'), { key: 'Escape' });
     expect(modal()).toBeNull();
 
-    open();
+    openModal('amika', 'Amika API key');
     fireEvent.click(backdrop());
     expect(modal()).toBeNull();
 
     // A click inside the dialog must NOT bubble up into the backdrop dismiss.
-    open();
-    fireEvent.click(screen.getByLabelText('Amika API key'));
+    fireEvent.click(openModal('amika', 'Amika API key'));
     expect(modal()).not.toBeNull();
 
     expect(onSave).not.toHaveBeenCalled();
@@ -212,8 +157,7 @@ describe('Integrations', () => {
 
   it('a failed save keeps the modal open with the typed value intact', async () => {
     renderIntegrations({ onSave: () => Promise.resolve(false) });
-    fireEvent.click(within(card('amika')).getByRole('button', { name: 'Connect' }));
-    const input = screen.getByLabelText('Amika API key');
+    const input = openModal('amika', 'Amika API key');
     fireEvent.change(input, { target: { value: 'sk-bad' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -223,11 +167,34 @@ describe('Integrations', () => {
     expect(screen.getByLabelText('Amika API key')).toHaveValue('sk-bad');
   });
 
-  it('the Amika card carries the non-secret Claude credential ID, committed on blur', async () => {
-    const { onSave } = renderIntegrations();
-    const input = within(card('amika')).getByLabelText('Amika Claude credential ID');
-    fireEvent.change(input, { target: { value: ' cred-9 ' } });
-    fireEvent.blur(input);
+  it('the Amika dialog carries the non-secret Claude credential ID', () => {
+    renderIntegrations({ settingsOverrides: { amika_claude_cred_id: 'cred-1' } });
+    // It lives in the dialog, not loose on the row.
+    expect(screen.queryByLabelText('Amika Claude credential ID')).toBeNull();
+
+    openModal('amika', 'Amika API key');
+    const input = screen.getByLabelText('Amika Claude credential ID');
+    expect(document.querySelector('[data-role="api-key-modal"]')?.contains(input)).toBe(true);
+    // Not a secret, so unlike the key it opens holding its stored value.
+    expect(input).toHaveValue('cred-1');
+  });
+
+  it('Save commits the credential ID on its own — no key paste required', async () => {
+    const { onSave } = renderIntegrations({
+      settingsOverrides: { amika_api_key: { set: true, tail: 'wxyz' } },
+    });
+    openModal('amika', 'Amika API key');
+    const save = screen.getByRole('button', { name: 'Save' });
+    // Nothing has changed yet, so there is nothing to save.
+    expect(save).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Amika Claude credential ID'), {
+      target: { value: ' cred-9 ' },
+    });
+    // A changed ID is a save in its own right: re-pasting a key that is already
+    // stored must never be the price of editing this field.
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith({ amika_claude_cred_id: 'cred-9' });
@@ -235,7 +202,50 @@ describe('Integrations', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
-  it('maps each card’s indicator to its own verify check (GitHub reads "repo")', () => {
+  it('Save sends a key and the credential ID together, in one request', async () => {
+    const { onSave } = renderIntegrations();
+    fireEvent.change(openModal('amika', 'Amika API key'), { target: { value: 'sk-amika' } });
+    fireEvent.change(screen.getByLabelText('Amika Claude credential ID'), {
+      target: { value: 'cred-9' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // One request, so one chained verify run — not two saves racing each other.
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith({
+        amika_api_key: 'sk-amika',
+        amika_claude_cred_id: 'cred-9',
+      });
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  // The regression this shape exists to prevent: the field used to commit itself
+  // on blur, so dismissing the dialog — which blurs it — saved the very edit the
+  // user was backing out of.
+  it('Cancel and Escape discard the credential ID instead of saving it', () => {
+    const { onSave } = renderIntegrations({
+      settingsOverrides: { amika_claude_cred_id: 'cred-1' },
+    });
+    const edit = (value: string): void => {
+      fireEvent.change(screen.getByLabelText('Amika Claude credential ID'), { target: { value } });
+    };
+
+    openModal('amika', 'Amika API key');
+    edit('cred-9');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onSave).not.toHaveBeenCalled();
+
+    openModal('amika', 'Amika API key');
+    // The discarded draft is gone, not lying in wait for the next open.
+    expect(screen.getByLabelText('Amika Claude credential ID')).toHaveValue('cred-1');
+    edit('cred-9');
+    fireEvent.keyDown(screen.getByLabelText('Amika API key'), { key: 'Escape' });
+    expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('maps each card’s indicator to its own verify check', () => {
     renderIntegrations({
       verifyChecks: [
         { name: 'amika', status: 'ok', message: 'reachable' },
@@ -249,6 +259,7 @@ describe('Integrations', () => {
     expect(indicator('amika_api_key')).toHaveAttribute('data-status', 'ok');
     expect(indicator('devin_api_key')).toHaveAttribute('data-status', 'failed');
     expect(indicator('devin_api_key')).toHaveAttribute('title', 'invalid key');
-    expect(indicator('github_auth_token')).toHaveAttribute('data-status', 'ok');
+    // The "repo" check has no card here — GitHub is not part of this section.
+    expect(indicator('github_auth_token')).toBeNull();
   });
 });

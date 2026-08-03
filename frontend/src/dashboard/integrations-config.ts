@@ -51,6 +51,11 @@ export interface ApiKeyProvider {
   /** The key input's label. Kept identical to the pre-card field label so the
    * accessible name (`getByLabelText('Amika API key')`) is unchanged. */
   label: string;
+  /** The provider's brand mark under `/logos` — the same asset the landing
+   * page's agent orbit uses, so the two surfaces name a provider with the same
+   * picture. Optional: a provider we hold no mark for falls back to its
+   * initial rather than blocking the card. */
+  logo?: string;
 }
 
 /** The API-key providers, in card render order. Anthropic leads only when its
@@ -67,12 +72,14 @@ export const API_KEY_PROVIDERS: ApiKeyProvider[] = [
     provider: 'amika',
     title: 'Amika',
     label: 'Amika API key',
+    logo: '/logos/amika.svg',
   },
   {
     credential: 'devin_api_key',
     provider: 'devin',
     title: 'Devin',
     label: 'Devin API key',
+    logo: '/logos/devin.svg',
   },
 ];
 

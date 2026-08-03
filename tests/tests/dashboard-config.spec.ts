@@ -37,12 +37,17 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   // anymore, and GitHub connects through OAuth rather than a pasted token).
   // The Anthropic key is a global env setting and its card is hidden, so this
   // exercises the credential path through the Amika card instead.
-  await page.locator('[data-role="integration-connect"][data-provider="amika"]').click();
+  const amikaCard = page.locator('[data-role="integration-card"][data-provider="amika"]');
+  await amikaCard.locator('[data-role="integration-connect"]').click();
   await page.getByLabel('Amika API key').fill('sk-amika-e2e-fake-x4Kd');
   await page.locator('[data-role="api-key-save"]').click();
-  const status = page.locator('[data-role="secret-status"][data-name="amika_api_key"]');
-  await expect(status).toHaveAttribute('data-set', 'true');
-  await expect(status).toContainText('x4Kd');
+  // The row is the whole report: it flips to connected and its action becomes
+  // "Update key". The stored key's tail lives in the dialog, not on the row.
+  await expect(amikaCard).toHaveAttribute('data-connected', 'true');
+  await expect(amikaCard.locator('[data-role="integration-connect"]')).toHaveText('Update key');
+  await amikaCard.locator('[data-role="integration-connect"]').click();
+  await expect(page.getByLabel('Amika API key')).toHaveAttribute('placeholder', /x4Kd/);
+  await page.locator('[data-role="api-key-cancel"]').click();
 
   // Write-only: the raw secret never comes back over the wire.
   const me = await page.request.get('/api/me');

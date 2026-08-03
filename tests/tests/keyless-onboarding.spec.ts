@@ -59,11 +59,11 @@ test('@keyless a new user is walked through setup and the board comes alive', as
   // chains a live verify — with KILN_VERIFY_MODE=mock the Amika check reports
   // ok offline (no real Amika call), instead of the failed status the
   // key-gated dashboard-config spec asserts.
-  await page.locator('[data-role="integration-connect"][data-provider="amika"]').click();
+  const amikaCard = page.locator('[data-role="integration-card"][data-provider="amika"]');
+  await amikaCard.locator('[data-role="integration-connect"]').click();
   await page.getByLabel('Amika API key').fill('mock-amika-key');
   await page.locator('[data-role="api-key-save"]').click();
-  const secret = page.locator('[data-role="secret-status"][data-name="amika_api_key"]');
-  await expect(secret).toHaveAttribute('data-set', 'true');
+  await expect(amikaCard).toHaveAttribute('data-connected', 'true');
   await expect(
     page.locator('[data-role="credential-status"][data-name="amika_api_key"]'),
     'mock verify should report ok offline',

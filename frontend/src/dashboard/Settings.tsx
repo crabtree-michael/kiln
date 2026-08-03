@@ -339,8 +339,6 @@ export function Settings(): JSX.Element {
           <SettingsSection section={INTEGRATIONS_SECTION}>
             <Integrations
               settings={me.settings}
-              githubLogin={me.user.github_login}
-              github={github}
               pendingCredentials={pendingCredentials}
               verifying={verifying}
               verifyChecks={verifyChecks}

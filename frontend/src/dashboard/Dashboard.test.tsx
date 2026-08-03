@@ -172,11 +172,14 @@ describe('Dashboard', () => {
     );
     renderDashboard();
 
-    // The row says "connected" and offers to replace the key; the stored key's
-    // fingerprint shows in the dialog, where you'd act on it.
+    // The row's dot shows connected and the button offers to replace the key;
+    // the stored key's fingerprint shows in the dialog, where you'd act on it.
     const card = await waitFor(() => integrationCard('amika'));
     expect(card).toHaveAttribute('data-connected', 'true');
-    expect(within(card).getByText('Connected')).toBeInTheDocument();
+    expect(within(card).getByRole('img', { name: 'Connected' })).toHaveAttribute(
+      'data-role',
+      'integration-connected',
+    );
 
     const input = await openConnectModal('amika', 'Amika API key');
     expect(input).toHaveAttribute('placeholder', 'configured · …x4Kd');

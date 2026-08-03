@@ -1552,18 +1552,29 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
+/* Connection state, as a dot. It replaced a "Connected" / "Not connected" pill,
+   which on a phone was the widest thing in the row and shouted louder than the
+   provider's own name. Same 8px circle for every provider, so the column of
+   dots reads as one scale.
+
+   Filled-vs-hollow does the work, not colour alone: green fill = connected, a
+   grey ring = not. Two states told only apart by green-vs-grey would collapse
+   under deuteranopia at this size, and the words are no longer on screen to
+   fall back on — they survive as the element's accessible name. `--text-muted`
+   rather than `--text-faint` because at 8px this IS the state, and a graphical
+   indicator wants 3:1 against the card. */
 [data-role='integration-connected'] {
+  display: block;
   flex-shrink: 0;
-  font: var(--type-caption);
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  padding: 0 var(--space-2);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
 }
 
 [data-role='integration-connected'][data-connected='true'] {
-  color: var(--calm-strong);
-  border-color: var(--calm-strong);
+  border-color: var(--calm);
+  background: var(--calm);
 }
 
 /* The right-hand action slot: Connect / Update key, plus the live validity

@@ -100,13 +100,25 @@ describe('Integrations', () => {
 
   it('an unconfigured key card says Connect; a configured one says Update key', () => {
     renderIntegrations({ settingsOverrides: { devin_api_key: { set: true, tail: 'wxyz' } } });
+    // The state shows as a dot, not a label — so it's the dot's accessible name
+    // that has to keep saying it in words.
+    const dot = (provider: string): HTMLElement =>
+      within(card(provider)).getByRole('img', { name: /connected/i });
+
     expect(card('amika')).toHaveAttribute('data-connected', 'false');
-    expect(within(card('amika')).getByText('Not connected')).toBeInTheDocument();
+    expect(dot('amika')).toHaveAccessibleName('Not connected');
+    expect(dot('amika')).toHaveAttribute('data-connected', 'false');
     expect(within(card('amika')).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
 
     expect(card('devin')).toHaveAttribute('data-connected', 'true');
-    expect(within(card('devin')).getByText('Connected')).toBeInTheDocument();
+    expect(dot('devin')).toHaveAccessibleName('Connected');
+    expect(dot('devin')).toHaveAttribute('data-connected', 'true');
     expect(within(card('devin')).getByRole('button', { name: 'Update key' })).toBeInTheDocument();
+
+    // The old text label is gone from the row entirely — it was the thing that
+    // read oversized on mobile.
+    expect(within(card('devin')).queryByText('Connected')).toBeNull();
+    expect(within(card('amika')).queryByText('Not connected')).toBeNull();
   });
 
   it('the stored key’s fingerprint shows in the dialog, never the value', () => {

@@ -102,6 +102,27 @@ describe('settings desktop layout', () => {
     expect(ruleBody("[data-role='integration-header'] {")).toMatch(/display:\s*flex/);
   });
 
+  // The status dot is an EMPTY element — the words moved to its accessible
+  // name — so its whole visible existence is these declarations. Lose the size
+  // and the row silently shows no state at all, with nothing in the DOM tests
+  // to notice (jsdom does no layout).
+  it('renders the connection state as a fixed-size dot', () => {
+    const body = ruleBody("[data-role='integration-connected'] {");
+    expect(body).toMatch(/width:\s*8px/);
+    expect(body).toMatch(/height:\s*8px/);
+    expect(body).toMatch(/border-radius:\s*50%/);
+    // Inline elements ignore width/height; being a flex item blockifies it, but
+    // only as long as the header stays a flex container.
+    expect(body).toMatch(/display:\s*block/);
+    // A grey ring by default, a filled green dot once connected — the fill is
+    // the non-colour half of the cue, so it has to survive alongside the hue.
+    expect(body).toMatch(/border:\s*1\.5px solid var\(--text-muted\)/);
+    expect(body).not.toMatch(/background:/);
+    expect(ruleBody("[data-role='integration-connected'][data-connected='true'] {")).toMatch(
+      /background:\s*var\(--calm\)/,
+    );
+  });
+
   // The cards are block-level siblings, so without a gap ON THE SECTION they
   // butt straight together into one undifferentiated slab. Nothing else supplies
   // it: `section-body`'s gap separates the section from its neighbours, not the

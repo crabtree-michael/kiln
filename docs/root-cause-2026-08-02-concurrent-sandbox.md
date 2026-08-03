@@ -9,6 +9,17 @@
 > (1 build failure in 291 deploys), and identify the actual recurring failure: every deploy
 > times out `srv.Shutdown` on the open SSE streams and kills the process. Read §5 and §1's
 > "Corroborating production evidence" only alongside that follow-up.
+>
+> **§1 further demoted, and rec #3 refuted — see
+> [`root-cause-2026-08-03-duplicate-instances.md`](root-cause-2026-08-03-duplicate-instances.md).**
+> A live incident on 2026-08-03 (ticket `0ecad1a2`) put two Claude Code processes on one
+> prompt in one sandbox. The dispatch logs show the cause is **cross-process, not
+> cross-goroutine**: every Render deploy runs two full backends against one database for ~68s,
+> and neither the agent turn machine nor the events queue has any cross-process exclusion.
+> 12 turns started twice in the retained window, **100 % of them across two instances, none
+> within one**. **Rec #3 (per-slot mutex / single-flight) cannot fix this** — an in-process
+> lock does not exclude another process. §1 remains a real bug; it is not the one that
+> duplicates work in production.
 
 ## 0. Status of each deliverable
 

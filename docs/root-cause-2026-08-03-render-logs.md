@@ -2,6 +2,13 @@
 
 **Date:** 2026-08-03 · **Commit investigated:** `c5de812` (main) · **Service:** `srv-d953nmcvikkc73d8aq60`
 
+> **Continued in [`root-cause-2026-08-03-duplicate-instances.md`](root-cause-2026-08-03-duplicate-instances.md).**
+> A live incident later the same day found the mechanism behind duplicated work: Render's
+> zero-downtime deploy runs **two backend instances for ~68 seconds**, and nothing in the code
+> excludes a second process. §3's 15-second failed `srv.Shutdown` is 15 of those 68 seconds
+> (so its fix stays P0). §5's unexplained 10-second gen1→gen2 rotation on `bb268f76` was two
+> instances rotating the same slot.
+
 Follow-up to [`root-cause-2026-08-02-concurrent-sandbox.md`](root-cause-2026-08-02-concurrent-sandbox.md).
 That investigation could not pull the Render logs — `RENDER_API_KEY` inside the sandbox
 was the 14-char literal string `RENDER_API_KEY`, so every call 401'd, and §5 was written

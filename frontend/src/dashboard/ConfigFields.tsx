@@ -51,13 +51,14 @@ interface RepoFieldProps {
  *
  *  1. loading — a quiet placeholder, so the connect prompt never flashes up
  *     before we know whether the account is actually connected;
- *  2. disconnected — the "Connect GitHub account" link. Connecting IS signing in
- *     again (one OAuth flow, one callback), which is what re-prompts the user to
- *     grant repo access. A project that already has a repo_url keeps it: it is
+ *  2. disconnected — the "Connect GitHub account" link, pointed at the same
+ *     repo-scoped grant the Integrations card uses. Signing in grants no scopes,
+ *     so that grant — not a second sign-in — is what yields an account able to
+ *     list repos. A project that already has a repo_url keeps it: it is
  *     shown read-only and still submitted, so editing an unrelated field on an
  *     older project can't silently unlink its repo;
  *  3. connected — the repo dropdown, plus a "Switch account" link that re-runs
- *     the same flow against a different GitHub login. The dropdown carries no
+ *     the same grant against a different GitHub login. The dropdown carries no
  *     filter box: a native select already types-to-jump, so a second search
  *     control beside it only raised the question of which one to use. */
 function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {

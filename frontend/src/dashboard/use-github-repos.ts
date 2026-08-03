@@ -11,13 +11,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchGitHubRepos } from '@/transport/transport';
 import type { GitHubRepo } from '@/transport/transport';
 
-/** Where the "Connect GitHub account" affordance sends the browser. This is the
- * SAME endpoint the signed-out view's sign-in link uses, deliberately: sign-in
- * and repo authorization are one OAuth flow against one registered callback, so
- * connecting is just signing in again (GitHub then asks the user to grant the
- * repo scope). It is a backend route, so any navigation to it must be a real
- * full-page load — never a router `Link`. */
-export const GITHUB_CONNECT_PATH = '/auth/github/login';
+/** Where every "Connect GitHub" affordance sends the browser — the backend-owned
+ * REPO-SCOPED OAuth grant, NOT `/auth/github/login`, which is the scopeless
+ * sign-in and grants nothing (11 §2 D2). This is the only path that produces a
+ * credential able to list, clone, and push repos, so the settings repo picker
+ * and the Integrations card both point here; GitHub itself decides whether to
+ * re-prompt for an account. It is a backend route, so any navigation to it must
+ * be a real full-page load — never a router `Link`. */
+export const GITHUB_CONNECT_PATH = '/auth/github/connect';
 
 export interface GitHubRepos {
   /** The repos the connected account can reach, sorted by full name. Empty

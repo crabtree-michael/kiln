@@ -114,9 +114,11 @@ describe('useGitHubRepos', () => {
     expect(probe().dataset.names).toBe('acme/api');
   });
 
-  // Connecting must reuse the ONE sign-in flow — a second OAuth app or callback
-  // is exactly what this feature was specified not to add.
-  it('points the connect affordance at the sign-in route', () => {
-    expect(GITHUB_CONNECT_PATH).toBe('/auth/github/login');
+  // Connecting must be the REPO-SCOPED grant, not the scopeless sign-in: signing
+  // in yields no credential that can list or clone repos, so pointing the picker
+  // at /auth/github/login left it a no-op that never resolved the disconnected
+  // state it was offered from.
+  it('points the connect affordance at the repo-scoped connect route', () => {
+    expect(GITHUB_CONNECT_PATH).toBe('/auth/github/connect');
   });
 });

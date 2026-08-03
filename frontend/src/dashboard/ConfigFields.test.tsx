@@ -407,10 +407,10 @@ describe('ProjectFields — repo picker', () => {
 
     expect(screen.queryByRole('combobox', { name: 'Repository' })).not.toBeInTheDocument();
     // A backend route, so it must be a real link (full-page navigation), and it
-    // is the SAME sign-in endpoint — connecting is re-authorizing, not a second
-    // OAuth app.
+    // is the repo-scoped grant — NOT /auth/github/login, which grants no scopes
+    // and so would leave the picker disconnected after a round trip.
     const connect = screen.getByRole('link', { name: 'Connect GitHub account' });
-    expect(connect).toHaveAttribute('href', '/auth/github/login');
+    expect(connect).toHaveAttribute('href', '/auth/github/connect');
     // Nothing to save: the repo is required and can't be supplied yet.
     expect(screen.getByRole('button', { name: 'Save project' })).toBeDisabled();
   });
@@ -458,7 +458,7 @@ describe('ProjectFields — repo picker', () => {
 
     expect(screen.getByRole('link', { name: 'Switch GitHub account' })).toHaveAttribute(
       'href',
-      '/auth/github/login',
+      '/auth/github/connect',
     );
   });
 

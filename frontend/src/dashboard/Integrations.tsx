@@ -39,7 +39,7 @@ import type { SettingsUpdateRequest, VerifyCheck } from '@/transport/transport';
 import type { components } from '@/schema/generated';
 import { secretStatusText } from '@/dashboard/secret-status';
 import type { CredentialName } from '@/dashboard/dashboard-context';
-import type { GitHubRepos } from '@/dashboard/use-github-repos';
+import { GITHUB_CONNECT_PATH, type GitHubRepos } from '@/dashboard/use-github-repos';
 
 // `MeSettings`/`SecretStatus` aren't among transport.ts's re-exports (only the
 // types its own functions traffic in are) — pull them the same way it derives
@@ -62,12 +62,10 @@ const CHECK_NAME_FOR_CREDENTIAL: Record<CredentialName, VerifyCheck['name']> = {
   github_auth_token: 'repo',
 };
 
-/** The backend-owned repo-scoped OAuth grant — NOT `/auth/github/login`, which
- * is the scopeless sign-in. Every affordance on the GitHub card (Connect,
- * Reconnect, Switch account) points here, because this is the only path that
- * produces a credential able to clone and push; GitHub itself decides whether
- * to re-prompt for an account. */
-const GITHUB_CONNECT_PATH = '/auth/github/connect';
+// Every affordance on the GitHub card (Connect, Reconnect, Switch account)
+// points at the shared `GITHUB_CONNECT_PATH` — the repo-scoped grant — imported
+// rather than restated here, so this card and the settings repo picker can't
+// drift onto different routes.
 
 /** What connecting actually authorizes, stated on the card itself so the
  * `repo` grant on GitHub's consent screen is expected rather than alarming. */

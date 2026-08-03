@@ -119,28 +119,39 @@ session-free.
   flat `CredentialFields` form is gone. Amika/Devin connect through a small modal
   (`[data-role="api-key-modal"]`) whose single input sends just that one field, so a save still
   chains a verify run and updates the card's `credential-status` mark. GitHub connects through
-  the existing OAuth route — `Connect`, and once connected a right-aligned `Switch account`
+  the OAuth route — `Connect`, and once connected a right-aligned `Switch account`
   anchor in the card's `[data-role="integration-action"]` slot, both plain full-page links to
-  `/auth/github/login`. Secrets stay write-only: the modal input never seeds from the stored
+  `GITHUB_CONNECT_PATH`. Secrets stay write-only: the modal input never seeds from the stored
   value, only a `configured · …tail` placeholder.
-- **Caveat inherited from that redesign:** `user_config.github_auth_token` (the PAT the repo
-  paths use — private clones, `gh` PR gate, sandbox push) no longer has a UI entry point.
-  Sign-in OAuth requests **no scopes** and never persists its token, so a GitHub card reading
-  "Connected" does **not** imply a stored repo credential. `PUT /api/settings` still accepts
-  `github_auth_token`, so already-stored tokens keep working and the field is settable by API.
+- `user_config.github_auth_token` (the credential the repo paths use — private clones, `gh`
+  PR gate, sandbox push) has no free-text UI entry point; the OAuth flow writes it.
+  `PUT /api/settings` still accepts `github_auth_token`, so already-stored tokens keep
+  working and the field is settable by API.
 - `vite.config.ts` proxies `/auth` to the backend alongside `/api` and `/api/stream` — the
-  GitHub OAuth redirect (`GET /auth/github/login` → `/callback`) needs to hit the backend
+  GitHub OAuth redirect (`GET /auth/github/connect` → `/callback`) needs to hit the backend
   directly, not be intercepted by the SPA's client-side router.
 
-### The repo picker — sign-in IS the GitHub connection
+### One GitHub flow — sign-in IS the GitHub connection
+
+There is **one** OAuth flow, **one** registered callback, and **one** path constant:
+`GITHUB_CONNECT_PATH` in `src/auth/github-connect.ts` (`/auth/github/connect`). Import it —
+never restate the literal. Every entry point uses it: `landing/Landing2.tsx` ("Sign in"),
+`components/SessionGate.tsx`, `projects/ProjectsManager.tsx`, `dashboard/SignIn.tsx`,
+`Onboarding`'s step 1, and the `Integrations`/`RepoField` connect + switch-account
+affordances. It is **not** in `integrations-config.ts` with the other shared credential
+facts, on purpose: the landing page and the app's session gate link to it too, and they must
+not pull the dashboard's provider tables into their bundle to do it.
+
+The authorize URL always requests the `repo` scope and `CompleteConnect` keeps the resulting
+token as the user's GitHub credential (the same slot a hand-entered PAT uses), so signing in
+already authorizes repo access. This replaced a split — a scopeless `/auth/github/login`
+beside the repo-scoped connect — that shipped a settings card pointed at the wrong one.
+**Never add a second OAuth app, flow, callback, or path constant for repo access.**
+(`/auth/github/login` still 302s here for old bookmarks; nothing in the client links to it.)
 
 `ProjectFields` has **no free-text repo URL field**. The repo is picked from the connected
 GitHub account (`RepoField` in `ConfigFields.tsx`, fed by `useGitHubRepos` →
-`GET /api/github/repos`). The load-bearing decision: there is **one** OAuth flow and **one**
-registered callback — the sign-in authorize URL requests the `repo` scope, and
-`CompleteLogin` keeps the resulting token as the user's GitHub credential (the same slot a
-hand-entered PAT uses). So "Connect GitHub account" is just `/auth/github/login` again.
-**Never add a second OAuth app, flow, or callback for repo access.**
+`GET /api/github/repos`).
 
 - `useGitHubRepos` is **user-scoped**, unlike `useSandboxCatalog` (per-project, because each
   project resolves its own agent provider). Mount it once per view — `Settings`,
@@ -170,6 +181,11 @@ key), then "Finish setup". It replaces the single crammed project form that used
 - **The ordering is load-bearing, not cosmetic.** Step 2 can only list repos once step 1's
   credential exists; step 3 can only know *which* key to ask for once a provider is chosen.
   Don't reorder the steps or merge them back into one screen — that's the whole feature.
+- **Step 1 usually arrives already satisfied.** Since the OAuth flows merged, signing in
+  grants `repo`, so a new user hits step 1 in its *connected* reading — it confirms which
+  account and how many repos before they pick one. Don't delete the step as redundant: the
+  disconnected branch still catches accounts that predate the merge or revoked the grant,
+  and it is where the `repo`-scope explanation lives.
 - **It reuses settings' controls, it does not clone them.** The repo picker is `RepoField` and
   the key field is `SecretCredentialRow`, both exported from `ConfigFields.tsx` for exactly
   this. A second repo-picking or secret-entering implementation is how a free-text repo URL or

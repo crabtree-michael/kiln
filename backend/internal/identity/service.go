@@ -93,43 +93,38 @@ func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) 
 	return &Service{store: store, cipher: cipher, gh: gh, allowed: allowed, now: time.Now}
 }
 
-// LoginURL is the plain sign-in grant: identity only, no scopes (11 §2 D2).
-func (s *Service) LoginURL(state string) string { return s.gh.AuthorizeURL(state, "") }
-
-// ConnectURL is the dashboard's "Connect GitHub" grant: the same OAuth dance,
-// but asking for `repo` — full read/write repository access. The resulting
-// token is what CompleteConnect stores as the user's GitHubToken, so it is the
+// ConnectURL starts THE GitHub grant — there is exactly one (11 §2, amended
+// 2026-08-03). It asks for `repo`, full read/write repository access, because
+// signing in and connecting GitHub are now the same act: the token it yields is
+// what CompleteConnect stores as the user's GitHubToken, so it is the
 // credential the brain's clone/fetch, the `gh` PR gate, and the sandbox's
-// clone/push all authenticate with. This is the ONLY path that grants repo
-// access now that the manual PAT field is gone from the dashboard.
+// clone/push all authenticate with.
+//
+// It replaces a split — a scopeless LoginURL beside this one — that bought a
+// consent screen without a `repo` prompt at the price of two routes which
+// looked interchangeable and weren't. Every entry point (landing sign-in,
+// session gate, the dashboard's Connect card) now leads here, so "which one
+// does this button want?" is no longer a question anyone can get wrong.
 func (s *Service) ConnectURL(state string) string {
 	return s.gh.AuthorizeURL(state, githubapi.ScopeRepo)
 }
 
-// CompleteLogin exchanges the OAuth code, enforces the allowlist on every
-// login (11 §2), and finds-or-creates the user. The access token is used only
-// to read the profile and is then discarded.
-//
-// Signing in deliberately grants NOTHING (11 §2 D2): the authorize URL carries
-// no scope, so this token could not clone or push even if it were kept. Repo
-// access is a separate, explicit act — CompleteConnect — which is what makes
-// the consent screen's `repo` prompt something the user opted into rather than
-// a toll on logging in. The settings repo picker reads the credential that
-// grant stores, so a user who has not connected sees its "not connected"
-// state, not a broken list.
-func (s *Service) CompleteLogin(ctx context.Context, code string) (User, error) {
-	user, _, _, err := s.completeOAuth(ctx, code, "complete login")
-	return user, err
-}
-
-// CompleteConnect completes the repo-scoped grant (ConnectURL): same
-// allowlist + find-or-create as CompleteLogin, and then it PERSISTS the access
-// token as the user's GitHubToken — the same encrypted slot the old manual
-// token field wrote to, which is why this flow fully replaces that field and
-// why a token stored by the old field keeps working until replaced here.
+// CompleteConnect completes the single grant (ConnectURL): exchange the code,
+// enforce the allowlist on every sign-in (11 §2), find-or-create the user, and
+// PERSIST the access token as their GitHubToken — the same encrypted slot the
+// old manual token field wrote to, which is why a token stored by that field
+// keeps working until replaced here.
 //
 // Storing the token is what makes "Connected" on the dashboard card mean the
 // repo is actually reachable, rather than merely "you signed in with GitHub".
+//
+// A grant that came back WITHOUT `repo` returns ErrRepoScopeNotGranted
+// alongside a POPULATED user. Returning both is deliberate: GitHub really did
+// authenticate an allowlisted account, so the caller can still sign them in and
+// refuse only the unusable token. While this was the connect-only path an empty
+// user was harmless — the caller already had a session. Now that it is also the
+// sign-in path, withholding the user would lock someone out of the very
+// dashboard the retry lives on.
 func (s *Service) CompleteConnect(ctx context.Context, code string) (User, error) {
 	user, token, scope, err := s.completeOAuth(ctx, code, "complete connect")
 	if err != nil {
@@ -141,7 +136,7 @@ func (s *Service) CompleteConnect(ctx context.Context, code string) (User, error
 	// and push still failed, so refuse it: the caller turns this into a page
 	// that says what happened and offers to retry.
 	if !grantsRepoScope(scope) {
-		return User{}, ErrRepoScopeNotGranted
+		return user, ErrRepoScopeNotGranted
 	}
 	if err := s.storeGitHubConnection(ctx, user.ID, token, scope, user.GitHubLogin); err != nil {
 		return User{}, fmt.Errorf("identity: complete connect: %w", err)
@@ -234,8 +229,8 @@ func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, e
 // EnsureUser's find-or-create mechanics.
 //
 // When a dev GitHub credential is configured (SetDevGitHubToken — keyless
-// stacks only), it is stored for the user the way CompleteLogin stores the real
-// OAuth token, so a dev-minted session reaches the settings repo picker already
+// stacks only), it is stored for the user the way CompleteConnect stores the
+// real OAuth token, so a dev-minted session reaches the settings repo picker already
 // connected. Without that call this is a pure find-or-create and touches no
 // credential — a real-service e2e run can never have its stored GitHub token
 // clobbered by a synthetic one.
@@ -267,7 +262,7 @@ func (s *Service) SetDevGitHubToken(token string) { s.devGitHubToken = token }
 // check — the shared find-or-create used by DevSignIn (11 §7) and the phase-2
 // bootstrap-from-env path. A deterministic fnv64a hash of the login stands in
 // for the GitHub id (not cryptographic). Real OAuth logins still go through
-// CompleteLogin, which enforces the allowlist on every login (11 §2).
+// CompleteConnect, which enforces the allowlist on every sign-in (11 §2).
 func (s *Service) EnsureUser(ctx context.Context, login string) (User, error) {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(strings.ToLower(login)))
@@ -731,11 +726,10 @@ func (s *Service) refreshGitHubScopes(ctx context.Context, userID string, cfg Us
 	}
 }
 
-// completeOAuth is the shared half of both callbacks: exchange the code, read
+// completeOAuth is the identity half of the callback: exchange the code, read
 // the profile, enforce the allowlist, find-or-create the user. It returns the
-// access token and its granted scope alongside the user so the connect path can
-// vet and store it; the login path drops both on the floor. The token is a live
-// secret — never log it.
+// access token and its granted scope alongside the user so CompleteConnect can
+// vet and store them. The token is a live secret — never log it.
 func (s *Service) completeOAuth(ctx context.Context, code, op string) (User, string, string, error) {
 	token, scope, err := s.gh.ExchangeCode(ctx, code)
 	if err != nil {

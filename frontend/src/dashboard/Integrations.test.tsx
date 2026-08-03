@@ -87,8 +87,8 @@ describe('Integrations', () => {
     expect(within(github).getByText('Not connected')).toBeInTheDocument();
 
     const link = within(github).getByRole('link', { name: 'Connect' });
-    // The repo-scoped grant, NOT the scopeless /auth/github/login sign-in —
-    // this is the only path that yields a credential able to clone and push.
+    // The one grant, shared with every other entry point — it always asks for
+    // `repo`, so it is a credential able to clone and push that comes back.
     expect(link).toHaveAttribute('href', '/auth/github/connect');
     // No account line until there is a credential.
     expect(github.querySelector('[data-role="github-account"]')).toBeNull();

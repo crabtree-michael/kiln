@@ -12,11 +12,11 @@
 // that moment and nothing else — worker count, merge gate and sandbox snapshot
 // all keep their server defaults and are tuned later in Settings.
 //
-// Step 1 sends the browser to `/auth/github/connect`, the SAME repo-scoped grant
-// the Integrations card uses — never `/auth/github/login`, which is the scopeless
-// sign-in and would land the user back here still disconnected. The repo picker
-// is settings' `RepoField` and the provider/credential vocabulary comes from
-// `integrations-config`, so there is one definition of each shared fact.
+// Step 1 sends the browser to `GITHUB_CONNECT_PATH` — the one GitHub grant
+// (11 §2, amended 2026-08-03), the same route the Integrations card and every
+// sign-in link use. The repo picker is settings' `RepoField` and the
+// provider/credential vocabulary comes from `integrations-config`, so there is
+// one definition of each shared fact.
 //
 // The flow never tracks "did I just finish": once `saveProject` succeeds the
 // store's refreshed `me.projects` is non-empty and `Dashboard` itself swaps this
@@ -29,12 +29,12 @@ import { secretStatusText } from '@/dashboard/secret-status';
 import {
   CHECK_NAME_FOR_CREDENTIAL,
   GITHUB_ACCESS_NOTE,
-  GITHUB_CONNECT_PATH,
   apiKeyProviderFor,
   credentialIndicatorStatus,
   updateBodyFor,
   type ApiKeyProvider,
 } from '@/dashboard/integrations-config';
+import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
 import { BotIcon, BoxIcon, CheckIcon, FolderIcon, GitHubIcon, SparkIcon } from '@/dashboard/icons';
 import type { ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
@@ -118,11 +118,15 @@ interface GitHubStepProps {
 
 /** Step 1. Three readings, mirroring `RepoField`'s — and in the same order, so
  * the connect prompt never flashes before we know whether the account is
- * already connected (a returning user, or one who connected from Settings).
+ * already connected.
  *
- * Signing in grants NO scopes, so being signed in is not being connected: this
- * step is a real grant, and the note says out loud what GitHub's consent screen
- * will ask for. */
+ * Since the OAuth flows merged (11 §2, amended 2026-08-03) signing in IS
+ * connecting, so the CONNECTED reading is the common case here, not the rare
+ * one: a user who just signed in arrives already authorized and this step reads
+ * as a confirmation — which account, how many repos — before they pick one.
+ * The disconnected branch still earns its place: a user who signed in before
+ * the merge, or who revoked the grant, lands on it, and the note says out loud
+ * what GitHub's consent screen will ask for. */
 function GitHubStep({ github, login }: GitHubStepProps): JSX.Element {
   if (github.loading) {
     return (
@@ -137,9 +141,9 @@ function GitHubStep({ github, login }: GitHubStepProps): JSX.Element {
       <div data-role="github-connect" data-state="disconnected">
         <p>Authorize Kiln to reach your repositories, including private ones.</p>
         <p data-role="github-access-note">{GITHUB_ACCESS_NOTE}</p>
-        {/* The repo-scoped grant, and a backend route — so a real navigation,
-            never a router Link, and never `/auth/github/login` (which grants
-            nothing and would land the user back on this step unchanged). */}
+        {/* The one grant, and a backend route — so a real navigation, never a
+            router Link. It always asks for `repo`, so clearing it lands the user
+            back here connected. */}
         <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
           Connect GitHub
         </a>

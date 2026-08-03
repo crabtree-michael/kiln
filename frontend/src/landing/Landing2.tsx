@@ -15,6 +15,7 @@ import { useState, type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import { BetaSignupForm } from '@/landing/BetaSignupForm';
 import { BetaModal } from '@/landing/BetaModal';
+import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 import '@/landing/Landing2.css';
 
 /** The Kiln bell mark (public/kiln-mark.svg), inlined so it can take the accent
@@ -193,10 +194,10 @@ export function Landing2(): JSX.Element {
           </nav>
           <div className="kiln-nav__actions">
             {/* Sign-in is a plain full-page anchor — NOT a router Link — because
-                `/auth/github/login` is a backend route the SPA does not own
+                `GITHUB_CONNECT_PATH` is a backend route the SPA does not own
                 (mirrors SessionGate / dashboard SignIn). It sits beside the beta
                 CTA so returning users have a way straight into the app. */}
-            <a href="/auth/github/login" className="kiln-btn kiln-btn--ghost kiln-nav__signin">
+            <a href={GITHUB_CONNECT_PATH} className="kiln-btn kiln-btn--ghost kiln-nav__signin">
               Sign in
             </a>
             <button

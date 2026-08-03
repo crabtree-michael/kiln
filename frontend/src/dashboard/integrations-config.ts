@@ -24,14 +24,11 @@ export const CHECK_NAME_FOR_CREDENTIAL: Record<CredentialName, VerifyCheck['name
   github_auth_token: 'repo',
 };
 
-/** The backend-owned repo-scoped OAuth grant — NOT `/auth/github/login`, which
- * is the scopeless sign-in. Every affordance that means "give Kiln repo access"
- * points here (the Integrations card's Connect/Reconnect/Switch account, and
- * the setup flow's first step), because this is the only path that produces a
- * credential able to clone and push; GitHub itself decides whether to re-prompt
- * for an account. A backend route, so navigating to it must always be a real
- * full-page load — never a router `Link`. */
-export const GITHUB_CONNECT_PATH = '/auth/github/connect';
+// GITHUB_CONNECT_PATH is deliberately NOT here — it lives in
+// `@/auth/github-connect`. This module is dashboard-scoped and carries provider
+// tables and request builders, but the connect route is reached from the landing
+// page and the app's session gate too; those must not pull the dashboard's
+// credential machinery into their bundle to link to it. Import it from there.
 
 /** What connecting actually authorizes, stated wherever we ask for it so the
  * `repo` grant on GitHub's consent screen is expected rather than alarming. */

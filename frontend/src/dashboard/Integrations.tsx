@@ -43,13 +43,13 @@ import {
   API_KEY_PROVIDERS,
   CHECK_NAME_FOR_CREDENTIAL,
   GITHUB_ACCESS_NOTE,
-  GITHUB_CONNECT_PATH,
   credentialIndicatorStatus,
   updateBodyFor,
   type ApiKeyProvider,
   type CredentialIndicatorStatus,
 } from '@/dashboard/integrations-config';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
+import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 
 // `MeSettings`/`SecretStatus` aren't among transport.ts's re-exports (only the
 // types its own functions traffic in are) — pull them the same way it derives

@@ -85,7 +85,7 @@ describe('SessionGate', () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(null);
     renderGate();
     const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
-    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
     expect(screen.queryByTestId('app-children')).toBeNull();
   });
 

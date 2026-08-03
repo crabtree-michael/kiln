@@ -383,16 +383,11 @@ func (f *fakeNotificationPoster) posted() []devNote {
 type fakeAuth struct {
 	mu sync.Mutex
 
-	loginURL   string // base URL LoginURL appends "?state=" onto
 	connectURL string // base URL ConnectURL appends "?state=" onto
 
-	completeLoginUser  identity.User
-	completeLoginErr   error
-	completeLoginCalls []string // codes CompleteLogin was called with, in order
-
-	// The repo-scoped grant's half. Kept separate from the login fields so a
-	// test can assert the callback picked the RIGHT completion — the whole
-	// point of the state prefix is that only one of the two runs.
+	// The single grant's completion (11 §2, amended 2026-08-03). A scripted
+	// user AND error together is the real ErrRepoScopeNotGranted shape: GitHub
+	// authenticated the account but withheld `repo`.
 	completeConnectUser  identity.User
 	completeConnectErr   error
 	completeConnectCalls []string // codes CompleteConnect was called with, in order
@@ -407,17 +402,6 @@ type fakeAuth struct {
 
 	logoutErr   error
 	logoutCalls []string // tokens Logout was called with, in order
-}
-
-func (f *fakeAuth) LoginURL(state string) string {
-	return f.loginURL + "?state=" + state
-}
-
-func (f *fakeAuth) CompleteLogin(_ context.Context, code string) (identity.User, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.completeLoginCalls = append(f.completeLoginCalls, code)
-	return f.completeLoginUser, f.completeLoginErr
 }
 
 func (f *fakeAuth) ConnectURL(state string) string {
@@ -446,25 +430,19 @@ func (f *fakeAuth) Logout(_ context.Context, token string) error {
 	return f.logoutErr
 }
 
-func (f *fakeAuth) completeLoginCallCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.completeLoginCalls)
-}
-
 func (f *fakeAuth) completeConnectCallCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.completeConnectCalls)
 }
 
-func (f *fakeAuth) lastCompleteLoginCode() string {
+func (f *fakeAuth) lastCompleteConnectCode() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.completeLoginCalls) == 0 {
+	if len(f.completeConnectCalls) == 0 {
 		return ""
 	}
-	return f.completeLoginCalls[len(f.completeLoginCalls)-1]
+	return f.completeConnectCalls[len(f.completeConnectCalls)-1]
 }
 
 func (f *fakeAuth) logoutCallCount() int {

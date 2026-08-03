@@ -11,20 +11,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchGitHubRepos } from '@/transport/transport';
 import type { GitHubRepo } from '@/transport/transport';
 
-/** Where every "Connect GitHub" affordance sends the browser — the backend-owned
- * REPO-SCOPED OAuth grant, NOT `/auth/github/login`, which is the scopeless
- * sign-in and grants nothing (11 §2 D2). This is the only path that produces a
- * credential able to list, clone, and push repos, so the settings repo picker,
- * the Integrations card, and the setup flow's first step all point here; GitHub
- * itself decides whether to re-prompt for an account. It is a backend route, so
- * any navigation to it must be a real full-page load — never a router `Link`.
- *
- * DEFINED IN `integrations-config` and re-exported here: the setup flow needs it
- * from a JSX-free module that carries the rest of the provider/credential facts,
- * and two copies of a route constant are exactly the drift this doc warns about.
- * Existing importers (the repo picker in `ConfigFields`) keep this path. */
-export { GITHUB_CONNECT_PATH } from '@/dashboard/integrations-config';
-
 export interface GitHubRepos {
   /** The repos the connected account can reach, sorted by full name. Empty
    * while loading, when disconnected, or when the account genuinely has none. */

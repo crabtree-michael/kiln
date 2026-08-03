@@ -108,7 +108,7 @@ describe('Dashboard', () => {
     renderDashboard();
 
     const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
-    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
     expect(document.querySelector('[data-role="dashboard"]')).not.toBeNull();
     expect(document.querySelector('[data-role="dashboard-error"]')).toBeNull();
   });
@@ -121,7 +121,7 @@ describe('Dashboard', () => {
     const errorEl = document.querySelector('[data-role="dashboard-error"]');
     expect(errorEl).not.toBeNull();
     expect(errorEl?.textContent).toContain('fetchMe: HTTP 500');
-    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
   });
 
   it('signed in, no project: opens the guided setup flow on its first step', async () => {
@@ -204,10 +204,10 @@ describe('Dashboard', () => {
     ).toBeNull();
   });
 
-  // Signing in with GitHub is NOT the same as connecting it: sign-in grants no
-  // scopes, so a session alone leaves the card disconnected until the
-  // repo-scoped grant runs. That separation is the whole point of the flow.
-  it('the GitHub card connects through the repo-scoped OAuth grant — no token field anywhere', async () => {
+  // The card's Connect affordance is the SAME route the sign-in link is (11 §2,
+  // amended 2026-08-03) — one grant, always repo-scoped. A user only sees the
+  // disconnected state here by predating the repo scope or having revoked it.
+  it('the GitHub card connects through the one OAuth grant — no token field anywhere', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({
         projects: [

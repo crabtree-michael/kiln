@@ -54,9 +54,11 @@ describe('Landing2', () => {
 
     // The sign-in affordance sits beside the beta CTA and is a plain full-page
     // anchor to the backend-owned GitHub OAuth start (not a router Link into the
-    // SPA), mirroring SessionGate / dashboard SignIn.
+    // SPA), mirroring SessionGate / dashboard SignIn. It is the ONE grant — the
+    // same route the dashboard's Connect card uses, so signing in here already
+    // authorizes repo access.
     const signIn = screen.getByRole('link', { name: /sign in/i });
-    expect(signIn).toHaveAttribute('href', '/auth/github/login');
+    expect(signIn).toHaveAttribute('href', '/auth/github/connect');
 
     // Closing the opened modal returns to the page.
     fireEvent.click(

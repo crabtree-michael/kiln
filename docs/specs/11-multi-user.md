@@ -50,17 +50,26 @@ dashboard is onboarding + settings only), and any auth provider dependency (§10
 **Sign-in: GitHub OAuth web application flow, self-implemented** (§10, D2). Two
 endpoints and one token exchange:
 
-- `GET /auth/github/login` — sets an OAuth `state` nonce (short-lived cookie), redirects
-  to GitHub's authorize URL. No scopes requested beyond default public identity: Kiln
-  needs only the username. The repo token used by the brain's inspection tool remains a
-  separately supplied PAT in `user_config` — sign-in identity and repo access are
-  deliberately decoupled.
+- `GET /auth/github/connect` — sets an OAuth `state` nonce (short-lived cookie), redirects
+  to GitHub's authorize URL requesting the `repo` scope. **There is exactly one flow**
+  (amended 2026-08-03): signing in and connecting GitHub are the same act, and the token
+  it yields is stored as the user's repo credential. The old scopeless
+  `GET /auth/github/login` is a deprecated 302 into this route, kept only for bookmarks.
 - `GET /auth/github/callback` — verifies `state`, exchanges the code
   (`GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`), fetches `GET /user`, then:
-  - username on the allowlist → find-or-create the `users` row, create a session,
-    redirect to `/dashboard`;
+  - username on the allowlist → find-or-create the `users` row, store the access token
+    and its granted scopes in `user_config`, create a session, redirect to `/dashboard`;
   - not on the allowlist → a friendly "Kiln is invite-only" page; **no user row is
     created**.
+  - allowlisted but GitHub withheld `repo` (the user unticked an org, or the OAuth app
+    isn't approved there) → the session is still created, **no credential is stored**,
+    and a page explains what's missing and offers the retry. Signing them in is the
+    point: the retry lives inside the app.
+
+**Sessions predating the merge keep working.** A user who only ever did the old scopeless
+sign-in has a session and no repo credential — the ordinary "disconnected" state the
+dashboard already renders. They pick up repo access the next time they run the flow; there
+is no forced re-auth and no backfill.
 
 **Allowlist: `KILN_ALLOWED_GITHUB_USERS`** — comma-separated GitHub usernames,
 case-insensitive (§10, D1). An env var, not a table: adding a user is a one-line Render
@@ -148,8 +157,9 @@ New endpoints, all session-protected from day one, all types generated from `/sc
   minimal Anthropic call. Returns per-check `{ok, message}`. This is the only place a
   stored secret is *used* before phase 2, and it gives users real feedback that their
   keys work even while the runtime still runs on env.
-- `GET /auth/github/login`, `GET /auth/github/callback`, `POST /auth/logout` (§2) —
+- `GET /auth/github/connect`, `GET /auth/github/callback`, `POST /auth/logout` (§2) —
   browser endpoints, outside `/api`, no wire types beyond the redirect contract.
+  (`GET /auth/github/login` survives as a deprecated redirect into `/connect`.)
 
 Existing endpoints change **nothing** in phase 1. In phase 2 their shapes still don't
 change — they become implicitly scoped by session → project in middleware.
@@ -164,7 +174,7 @@ dashboard).
 
 **States:**
 
-1. **Signed out** → one screen: "Continue with GitHub" → `/auth/github/login`.
+1. **Signed out** → one screen: "Continue with GitHub" → `/auth/github/connect`.
 2. **Signed in, project unconfigured** → onboarding flow: name the project + repo URL +
    snapshot → paste credentials (Anthropic key, Amika key/cred id, GitHub PAT — the
    Amika base URL is platform env, not a user credential, amended 2026-07-06) → verify
@@ -280,6 +290,15 @@ Per the hard gate (`02` §4), at three levels:
 - **D2 — Self-rolled OAuth over a managed auth provider.** The flow is two endpoints
   and one exchange; "GitHub-only + allowlist" leaves a provider (Clerk/WorkOS/Auth0)
   almost nothing to do, while adding an external dependency in every request path.
+- **D2a — ONE OAuth flow, always repo-scoped** (amended 2026-08-03). D2 originally split
+  identity from repo access: a scopeless sign-in plus a separate repo-scoped connect, so
+  the consent screen for merely logging in asked for nothing. The split cost more than it
+  bought. Two routes differing only by an invisible scope are indistinguishable at every
+  call site — a settings card shipped pointed at the sign-in route and silently never
+  granted repo access — and "am I connected?" became a second question behind "am I
+  signed in?". Kiln cannot do anything useful without repo access anyway, so the grant is
+  now unconditional and there is one route to reach it. The cost accepted in exchange: the
+  consent screen asks for `repo` before a user has seen the product.
 - **D3 — Shared schema with `project_id` over schema-per-tenant or instance-per-user.**
   One deployment, one migration path, standard row-scoping; isolation is enforced by
   query predicates and tested (§8). Instance-per-user was rejected: ops multiply per

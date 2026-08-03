@@ -21,6 +21,7 @@ import { useDashboardStore } from '@/dashboard/dashboard-context';
 import { ProjectFields } from '@/dashboard/ConfigFields';
 import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
 import type { MeProject, ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
+import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 import '@/projects/ProjectsManager.css';
 
 interface ProjectRowProps {
@@ -225,7 +226,7 @@ function ProjectsScreen(): JSX.Element {
       {phase === 'signed-out' ? (
         <div data-role="projects-signed-out">
           <p>Sign in to manage your projects.</p>
-          <a href="/auth/github/login" data-role="projects-sign-in-link">
+          <a href={GITHUB_CONNECT_PATH} data-role="projects-sign-in-link">
             Continue with GitHub
           </a>
         </div>

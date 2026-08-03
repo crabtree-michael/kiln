@@ -9,12 +9,13 @@
 //   ready, project    → the app
 //
 // The sign-in affordance is a plain full-page anchor — NOT a router `Link` —
-// because `/auth/github/login` is a backend route the SPA does not own
+// because `GITHUB_CONNECT_PATH` is a backend route the SPA does not own
 // (mirrors dashboard/SignIn.tsx). Deliberately self-contained: a minimal
 // mobile full-screen card styled inline off the global token sheet, rather
 // than importing dashboard components into the app bundle.
 import type { CSSProperties, JSX, ReactNode } from 'react';
 import { useSession } from '@/stores/session-context';
+import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 
 const screenStyle: CSSProperties = {
   minHeight: '100dvh',
@@ -71,7 +72,7 @@ export function SessionGate({ children }: SessionGateProps): JSX.Element | null 
       <div style={screenStyle} data-role="session-gate-signed-out">
         <h1 style={wordmarkStyle}>Kiln</h1>
         <p style={copyStyle}>Sign in to see your board.</p>
-        <a href="/auth/github/login" style={linkStyle}>
+        <a href={GITHUB_CONNECT_PATH} style={linkStyle}>
           Continue with GitHub
         </a>
       </div>

@@ -50,7 +50,7 @@ backend/internal/api/
   doc.go        package doc — thin handlers, shapes come from /schema
   routes.go     Server — registers the whole HTTP surface (see below); ports BoardReader,
                 MessagePoster, plus feed/activity/push/voice/identity ports
-  auth_handlers.go       GET /auth/github/login·/callback, POST /auth/logout
+  auth_handlers.go       GET /auth/github/connect·/callback, POST /auth/logout
   identity_handlers.go   GET /api/me, PUT /api/settings, PUT /api/project,
                           POST /api/settings/verify, POST /api/dev/session (dev-only)
   hub.go        Hub — SSE fan-out; implements runtime.SnapshotPusher
@@ -97,7 +97,7 @@ backend/internal/identity/
   githubapi/        GitHub OAuth + user-info client
   verify/           live connection checks (anthropic/amika/repo) — 11 §4
 backend/internal/api/
-  auth_handlers.go       GET /auth/github/login·/callback, POST /auth/logout
+  auth_handlers.go       GET /auth/github/connect·/callback, POST /auth/logout
   identity_handlers.go   GET /api/me, PUT /api/settings, PUT /api/project,
                           POST /api/settings/verify, POST /api/dev/session (dev-only)
 ```

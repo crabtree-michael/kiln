@@ -104,8 +104,10 @@ func TestCompleteConnectStoresRepoCredential(t *testing.T) {
 }
 
 // A grant GitHub narrowed (the user unticked an org, or the app isn't approved
-// there) must be refused outright rather than stored — otherwise the card goes
-// green over a token that fails every clone and push.
+// there) must not be stored — otherwise the card goes green over a token that
+// fails every clone and push. The user still comes back alongside the error:
+// now that this is also the sign-in path, the caller signs them in anyway, so
+// they land on the retry inside the app rather than back outside it.
 func TestCompleteConnectRejectsGrantWithoutRepoScope(t *testing.T) {
 	for _, granted := range []string{"", "public_repo", "gist,read:user"} {
 		t.Run("scope="+granted, func(t *testing.T) {
@@ -116,9 +118,13 @@ func TestCompleteConnectRejectsGrantWithoutRepoScope(t *testing.T) {
 			}
 			svc := connectService(t, gh)
 
-			_, err := svc.CompleteConnect(context.Background(), "code-1")
+			denied, err := svc.CompleteConnect(context.Background(), "code-1")
 			if !errors.Is(err, identity.ErrRepoScopeNotGranted) {
 				t.Fatalf("err = %v, want ErrRepoScopeNotGranted", err)
+			}
+			if denied.ID == "" || denied.GitHubLogin != connectLogin {
+				t.Errorf("user = %+v, want the authenticated %s so the caller can still sign them in",
+					denied, connectLogin)
 			}
 
 			// The user was still created (the allowlist passed), but no
@@ -126,6 +132,9 @@ func TestCompleteConnectRejectsGrantWithoutRepoScope(t *testing.T) {
 			u, uerr := svc.EnsureUser(context.Background(), connectLogin)
 			if uerr != nil {
 				t.Fatalf("EnsureUser: %v", uerr)
+			}
+			if u.ID != denied.ID {
+				t.Errorf("EnsureUser id = %q, want the returned %q", u.ID, denied.ID)
 			}
 			set := settingsOf(t, svc, u.ID)
 			if set.GitHubToken.Set {

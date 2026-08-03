@@ -89,7 +89,7 @@ describe('ProjectsManager', () => {
     renderManager();
 
     const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
-    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
     expect(document.querySelector('[data-role="projects-list"]')).toBeNull();
   });
 

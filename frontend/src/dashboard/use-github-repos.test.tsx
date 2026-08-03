@@ -5,7 +5,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import type { JSX } from 'react';
-import { useGitHubRepos, GITHUB_CONNECT_PATH } from '@/dashboard/use-github-repos';
+import { useGitHubRepos } from '@/dashboard/use-github-repos';
 import * as transport from '@/transport/transport';
 
 vi.mock('@/transport/transport', () => ({
@@ -112,13 +112,5 @@ describe('useGitHubRepos', () => {
     });
     expect(probe().dataset.connected).toBe('true');
     expect(probe().dataset.names).toBe('acme/api');
-  });
-
-  // Connecting must be the REPO-SCOPED grant, not the scopeless sign-in: signing
-  // in yields no credential that can list or clone repos, so pointing the picker
-  // at /auth/github/login left it a no-op that never resolved the disconnected
-  // state it was offered from.
-  it('points the connect affordance at the repo-scoped connect route', () => {
-    expect(GITHUB_CONNECT_PATH).toBe('/auth/github/connect');
   });
 });

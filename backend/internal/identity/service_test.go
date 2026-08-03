@@ -49,17 +49,18 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.cur = c.cur.Add(d)
 }
 
-func TestCompleteLoginAllowlisted(t *testing.T) {
+func TestCompleteConnectAllowlisted(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token: "gh-token",
+		scope: scopeRepo,
 		user:  githubapi.GitHubUser{ID: 42, Login: "Crabtree-Michael", Name: "Michael Crabtree"},
 	}
 	svc := identity.NewService(store, mustCipher(t), gh, []string{testAllowedLogin})
 
-	u, err := svc.CompleteLogin(context.Background(), "code-1")
+	u, err := svc.CompleteConnect(context.Background(), "code-1")
 	if err != nil {
-		t.Fatalf("CompleteLogin: %v", err)
+		t.Fatalf("CompleteConnect: %v", err)
 	}
 	if u.GitHubLogin != testAllowedLogin {
 		t.Fatalf("GitHubLogin = %q, want %s", u.GitHubLogin, testAllowedLogin)
@@ -71,21 +72,21 @@ func TestCompleteLoginAllowlisted(t *testing.T) {
 		t.Fatalf("FetchUser got token %q, want gh-token", gh.gotToken)
 	}
 
-	u2, err := svc.CompleteLogin(context.Background(), "code-2")
+	u2, err := svc.CompleteConnect(context.Background(), "code-2")
 	if err != nil {
-		t.Fatalf("CompleteLogin second: %v", err)
+		t.Fatalf("CompleteConnect second: %v", err)
 	}
 	if u2.ID != u.ID {
 		t.Fatalf("second login user ID = %q, want %q (find-or-create)", u2.ID, u.ID)
 	}
 }
 
-func TestCompleteLoginNotAllowlisted(t *testing.T) {
+func TestCompleteConnectNotAllowlisted(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: testGHToken, user: githubapi.GitHubUser{ID: 7, Login: "nobody"}}
+	gh := &fakeGitHub{token: testGHToken, scope: scopeRepo, user: githubapi.GitHubUser{ID: 7, Login: "nobody"}}
 	svc := identity.NewService(store, mustCipher(t), gh, []string{"someone-else"})
 
-	_, err := svc.CompleteLogin(context.Background(), "code")
+	_, err := svc.CompleteConnect(context.Background(), "code")
 	if !errors.Is(err, identity.ErrNotAllowed) {
 		t.Fatalf("err = %v, want ErrNotAllowed", err)
 	}
@@ -94,12 +95,12 @@ func TestCompleteLoginNotAllowlisted(t *testing.T) {
 	}
 }
 
-func TestCompleteLoginEmptyAllowlist(t *testing.T) {
+func TestCompleteConnectEmptyAllowlist(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: testGHToken, user: githubapi.GitHubUser{ID: 7, Login: "anybody"}}
+	gh := &fakeGitHub{token: testGHToken, scope: scopeRepo, user: githubapi.GitHubUser{ID: 7, Login: "anybody"}}
 	svc := identity.NewService(store, mustCipher(t), gh, nil)
 
-	_, err := svc.CompleteLogin(context.Background(), "code")
+	_, err := svc.CompleteConnect(context.Background(), "code")
 	if !errors.Is(err, identity.ErrNotAllowed) {
 		t.Fatalf("err = %v, want ErrNotAllowed", err)
 	}
@@ -107,17 +108,17 @@ func TestCompleteLoginEmptyAllowlist(t *testing.T) {
 
 func TestAllowlistCheckedOnEveryLogin(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: testGHToken, user: githubapi.GitHubUser{ID: 9, Login: "temp-user"}}
+	gh := &fakeGitHub{token: testGHToken, scope: scopeRepo, user: githubapi.GitHubUser{ID: 9, Login: "temp-user"}}
 	svc := identity.NewService(store, mustCipher(t), gh, []string{"temp-user"})
 
-	if _, err := svc.CompleteLogin(context.Background(), "code-1"); err != nil {
+	if _, err := svc.CompleteConnect(context.Background(), "code-1"); err != nil {
 		t.Fatalf("first login: %v", err)
 	}
 
 	// Rebuild the service with the login removed from the allowlist — the
 	// allowlist must be re-checked on every login, not just at signup.
 	svc2 := identity.NewService(store, mustCipher(t), gh, []string{})
-	_, err := svc2.CompleteLogin(context.Background(), "code-2")
+	_, err := svc2.CompleteConnect(context.Background(), "code-2")
 	if !errors.Is(err, identity.ErrNotAllowed) {
 		t.Fatalf("err = %v, want ErrNotAllowed", err)
 	}
@@ -778,44 +779,44 @@ func TestUpsertProjectAmikaSecretsValidates(t *testing.T) {
 
 // ---- GitHub connection / repo picker --------------------------------------
 
-// Sign-in IS the GitHub connection: the callback token is kept as the user's
-// GitHub credential, so the repo picker works straight after login with no
-// separate token entry.
-// Signing in must NOT become a repo credential (11 §2 D2). The sign-in grant
-// carries no scope, so its token could not clone or push anyway — keeping it
-// would only make the dashboard claim a connection the user never granted.
-func TestCompleteLoginStoresNoGitHubCredential(t *testing.T) {
+// Signing in IS connecting (11 §2, amended 2026-08-03): there is one grant, it
+// always carries `repo`, and completing it leaves a usable repo credential
+// behind. This is the regression test for the split it replaced — a scopeless
+// sign-in that produced a signed-in user the repo picker couldn't serve, and a
+// second route the UI had to remember to send them to.
+func TestSignInGrantsRepoAccess(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token: "gho_fresh",
+		scope: scopeRepo,
 		user:  githubapi.GitHubUser{ID: 42, Login: testAllowedLogin},
 	}
 	svc := identity.NewService(store, mustCipher(t), gh, []string{testAllowedLogin})
 
-	u, err := svc.CompleteLogin(context.Background(), "code-1")
+	u, err := svc.CompleteConnect(context.Background(), "code-1")
 	if err != nil {
-		t.Fatalf("CompleteLogin: %v", err)
+		t.Fatalf("CompleteConnect: %v", err)
 	}
 
 	me, err := svc.Me(context.Background(), u.ID)
 	if err != nil {
 		t.Fatalf("Me: %v", err)
 	}
-	if me.Settings.GitHubToken.Set {
-		t.Error("signing in stored a github credential; repo access must come from Connect")
+	if !me.Settings.GitHubToken.Set {
+		t.Error("signing in stored no github credential; the single grant must leave one")
 	}
-	if got := me.Settings.GitHub.Status; got != identity.GitHubDisconnected {
-		t.Errorf("status = %q, want %q after a bare sign-in", got, identity.GitHubDisconnected)
+	if got := me.Settings.GitHub.Status; got != identity.GitHubConnected {
+		t.Errorf("status = %q, want %q straight after signing in", got, identity.GitHubConnected)
 	}
-	// And the repo picker reports the ordinary "go connect" state, not an error.
-	if _, err := svc.ListGitHubRepos(context.Background(), u.ID); !errors.Is(err, identity.ErrGitHubNotConnected) {
-		t.Errorf("ListGitHubRepos err = %v, want ErrGitHubNotConnected", err)
+	// And the repo picker serves the account with no second authorization.
+	if _, err := svc.ListGitHubRepos(context.Background(), u.ID); err != nil {
+		t.Errorf("ListGitHubRepos: %v, want a served list straight after sign-in", err)
 	}
 }
 
-// Re-running the CONNECT grant re-authorizes: the newer token replaces the
-// stored one, which is how "Switch account" changes the connected account or
-// regains a revoked grant. Plain sign-in never touches the credential.
+// Re-running the grant re-authorizes: the newer token replaces the stored one,
+// which is how "Switch account" changes the connected account or regains a
+// revoked grant.
 func TestCompleteConnectRefreshesStoredToken(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{token: "gho_old", scope: scopeRepo, user: githubapi.GitHubUser{ID: 42, Login: "u"}}
@@ -893,13 +894,14 @@ func TestListGitHubReposRejectedTokenIsNotConnected(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token:    testGHToken,
+		scope:    scopeRepo,
 		user:     githubapi.GitHubUser{ID: 42, Login: "u"},
 		reposErr: githubapi.ErrUnauthorized,
 	}
 	svc := identity.NewService(store, mustCipher(t), gh, []string{"u"})
-	u, err := svc.CompleteLogin(context.Background(), "code")
+	u, err := svc.CompleteConnect(context.Background(), "code")
 	if err != nil {
-		t.Fatalf("CompleteLogin: %v", err)
+		t.Fatalf("CompleteConnect: %v", err)
 	}
 
 	_, err = svc.ListGitHubRepos(context.Background(), u.ID)

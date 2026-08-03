@@ -407,8 +407,8 @@ describe('ProjectFields — repo picker', () => {
 
     expect(screen.queryByRole('combobox', { name: 'Repository' })).not.toBeInTheDocument();
     // A backend route, so it must be a real link (full-page navigation), and it
-    // is the repo-scoped grant — NOT /auth/github/login, which grants no scopes
-    // and so would leave the picker disconnected after a round trip.
+    // is the shared GITHUB_CONNECT_PATH — the one grant, which always asks for
+    // `repo`, so a round trip through it actually reconnects the picker.
     const connect = screen.getByRole('link', { name: 'Connect GitHub account' });
     expect(connect).toHaveAttribute('href', '/auth/github/connect');
     // Nothing to save: the repo is required and can't be supplied yet.

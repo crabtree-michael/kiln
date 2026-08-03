@@ -184,10 +184,10 @@ describe('Onboarding — the guided setup flow', () => {
         'disconnected',
       );
     });
-    // The REPO-SCOPED grant, and a backend route — so a real navigation, never a
-    // router Link. Emphatically not `/auth/github/login`: sign-in grants no
-    // scopes, so pointing here at it would bounce the user back to this step
-    // still disconnected.
+    // The one shared GITHUB_CONNECT_PATH — the same route the sign-in links and
+    // the Integrations card use — and a backend route, so a real navigation
+    // rather than a router Link. It always asks for `repo`, so clearing it
+    // returns the user here connected.
     expect(screen.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute(
       'href',
       '/auth/github/connect',

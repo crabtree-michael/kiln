@@ -1,8 +1,9 @@
 package api_test
 
-// Route tests for the GitHub OAuth + cookie-session routes (11 §2): login,
-// callback, and logout, driven over real net/http via httptest against a
-// fakeAuth double — no real GitHub, no Postgres.
+// Route tests for the GitHub OAuth + cookie-session routes (11 §2): the
+// callback and logout, driven over real net/http via httptest against a
+// fakeAuth double — no real GitHub, no Postgres. The single grant's own
+// start route lives in auth_connect_test.go.
 
 import (
 	"context"
@@ -90,9 +91,12 @@ func cookieNamed(resp *http.Response, name string) *http.Cookie {
 	return nil
 }
 
-func TestAuthLoginRedirects(t *testing.T) {
-	auth := &fakeAuth{loginURL: "https://github.com/login/oauth/authorize"}
-	ts := newAuthTestServer(auth)
+// The old scopeless sign-in URL is now a plain redirect into the single grant
+// (11 §2, amended 2026-08-03). It survives only for bookmarks and in-flight
+// browsers, so all that matters is that it lands on the one flow rather than
+// 404ing someone mid-sign-in.
+func TestAuthLoginPathRedirectsToConnect(t *testing.T) {
+	ts := newAuthTestServer(&fakeAuth{connectURL: "https://github.com/login/oauth/authorize"})
 	defer ts.Close()
 
 	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/login")
@@ -101,39 +105,22 @@ func TestAuthLoginRedirects(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
-	loc, err := resp.Location()
-	if err != nil {
-		t.Fatalf("Location: %v", err)
+	if loc := resp.Header.Get("Location"); loc != "/auth/github/connect" {
+		t.Errorf("Location = %q, want /auth/github/connect", loc)
 	}
-	state := loc.Query().Get("state")
-	if state == "" {
-		t.Fatalf("Location %q carries no state query param", loc)
-	}
-	if want := auth.LoginURL(state); loc.String() != want {
-		t.Errorf("Location = %q, want %q", loc.String(), want)
-	}
-
-	sc := cookieNamed(resp, testStateCookie)
-	if sc == nil {
-		t.Fatal("no kiln_oauth_state cookie set")
-	}
-	if !sc.HttpOnly {
-		t.Error("state cookie is not HttpOnly")
-	}
-	if sc.MaxAge <= 0 || sc.MaxAge > 600 {
-		t.Errorf("state cookie MaxAge = %d, want (0, 600]", sc.MaxAge)
-	}
-	if sc.Value != state {
-		t.Errorf("state cookie value = %q, want %q (the redirect's state query param)", sc.Value, state)
+	// It only forwards — the state is minted by the route it forwards to, so a
+	// user who takes this path can't end up with a stale one.
+	if sc := cookieNamed(resp, testStateCookie); sc != nil {
+		t.Errorf("state cookie = %+v, want none from the deprecated alias", sc)
 	}
 }
 
 func TestAuthCallbackSuccess(t *testing.T) {
 	expires := time.Now().Add(30 * 24 * time.Hour)
 	auth := &fakeAuth{
-		completeLoginUser: identity.User{ID: "u-1"},
-		sessionToken:      testSessionToken,
-		sessionExpires:    expires,
+		completeConnectUser: identity.User{ID: "u-1"},
+		sessionToken:        testSessionToken,
+		sessionExpires:      expires,
 	}
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
@@ -143,8 +130,8 @@ func TestAuthCallbackSuccess(t *testing.T) {
 		&http.Cookie{Name: testStateCookie, Value: testStateValue})
 	defer closeBody(t, resp)
 
-	if got := auth.lastCompleteLoginCode(); got != "c1" {
-		t.Errorf("CompleteLogin called with %q, want c1", got)
+	if got := auth.lastCompleteConnectCode(); got != "c1" {
+		t.Errorf("CompleteConnect called with %q, want c1", got)
 	}
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
@@ -180,8 +167,8 @@ func TestAuthCallbackStateMismatch(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 for a state mismatch", resp.StatusCode)
 	}
-	if n := auth.completeLoginCallCount(); n != 0 {
-		t.Errorf("CompleteLogin called %d times, want 0 on state mismatch", n)
+	if n := auth.completeConnectCallCount(); n != 0 {
+		t.Errorf("CompleteConnect called %d times, want 0 on state mismatch", n)
 	}
 }
 
@@ -196,13 +183,13 @@ func TestAuthCallbackMissingStateCookie(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 with no state cookie", resp.StatusCode)
 	}
-	if n := auth.completeLoginCallCount(); n != 0 {
-		t.Errorf("CompleteLogin called %d times, want 0 with no state cookie", n)
+	if n := auth.completeConnectCallCount(); n != 0 {
+		t.Errorf("CompleteConnect called %d times, want 0 with no state cookie", n)
 	}
 }
 
 func TestAuthCallbackNotAllowlisted(t *testing.T) {
-	auth := &fakeAuth{completeLoginErr: identity.ErrNotAllowed}
+	auth := &fakeAuth{completeConnectErr: identity.ErrNotAllowed}
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
@@ -224,7 +211,7 @@ func TestAuthCallbackNotAllowlisted(t *testing.T) {
 }
 
 func TestAuthCallbackGitHubDown(t *testing.T) {
-	auth := &fakeAuth{completeLoginErr: errFakeGitHubDown}
+	auth := &fakeAuth{completeConnectErr: errFakeGitHubDown}
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
@@ -234,7 +221,7 @@ func TestAuthCallbackGitHubDown(t *testing.T) {
 	defer closeBody(t, resp)
 
 	if resp.StatusCode != http.StatusBadGateway {
-		t.Errorf("status = %d, want 502 when CompleteLogin fails for a reason other than the allowlist", resp.StatusCode)
+		t.Errorf("status = %d, want 502 when CompleteConnect fails for a reason other than the allowlist", resp.StatusCode)
 	}
 }
 
@@ -282,10 +269,12 @@ func TestIdentityRoutesAbsentWhenDisabled(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/login")
-	defer closeBody(t, resp)
+	for _, path := range []string{"/auth/github/connect", "/auth/github/login"} {
+		resp := doAuthRequest(t, http.MethodGet, ts.URL+path)
+		defer closeBody(t, resp)
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want 404 when EnableIdentity was never called", resp.StatusCode)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GET %s status = %d, want 404 when EnableIdentity was never called", path, resp.StatusCode)
+		}
 	}
 }

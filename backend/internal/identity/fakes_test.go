@@ -314,8 +314,9 @@ func (s *fakeStore) userCount() int {
 type fakeGitHub struct {
 	mu    sync.Mutex
 	token string
-	// scope is what ExchangeCode reports GitHub granted. Empty is the plain
-	// sign-in grant; "repo" is a full connect grant.
+	// scope is what ExchangeCode reports GitHub granted. "repo" is the grant
+	// Kiln always asks for; anything narrower (including empty) is GitHub or
+	// the user having withheld it.
 	scope       string
 	user        githubapi.GitHubUser
 	repos       []githubapi.Repo

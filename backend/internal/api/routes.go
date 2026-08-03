@@ -233,11 +233,15 @@ type BetaRegistrar interface {
 // no adapter — mirroring how BoardReader etc. are satisfied directly by
 // their domain services.
 type Authenticator interface {
-	LoginURL(state string) string
-	CompleteLogin(ctx context.Context, code string) (identity.User, error)
-	// ConnectURL/CompleteConnect are the repo-scoped grant behind the
-	// dashboard's "Connect GitHub" card: same dance, but the token it yields is
-	// stored as the caller's repo credential (11 §2, integrations redesign).
+	// ConnectURL/CompleteConnect are the ONE GitHub grant (11 §2, amended
+	// 2026-08-03): it always asks for `repo`, and the token it yields is stored
+	// as the caller's repo credential as a side effect of signing them in. The
+	// scopeless LoginURL/CompleteLogin pair that used to sit beside them is
+	// gone — one flow, one entry point, no way to pick the wrong one.
+	//
+	// CompleteConnect returns a populated user WITH ErrRepoScopeNotGranted when
+	// GitHub authenticated the account but withheld `repo`, so the caller can
+	// sign them in and refuse only the credential.
 	ConnectURL(state string) string
 	CompleteConnect(ctx context.Context, code string) (identity.User, error)
 	CreateSession(ctx context.Context, userID string) (string, time.Time, error)
@@ -453,7 +457,7 @@ func (s *Server) EnablePush(registrar PushRegistrar, vapidPublicKey string) {
 func (s *Server) EnableBeta(registrar BetaRegistrar) { s.beta = registrar }
 
 // EnableIdentity turns on the GitHub OAuth + cookie-session routes (11 §2):
-// GET /auth/github/login, GET /auth/github/callback, POST /auth/logout —
+// GET /auth/github/connect, GET /auth/github/callback, POST /auth/logout —
 // plus the signed-in account surface (11 §4): GET /api/me, PUT /api/settings,
 // PUT /api/project, POST /api/settings/verify (call before Handler). The
 // auth routes mount outside /api, ahead of the SPA catch-all; the account
@@ -639,8 +643,13 @@ func (s *Server) mountIdentityRoutes(mux *http.ServeMux) {
 	if s.auth == nil {
 		return
 	}
-	mux.HandleFunc("GET /auth/github/login", s.handleAuthLogin)
 	mux.HandleFunc("GET /auth/github/connect", s.handleAuthConnect)
+	// Deprecated alias for the removed scopeless sign-in (11 §2, amended
+	// 2026-08-03). It is kept only because it was a browser-facing URL — it sits
+	// in bookmarks and history, and in the address bar of anyone mid-dance when
+	// the deploy landed. Nothing in this repo links to it; drop it once those
+	// have aged out.
+	mux.Handle("GET /auth/github/login", http.RedirectHandler("/auth/github/connect", http.StatusFound))
 	mux.HandleFunc("GET /auth/github/callback", s.handleAuthCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/me", s.withSession(s.handleMe))

@@ -108,7 +108,7 @@ describe('Dashboard', () => {
     renderDashboard();
 
     const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
-    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
     expect(document.querySelector('[data-role="dashboard"]')).not.toBeNull();
     expect(document.querySelector('[data-role="dashboard-error"]')).toBeNull();
   });
@@ -121,7 +121,7 @@ describe('Dashboard', () => {
     const errorEl = document.querySelector('[data-role="dashboard-error"]');
     expect(errorEl).not.toBeNull();
     expect(errorEl?.textContent).toContain('fetchMe: HTTP 500');
-    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(link).toHaveAttribute('href', '/auth/github/connect');
   });
 
   it('signed in, no project: opens the guided setup flow on its first step', async () => {
@@ -208,10 +208,10 @@ describe('Dashboard', () => {
     ).toBeNull();
   });
 
-  // GitHub is connected through the repo-scoped OAuth grant, which the setup
-  // flow and the project form ask for in place. The Integrations section covers
-  // only the providers you connect by pasting a key, so it holds neither a
-  // GitHub card nor a token field.
+  // GitHub is connected through the one repo-scoped OAuth grant (11 §2, amended
+  // 2026-08-03), which the setup flow and the project form ask for in place. The
+  // Integrations section covers only the providers you connect by pasting a key,
+  // so it holds neither a GitHub card nor a token field.
   it('the Integrations section covers only API-key providers — no GitHub anywhere in it', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(
       makeMe({

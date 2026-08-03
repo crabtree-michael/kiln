@@ -627,7 +627,7 @@ func newSteward(
 // KILN_SECRETS_KEY fails hard (11 §3): a half-working cipher must never
 // silently store plaintext. Any partial subset (one or two of the three set)
 // is a misconfiguration too incomplete to run identity from — mounting on
-// ClientID+SecretsKey alone would serve a working-looking /auth/github/login
+// ClientID+SecretsKey alone would serve a working-looking /auth/github/connect
 // whose callback always fails the token exchange (final review, Minor #3) —
 // so it logs a warning and stays unmounted rather than erroring.
 func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service, error) {

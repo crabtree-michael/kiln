@@ -9,7 +9,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
@@ -20,7 +19,7 @@ import (
 // enough to bound a CSRF replay window.
 const stateCookieTTL = 10 * time.Minute
 
-// inviteOnlyPage is the small inline HTML shown when CompleteLogin rejects a
+// inviteOnlyPage is the small inline HTML shown when CompleteConnect rejects a
 // GitHub login that isn't on the allowlist (11 §2) — a one-shot error page
 // needs no template/asset dependency.
 const inviteOnlyPage = `<!DOCTYPE html>
@@ -28,75 +27,60 @@ const inviteOnlyPage = `<!DOCTYPE html>
 <body><h1>Kiln is invite-only.</h1>
 <p>Ask for your GitHub username to be added.</p></body></html>`
 
-// repoScopeDeniedPage is shown when the "Connect GitHub" callback comes back
-// without full `repo` (CompleteConnect → ErrRepoScopeNotGranted). Kiln stores
-// nothing in that case, so the page has to say plainly what was missing and
-// offer the one-click retry — the alternative, a silent "Connected" card over a
-// token that cannot clone or push, is far worse.
+// repoScopeDeniedPage is shown when the callback comes back without full `repo`
+// (CompleteConnect → ErrRepoScopeNotGranted). The caller IS signed in by then —
+// GitHub authenticated an allowlisted account, it just withheld the repository
+// permission — so the page says what is missing and offers both the one-click
+// retry and the way into the dashboard. The alternative, a silent "Connected"
+// card over a token that cannot clone or push, is far worse.
 const repoScopeDeniedPage = `<!DOCTYPE html>
 <html><head><title>Kiln</title></head>
 <body><h1>GitHub didn't grant repository access.</h1>
-<p>Kiln needs the <code>repo</code> permission to clone your repository, read it,
-and push the branches your agents produce. Nothing was saved.</p>
+<p>You're signed in, but Kiln needs the <code>repo</code> permission to clone your
+repository, read it, and push the branches your agents produce. No repository
+credential was saved.</p>
 <p>If your repository belongs to an organisation, that organisation may need to
 approve Kiln first.</p>
-<p><a href="/auth/github/connect">Try connecting again</a> &middot;
+<p><a href="/auth/github/connect">Try again</a> &middot;
 <a href="/dashboard">Back to settings</a></p></body></html>`
 
-// connectStatePrefix marks an in-flight OAuth state as belonging to the
-// repo-scoped CONNECT grant rather than a plain sign-in. GitHub sends both
-// grants back to the OAuth app's single registered callback URL, so the
-// callback has to be told which one it is completing; carrying the intent on
-// the state itself means no second cookie to set, match, and clear.
+// handleAuthConnect starts THE GitHub dance (11 §2, amended 2026-08-03): mint a
+// random state token, stash it in a short-lived HttpOnly cookie, and redirect
+// the browser to GitHub's authorize URL carrying the same state (checked back
+// at the callback as CSRF protection).
 //
-// It is read back off the SERVER-SET HttpOnly state cookie, never off the
-// query param, so a caller cannot talk the callback into the connect path (and
-// into storing a token) by hand-crafting a URL. The prefix rides along on both
-// halves, so the existing exact-match CSRF check covers it unchanged.
-const connectStatePrefix = "connect:"
-
-// handleAuthLogin starts the plain sign-in dance (11 §2): mint a random state
-// token, stash it in a short-lived HttpOnly cookie, and redirect the browser
-// to GitHub's authorize URL carrying the same state (checked back at the
-// callback as CSRF protection). No scopes — identity only.
-func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
-	s.startOAuth(w, r, "", s.auth.LoginURL)
-}
-
-// handleAuthConnect starts the repo-scoped grant behind the dashboard's
-// "Connect GitHub" card. Identical to handleAuthLogin except that it asks
-// GitHub for `repo` access and marks the state so the shared callback stores
-// the resulting token as the caller's repo credential. Connecting also signs
-// the authorizing account in, which is what makes "Switch account" work: it
-// re-runs this same flow, so the session and the stored token always belong to
-// the same GitHub account.
+// There is exactly one grant now, and it always asks for `repo`. The scopeless
+// sign-in that used to sit beside it is gone: two routes whose only difference
+// was an invisible scope produced UI that pointed at the wrong one, and a
+// "connected" account whose token couldn't clone. Signing in and connecting
+// being the same act is also what keeps "Switch account" honest — re-running
+// this flow always leaves the session and the stored token on the same GitHub
+// account.
 func (s *Server) handleAuthConnect(w http.ResponseWriter, r *http.Request) {
-	s.startOAuth(w, r, connectStatePrefix, s.auth.ConnectURL)
-}
-
-// startOAuth is the shared opening move of both grants: mint state (prefixed
-// for connect), stash it, redirect to the grant's authorize URL.
-func (s *Server) startOAuth(
-	w http.ResponseWriter, r *http.Request, prefix string, authorizeURL func(string) string,
-) {
 	token, err := randomToken()
 	if err != nil {
 		slog.Error("api: mint oauth state", "err", err)
 		http.Error(w, "start login", http.StatusInternalServerError)
 		return
 	}
-	state := prefix + token
-	setCookie(w, r, stateCookie, state, stateCookieTTL)
-	http.Redirect(w, r, authorizeURL(state), http.StatusFound)
+	setCookie(w, r, stateCookie, token, stateCookieTTL)
+	http.Redirect(w, r, s.auth.ConnectURL(token), http.StatusFound)
 }
 
-// handleAuthCallback completes the GitHub OAuth dance for BOTH grants (11 §2):
-// the state cookie must match the query param exactly (constant-time
-// comparison, CSRF defense), the completion enforces the allowlist, and
-// success mints a session cookie and redirects into the app. The state
-// cookie's own prefix selects the completion: a plain sign-in discards the
-// access token, a connect stores it as the caller's repo credential. The state
-// cookie is cleared on every exit path, successful or not.
+// handleAuthCallback completes the GitHub OAuth dance (11 §2): the state cookie
+// must match the query param exactly (constant-time comparison, CSRF defense),
+// the completion enforces the allowlist and stores the repo credential, and
+// success mints a session cookie and redirects into the app. The state cookie
+// is cleared on every exit path, successful or not.
+//
+// With one grant there is nothing left to dispatch on — the old prefixed state
+// that told this handler which of two completions to run went away with the
+// second flow.
+//
+// A grant missing `repo` is the one partial outcome: the session is still
+// minted (the account authenticated) and only the credential is refused, so the
+// user lands signed-in on an explanation with a retry rather than bounced back
+// out to a sign-in screen.
 func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Set eagerly, before any WriteHeader below: once the status line is
 	// written the header map is flushed, so a deferred clear would silently
@@ -114,24 +98,16 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The intent comes off the cookie we set, not the query param — see
-	// connectStatePrefix. By here the two have already been proven equal.
-	complete := s.auth.CompleteLogin
-	if strings.HasPrefix(c.Value, connectStatePrefix) {
-		complete = s.auth.CompleteConnect
-	}
-
-	user, err := complete(r.Context(), r.URL.Query().Get("code"))
+	user, err := s.auth.CompleteConnect(r.Context(), r.URL.Query().Get("code"))
+	// Not a failure of Kiln's — the user (or their org) declined the repo
+	// permission. The user comes back populated for exactly this case, so the
+	// sign-in half still succeeds and only the credential is withheld.
+	scopeDenied := errors.Is(err, identity.ErrRepoScopeNotGranted)
 	switch {
 	case errors.Is(err, identity.ErrNotAllowed):
 		writeAuthPage(w, http.StatusForbidden, inviteOnlyPage, "invite-only")
 		return
-	case errors.Is(err, identity.ErrRepoScopeNotGranted):
-		// Not a failure of Kiln's — the user (or their org) declined the grant.
-		// 403 with an explanation beats a 502 "github login failed".
-		writeAuthPage(w, http.StatusForbidden, repoScopeDeniedPage, "repo-scope-denied")
-		return
-	case err != nil:
+	case err != nil && !scopeDenied:
 		slog.Error("api: complete github login", "err", err)
 		http.Error(w, "github login failed", http.StatusBadGateway)
 		return
@@ -144,6 +120,13 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setCookie(w, r, sessionCookie, token, time.Until(expires))
+	if scopeDenied {
+		// 403 with an explanation beats a 502 "github login failed" — and beats
+		// dropping them on a dashboard that just says "not connected" with no
+		// word on why the consent screen they just cleared didn't take.
+		writeAuthPage(w, http.StatusForbidden, repoScopeDeniedPage, "repo-scope-denied")
+		return
+	}
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 

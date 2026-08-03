@@ -26,12 +26,6 @@ type stubAuthenticator struct {
 	err     error
 }
 
-func (a *stubAuthenticator) LoginURL(string) string { return "" }
-
-func (a *stubAuthenticator) CompleteLogin(context.Context, string) (identity.User, error) {
-	return identity.User{}, nil
-}
-
 func (a *stubAuthenticator) ConnectURL(string) string { return "" }
 
 func (a *stubAuthenticator) CompleteConnect(context.Context, string) (identity.User, error) {

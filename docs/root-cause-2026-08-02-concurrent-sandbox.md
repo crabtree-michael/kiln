@@ -2,12 +2,20 @@
 
 **Date:** 2026-08-02 · **Commit investigated:** `0a39e78` (main)
 
+> **Partly superseded — see [`root-cause-2026-08-03-render-logs.md`](root-cause-2026-08-03-render-logs.md).**
+> The Render credential was fixed and the logs were pulled on 2026-08-03. They confirm §1's
+> mechanism but **refute its production-evidence argument** (the generation numbers are not
+> the race's fingerprint — 6 conflict events vs 72 from a different path), **refute F3**
+> (1 build failure in 291 deploys), and identify the actual recurring failure: every deploy
+> times out `srv.Shutdown` on the open SSE streams and kills the process. Read §5 and §1's
+> "Corroborating production evidence" only alongside that follow-up.
+
 ## 0. Status of each deliverable
 
 | Ticket item | Status |
 | --- | --- |
-| Confirm the concurrent-sandbox root cause | **Confirmed** — mechanism traced in code and reproduced deterministically (§1, appendix) |
-| Pull the Render render/build logs | **Not obtained** — blocked on a broken credential (§4). Nothing in §5 is derived from logs |
+| Confirm the concurrent-sandbox root cause | **Confirmed** — mechanism traced in code and reproduced deterministically (§1, appendix). *Production footprint later measured as minor — see the 08-03 follow-up §5* |
+| Pull the Render render/build logs | **Obtained 2026-08-03** — credential fixed; see the follow-up doc. (As written on 08-02: blocked on a broken credential (§4), and nothing in §5 is derived from logs) |
 | Check for other failure modes | Done — five in the agent module (§3), six in the deploy/build pipeline (§5) |
 | Root-cause write-up + fix recommendations | This document; recommendations in §6 |
 
@@ -255,6 +263,10 @@ only one that failed. Two hypotheses remain live, and they need different fixes:
 The Amika API exposes no reveal endpoint (`/secrets/{id}` → `invalid_api_route`), so the
 two cannot be separated from inside a sandbox. §6 gives a cheap discriminating test.
 
+> **Resolved 2026-08-03: H1.** The key now resolves to a real `rnd_…` value through this
+> same `{ secret = … }` declaration, so the resolver works and **H2 is refuted**. The
+> probe secret proposed in rec #8 is no longer needed; recs #9 and #10 still stand.
+
 Worth noting: the long comment block in `.amika/config.toml` anticipated the wrong
 failure mode. It tells the next agent that a sandbox booting with `RENDER_API_KEY`
 **unset** means an empty store lookup. The real failure is worse than unset — the
@@ -266,6 +278,11 @@ variable *is* set, so every presence check passes and the only symptom is an une
 ## 5. Deploy/build pipeline findings (config analysis — **not** log-derived)
 
 All independently verified against the repo at `0a39e78`.
+
+> **Settled 2026-08-03 by the logs.** F3 is **refuted** as an incident source (1 build
+> failure in 291 deploys, 2026-07-06); F1 is true but has caused no production incident;
+> F5 is **confirmed and root-caused** (17 of 18 process exits land 44–170s after a deploy,
+> because `srv.Shutdown` waits on SSE streams that never go idle). See the follow-up §2–§3.
 
 **F1 — [High] Nothing in the gate ever builds the production image.** `backend/Dockerfile`
 is what Render builds, and no gate step touches it: `make check` is `lint typecheck test`

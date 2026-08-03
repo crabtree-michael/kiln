@@ -929,10 +929,10 @@ html:has([data-role='settings']) {
 
 /* ------------------------------------------------------- notifications */
 
-/* Push opt-in (02 §10) is one setting, so it renders as one line: label left,
-   switch right, no explanatory copy. It takes the same inset row as the GitHub
-   connection — both are a single integration and its state — rather than card
-   chrome of its own, since the section-body around it is already a card. */
+/* Push frequency (02 §10) is one setting, so it renders as one line: label
+   left, dropdown right, no explanatory copy. It takes the same inset row as the
+   GitHub connection — both are a single integration and its state — rather than
+   card chrome of its own, since the section-body around it is already a card. */
 [data-role='notifications-field'] {
   display: flex;
   align-items: center;
@@ -944,7 +944,7 @@ html:has([data-role='settings']) {
   border-radius: var(--radius-md);
 }
 
-/* Pushes the reason + switch to the right edge as one pair. */
+/* Pushes the reason + dropdown to the right edge as one pair. */
 [data-role='notifications-title'] {
   margin-right: auto;
   font: var(--type-small);
@@ -952,94 +952,16 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
-/* The switch: a pill track that fills with ember when on, knob sliding across.
-   Sized off the track so the two stay in step if the height changes. Scoped
-   under [data-role='settings'] to outrank the page's ghost-button styling. */
-[data-role='settings'] [data-role='notifications-toggle'] {
-  --track-width: 40px;
-  --track-height: 22px;
-  --knob-inset: 3px;
-  position: relative;
+/* The frequency dropdown. The page's own select styling (chrome-stripped, with
+   the gradient chevron) already applies; this only keeps it from being squeezed
+   by a long label and trims it to row height, since it sits inline rather than
+   under a stacked form label. Scoped under [data-role='settings'] to outrank
+   that page-wide rule. */
+[data-role='settings'] [data-role='notifications-mode'] {
   flex-shrink: 0;
-  width: var(--track-width);
-  height: var(--track-height);
-  /* The page's compact buttons carry min-height: 32px — a track is not a
-     button-sized target, so it has to be cleared explicitly, not just `height`. */
-  min-height: var(--track-height);
-  padding: 0;
-  background: var(--surface-inset);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
-
-[data-role='settings'] [data-role='notifications-toggle'][aria-checked='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-[data-role='settings'] [data-role='notifications-toggle']:hover:not(:disabled) {
-  background: var(--surface-inset);
-  border-color: var(--border-strong);
-}
-
-[data-role='settings']
-  [data-role='notifications-toggle'][aria-checked='true']:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-/* The generic button:active ember flash would otherwise fire on the off track. */
-[data-role='settings'] [data-role='notifications-toggle']:active:not(:disabled) {
-  background: var(--surface-inset);
-}
-
-[data-role='settings']
-  [data-role='notifications-toggle'][aria-checked='true']:active:not(:disabled) {
-  background: var(--accent-press);
-}
-
-[data-role='settings'] [data-role='notifications-toggle']:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-[data-role='settings'] [data-role='notifications-toggle']:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-[data-role='notifications-knob'] {
-  position: absolute;
-  top: var(--knob-inset);
-  left: var(--knob-inset);
-  /* The track's inner box minus the inset on both sides (border-box, so the
-     1px border is already outside `top`/`left`'s origin). */
-  width: calc(var(--track-height) - 2px - 2 * var(--knob-inset));
-  height: calc(var(--track-height) - 2px - 2 * var(--knob-inset));
-  border-radius: var(--radius-pill);
-  /* Off, the knob has to read against a track that is itself pale, so it takes
-     the strong border tone; on, it flips to the on-accent cream. */
-  background: var(--border-strong);
-  transition:
-    transform 120ms ease,
-    background 120ms ease;
-}
-
-[data-role='notifications-toggle'][aria-checked='true'] [data-role='notifications-knob'] {
-  background: var(--text-on-accent);
-  transform: translateX(calc(var(--track-width) - var(--track-height)));
-}
-
-/* Sits after the switch rules, not up with the spinner's reduced-motion block:
-   these selectors only tie with the ones above, so source order decides. */
-@media (prefers-reduced-motion: reduce) {
-  [data-role='settings'] [data-role='notifications-toggle'],
-  [data-role='notifications-knob'] {
-    transition: none;
-  }
+  min-height: 32px;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
 }
 
 /* Wraps onto its own line under the row, the same way the note used to. */

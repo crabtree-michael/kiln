@@ -422,21 +422,34 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                 >
                   Unavailable
                 </span>
-                <button
+                <select
                   aria-busy="false"
-                  aria-checked="false"
                   aria-labelledby="notifications-title"
-                  data-role="notifications-toggle"
+                  data-role="notifications-mode"
                   data-status="unsupported"
                   disabled=""
-                  role="switch"
-                  type="button"
                 >
-                  <span
-                    aria-hidden="true"
-                    data-role="notifications-knob"
-                  />
-                </button>
+                  <option
+                    value="off"
+                  >
+                    Off
+                  </option>
+                  <option
+                    value="default"
+                  >
+                    Default
+                  </option>
+                  <option
+                    value="blocked"
+                  >
+                    Blocked
+                  </option>
+                  <option
+                    value="all"
+                  >
+                    All
+                  </option>
+                </select>
               </section>
             </div>
           </section>

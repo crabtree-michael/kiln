@@ -36,6 +36,10 @@ vi.mock('@/transport/transport', () => ({
     }),
   ),
   fetchSnapshots: vi.fn(() => Promise.resolve(null)),
+  // The Notifications section's frequency dropdown reads the global mode on
+  // mount; the recommended default keeps the row in its ordinary state.
+  fetchNotificationMode: vi.fn(() => Promise.resolve('default')),
+  putNotificationMode: vi.fn((mode: string) => Promise.resolve(mode)),
 }));
 
 function makeMe(overrides: Partial<Me> = {}): Me {

@@ -122,6 +122,33 @@ describe('settings desktop layout', () => {
     );
   });
 
+  it('splits the project dialog’s action bar — delete leading, save trailing', () => {
+    const bar = ruleBody("[data-role='project-form-actions'] {");
+    expect(bar).toMatch(/display:\s*flex/);
+    // flex-end, not space-between: create mode has no delete, and Save must not
+    // slide to the left edge just because it is the only child.
+    expect(bar).toMatch(/justify-content:\s*flex-end/);
+    // …which makes the delete's auto margin the thing that pushes it left.
+    expect(
+      ruleBody(
+        "[data-role='settings'] [data-role='project-form-actions'] [data-role='delete-project'] {",
+      ),
+    ).toMatch(/margin-right:\s*auto/);
+  });
+
+  it('draws the dropdown chevron itself instead of leaving platform chrome', () => {
+    // Anchored on the declaration rather than the bare selector: the shared
+    // `input, select` box rule above lists `select {` on its own line too, and
+    // indexOf would stop there.
+    const body = ruleBody("[data-role='dashboard'] select {\n  appearance: none;");
+    expect(body).toMatch(/appearance:\s*none/);
+    // The chevron is painted in currentColor so it follows the text in both
+    // themes; an SVG data URI would have to hard-code a hex.
+    expect(body).toMatch(/background-image:\s*[\s\S]*currentColor/);
+    // Without the reserved room a long option label runs under the chevron.
+    expect(body).toMatch(/padding-right:/);
+  });
+
   it('keeps settings controls compact rather than full-size pill buttons', () => {
     const button = ruleBody("[data-role='settings'] button {");
     // Caption type (12.5px) and a small radius — not the --type-body-strong

@@ -122,9 +122,10 @@ describe('ProjectModal', () => {
     expect(document.body.style.overflow).toBe('hidden');
 
     // Shift+Tab from the panel itself (where focus lands on open) wraps to the
-    // last control rather than walking out into the settings page behind.
+    // last control — Save, at the trailing edge of the action bar — rather than
+    // walking out into the settings page behind.
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Delete project' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save project' }));
 
     // …and forwards off that last control wraps back to the first.
     fireEvent.keyDown(document, { key: 'Tab' });
@@ -189,6 +190,19 @@ describe('ProjectModal', () => {
     expect(nameInput).toHaveValue('renamed');
   });
 
+  it('offers delete as an icon-only control that still has a name', async () => {
+    await renderModal();
+    const remove = screen.getByRole('button', { name: 'Delete project' });
+
+    // The trash glyph alone — no label text — so the accessible name has to come
+    // from the aria-label rather than from anything visible.
+    expect(remove.textContent).toBe('');
+    expect(remove.querySelector('svg[data-icon="trash"]')).not.toBeNull();
+    // …and it sits in the form's action bar, ahead of Save, not in a danger
+    // section of its own below the form.
+    expect(remove.closest('[data-role="project-form-actions"]')).not.toBeNull();
+  });
+
   it('deletes behind a confirm, then closes', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     try {
@@ -233,7 +247,7 @@ describe('ProjectModal', () => {
 
     expect(screen.getByRole('dialog', { name: 'New project' })).toBeInTheDocument();
     expect(screen.getByLabelText('Project name')).toHaveValue('');
-    // Nothing to delete yet — the danger zone belongs to a saved project.
+    // Nothing to delete yet, so the action bar is Save alone.
     expect(screen.queryByRole('button', { name: 'Delete project' })).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'fresh' } });

@@ -10,7 +10,7 @@
 // Per-user credentials are NOT here — they live in `Integrations.tsx` as a card
 // per provider (GitHub via that OAuth grant, the rest via a paste-your-key
 // modal).
-import { useState, type ChangeEvent, type FormEvent, type JSX } from 'react';
+import { useState, type ChangeEvent, type FormEvent, type JSX, type ReactNode } from 'react';
 import type {
   MeProject,
   ProjectUpdateRequest,
@@ -183,6 +183,13 @@ export interface ProjectFieldsProps {
    *    Agent and Sandbox sections. Same state, same submit body — only the
    *    arrangement differs. */
   layout?: 'form' | 'detail';
+  /** An extra control for the leading (left) edge of the `detail` footer, beside
+   * the save button — in practice the modal's delete. A rendered node rather
+   * than an `onDelete` callback on purpose: deleting a project is the shell's
+   * business (it owns the confirm and closes on success), and the form has no
+   * reason to grow an action that isn't its own submit. Ignored by the `form`
+   * layout, whose DOM must not move under the surfaces that style it. */
+  footerLead?: ReactNode;
   saving: boolean;
   onSave: (body: ProjectUpdateRequest) => Promise<void>;
 }
@@ -277,6 +284,7 @@ export function ProjectFields({
   snapshots,
   catalogAvailable = false,
   layout = 'form',
+  footerLead,
   saving,
   onSave,
 }: ProjectFieldsProps): JSX.Element {
@@ -500,7 +508,13 @@ export function ProjectFields({
         />
       </section>
 
-      <footer data-role="project-form-actions">{submitButton}</footer>
+      {/* One action bar: the destructive action at the leading edge (the shell's,
+          passed in), the committing one at the trailing edge. Save is the thing
+          you came here to press, so it sits where the eye finishes. */}
+      <footer data-role="project-form-actions">
+        {footerLead}
+        {submitButton}
+      </footer>
     </form>
   );
 }

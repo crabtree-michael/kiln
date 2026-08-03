@@ -411,23 +411,11 @@ html:has([data-role='settings']) {
   height: 17px;
 }
 
-[data-role='section-heading-text'] {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
 [data-role='settings'] h2 {
   margin: 0;
+  min-width: 0;
   font: var(--type-body-strong);
   color: var(--text-body);
-}
-
-[data-role='section-description'] {
-  margin: 0;
-  font: var(--type-caption);
-  color: var(--text-muted);
 }
 
 [data-role='section-action'] {
@@ -1016,12 +1004,6 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
-[data-role='project-group-hint'] {
-  margin: calc(-1 * var(--space-2)) 0 0;
-  font: var(--type-caption);
-  color: var(--text-muted);
-}
-
 /* The short fields inside a group. auto-fit rather than a fixed column count:
    the dialog is narrower than the settings column, and a group holds two or
    three one-line controls. */
@@ -1299,21 +1281,10 @@ html:has([data-role='settings']) {
   gap: var(--space-3);
 }
 
-[data-role='integration-identity'] {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
 [data-role='integration-title'] {
+  min-width: 0;
   font: var(--type-body-strong);
   color: var(--text-body);
-}
-
-[data-role='integration-blurb'] {
-  font: var(--type-caption);
-  color: var(--text-muted);
 }
 
 [data-role='integration-connected'] {

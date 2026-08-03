@@ -179,20 +179,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   />
                 </svg>
               </span>
-              <div
-                data-role="section-heading-text"
+              <h2
+                id="account-heading"
               >
-                <h2
-                  id="account-heading"
-                >
-                  Account
-                </h2>
-                <p
-                  data-role="section-description"
-                >
-                  The GitHub identity this Kiln account is signed in as.
-                </p>
-              </div>
+                Account
+              </h2>
             </header>
             <div
               data-role="section-body"
@@ -270,20 +261,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   />
                 </svg>
               </span>
-              <div
-                data-role="section-heading-text"
+              <h2
+                id="integrations-heading"
               >
-                <h2
-                  id="integrations-heading"
-                >
-                  Integrations
-                </h2>
-                <p
-                  data-role="section-description"
-                >
-                  Credentials Kiln uses to reach your coding agents, sandboxes, and repositories.
-                </p>
-              </div>
+                Integrations
+              </h2>
             </header>
             <div
               data-role="section-body"
@@ -299,20 +281,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   <div
                     data-role="integration-header"
                   >
-                    <div
-                      data-role="integration-identity"
+                    <span
+                      data-role="integration-title"
                     >
-                      <span
-                        data-role="integration-title"
-                      >
-                        GitHub
-                      </span>
-                      <span
-                        data-role="integration-blurb"
-                      >
-                        Lets agents clone, read, and push to your repo.
-                      </span>
-                    </div>
+                      GitHub
+                    </span>
                     <span
                       data-connected="true"
                       data-role="integration-connected"
@@ -366,20 +339,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   <div
                     data-role="integration-header"
                   >
-                    <div
-                      data-role="integration-identity"
+                    <span
+                      data-role="integration-title"
                     >
-                      <span
-                        data-role="integration-title"
-                      >
-                        Amika
-                      </span>
-                      <span
-                        data-role="integration-blurb"
-                      >
-                        Provisions and runs the sandboxes your agents work in.
-                      </span>
-                    </div>
+                      Amika
+                    </span>
                     <span
                       data-connected="false"
                       data-role="integration-connected"
@@ -428,20 +392,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   <div
                     data-role="integration-header"
                   >
-                    <div
-                      data-role="integration-identity"
+                    <span
+                      data-role="integration-title"
                     >
-                      <span
-                        data-role="integration-title"
-                      >
-                        Devin
-                      </span>
-                      <span
-                        data-role="integration-blurb"
-                      >
-                        Runs tickets through Devin sessions.
-                      </span>
-                    </div>
+                      Devin
+                    </span>
                     <span
                       data-connected="false"
                       data-role="integration-connected"
@@ -506,20 +461,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   />
                 </svg>
               </span>
-              <div
-                data-role="section-heading-text"
+              <h2
+                id="notifications-heading"
               >
-                <h2
-                  id="notifications-heading"
-                >
-                  Notifications
-                </h2>
-                <p
-                  data-role="section-description"
-                >
-                  How Kiln reaches you when the app is closed or in the background.
-                </p>
-              </div>
+                Notifications
+              </h2>
             </header>
             <div
               data-role="section-body"
@@ -587,20 +533,11 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                   />
                 </svg>
               </span>
-              <div
-                data-role="section-heading-text"
+              <h2
+                id="projects-heading"
               >
-                <h2
-                  id="projects-heading"
-                >
-                  Projects
-                </h2>
-                <p
-                  data-role="section-description"
-                >
-                  Each project has its own repository, worker pool, and sandbox configuration.
-                </p>
-              </div>
+                Projects
+              </h2>
               <div
                 data-role="section-action"
               >

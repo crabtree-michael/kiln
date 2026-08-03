@@ -91,8 +91,6 @@ interface ApiKeyProvider {
   /** The modal input's label. Kept identical to the old field label so the
    * accessible name (`getByLabelText('Amika API key')`) is unchanged. */
   label: string;
-  /** One line under the heading: what connecting this provider buys. */
-  blurb: string;
 }
 
 /** The API-key cards, in render order. Anthropic leads only when its retained
@@ -103,22 +101,9 @@ const API_KEY_PROVIDERS: ApiKeyProvider[] = [
     provider: 'anthropic',
     title: 'Anthropic',
     label: 'Anthropic API key',
-    blurb: 'Powers the orchestrator’s brain.',
   },
-  {
-    credential: 'amika_api_key',
-    provider: 'amika',
-    title: 'Amika',
-    label: 'Amika API key',
-    blurb: 'Provisions and runs the sandboxes your agents work in.',
-  },
-  {
-    credential: 'devin_api_key',
-    provider: 'devin',
-    title: 'Devin',
-    label: 'Devin API key',
-    blurb: 'Runs tickets through Devin sessions.',
-  },
+  { credential: 'amika_api_key', provider: 'amika', title: 'Amika', label: 'Amika API key' },
+  { credential: 'devin_api_key', provider: 'devin', title: 'Devin', label: 'Devin API key' },
 ];
 
 /** The one-field update body for a key card. A `switch` rather than a computed
@@ -195,7 +180,6 @@ function CredentialStatusIndicator({
 interface IntegrationCardProps {
   provider: string;
   title: string;
-  blurb: string;
   connected: boolean;
   /** Overrides the chip's text when a card has a state finer than the
    * connected/not-connected pair (GitHub's "Reconnect needed"). */
@@ -215,7 +199,6 @@ interface IntegrationCardProps {
 function IntegrationCard({
   provider,
   title,
-  blurb,
   connected,
   statusLabel,
   attention = false,
@@ -225,10 +208,7 @@ function IntegrationCard({
   return (
     <div data-role="integration-card" data-provider={provider} data-connected={String(connected)}>
       <div data-role="integration-header">
-        <div data-role="integration-identity">
-          <span data-role="integration-title">{title}</span>
-          <span data-role="integration-blurb">{blurb}</span>
-        </div>
+        <span data-role="integration-title">{title}</span>
         <span
           data-role="integration-connected"
           data-connected={String(connected)}
@@ -378,7 +358,6 @@ function ApiKeyCard({
     <IntegrationCard
       provider={spec.provider}
       title={spec.title}
-      blurb={spec.blurb}
       connected={status.set}
       action={
         <>
@@ -474,7 +453,6 @@ function GitHubCard({
     <IntegrationCard
       provider="github"
       title="GitHub"
-      blurb="Lets agents clone, read, and push to your repo."
       connected={connected}
       statusLabel={needsReconnect ? 'Reconnect needed' : undefined}
       attention={needsReconnect}

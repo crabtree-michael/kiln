@@ -49,39 +49,25 @@ const NEW_PROJECT_ID = 'new';
 interface SectionDef {
   /** The DOM id the nav anchors to; also the `data-section` value. */
   id: string;
-  /** The nav item's text. */
+  /** The nav item's text, and the section heading. */
   label: string;
-  /** The one-line "what lives here" under the section heading. */
-  description: string;
   Icon: () => JSX.Element;
 }
 
 // The four sections, each named so the JSX below references it directly — no
 // id lookup, no index, nothing that can silently miss.
-const ACCOUNT_SECTION: SectionDef = {
-  id: 'account',
-  label: 'Account',
-  description: 'The GitHub identity this Kiln account is signed in as.',
-  Icon: UserIcon,
-};
+const ACCOUNT_SECTION: SectionDef = { id: 'account', label: 'Account', Icon: UserIcon };
 const INTEGRATIONS_SECTION: SectionDef = {
   id: 'integrations',
   label: 'Integrations',
-  description: 'Credentials Kiln uses to reach your coding agents, sandboxes, and repositories.',
   Icon: PlugIcon,
 };
 const NOTIFICATIONS_SECTION: SectionDef = {
   id: 'notifications',
   label: 'Notifications',
-  description: 'How Kiln reaches you when the app is closed or in the background.',
   Icon: BellIcon,
 };
-const PROJECTS_SECTION: SectionDef = {
-  id: 'projects',
-  label: 'Projects',
-  description: 'Each project has its own repository, worker pool, and sandbox configuration.',
-  Icon: BoxIcon,
-};
+const PROJECTS_SECTION: SectionDef = { id: 'projects', label: 'Projects', Icon: BoxIcon };
 
 /** The page's sections in reading order — one source of truth for both the nav
  * and the section headers, so the two can never drift apart. Kept to four:
@@ -147,9 +133,9 @@ interface SettingsSectionProps {
   children: ReactNode;
 }
 
-/** One section card: an icon tile + heading + description, then its content. The
- * heading is an `h2` under the page's single `h1`, so the section list doubles as
- * the document outline a screen reader navigates by. */
+/** One section card: an icon tile + heading, then its content. The heading is an
+ * `h2` under the page's single `h1`, so the section list doubles as the document
+ * outline a screen reader navigates by. */
 function SettingsSection({ section, action, children }: SettingsSectionProps): JSX.Element {
   const { Icon } = section;
   return (
@@ -163,10 +149,7 @@ function SettingsSection({ section, action, children }: SettingsSectionProps): J
         <span data-role="section-icon">
           <Icon />
         </span>
-        <div data-role="section-heading-text">
-          <h2 id={`${section.id}-heading`}>{section.label}</h2>
-          <p data-role="section-description">{section.description}</p>
-        </div>
+        <h2 id={`${section.id}-heading`}>{section.label}</h2>
         {action !== undefined ? <div data-role="section-action">{action}</div> : null}
       </header>
       <div data-role="section-body">{children}</div>

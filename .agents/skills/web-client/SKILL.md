@@ -161,6 +161,46 @@ hand-entered PAT uses). So "Connect GitHub account" is just `/auth/github/login`
 - **Every `ProjectFields` render site and test must pass `github`** — it's a required prop on
   purpose, so no free-text fallback path can drift back in.
 
+### First-run setup is a guided flow, not a form (`Onboarding.tsx`)
+
+A signed-in user with `me.projects.length === 0` gets a **three-step flow**, one screen per
+decision: **Connect GitHub → Choose your project → Choose your provider** (+ that provider's
+key), then "Finish setup". It replaces the single crammed project form that used to live here.
+
+- **The ordering is load-bearing, not cosmetic.** Step 2 can only list repos once step 1's
+  credential exists; step 3 can only know *which* key to ask for once a provider is chosen.
+  Don't reorder the steps or merge them back into one screen — that's the whole feature.
+- **It reuses settings' controls, it does not clone them.** The repo picker is `RepoField` and
+  the key field is `SecretCredentialRow`, both exported from `ConfigFields.tsx` for exactly
+  this. A second repo-picking or secret-entering implementation is how a free-text repo URL or
+  a non-write-only secret drifts back in. `ProjectFields` is deliberately NOT used — the flow
+  asks for a subset of its fields, and reshaping it would move DOM three other surfaces style.
+- **Finish writes the key BEFORE the project** (`saveSettings` → `saveProject`), so a project
+  never comes alive pointing at a provider whose credential hasn't landed. The key field
+  auto-saves on blur *and* "Finish setup" commits it, so a `keyInFlight` ref guards the pair —
+  clicking the button blurs the input, which would otherwise fire two saves for one key.
+- **It never tracks "did I just finish."** A successful `saveProject` makes `me.projects`
+  non-empty and `Dashboard` swaps the whole view for `Settings`; a failed one leaves it empty,
+  so the user simply stays on the last step with `error` beneath it. Don't add local success state.
+- **`PROVIDER_CREDENTIAL` maps a provider key → its credential slot** (`amika` →
+  `amika_api_key`). The dashboard is otherwise data-driven about providers (choices render from
+  `me.providers`, naming none), but the slots are provider-named *in the wire schema*, so the
+  mapping has to exist somewhere. A provider with **no entry gets no key field at all** — which
+  is what keeps the table from gating new providers, and what makes `mock` work keyless.
+- **`me.providers` may be absent** (deployment didn't enable descriptors) → the provider step is
+  **dropped entirely** and `agent_provider` is omitted, so the project keeps resolving to
+  `AGENT_MODE`. Two steps, not an empty third one.
+- **Onboarding needs its OWN `svg[data-icon]` sizing rule** — the settings one is scoped under
+  `[data-role='settings']`. Without it every glyph renders at the SVG default 300×150. Asserted
+  in `Dashboard.desktop-layout.test.ts`, along with the rail/actions geometry.
+- The provider radios are wired `htmlFor`/`id` with the hint text **outside** the `<label>` —
+  a wrapping label would absorb "Needs your Amika API key." into the radio's accessible name.
+  Same trap as the credential rows' validity glyph.
+- **E2e:** `keyless-onboarding.spec.ts` is the ONE spec that drives the flow end to end (it
+  needs `KILN_GITHUB_MODE=mock` for step 1, which no headless test can complete against real
+  GitHub). Every other spec seeds a project over `PUT /api/project` instead of walking the
+  steps — don't couple new specs to the flow.
+
 ### The settings page is desktop-first (settings redesign)
 
 `/dashboard`'s settings view is the one surface in this repo that is **not** mobile-first — it's

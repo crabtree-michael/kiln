@@ -36,8 +36,8 @@ describe('Guide', () => {
 
     for (const step of [
       'Sign in with GitHub',
-      'Create your project',
-      'Add and verify your credentials',
+      'Follow the setup flow',
+      'Review your credentials',
       /Turn on notifications/,
       'Open Kiln on your phone',
       /Install Kiln on your iPhone/,

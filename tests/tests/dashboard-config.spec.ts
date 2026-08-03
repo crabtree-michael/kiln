@@ -11,15 +11,16 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   await mintSession(page.request, { login: `e2e-dash-${Date.now()}` });
 
   await page.goto('/dashboard');
-  // Fresh user → onboarding.
-  await expect(page.getByRole('heading', { name: 'Set up your project' })).toBeVisible();
-  // The project is seeded over the API rather than through the form, because the
-  // repo now comes from the caller's connected GitHub account (settings repo
-  // picker) and a dev-minted session has no GitHub credential — its picker shows
-  // the "Connect GitHub account" prompt, which no headless test can complete
-  // against real GitHub. The keyless lane covers the form path instead, via
-  // KILN_GITHUB_MODE=mock. This spec's subject is the credential store + live
-  // verify below, which is unaffected.
+  // Fresh user → the guided setup flow, parked on its first step. On a
+  // real-service stack a dev-minted session has NO GitHub credential, so the flow
+  // correctly refuses to go further than "Connect GitHub" — which is exactly the
+  // step no headless test can complete against real GitHub.
+  await expect(page.getByRole('heading', { name: 'Connect GitHub' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  // So the project is seeded over the API instead of through the flow. The
+  // keyless lane covers the guided path end-to-end via KILN_GITHUB_MODE=mock.
+  // This spec's subject is the credential store + live verify below, which is
+  // unaffected.
   const created = await page.request.put('/api/project', {
     data: {
       name: 'kiln-e2e',

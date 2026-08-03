@@ -124,14 +124,21 @@ describe('Dashboard', () => {
     expect(link).toHaveAttribute('href', '/auth/github/login');
   });
 
-  it('signed in, no project: shows the onboarding heading with the project form rendered first', async () => {
+  it('signed in, no project: opens the guided setup flow on its first step', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     renderDashboard();
 
-    await screen.findByRole('heading', { name: 'Set up your project' });
-    const forms = document.querySelectorAll('form');
-    expect(forms).toHaveLength(1);
-    expect(forms[0]).toHaveAttribute('data-role', 'project-form');
+    // The flow starts at "Connect GitHub" — not at a project form. The whole
+    // point of the sequence is that the repo listing (step 2) can only exist
+    // once the GitHub credential does, so this ordering is the feature.
+    await screen.findByRole('heading', { name: 'Connect GitHub' });
+    expect(document.querySelector('[data-role="onboarding"]')).toHaveAttribute(
+      'data-step',
+      'github',
+    );
+    // No form at all any more: the old single crammed `project-form` is what
+    // this flow replaces.
+    expect(document.querySelectorAll('form')).toHaveLength(0);
   });
 
   it('signed in with project + configured secrets: settings view shows the configured secret status', async () => {

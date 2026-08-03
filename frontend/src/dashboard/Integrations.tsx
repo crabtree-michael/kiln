@@ -39,7 +39,17 @@ import type { SettingsUpdateRequest, VerifyCheck } from '@/transport/transport';
 import type { components } from '@/schema/generated';
 import { secretStatusText } from '@/dashboard/secret-status';
 import type { CredentialName } from '@/dashboard/dashboard-context';
-import { GITHUB_CONNECT_PATH, type GitHubRepos } from '@/dashboard/use-github-repos';
+import {
+  API_KEY_PROVIDERS,
+  CHECK_NAME_FOR_CREDENTIAL,
+  GITHUB_ACCESS_NOTE,
+  GITHUB_CONNECT_PATH,
+  credentialIndicatorStatus,
+  updateBodyFor,
+  type ApiKeyProvider,
+  type CredentialIndicatorStatus,
+} from '@/dashboard/integrations-config';
+import type { GitHubRepos } from '@/dashboard/use-github-repos';
 
 // `MeSettings`/`SecretStatus` aren't among transport.ts's re-exports (only the
 // types its own functions traffic in are) — pull them the same way it derives
@@ -48,30 +58,11 @@ type MeSettings = components['schemas']['MeSettings'];
 type SecretStatus = components['schemas']['SecretStatus'];
 type GitHubConnection = components['schemas']['GitHubConnection'];
 
-/** The credentials a user pastes as a key. GitHub is deliberately absent: it is
- * connected through OAuth, not by pasting a token. */
-type ApiKeyCredential = Exclude<CredentialName, 'github_auth_token'>;
-
-/** Which `VerifyCheck.name` each card's indicator reads from — GitHub's
- * connection guards repo access, so it maps to the "repo" check rather than a
- * standalone "github" one. */
-const CHECK_NAME_FOR_CREDENTIAL: Record<CredentialName, VerifyCheck['name']> = {
-  anthropic_api_key: 'anthropic',
-  amika_api_key: 'amika',
-  devin_api_key: 'devin',
-  github_auth_token: 'repo',
-};
-
 // Every affordance on the GitHub card (Connect, Reconnect, Switch account)
 // points at the shared `GITHUB_CONNECT_PATH` — the repo-scoped grant — imported
-// rather than restated here, so this card and the settings repo picker can't
-// drift onto different routes.
-
-/** What connecting actually authorizes, stated on the card itself so the
- * `repo` grant on GitHub's consent screen is expected rather than alarming. */
-const GITHUB_ACCESS_NOTE =
-  'Connecting grants Kiln read and write access to your repositories — it needs ' +
-  'that to clone your repo, read it, and push the branches your agents produce.';
+// from `integrations-config` rather than restated here, so this card, the
+// settings repo picker, and the setup flow's first step can't drift onto
+// different routes.
 
 /** Per-user Anthropic key entry is HIDDEN for now: the deployment supplies the
  * Anthropic key as a global `ANTHROPIC_API_KEY` env setting, and onboarding no
@@ -80,81 +71,6 @@ const GITHUB_ACCESS_NOTE =
  * keys can be brought back — set `VITE_SHOW_ANTHROPIC_KEY_FIELD=1` — when user
  * management expands, no code change needed. */
 const SHOW_ANTHROPIC_KEY_FIELD = import.meta.env.VITE_SHOW_ANTHROPIC_KEY_FIELD === '1';
-
-interface ApiKeyProvider {
-  /** The settings field this card writes, and the key its indicator reads. */
-  credential: ApiKeyCredential;
-  /** `data-provider` on the card — the stable selector tests/e2e bind to. */
-  provider: string;
-  /** Card heading. */
-  title: string;
-  /** The modal input's label. Kept identical to the old field label so the
-   * accessible name (`getByLabelText('Amika API key')`) is unchanged. */
-  label: string;
-  /** One line under the heading: what connecting this provider buys. */
-  blurb: string;
-}
-
-/** The API-key cards, in render order. Anthropic leads only when its retained
- * field is switched back on. */
-const API_KEY_PROVIDERS: ApiKeyProvider[] = [
-  {
-    credential: 'anthropic_api_key',
-    provider: 'anthropic',
-    title: 'Anthropic',
-    label: 'Anthropic API key',
-    blurb: 'Powers the orchestrator’s brain.',
-  },
-  {
-    credential: 'amika_api_key',
-    provider: 'amika',
-    title: 'Amika',
-    label: 'Amika API key',
-    blurb: 'Provisions and runs the sandboxes your agents work in.',
-  },
-  {
-    credential: 'devin_api_key',
-    provider: 'devin',
-    title: 'Devin',
-    label: 'Devin API key',
-    blurb: 'Runs tickets through Devin sessions.',
-  },
-];
-
-/** The one-field update body for a key card. A `switch` rather than a computed
- * key so the result is a real `SettingsUpdateRequest`, not an index signature. */
-function updateBodyFor(credential: ApiKeyCredential, value: string): SettingsUpdateRequest {
-  switch (credential) {
-    case 'anthropic_api_key':
-      return { anthropic_api_key: value };
-    case 'amika_api_key':
-      return { amika_api_key: value };
-    case 'devin_api_key':
-      return { devin_api_key: value };
-  }
-}
-
-type CredentialIndicatorStatus = 'ok' | 'failed' | 'skipped' | 'pending';
-
-/** `pending` covers two windows: this card's own save request (it stays in
- * `pendingCredentials` for the whole save + chained-verify span, independent
- * of any other card's in-flight save), and any verify run at all (one verify
- * call checks every provider at once, so all the indicators go pending
- * together while it's in flight) — either means "the last known result can't
- * be trusted yet". Absent any check result, the card reads `skipped` (nothing
- * has verified it — same as an explicit "skipped" check, and rendered the same
- * way: no glyph). */
-function credentialIndicatorStatus(
-  name: CredentialName,
-  pendingCredentials: ReadonlySet<CredentialName>,
-  verifying: boolean,
-  check: VerifyCheck | undefined,
-): CredentialIndicatorStatus {
-  if (pendingCredentials.has(name) || verifying) {
-    return 'pending';
-  }
-  return check?.status ?? 'skipped';
-}
 
 interface CredentialStatusIndicatorProps {
   name: CredentialName;

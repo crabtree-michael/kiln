@@ -27,10 +27,12 @@ in one pass:
 
 | You'll need | What it's for | Where to get it |
 | --- | --- | --- |
-| A **GitHub account** (allowlisted) | Signing in; connecting your repo | You already have it — ask your admin to be added to the allowlist |
-| A **repository URL** | The single repo your agents will work in | The GitHub repo you want Kiln to build in |
-| A **GitHub token** (PAT) | Lets agents clone, read, and push to your repo | GitHub → Settings → Developer settings → Personal access tokens (grant `repo` access) |
-| An **Amika API key** + **credential ID** | Provisions and runs the cloud sandboxes agents work in | Your Amika console |
+| A **GitHub account** (allowlisted) | Signing in, and connecting your repos | You already have it — ask your admin to be added to the allowlist |
+| A **provider API key** | Runs your agents — an **Amika** key or a **Devin** key, depending on which you pick during setup | Your Amika or Devin console |
+
+You do **not** need a repository URL or a GitHub personal access token. Signing in
+with GitHub is what grants Kiln access to your repos — you'll pick the repo from a
+list of your own during setup, private ones included.
 
 Keep these in reach — you'll paste the keys during setup, and Kiln verifies each
 one live before you rely on it.
@@ -53,47 +55,60 @@ Click **Continue with GitHub**. The browser leaves the app, you authorize with
 GitHub, and you're returned to the dashboard. (If your account isn't on the
 allowlist, sign-in won't complete — contact whoever runs your Kiln instance.)
 
-### Step 2 — Create your project
+### Step 2 — Follow the setup flow
 
-The first time you sign in you have no project yet, so you land on **"Set up your
-project."** Fill in the form:
+The first time you sign in you have no project yet, so Kiln walks you through a
+short **guided setup flow** — one screen per decision, with a progress rail across
+the top showing where you are. Each step asks only for what it needs right then.
 
-**Required**
+**Step 1 of 3 — Connect GitHub.** Kiln reads your repositories through your GitHub
+account, which is why this comes first. Because signing in *is* connecting, most
+people arrive here already done: the screen reads *"Connected as …"* and you just
+press **Continue**. If it shows a **Connect GitHub** button instead, press it,
+authorize, and you'll come back to this step completed.
 
-- **Project name** — what to call this board.
-- **Repo URL** — the repository your agents will work in (e.g.
-  `https://github.com/you/your-repo`).
+**Step 2 of 3 — Choose your project.** Pick the repository Kiln should work in from
+the dropdown of your own repos — private ones included. There's no URL to type. The
+**Project name** fills itself in from the repo you picked; change it if you'd rather
+call the board something else. Press **Continue**.
 
-**Optional (sensible defaults apply if left blank)**
+**Step 3 of 3 — Choose your provider.** Pick which coding agent runs this project's
+work — **Amika** or **Devin** — and paste that provider's API key in the field that
+appears. Only the key for the provider you picked is asked for. The key saves as
+soon as you click away from the field, and Kiln immediately runs a **live check**
+against the provider, so a status mark appears beside it (see the table below).
 
-- **Amika snapshot** — the pre-built sandbox image agents start from.
-- **Brain model** — the model that runs the orchestrator.
-- **Worker count** — how many agents can be working **at the same time**. This is a
-  hard cap and it matters more than it looks — see [Why worker count is a real
-  limit](#why-worker-count-is-a-real-limit).
+Press **Finish setup**. Kiln creates the project and drops you straight into
+**Settings** — no navigation needed.
 
-Fill in what you need, then press **Save project**.
+![The guided setup flow on its "Choose your project" step: a three-step progress rail, the repository dropdown, and the project name field](images/onboarding/02-create-project.png)
+*Figure 2 — The guided setup flow. Capture: step 2 of 3, showing the progress rail with step 1 marked done, the repository dropdown open over the user's repos, and the Continue button.*
 
-![The "Set up your project" form showing Project name, Repo URL, and the optional fields](images/onboarding/02-create-project.png)
-*Figure 2 — The first-run project form. Capture: the full form with the "Save project" button.*
+Everything the flow didn't ask about — worker count, the merge gate, the sandbox
+snapshot — keeps a sensible default and is yours to change later in Settings. Worker
+count in particular is worth reading up on before you raise it: see [Why worker
+count is a real limit](#why-worker-count-is-a-real-limit).
 
-Once the project saves, the dashboard swaps this screen for **Settings**
-automatically — no navigation needed.
+### Step 3 — Review your credentials
 
-### Step 3 — Add and verify your credentials
-
-Settings is where your credentials live. It opens with your **account card** (your
-GitHub avatar, name, and a **Sign out** button) at the top, followed by the
-credential fields:
+Settings is where your credentials live from now on. It opens with your **account
+card** (your GitHub avatar, name, and a **Sign out** button) at the top, and the
+**Integrations** section holds the keys:
 
 - **Amika API key**
+- **Devin API key**
 - **GitHub token**
 - **Amika Claude credential ID**
 
+The provider key you entered during setup is already here and already verified —
+this section is where you change it later, or add a second provider's key if you
+start a project on the other one. You do not need to fill in the rest: the GitHub
+token is set for you when you sign in, and the Claude credential ID is optional.
+
 These fields **auto-save** — there's no "Save credentials" button. Type a value
 and either press **Enter** or click away from the field; that one field saves on
-its own. Saving either of the two secret keys immediately kicks off a **live
-verification**, so a status mark appears to the right of each field:
+its own. Saving a secret key immediately kicks off a **live verification**, so a
+status mark appears to the right of each field:
 
 | Mark | Meaning |
 | --- | --- |
@@ -109,7 +124,7 @@ whatever was already stored, so you never have to re-type a key you didn't chang
 ![The Settings page: account card at top, then Amika / GitHub credential fields each with a green checkmark to the right](images/onboarding/03-credentials.png)
 *Figure 3 — Credentials in Settings after verification. Capture: the credential fields showing ✓ marks, plus the account card above them.*
 
-**Wait for both checks to go green** before moving on. A red ✗ means that
+**Wait for your provider's check to go green** before moving on. A red ✗ means that
 connection won't work at runtime — fix the key and it re-verifies as you go.
 
 ### Step 4 — Open Kiln on your phone

@@ -57,11 +57,6 @@ const CHECKLIST: { need: string; forWhat: string; where: JSX.Element }[] = [
     where: <>You already have it — ask your admin to be added to the allowlist</>,
   },
   {
-    need: 'A repository URL',
-    forWhat: 'The single repo your agents will work in',
-    where: <>The GitHub repo you want Kiln to build in</>,
-  },
-  {
     need: 'An Anthropic API key',
     forWhat: "Powers the orchestrator's brain (Claude)",
     where: (
@@ -78,16 +73,17 @@ const CHECKLIST: { need: string; forWhat: string; where: JSX.Element }[] = [
     forWhat: 'Lets agents clone, read, and push to your repo',
     where: (
       <>
-        Settings → Integrations → GitHub → <strong>Connect</strong>. This grants Kiln{' '}
+        Step 1 of the setup flow — <strong>Connect GitHub</strong>. This grants Kiln{' '}
         <strong>read and write access to your repositories</strong> — separate from signing in,
-        which grants nothing.
+        which grants nothing. It is also what fills the repo list you pick from in step 2, so there
+        is no repository URL to have ready.
       </>
     ),
   },
   {
-    need: 'An Amika API key + credential ID',
-    forWhat: 'Provisions and runs the cloud sandboxes agents work in',
-    where: <>Your Amika console</>,
+    need: 'A provider API key',
+    forWhat: 'Runs your agents — Amika or Devin, whichever you pick in step 3',
+    where: <>Your Amika or Devin console</>,
   },
 ];
 
@@ -354,46 +350,51 @@ export function Guide(): JSX.Element {
               <li className="guide-step" id="step-2">
                 <span className="guide-step__num">2</span>
                 <div className="guide-step__body">
-                  <h3 className="guide-step__title">Create your project</h3>
+                  <h3 className="guide-step__title">Follow the setup flow</h3>
                   <p>
-                    The first time you sign in you have no project yet, so you land on{' '}
-                    <strong>“Set up your project.”</strong> Fill in the form:
+                    The first time you sign in you have no project yet, so Kiln walks you through a
+                    short <strong>guided setup flow</strong> — one screen per decision, with a
+                    progress rail across the top showing where you are. Each step asks only for what
+                    it needs right then.
                   </p>
-                  <p className="guide-label">Required</p>
-                  <ul className="guide-list">
-                    <li>
-                      <strong>Project name</strong> — what to call this board.
-                    </li>
-                    <li>
-                      <strong>Repo URL</strong> — the repository your agents will work in (e.g.{' '}
-                      <code>https://github.com/you/your-repo</code>).
-                    </li>
-                  </ul>
-                  <p className="guide-label">Optional (sensible defaults apply if left blank)</p>
-                  <ul className="guide-list">
-                    <li>
-                      <strong>Amika snapshot</strong> — the pre-built sandbox image agents start
-                      from.
-                    </li>
-                    <li>
-                      <strong>Brain model</strong> — the model that runs the orchestrator.
-                    </li>
-                    <li>
-                      <strong>Worker count</strong> — how many agents can be working{' '}
-                      <strong>at the same time</strong>. This is a hard cap and it matters more than
-                      it looks — see <a href="#worker-count">Why worker count is a real limit</a>.
-                    </li>
-                  </ul>
+                  <p className="guide-label">Step 1 of 3 — Connect GitHub</p>
                   <p>
-                    Fill in what you need, then press <strong>Save project</strong>.
+                    Kiln reads your repositories through your GitHub account, which is why this
+                    comes first. Because signing in <em>is</em> connecting, most people arrive here
+                    already done: the screen reads <strong>“Connected as …”</strong> and you just
+                    press <strong>Continue</strong>. If it shows a <strong>Connect GitHub</strong>{' '}
+                    button instead, press it, authorize, and you’ll come back to this step
+                    completed.
+                  </p>
+                  <p className="guide-label">Step 2 of 3 — Choose your project</p>
+                  <p>
+                    Pick the repository Kiln should work in from the dropdown of your own repos —
+                    private ones included. There’s no URL to type. The <strong>Project name</strong>{' '}
+                    fills itself in from the repo you picked; change it if you’d rather call the
+                    board something else. Press <strong>Continue</strong>.
+                  </p>
+                  <p className="guide-label">Step 3 of 3 — Choose your provider</p>
+                  <p>
+                    Pick which coding agent runs this project’s work — <strong>Amika</strong> or{' '}
+                    <strong>Devin</strong> — and paste that provider’s API key in the field that
+                    appears. Only the key for the provider you picked is asked for. The key saves as
+                    soon as you click away from the field, and Kiln immediately runs a{' '}
+                    <strong>live check</strong> against the provider, so a status mark appears
+                    beside it (see the table in the next step).
+                  </p>
+                  <p>
+                    Press <strong>Finish setup</strong>. Kiln creates the project and drops you
+                    straight into <strong>Settings</strong> — no navigation needed.
                   </p>
                   <Figure
-                    caption="Figure 2 — The first-run project form."
-                    capture='The full form with the "Save project" button.'
+                    caption="Figure 2 — The guided setup flow."
+                    capture="Step 2 of 3, showing the progress rail with step 1 marked done, the repository dropdown open over the user's repos, and the Continue button."
                   />
                   <p>
-                    Once the project saves, the dashboard swaps this screen for{' '}
-                    <strong>Settings</strong> automatically — no navigation needed.
+                    Everything the flow didn’t ask about — worker count, the merge gate, the sandbox
+                    snapshot — keeps a sensible default and is yours to change later in Settings.
+                    Worker count in particular is worth reading up on before you raise it: see{' '}
+                    <a href="#worker-count">Why worker count is a real limit</a>.
                   </p>
                 </div>
               </li>
@@ -401,7 +402,7 @@ export function Guide(): JSX.Element {
               <li className="guide-step" id="step-3">
                 <span className="guide-step__num">3</span>
                 <div className="guide-step__body">
-                  <h3 className="guide-step__title">Add and verify your credentials</h3>
+                  <h3 className="guide-step__title">Review your credentials</h3>
                   <p>
                     Settings is where your connections live. It opens with your{' '}
                     <strong>account card</strong> (your GitHub avatar, name, and a{' '}
@@ -461,6 +462,11 @@ export function Guide(): JSX.Element {
                     value again — only a masked line like <code>configured · …x4Kd</code> on the
                     card. A connected card’s button becomes <strong>Update key</strong>, so you only
                     ever re-enter a key you actually want to change.
+                  </p>
+                  <p>
+                    The GitHub connection and the provider key you chose during setup are already
+                    here, and already verified — this section is where you change them later, or add
+                    a second provider’s key if you start a project on the other one.
                   </p>
                   <Figure
                     caption="Figure 3 — Integrations in Settings after verification."

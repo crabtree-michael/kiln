@@ -166,3 +166,46 @@ describe('settings desktop layout', () => {
     expect(body).toMatch(/height:\s*1\.15em/);
   });
 });
+
+// The guided setup flow's geometry. Same reasoning as above — jsdom does no
+// layout, so a regression here ships silently past every DOM test in the gate.
+describe('onboarding flow layout', () => {
+  it('sizes every onboarding icon off its own text', () => {
+    // The settings rule is scoped to [data-role='settings'], so the flow needs
+    // its OWN copy: without it the step marks, heading glyph and provider icons
+    // all render at the SVG default 300×150 and the page is unusable.
+    const body = ruleBody("[data-role='onboarding'] svg[data-icon] {");
+    expect(body).toMatch(/width:\s*1\.15em/);
+    expect(body).toMatch(/height:\s*1\.15em/);
+  });
+
+  it('lays the progress rail out as one horizontal row', () => {
+    const body = ruleBody("[data-role='onboarding-steps'] {");
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/align-items:\s*center/);
+    // A rail that wrapped to one step per line would read as a list, not as
+    // progress through a sequence.
+    expect(body).not.toMatch(/flex-direction:\s*column/);
+  });
+
+  it('pins the forward action right, so it never moves between steps', () => {
+    expect(ruleBody("[data-role='onboarding-actions'] {")).toMatch(/display:\s*flex/);
+    expect(ruleBody("[data-role='onboarding-next'] {")).toMatch(/margin-left:\s*auto/);
+  });
+
+  it('overrides the stacked-label default for the provider radio labels', () => {
+    // `[data-role='dashboard'] label` stacks a label above its control, which is
+    // wrong for a label naming a radio BESIDE it. The override has to outrank
+    // that rule, so it is scoped through [data-role='onboarding'].
+    const body = ruleBody("[data-role='onboarding'] [data-role='provider-option-label'] {");
+    expect(body).toMatch(/display:\s*block/);
+  });
+
+  it('keeps the rail readable on a phone by dropping the passed steps’ labels', () => {
+    const body = mediaRuleBody(
+      'max-width: 600px',
+      "[data-role='onboarding-step']:not([data-state='current']) [data-role='onboarding-step-label'] {",
+    );
+    expect(body).toMatch(/display:\s*none/);
+  });
+});

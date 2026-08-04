@@ -436,3 +436,80 @@ Two consequences worth keeping when you touch either:
   can claim more than it looks like it does.
 
 _(Accumulate: non-obvious traps and edge cases.)_
+
+## The desktop shell (spec 13) — two views over one wiring seam
+
+`/app` now renders **one of two presentational shells** depending on viewport width, and
+`PrimaryScreen.tsx` is the switch. That is 13 §13 Q4's answer (**one responsive tree, two
+shells over shared stores**), and the shape matters: every store read, optimistic hide and
+transport call lives *above* the switch and is written once — `PrimaryScreenView` (mobile,
+08) and `desktop/DesktopScreenView` (13) differ in DOM shape, never in truth. The rejected
+alternative was one tree restyled by media queries; the two layouts don't share a DOM (a
+header/feed/dock column with a bottom-anchored overlay stack vs. a rail beside a feed), and
+forcing one to be both is how the mobile screen's layering gets broken by a desk rule.
+
+- **`useIsDesktop()` (`desktop/use-desktop-layout.ts`) is the only breakpoint.** The CSS
+  deliberately carries **no** `min-width` media query for the shell — a second threshold
+  could silently disagree with the JS one. Asserted in `DesktopScreen.layout.test.ts`.
+  `useState<boolean>(false)` is explicit on purpose: `useState(false)` infers the literal
+  `false`, and then every `if (isDesktop)` downstream trips `no-unnecessary-condition`.
+- **`DesktopScreen.css` layers on top of `PrimaryScreen.css`** (the shell imports both, in
+  that order). The feed card, divider, "show earlier" button, mic, and send/clear are all
+  styled by *unscoped* rules in the mobile sheet, so the desktop shell inherits one visual
+  language for free and only states what a desk earns. Don't scope those mobile rules under
+  `[data-role='primary-screen']` — the desktop shell depends on them being global.
+- **The accent budget is spent exactly once**, on the rail's `needs-you` dot. A test asserts
+  `DesktopScreen.css` contains exactly ONE `var(--accent*)` rule and that its selector is the
+  needs-you one. This is why the desktop send button is neutral where the dock's is accent:
+  a window left open all day must not carry a permanently lit accent in the corner.
+- **Dark is stamped on `<body>`, not on the shell root** (13 D6). `TicketDetail` (vaul)
+  portals to `document.body`, so a root-level `data-theme` would open the sheet in light
+  theme over a dark window. `ThemeColorSync` keeps writing the system preference to `<html>`;
+  body's attribute simply wins for everything inside it, and unmount restores it exactly.
+- **Cross-project rail status is a poll, and that is deliberate** (`stores/use-projects-status.ts`).
+  There is no server-side cross-project status endpoint, and 13 §11 scopes desktop as
+  frontend-only over existing contracts — so the hook reads each *non-selected* project's
+  board on a slow interval (`fetchProjectBoard`, which names its project rather than reading
+  `activeProjectId`) and derives state locally. The selected project is never polled (its
+  board is live). Costs nothing for a single-project user, nothing while the tab is hidden.
+  **If projects-per-user grows past a handful, add one server status endpoint — don't tighten
+  the interval.**
+- **`useProjectsStatus` keeps a module-level `lastKnownStates` cache, and it is load-bearing.**
+  `CurrentProjectProvider` keys its subtree by the current project id so a switch tears the
+  stores down and re-opens the stream (12 §4.1) — and the desktop shell rides *inside* that
+  subtree, so the hook remounts on every switch. Seeding from `{}` would blank every other
+  project's mark for one round-trip each time, at exactly the moment the user is looking at
+  the rail.
+- **Deliberately NOT ported to the desk** (all four are spec calls, not omissions): swipe /
+  per-card dismiss and the bulk clear (13 §6 + open Q3 — the brain curates, 08 D1),
+  pull-to-refresh (a touch gesture), and the header's ticket dropdown (board mechanism,
+  13 D2). Don't "restore parity" without reopening those questions.
+- **The desktop composer does not use the voice store's `keyboardMode`.** That toggle is
+  modal (entering stops the mic) because a phone has room for one input at a time; a desk
+  doesn't have that constraint, so the field and the mic coexist and the user picks
+  per-utterance. Both still POST through `submitText` → `/api/message`.
+- **jsdom does no layout, so the desktop geometry is asserted as a CSS string** (`?raw`,
+  same technique as `TicketDetail.safe-area.test.ts`) — two-column grid, the feed's
+  `overflow-anchor: auto` (the "arrivals land in place" property, 13 §6), the one-column
+  max-width, the blocker/proposal unclamp, reduced-motion suppression, and no hex/rgb
+  literals (which would fork the palette instead of re-pointing tokens).
+- **`<body data-shell="desktop">` is how the portaled sheet gets desk geometry.** The same
+  mount effect that stamps the theme publishes the shell decision, because `TicketDetail`
+  portals out of the shell's subtree and no descendant selector can reach it — but left
+  alone it renders a full-bleed phone sheet across a 2000px monitor, which is the
+  mobile-stretched reading 13 D7 rules out. `body[data-shell='desktop']` rules in
+  `DesktopScreen.css` cap it to a reading measure and centre it. **Change only `width` /
+  `margin` / `max-height` / radius there — never `transform` or `bottom`:** vaul writes the
+  slide and the drag as *inline* transforms keyed to its own open/closed state, so a CSS
+  `transform` is ignored (inline wins) and, forced with `!important`, strands the sheet
+  permanently open. Both facts are pinned by `DesktopScreen.layout.test.ts`.
+- **`FeedCardItem` takes a `moreLabel`**, defaulting to the mobile "tap to see more"; the
+  desktop shell passes `"more"`. Only the text node changes, so every mobile DOM/image
+  snapshot stays byte-identical — which is the pattern to follow for any other copy that is
+  a phone word at a desk. Don't fork the component.
+- **`tests/desktop-shell-smoke.mjs` is the only thing that can see the layout.** A
+  hand-run script (not part of the Playwright suite, no stack needed): it serves
+  `frontend/dist`, stubs every `/api` call, and screenshots + measures the shell at 1440px
+  and at 480px. `pnpm build` in `/frontend`, then `node desktop-shell-smoke.mjs` from
+  `/tests`. It is what catches the class of bug the CSS-string assertions can't — regions
+  that render but lay out wrong. Run it after any change to `DesktopScreen.css`.

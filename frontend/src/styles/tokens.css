@@ -148,6 +148,12 @@
 
   /* The orb pulse — the one deliberate loop in the system */
   --pulse-duration: 2400ms;
+
+  /* The desktop shell's breathing (13 §8.2) — slower and shallower than the orb
+     pulse on purpose. A window you leave open all day sits in peripheral vision,
+     and at the orb's tempo "something is working" reads as "something is
+     wrong". Long enough that you notice it is alive without it drawing the eye. */
+  --breathe-duration: 3800ms;
 }
 
 /* ── Kiln at night — warm charcoal, never blue-black. Fire glows brighter. ── */

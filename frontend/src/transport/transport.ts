@@ -79,7 +79,15 @@ export function getActiveProjectId(): string | null {
  * active, else the bare `/api{path}` back-compat route (12 §9). `path` starts
  * with a slash, e.g. `/board`, `/feed/history`, `/tickets/${id}/accept`. */
 function appPath(path: string): string {
-  return activeProjectId === null ? `/api${path}` : `/api/projects/${activeProjectId}${path}`;
+  return activeProjectId === null ? `/api${path}` : projectPath(activeProjectId, path);
+}
+
+/** Builds an EXPLICITLY project-scoped app URL, independent of `activeProjectId`.
+ * The desktop rail's ambient layer (13 §5) has to read the *other* projects'
+ * state while the active one stays scoped to the screen, so it needs a path
+ * builder that names its project rather than reading the module's current one. */
+function projectPath(projectId: string, path: string): string {
+  return `/api/projects/${projectId}${path}`;
 }
 
 /**
@@ -361,6 +369,24 @@ export async function fetchBoard(): Promise<Board> {
   const payload: unknown = await response.json();
   if (!isBoard(payload)) {
     throw new Error('fetchBoard: unexpected response shape');
+  }
+  return payload;
+}
+
+/** `GET /api/projects/{id}/board` — one NAMED project's board snapshot, independent
+ * of the app's current scoping. Every other board call goes through `appPath`, which
+ * pins it to the project the app is viewing; the desktop projects rail (13 §5) has to
+ * ask about projects it is deliberately NOT viewing — that is its whole job as the
+ * ambient "is anything wrong anywhere" layer — so it names the project explicitly.
+ * Same absolute snapshot shape as `fetchBoard`. */
+export async function fetchProjectBoard(projectId: string): Promise<Board> {
+  const response = await fetch(projectPath(projectId, '/board'));
+  if (!response.ok) {
+    throw new Error(`fetchProjectBoard: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isBoard(payload)) {
+    throw new Error('fetchProjectBoard: unexpected response shape');
   }
   return payload;
 }

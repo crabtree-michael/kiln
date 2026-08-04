@@ -1,0 +1,466 @@
+// The desktop shell, presentational (13 §3–§10). Pure props in → the whole
+// two-region layout out, so tests render it directly with fixture data and never
+// touch the live stores. `PrimaryScreen` bridges the same stores that feed the
+// mobile view into these props.
+//
+// Two regions, and only two (13 §3): the projects rail on the left, the selected
+// project's feed on the right with the input under it. There is no third pane,
+// no inspector, and no board — ticket detail opens OVER the feed (13 D7) and
+// raw state still lives at `/debug` (08 §6).
+//
+// The register is 13 §1: present without being loud. Everything here that looks
+// like restraint is load-bearing — the accent appears only on `needs-you`, the
+// only thing allowed to animate on its own is the working indication, and
+// arrivals fade rather than slide. Spending any of that elsewhere is what breaks
+// the one loud moment when it comes.
+import { useCallback, useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
+import type {
+  Board,
+  ConnectionState,
+  FeedCard,
+  FeedSnapshot,
+  FeedSummary,
+  NotificationModeValue,
+} from '@/transport/transport';
+import type { ActivityToast } from '@/stores/activity-context';
+import type { WebPushStatus } from '@/stores/use-web-push';
+import type { Ticket } from '@/components/TicketCard';
+import { FeedCardItem } from '@/components/FeedCardItem';
+import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
+import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
+import { ActivityRow } from '@/components/ActivityRow';
+import { MicButton } from '@/components/MicButton';
+import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
+import { ProjectsRail, type RailProject } from '@/components/desktop/ProjectsRail';
+import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { streamDetail } from '@/components/feed-format';
+import '@/components/PrimaryScreen.css';
+import '@/components/desktop/DesktopScreen.css';
+
+const EMPTY_SUMMARY: FeedSummary = {
+  blocker_count: 0,
+  update_count: 0,
+  stream_count: 0,
+  building: 0,
+  idle: 0,
+};
+
+export interface DesktopScreenViewProps {
+  /** The rail's rows, in a stable order with each one's ambient state (13 §5). */
+  projects: RailProject[];
+  currentProjectId: string | null;
+  onSelectProject: (id: string) => void;
+  feed: FeedSnapshot | null;
+  board?: Board | null;
+  connectionState: ConnectionState;
+  thinking: boolean;
+  toasts: ActivityToast[];
+  onDismiss: (id: number) => void;
+  onToastExpandedChange?: ((id: number, expanded: boolean) => void) | undefined;
+  onAccept: (ticketId: string) => void;
+  onDelete?: ((ticketId: string) => void) | undefined;
+  onPoke?: ((ticketId: string) => void) | undefined;
+  onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
+  onKillSandbox?: ((ticketId: string) => void) | undefined;
+  onReassignSandbox?: ((ticketId: string) => void) | undefined;
+  onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
+  lastSeenId?: number | null;
+  hasMoreHistory?: boolean;
+  loadingMoreHistory?: boolean;
+  onLoadMoreHistory?: (() => void) | undefined;
+  notificationMode?: NotificationModeValue;
+  onSelectNotificationMode?: ((mode: NotificationModeValue) => void) | undefined;
+  pushStatus?: WebPushStatus | undefined;
+  onEnablePush?: (() => void) | undefined;
+  onDisablePush?: (() => void) | undefined;
+  /** The input under the feed (13 §7). A slot rather than a direct render so the
+   * presentational tests can mount this shell without a `VoiceProvider`; the
+   * composing screen passes the real `DesktopComposer`. Mirrors how the mobile
+   * view takes its `brand` slot. */
+  composer?: JSX.Element | undefined;
+  /** Injected "now" for deterministic relative-age rendering. */
+  now?: number;
+}
+
+/** An update/preview card's numeric notification_id, or null for board cards —
+ * the last-seen divider boundary (08 D2′). Identical rule to the mobile view;
+ * the divider means the same thing on a desk, it just gets scrolled past more. */
+function updateId(card: FeedCard): number | null {
+  const isUpdate = card.kind === 'update' || card.kind === 'preview';
+  return isUpdate && typeof card.notification_id === 'number' ? card.notification_id : null;
+}
+
+/** Index of the first card at/below the last-seen boundary, or -1 when there is
+ * no divider to draw (08 D2′). */
+function dividerIndex(cards: FeedCard[], lastSeenId: number | null): number {
+  if (lastSeenId === null) {
+    return -1;
+  }
+  const firstOld = cards.findIndex((card) => {
+    const id = updateId(card);
+    return id !== null && id <= lastSeenId;
+  });
+  if (firstOld === -1) {
+    return -1;
+  }
+  const hasNewerAbove = cards.slice(0, firstOld).some((card) => {
+    const id = updateId(card);
+    return id !== null && id > lastSeenId;
+  });
+  return hasNewerAbove ? firstOld : -1;
+}
+
+/** Whether a card is already-seen history, rendered de-emphasized (08 D2′). */
+function isSeen(card: FeedCard, lastSeenId: number | null): boolean {
+  if (lastSeenId === null) {
+    return false;
+  }
+  const id = updateId(card);
+  return id !== null && id <= lastSeenId;
+}
+
+/** The full ticket a card points at, resolved against the live board snapshot.
+ * Every bucket is scanned so a ticket that moves state between the click and the
+ * render still resolves. */
+function findTicket(board: Board | null, id: string | null): Ticket | null {
+  if (board === null || id === null) {
+    return null;
+  }
+  const all: Ticket[] = [
+    ...board.shaping,
+    ...board.ready,
+    ...board.blocked,
+    ...board.working,
+    ...board.done,
+  ];
+  return all.find((ticket) => ticket.id === id) ?? null;
+}
+
+export function DesktopScreenView({
+  projects,
+  currentProjectId,
+  onSelectProject,
+  feed,
+  board = null,
+  connectionState,
+  thinking,
+  toasts,
+  onDismiss,
+  onToastExpandedChange,
+  onAccept,
+  onDelete,
+  onPoke,
+  onSetKeepSandbox,
+  onKillSandbox,
+  onReassignSandbox,
+  onEditText,
+  lastSeenId = null,
+  hasMoreHistory = false,
+  loadingMoreHistory = false,
+  onLoadMoreHistory,
+  notificationMode = 'blocked',
+  onSelectNotificationMode,
+  pushStatus,
+  onEnablePush,
+  onDisablePush,
+  composer,
+  now = Date.now(),
+}: DesktopScreenViewProps): JSX.Element {
+  const summary = feed?.summary ?? EMPTY_SUMMARY;
+  const cards = feed?.cards ?? [];
+  const divider = dividerIndex(cards, lastSeenId);
+  // "Working" for the *selected* project: the brain mid-pass, or agents mid-turn
+  // (13 §8.2). Drives the breathing indication — the one thing on this screen
+  // permitted to animate on its own. Never a progress bar: there is no progress
+  // to report, and a bar that doesn't measure anything is a lie.
+  const working = thinking || summary.building > 0;
+  // Disconnected must be STATED, not hidden (13 §10): an ambient app that has
+  // silently stopped receiving is worse than one that is visibly off. Low-key
+  // and permanent while it lasts — never a modal, and deliberately not in the
+  // accent, which is reserved for things needing a decision.
+  const disconnected = connectionState === 'reconnecting';
+
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  const closeTicket = useCallback((): void => {
+    setOpenTicketId(null);
+  }, []);
+  // A tapped push notification deep-links here exactly as it does on mobile
+  // (02 §10 / 12 §6.3) — desktop being open changes nothing about being found.
+  useDeepLinkTicket(setOpenTicketId);
+  const openTicket = findTicket(board, openTicketId);
+  const openAgentStatus =
+    openTicket === null
+      ? undefined
+      : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
+  const openAgentIdle = openAgentStatus === 'idle';
+
+  const feedRef = useRef<HTMLElement>(null);
+
+  // Moving between cards in the feed with the keyboard (13 §9). The feed region
+  // itself is the tab stop; from there Arrow keys move a roving focus through the
+  // rows (each `tabIndex={-1}`, so they never bloat the Tab order). This is the
+  // half of "a full pass without the mouse" that the rail's own arrow handling
+  // doesn't cover.
+  const onFeedKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(event.key)) {
+      return;
+    }
+    const region = feedRef.current;
+    if (region === null) {
+      return;
+    }
+    const rows = Array.from(region.querySelectorAll<HTMLElement>('[data-role="desktop-feed-row"]'));
+    if (rows.length === 0) {
+      return;
+    }
+    // Which row focus is currently inside — `contains`, not identity, so arrowing
+    // still works from a focused control *within* a card (an Accept button, an
+    // expanded body) rather than dead-ending there.
+    const active = rows.findIndex((row) => row.contains(document.activeElement));
+    let next: number;
+    if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = rows.length - 1;
+    } else if (event.key === 'ArrowDown') {
+      next = active === -1 ? 0 : Math.min(active + 1, rows.length - 1);
+    } else {
+      next = active === -1 ? rows.length - 1 : Math.max(active - 1, 0);
+    }
+    event.preventDefault();
+    rows[next]?.focus();
+  };
+
+  // Dark is desktop's resting register (13 D6, §4) — Kiln's existing warm
+  // near-black, never a colder one, so this re-points the SAME tokens rather
+  // than forking the palette. Stamped on <body> rather than the shell root
+  // because the ticket-detail sheet portals OUT of this subtree to
+  // `document.body` (see the web-client skill's vaul notes); on the root, the
+  // overlay would open in light theme over a dark window. `ThemeColorSync` keeps
+  // writing the system preference to <html>, which body's attribute simply wins
+  // over for everything inside it — so the mobile shell and every other route
+  // are untouched, and unmounting restores them exactly.
+  //
+  // The same effect stamps `data-shell="desktop"` for the same reason and one
+  // more. The ticket-detail sheet portals to `document.body`, so it lands OUTSIDE
+  // this shell's subtree and no descendant selector can reach it — but it still
+  // has to stop being a full-bleed phone sheet on a desk (13 D7: it opens *over
+  // the feed*, it is not the window). A `min-width` media query would work and is
+  // deliberately not used: the shell is chosen in JS (`useIsDesktop`), so a
+  // breakpoint restated in CSS is a second source of truth that can silently
+  // disagree with the first. This attribute IS the JS decision, published where
+  // the portal can see it, so the two can never drift.
+  useEffect(() => {
+    const previousTheme = document.body.dataset.theme;
+    const previousShell = document.body.dataset.shell;
+    document.body.dataset.theme = 'dark';
+    document.body.dataset.shell = 'desktop';
+    return () => {
+      if (previousTheme === undefined) {
+        delete document.body.dataset.theme;
+      } else {
+        document.body.dataset.theme = previousTheme;
+      }
+      if (previousShell === undefined) {
+        delete document.body.dataset.shell;
+      } else {
+        document.body.dataset.shell = previousShell;
+      }
+    };
+  }, []);
+
+  return (
+    <div data-role="desktop-screen" data-connection-state={connectionState}>
+      <aside data-role="desktop-rail">
+        <div data-role="rail-head">
+          <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
+          <span data-role="rail-wordmark">Kiln</span>
+        </div>
+        <ProjectsRail
+          projects={projects}
+          currentProjectId={currentProjectId}
+          onSelectProject={onSelectProject}
+        />
+        <div data-role="rail-foot">
+          {/* Disconnected lives at the foot of the rail: permanently visible,
+              out of the feed's reading column, and next to the ambient layer it
+              qualifies — every state above it is now a statement about the last
+              thing we heard, not about now. */}
+          {disconnected && (
+            <div data-role="desktop-connection" role="status">
+              <span data-role="desktop-connection-dot" aria-hidden="true" />
+              Reconnecting — not receiving updates
+            </div>
+          )}
+          <div data-role="rail-actions">
+            <NotificationSettingsMenu
+              mode={notificationMode}
+              onSelectMode={onSelectNotificationMode}
+              pushStatus={pushStatus}
+              onEnablePush={onEnablePush}
+              onDisablePush={onDisablePush}
+            />
+            {/* A plain anchor, not a router Link: `/dashboard` mounts its own
+                provider tree and this shell is deliberately router-free (same
+                stance as the mobile header's gear). */}
+            <a data-role="rail-dashboard" href="/dashboard" aria-label="Dashboard">
+              <svg data-role="header-gear" viewBox="0 0 20 20" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
+                />
+                <circle
+                  cx="10"
+                  cy="10"
+                  r="2.4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </aside>
+
+      <main data-role="desktop-main">
+        <section
+          ref={feedRef}
+          role="region"
+          aria-label="Feed"
+          data-role="desktop-feed"
+          tabIndex={0}
+          onKeyDown={onFeedKeyDown}
+        >
+          {/* The working indication (13 §8.2), pinned at the head of the column
+              so it reads as a property of the project rather than of any one
+              card. Breathing, slow and low-contrast — see DesktopScreen.css. */}
+          {working && (
+            <div data-role="desktop-working" role="status">
+              <span data-role="desktop-working-dot" aria-hidden="true" />
+              <span>working</span>
+            </div>
+          )}
+          {cards.length === 0 ? (
+            // The resting state is the real state (13 §1): composed, not empty,
+            // and not apologised for. One honest line, no illustration, no
+            // "nothing here yet!" — this is the state the design is optimised
+            // for, so it should look like the app at rest.
+            <div data-role="desktop-rest">
+              <p data-role="desktop-rest-line">All quiet.</p>
+              <p data-role="desktop-rest-detail">{streamDetail(summary, now)}</p>
+            </div>
+          ) : (
+            <ol data-role="desktop-feed-list">
+              {cards.map((card, index) => (
+                <li key={card.id}>
+                  {index === divider && (
+                    <div data-role="feed-divider" data-variant="last-seen">
+                      Earlier
+                    </div>
+                  )}
+                  {/* The roving-focus target. `tabIndex={-1}` keeps it out of the
+                      Tab order (Tab still walks the card's own controls); the
+                      feed region's Arrow handling focuses it. */}
+                  <div data-role="desktop-feed-row" data-kind={card.kind} tabIndex={-1}>
+                    <FeedCardItem
+                      card={card}
+                      now={now}
+                      onAccept={onAccept}
+                      seen={isSeen(card, lastSeenId)}
+                      onOpenDetail={setOpenTicketId}
+                      // "tap" is a phone word. The card is the same card — same
+                      // clamp, same cue, same target — but a window that tells
+                      // you to tap is the mobile-stretched reading this shell
+                      // exists to replace (13 §4).
+                      moreLabel="more"
+                    />
+                  </div>
+                </li>
+              ))}
+              {hasMoreHistory && onLoadMoreHistory !== undefined && (
+                <li>
+                  {/* On a desk you scroll back further and more often than on a
+                      phone, so paging older history should feel like a normal
+                      scroll rather than a deliberate act (13 §6). */}
+                  <button
+                    type="button"
+                    data-role="feed-load-more"
+                    onClick={onLoadMoreHistory}
+                    disabled={loadingMoreHistory}
+                  >
+                    {loadingMoreHistory ? 'Loading…' : 'Show earlier updates'}
+                  </button>
+                </li>
+              )}
+            </ol>
+          )}
+        </section>
+
+        {/* The input region. `position: relative` (CSS) makes it the containing
+            block for the activity row, which is absolutely positioned at
+            `bottom: 100%` — so Kiln's replies and its action toasts float just
+            above the line, the same low-key register they have on mobile
+            (13 §7). `--dock-overlay-height` is never published here (there is no
+            dock), so the row's offset falls back to its 0px default. */}
+        <div data-role="desktop-composer-region">
+          <ActivityRow
+            thinking={thinking}
+            toasts={toasts}
+            onDismiss={onDismiss}
+            onOpenTicket={setOpenTicketId}
+            onToastExpandedChange={onToastExpandedChange}
+          />
+          {composer}
+        </div>
+      </main>
+
+      {openTicket !== null && (
+        // Detail opens OVER the feed and gets out of the way when you're done
+        // (13 D7) — no third pane, no inspector. The same sheet the mobile screen
+        // opens, with the same actions wired the same way; a permanent detail
+        // pane would double the resting complexity to serve something looked at
+        // rarely, and re-create the two-pane console this design avoids.
+        <TicketDetail
+          ticket={openTicket}
+          surface="primary"
+          agentIdle={openAgentIdle}
+          voiceControl={<MicButton sendable ticketContext={openTicket.title} />}
+          transcript={<TicketDetailTranscript />}
+          onClose={closeTicket}
+          onAccept={(ticketId) => {
+            onAccept(ticketId);
+            closeTicket();
+          }}
+          onDelete={
+            onDelete === undefined
+              ? undefined
+              : (ticketId) => {
+                  onDelete(ticketId);
+                  closeTicket();
+                }
+          }
+          onPoke={
+            onPoke === undefined
+              ? undefined
+              : (ticketId) => {
+                  onPoke(ticketId);
+                  closeTicket();
+                }
+          }
+          onSetKeepSandbox={onSetKeepSandbox}
+          onKillSandbox={onKillSandbox}
+          onReassignSandbox={onReassignSandbox}
+          sandboxStatus={openAgentStatus}
+          canReassign={(board?.worker_free ?? 0) > 0}
+          onEditText={onEditText}
+        />
+      )}
+    </div>
+  );
+}

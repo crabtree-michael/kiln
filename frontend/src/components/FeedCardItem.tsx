@@ -81,18 +81,25 @@ function useClampOverflow<T extends HTMLElement>(
   return { ref, truncated };
 }
 
+/** The default cue wording — the mobile one, since mobile-first is the product's
+ * stance (02 §11) and every existing render site is a touch surface. The desktop
+ * shell overrides it (see `moreLabel`): "tap" is a mobile-ism at a desk, and a
+ * window that tells you to tap is exactly the mobile-stretched reading 13 exists
+ * to replace. */
+const DEFAULT_MORE_LABEL = 'tap to see more';
+
 /**
- * The small, light "tap to see more" cue rendered on the clamped body's last
- * line (`feed-card-more`) — a right-aligned label with a tiny chevron that fades
- * over the clipped text. It's `aria-hidden` decoration with pointer-events off,
- * so it's never a separate tap target: taps fall through to the body/button
+ * The small, light "see more" cue rendered on the clamped body's last line
+ * (`feed-card-more`) — a right-aligned label with a tiny chevron that fades over
+ * the clipped text. It's `aria-hidden` decoration with pointer-events off, so
+ * it's never a separate tap target: taps fall through to the body/button
  * underneath. Shared by both card-body variants so the truncation reads
- * identically whether the tap expands in place or opens the detail overlay.
+ * identically whether the gesture expands in place or opens the detail overlay.
  */
-function SeeMoreCue(): JSX.Element {
+function SeeMoreCue({ label }: { label: string }): JSX.Element {
   return (
     <span data-role="feed-card-more" aria-hidden="true">
-      tap to see more
+      {label}
       <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
         <path
           d="M9 6l6 6-6 6"
@@ -141,7 +148,15 @@ function GitHubMark(): JSX.Element {
  * shared "tap to see more" cue on the last line while clamped. A body that fits
  * stays inert plain copy with no cue.
  */
-function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Element {
+function FeedCardBody({
+  body,
+  seen,
+  moreLabel,
+}: {
+  body: string;
+  seen: boolean;
+  moreLabel: string;
+}): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const { ref, truncated } = useClampOverflow<HTMLParagraphElement>(body, !expanded);
 
@@ -181,7 +196,7 @@ function FeedCardBody({ body, seen }: { body: string; seen: boolean }): JSX.Elem
       }
     >
       {body}
-      {showMore && <SeeMoreCue />}
+      {showMore && <SeeMoreCue label={moreLabel} />}
     </p>
   );
 }
@@ -200,11 +215,13 @@ function OpenDetailCardBody({
   body,
   label,
   seen,
+  moreLabel,
   onOpen,
 }: {
   body: string;
   label: string;
   seen: boolean;
+  moreLabel: string;
   onOpen: () => void;
 }): JSX.Element {
   const { ref, truncated } = useClampOverflow<HTMLSpanElement>(body, true);
@@ -217,7 +234,7 @@ function OpenDetailCardBody({
     >
       <span ref={ref} data-role="feed-card-body" data-seen={seen ? 'true' : undefined}>
         {body}
-        {truncated && <SeeMoreCue />}
+        {truncated && <SeeMoreCue label={moreLabel} />}
       </span>
     </button>
   );
@@ -239,6 +256,11 @@ export interface FeedCardItemProps {
    * Omitted → no click-through (updates with no linked ticket, other kinds, or
    * presentational tests with no board to resolve the ticket against). */
   onOpenDetail?: (ticketId: string) => void;
+  /** Wording for the truncation cue. Defaults to the mobile "tap to see more";
+   * the desktop shell passes a pointer-appropriate phrase instead (13 §4 — same
+   * design language as mobile, not the same design). Only the text changes, so
+   * the DOM and every image/DOM snapshot stay identical at the default. */
+  moreLabel?: string;
 }
 
 export function FeedCardItem({
@@ -247,6 +269,7 @@ export function FeedCardItem({
   onAccept,
   seen = false,
   onOpenDetail,
+  moreLabel = DEFAULT_MORE_LABEL,
 }: FeedCardItemProps): JSX.Element {
   const isBlocker = card.kind === 'blocker';
   // A poke card is the steward's mechanical stall nudge: just the ticket title
@@ -341,14 +364,20 @@ export function FeedCardItem({
         </a>
       )}
       {isDone && card.work_summary != null && card.work_summary !== '' && (
-        <FeedCardBody body={card.work_summary} seen={seen} />
+        <FeedCardBody body={card.work_summary} seen={seen} moreLabel={moreLabel} />
       )}
       {!isPoke &&
         !isDone &&
         (openDetail !== null ? (
-          <OpenDetailCardBody body={card.body} label={card.label} seen={seen} onOpen={openDetail} />
+          <OpenDetailCardBody
+            body={card.body}
+            label={card.label}
+            seen={seen}
+            moreLabel={moreLabel}
+            onOpen={openDetail}
+          />
         ) : (
-          <FeedCardBody body={card.body} seen={seen} />
+          <FeedCardBody body={card.body} seen={seen} moreLabel={moreLabel} />
         ))}
       {card.kind === 'preview' && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />

@@ -501,98 +501,15 @@ describe('TicketDetail', () => {
   });
 });
 
-// The per-ticket sandbox option: the switch that replaced the project form's
-// "save a dev box as a snapshot" section. Saving a ticket's sandbox stops the
-// board recycling its worker, so an agent can keep working in the same workspace
-// across turns — the whole point of moving the choice onto the ticket.
-describe('TicketDetail — sandbox option', () => {
-  /** The sandbox switch inside the open sheet. */
-  function sandboxSwitch(): HTMLInputElement {
-    const el = within(screen.getByRole('dialog')).getByRole('checkbox', {
-      name: /save this ticket.s sandbox/i,
-    });
-    if (!(el instanceof HTMLInputElement)) {
-      throw new Error('sandbox switch is not an input');
-    }
-    return el;
-  }
-
-  it('is absent by default — read-only inspection offers no sandbox switch', () => {
-    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
-    expect(screen.queryByRole('checkbox', { name: /sandbox/i })).toBeNull();
-  });
-
-  it('reflects the ticket\u2019s own keep_sandbox and reports a turn-on with the id', () => {
-    const onSetKeepSandbox = vi.fn();
-    render(<TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />);
-
-    expect(sandboxSwitch()).not.toBeChecked();
-    fireEvent.click(sandboxSwitch());
-
-    expect(onSetKeepSandbox).toHaveBeenCalledWith('t-42', true);
-    // Optimistic: the switch shows the choice at once, without waiting for the
-    // board snapshot to come back over the stream.
-    expect(sandboxSwitch()).toBeChecked();
-  });
-
-  it('starts checked for a ticket whose sandbox is already saved, and reports a turn-off', () => {
-    const saved = makeTicket({
-      id: 't-keep',
-      title: 'Long-running work',
-      body: 'body',
-      state: 'working',
-      priority: 1,
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-01T00:00:00Z',
-      keepSandbox: true,
-    });
-    const onSetKeepSandbox = vi.fn();
-    render(<TicketDetail ticket={saved} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />);
-
-    expect(sandboxSwitch()).toBeChecked();
-    fireEvent.click(sandboxSwitch());
-
-    expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', false);
-    expect(sandboxSwitch()).not.toBeChecked();
-  });
-
-  it('offers the switch on a shaping proposal too — the choice predates the sandbox', () => {
-    const proposal = makeTicket({
-      id: 't-prop',
-      title: 'Proposed work',
-      body: 'body',
-      state: 'shaping',
-      priority: 1,
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-01T00:00:00Z',
-    });
-    render(<TicketDetail ticket={proposal} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
-    expect(sandboxSwitch()).toBeInTheDocument();
-  });
-
-  it('defers to the board snapshot once it catches up', () => {
-    const onSetKeepSandbox = vi.fn();
-    const { rerender } = render(
-      <TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
-    );
-    fireEvent.click(sandboxSwitch());
-    expect(sandboxSwitch()).toBeChecked();
-
-    // The write landed and the next board snapshot carries it: the optimistic
-    // overlay drops and the switch is driven by the ticket again.
-    const confirmed = { ...working, keep_sandbox: true };
-    rerender(
-      <TicketDetail ticket={confirmed} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
-    );
-    expect(sandboxSwitch()).toBeChecked();
-  });
-});
-
-// The manual sandbox overrides: Kill (destroy this ticket's workspace, leave the
-// ticket where it is) and Move to a new sandbox (rebind and start the work over
-// somewhere clean). Both are irreversible, so both are two-tap; both are scoped
-// to a ticket that actually has a sandbox.
-describe('TicketDetail sandbox controls', () => {
+// Every sandbox decision for a ticket now lives behind one gear beside the
+// lifecycle badge: the save toggle (formerly a checkbox at the foot of the
+// body), Re-create (formerly "Kill sandbox") and Move (formerly "Move to a new
+// sandbox"), all of which used to be a row of buttons pushing the ticket's own
+// text down the screen. The menu is closed until the gear is tapped, so every
+// test here opens it first — and closed means `aria-hidden`, which is why a
+// closed menu's items are absent from these role queries rather than merely
+// invisible.
+describe('TicketDetail — sandbox menu', () => {
   const blocked = makeTicket({
     id: 't-blocked',
     title: 'Stuck work',
@@ -603,140 +520,313 @@ describe('TicketDetail sandbox controls', () => {
     updatedAt: '2026-07-01T00:00:00Z',
     blockedReason: 'the working tree is corrupted',
   });
+  const proposal = makeTicket({
+    id: 't-prop',
+    title: 'Proposed work',
+    body: 'body',
+    state: 'shaping',
+    priority: 1,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-01T00:00:00Z',
+  });
 
-  function killButton(): HTMLElement {
-    return screen.getByRole('button', { name: /kill sandbox|destroy it/i });
+  /** The gear itself, inside the open sheet. */
+  function gear(): HTMLElement {
+    return within(screen.getByRole('dialog')).getByRole('button', { name: 'Sandbox options' });
   }
-  function moveButton(): HTMLElement {
-    return screen.getByRole('button', { name: /move to a new sandbox|start over there/i });
+  function openMenu(): void {
+    fireEvent.click(gear());
+  }
+  function keepToggle(): HTMLElement {
+    return screen.getByRole('menuitemcheckbox', { name: /save sandbox when done/i });
+  }
+  function recreateItem(): HTMLElement {
+    return screen.getByRole('menuitem', { name: /re-create sandbox/i });
+  }
+  function moveItem(): HTMLElement {
+    return screen.getByRole('menuitem', { name: /move to free sandbox/i });
   }
 
-  it('is absent by default — a read-only sheet offers no override', () => {
+  it('is absent by default — read-only inspection offers no sandbox controls', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: /kill sandbox/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /move to a new sandbox/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sandbox options' })).toBeNull();
   });
 
-  it('is absent on a ticket with no sandbox, even when wired', () => {
-    const proposal = makeTicket({
-      id: 't-prop',
-      title: 'Proposed work',
-      body: 'body',
-      state: 'shaping',
-      priority: 1,
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-01T00:00:00Z',
+  it('keeps its items out of the page until the gear is tapped', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
+
+    expect(gear()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
+
+    openMenu();
+
+    expect(gear()).toHaveAttribute('aria-expanded', 'true');
+    expect(keepToggle()).toBeInTheDocument();
+  });
+
+  it('sits on the status row, beside the lifecycle badge', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
+    const row = gear().closest('[data-role="ticket-detail-status-row"]');
+    expect(row).not.toBeNull();
+    expect(row?.querySelector('[data-role="ticket-detail-status"]')?.textContent).toContain(
+      'In progress',
+    );
+  });
+
+  describe('save sandbox when done', () => {
+    it('reflects the ticket’s own keep_sandbox and reports a turn-on with the id', () => {
+      const onSetKeepSandbox = vi.fn();
+      render(
+        <TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
+      );
+      openMenu();
+
+      expect(keepToggle()).toHaveAttribute('aria-checked', 'false');
+      fireEvent.click(keepToggle());
+
+      expect(onSetKeepSandbox).toHaveBeenCalledWith('t-42', true);
+      // Optimistic: the checkmark lands at once, without waiting for the board
+      // snapshot to come back over the stream.
+      expect(keepToggle()).toHaveAttribute('aria-checked', 'true');
+      // And the menu stays open, so the checkmark is something the user sees.
+      expect(gear()).toHaveAttribute('aria-expanded', 'true');
     });
-    render(
-      <TicketDetail
-        ticket={proposal}
-        onClose={vi.fn()}
-        onKillSandbox={vi.fn()}
-        onReassignSandbox={vi.fn()}
-      />,
-    );
-    expect(screen.queryByRole('button', { name: /kill sandbox/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /move to a new sandbox/i })).toBeNull();
+
+    it('starts checked for a ticket whose sandbox is already saved, and reports a turn-off', () => {
+      const saved = makeTicket({
+        id: 't-keep',
+        title: 'Long-running work',
+        body: 'body',
+        state: 'working',
+        priority: 1,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-01T00:00:00Z',
+        keepSandbox: true,
+      });
+      const onSetKeepSandbox = vi.fn();
+      render(<TicketDetail ticket={saved} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />);
+      openMenu();
+
+      expect(keepToggle()).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(keepToggle());
+
+      expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', false);
+      expect(keepToggle()).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('is offered on a shaping proposal too — the choice predates the sandbox', () => {
+      render(<TicketDetail ticket={proposal} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
+      openMenu();
+      expect(keepToggle()).toBeInTheDocument();
+    });
+
+    it('defers to the board snapshot once it catches up', () => {
+      const onSetKeepSandbox = vi.fn();
+      const { rerender } = render(
+        <TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
+      );
+      openMenu();
+      fireEvent.click(keepToggle());
+      expect(keepToggle()).toHaveAttribute('aria-checked', 'true');
+
+      // The write landed and the next board snapshot carries it: the optimistic
+      // overlay drops and the toggle is driven by the ticket again.
+      const confirmed = { ...working, keep_sandbox: true };
+      rerender(
+        <TicketDetail ticket={confirmed} onClose={vi.fn()} onSetKeepSandbox={onSetKeepSandbox} />,
+      );
+      // Same ticket, so the menu is still open — only where the value comes from
+      // has changed.
+      expect(keepToggle()).toHaveAttribute('aria-checked', 'true');
+    });
   });
 
-  it('takes two taps to kill: the first arms, the second fires with the ticket id', () => {
-    const onKillSandbox = vi.fn();
-    render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={onKillSandbox} />);
+  // The manual overrides: Re-create (destroy this ticket's workspace and bring a
+  // fresh one up on the same slot) and Move to free sandbox (rebind and start the
+  // work over somewhere clean). Both destroy in-progress work irreversibly, so
+  // both are gated behind a confirm that says so; both are scoped to a ticket
+  // that actually has a sandbox.
+  describe('the destructive overrides', () => {
+    it('are absent on a ticket with no sandbox, even when wired', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onKillSandbox={vi.fn()}
+          onReassignSandbox={vi.fn()}
+        />,
+      );
+      // Nothing else is wired either, so there is no gear at all to open.
+      expect(screen.queryByRole('button', { name: 'Sandbox options' })).toBeNull();
+    });
 
-    fireEvent.click(killButton());
-    expect(onKillSandbox).not.toHaveBeenCalled();
-    // Armed: the label names the consequence rather than the action.
-    expect(killButton()).toHaveTextContent(/tap to confirm/i);
+    it('leaves the ticket’s own controls alone: a proposal’s gear holds only the toggle', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onSetKeepSandbox={vi.fn()}
+          onKillSandbox={vi.fn()}
+          onReassignSandbox={vi.fn()}
+        />,
+      );
+      openMenu();
+      expect(keepToggle()).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: /re-create sandbox/i })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /move to free sandbox/i })).toBeNull();
+    });
 
-    fireEvent.click(killButton());
-    expect(onKillSandbox).toHaveBeenCalledWith('t-42');
-    // Disarmed again, so a third stray tap can't kill the replacement sandbox.
-    expect(killButton()).toHaveTextContent(/kill sandbox/i);
+    it('re-creates the sandbox once the confirm is accepted, and closes the menu', () => {
+      const onKillSandbox = vi.fn();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={onKillSandbox} />);
+      openMenu();
+
+      fireEvent.click(recreateItem());
+
+      // The confirm names what is lost — an ongoing turn, not just a workspace.
+      expect(confirm.mock.calls[0]?.[0]).toMatch(/ongoing work is killed/i);
+      expect(onKillSandbox).toHaveBeenCalledWith('t-42');
+      expect(gear()).toHaveAttribute('aria-expanded', 'false');
+      confirm.mockRestore();
+    });
+
+    it('does not re-create the sandbox when the confirm is dismissed', () => {
+      const onKillSandbox = vi.fn();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={onKillSandbox} />);
+      openMenu();
+
+      fireEvent.click(recreateItem());
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(onKillSandbox).not.toHaveBeenCalled();
+      confirm.mockRestore();
+    });
+
+    it('moves the ticket to a free sandbox once the confirm is accepted', () => {
+      const onReassignSandbox = vi.fn();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(
+        <TicketDetail ticket={blocked} onClose={vi.fn()} onReassignSandbox={onReassignSandbox} />,
+      );
+      openMenu();
+
+      fireEvent.click(moveItem());
+
+      expect(confirm.mock.calls[0]?.[0]).toMatch(/ongoing work in the current sandbox is lost/i);
+      expect(onReassignSandbox).toHaveBeenCalledWith('t-blocked');
+      confirm.mockRestore();
+    });
+
+    it('does not move the ticket when the confirm is dismissed', () => {
+      const onReassignSandbox = vi.fn();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      render(
+        <TicketDetail ticket={blocked} onClose={vi.fn()} onReassignSandbox={onReassignSandbox} />,
+      );
+      openMenu();
+
+      fireEvent.click(moveItem());
+
+      expect(onReassignSandbox).not.toHaveBeenCalled();
+      confirm.mockRestore();
+    });
+
+    it('drops Move entirely when there is no free sandbox to move to', () => {
+      render(
+        <TicketDetail
+          ticket={working}
+          onClose={vi.fn()}
+          onKillSandbox={vi.fn()}
+          onReassignSandbox={vi.fn()}
+          canReassign={false}
+        />,
+      );
+      openMenu();
+
+      expect(screen.queryByRole('menuitem', { name: /move to free sandbox/i })).toBeNull();
+      // Re-create is still offered: with nowhere to move, recycling in place is
+      // the remaining escape from a corrupted workspace.
+      expect(recreateItem()).toBeInTheDocument();
+    });
   });
 
-  it('takes two taps to move, and reports the ticket id', () => {
-    const onReassignSandbox = vi.fn();
-    render(
-      <TicketDetail ticket={blocked} onClose={vi.fn()} onReassignSandbox={onReassignSandbox} />,
-    );
+  describe('the sandbox’s live status', () => {
+    it('heads the menu, so the re-create is a considered one', () => {
+      render(
+        <TicketDetail
+          ticket={working}
+          onClose={vi.fn()}
+          onKillSandbox={vi.fn()}
+          sandboxStatus="errored"
+        />,
+      );
+      openMenu();
+      expect(screen.getByText(/sandbox is failing/i)).toBeInTheDocument();
+    });
 
-    fireEvent.click(moveButton());
-    expect(onReassignSandbox).not.toHaveBeenCalled();
-    fireEvent.click(moveButton());
-    expect(onReassignSandbox).toHaveBeenCalledWith('t-blocked');
+    it('says so when the sandbox reports nothing at all', () => {
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={vi.fn()} />);
+      openMenu();
+      expect(screen.getByText(/sandbox is not reporting/i)).toBeInTheDocument();
+    });
+
+    it('is absent on a ticket with no sandbox behind it', () => {
+      render(<TicketDetail ticket={proposal} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
+      openMenu();
+      expect(screen.queryByText(/sandbox is/i)).toBeNull();
+    });
   });
 
-  it('arming one override disarms the other — only one tap is ever live', () => {
-    const onKillSandbox = vi.fn();
-    const onReassignSandbox = vi.fn();
-    render(
-      <TicketDetail
-        ticket={working}
-        onClose={vi.fn()}
-        onKillSandbox={onKillSandbox}
-        onReassignSandbox={onReassignSandbox}
-      />,
-    );
-
-    fireEvent.click(killButton());
-    fireEvent.click(moveButton()); // arms Move, disarms Kill
-    expect(onKillSandbox).not.toHaveBeenCalled();
-    expect(onReassignSandbox).not.toHaveBeenCalled();
-
-    // A tap on Kill now only re-arms it — it does not fire the stale arming.
-    fireEvent.click(killButton());
-    expect(onKillSandbox).not.toHaveBeenCalled();
-  });
-
-  it('disarms when the sheet moves to another ticket, so a tap can’t hit the wrong sandbox', () => {
+  it('closes when the sheet moves to another ticket, so it can’t act on the wrong sandbox', () => {
     const onKillSandbox = vi.fn();
     const { rerender } = render(
       <TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={onKillSandbox} />,
     );
-    fireEvent.click(killButton());
-    expect(killButton()).toHaveTextContent(/tap to confirm/i);
+    openMenu();
+    expect(recreateItem()).toBeInTheDocument();
 
     rerender(<TicketDetail ticket={blocked} onClose={vi.fn()} onKillSandbox={onKillSandbox} />);
-    expect(killButton()).toHaveTextContent(/kill sandbox/i);
-    fireEvent.click(killButton());
-    expect(onKillSandbox).not.toHaveBeenCalled();
+
+    expect(gear()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('menuitem', { name: /re-create sandbox/i })).toBeNull();
   });
 
-  it('names the sandbox’s live session status, so the kill is a considered one', () => {
+  // Escape belongs to the topmost layer. The sheet is a Radix dialog listening
+  // for the key in the capture phase on `document`, so the menu has to get there
+  // first (capture on `window`) or one press would take the whole sheet away
+  // instead of closing the dropdown over it.
+  it('closes on Escape without dismissing the sheet under it', () => {
+    const onClose = vi.fn();
+    render(<TicketDetail ticket={working} onClose={onClose} onSetKeepSandbox={vi.fn()} />);
+    openMenu();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(gear()).toHaveAttribute('aria-expanded', 'false');
+    expect(onClose).not.toHaveBeenCalled();
+
+    // …and with the menu closed the key means what it always did.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('is folded away while the ticket’s text is being edited', () => {
     render(
       <TicketDetail
-        ticket={working}
+        ticket={proposal}
         onClose={vi.fn()}
-        onKillSandbox={vi.fn()}
-        sandboxStatus="errored"
+        onSetKeepSandbox={vi.fn()}
+        onEditText={vi.fn()}
       />,
     );
-    expect(screen.getByText(/sandbox is failing/i)).toBeInTheDocument();
-  });
+    expect(gear()).toBeInTheDocument();
 
-  it('says so when the sandbox reports nothing at all', () => {
-    render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={vi.fn()} />);
-    expect(screen.getByText(/sandbox is not reporting/i)).toBeInTheDocument();
-  });
-
-  it('disables Move — and says why — when there is no free sandbox to move to', () => {
-    const onReassignSandbox = vi.fn();
-    render(
-      <TicketDetail
-        ticket={working}
-        onClose={vi.fn()}
-        onKillSandbox={vi.fn()}
-        onReassignSandbox={onReassignSandbox}
-        canReassign={false}
-      />,
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Edit description' }),
     );
 
-    expect(moveButton()).toBeDisabled();
-    fireEvent.click(moveButton());
-    expect(onReassignSandbox).not.toHaveBeenCalled();
-    expect(screen.getByText(/none free to move this ticket to/i)).toBeInTheDocument();
-    // Kill is still offered: with nowhere to move, recycling in place is the
-    // remaining escape from a corrupted workspace.
-    expect(killButton()).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Sandbox options' })).toBeNull();
   });
 });

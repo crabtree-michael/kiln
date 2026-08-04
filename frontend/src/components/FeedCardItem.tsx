@@ -41,45 +41,14 @@
 // via `seen`: an unbolded ticket name and a body collapsed tighter than the
 // three-line preview, so the new-since-last-visit cards above stay the focus.
 // The expand affordance is unchanged — a seen card just starts more collapsed.
-import { useLayoutEffect, useRef, useState } from 'react';
-import type { JSX, RefObject } from 'react';
+import { useState } from 'react';
+import type { JSX } from 'react';
 import type { FeedCard } from '@/transport/transport';
 import { cardTag, relativeAge } from '@/components/feed-format';
-
-/**
- * Measures whether the clamped body actually overflows its clamp — the single
- * signal both card-body variants share to decide whether to show the "tap to see
- * more" cue. Returns a ref to attach to the clamped element and the `truncated`
- * flag (`scrollHeight` overflows the clamped `clientHeight`, `+1` absorbing
- * sub-pixel rounding). Measured only while `active` (the clamp is applied): the
- * expand-in-place body passes `active = !expanded` so the flag freezes once the
- * clamp is gone; the open-detail body always clamps, so it passes `true`.
- * jsdom performs no layout, so the flag stays false under test unless the heights
- * are faked. Re-runs when `body` changes (the text) or `active` flips.
- */
-function useClampOverflow<T extends HTMLElement>(
-  body: string,
-  active: boolean,
-): { ref: RefObject<T>; truncated: boolean } {
-  const ref = useRef<T>(null);
-  const [truncated, setTruncated] = useState(false);
-
-  useLayoutEffect(() => {
-    if (!active) return;
-    const el = ref.current;
-    if (el === null) return;
-    const measure = (): void => {
-      setTruncated(el.scrollHeight > el.clientHeight + 1);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => {
-      window.removeEventListener('resize', measure);
-    };
-  }, [body, active]);
-
-  return { ref, truncated };
-}
+// The clamp-overflow measurement — the single signal both card-body variants
+// share to decide whether to show the "tap to see more" cue — is shared with the
+// activity row's pills (which ask the same question of their own 2-line clamp).
+import { useClampOverflow } from '@/components/use-clamp-overflow';
 
 /** The default cue wording — the mobile one, since mobile-first is the product's
  * stance (02 §11) and every existing render site is a touch surface. The desktop

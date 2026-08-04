@@ -95,6 +95,21 @@ future persistent failure, not just sandbox health. The server side lives in the
 join (`agentJoin`/`sandboxHealthAlerts` in `internal/api/routes.go`), derived from the
 neutral per-worker `AgentStatus` (`errored`), so it stays provider-agnostic.
 
+**Activity pills are one tap target, never two (`ActivityRow`, 08 §4).** No pill carries a
+close control in any state — no always-on ×, and no Close button once it is open. One
+`button[data-role='toast-open']` fills the pill and the tap means whatever that pill has
+left to do: a board `toast` with a ticket routes to its detail view and dismisses; a pill
+with nowhere to route expands in place if — and only if — its 2-line clamp is actually
+hiding something, and the next tap dismisses it; a pill with nothing more to show dismisses
+on the first tap rather than opening onto an identical copy of itself. "Can it expand?" is
+**measured, not assumed** (`useClampOverflow`, shared with the feed card's "tap to see
+more" cue), because the same utterance overflows on a phone and fits on a desk — mobile and
+desktop render the same `ActivityRow`, so a hardcoded answer would be wrong on one of them.
+Consequence for tests: jsdom does no layout, so every pill reads as *non*-expandable unless
+you fake the heights (`fakeClampedOverflow` in `ActivityRow.test.tsx` /
+`PrimaryScreenView.test.tsx`), and expanding pauses that pill's auto-dismiss timer
+(`setToastExpanded`) with no collapse-back to resume it.
+
 ## Dashboard + session gating (spec 11)
 
 A second, separate surface at `/dashboard` — the signed-in account view (GitHub sign-in →

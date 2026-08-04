@@ -96,6 +96,38 @@ describe('DesktopScreen.css', () => {
     expect(dot).toMatch(/animation:\s*kiln-breathe/);
   });
 
+  it('keeps the working strip in the same reading column as the feed', () => {
+    // The strip lists what is being worked on directly above the cards, so a
+    // different measure or a different gutter would read as a second column
+    // rather than as the head of this one.
+    const head = ruleBody("[data-role='desktop-working-head'] {");
+    const list = ruleBody("[data-role='desktop-working-list'] {");
+    expect(head).toMatch(/max-width:\s*720px/);
+    expect(list).toMatch(/max-width:\s*720px/);
+    expect(list).toMatch(/margin:\s*var\(--space-2\) auto 0/);
+    // And it holds its own height rather than scrolling with the feed — the
+    // whole of "not buried in the feed".
+    expect(ruleBody("[data-role='desktop-working'] {")).toMatch(/flex:\s*none/);
+  });
+
+  it('the working strip lists, it never measures — no bar, no ticking counter', () => {
+    // 13 §8's deliberate absences. A row is a title, a word, and a relative age;
+    // anything that fills or counts up converts "present" into "demanding".
+    // Comments stripped first: this is about what the region DECLARES, not about
+    // the prose explaining why it doesn't.
+    const strip = css
+      .slice(
+        css.indexOf("[data-role='desktop-working'] {"),
+        css.indexOf('/* The resting state is the real state'),
+      )
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(strip).not.toMatch(/@keyframes/);
+    expect(strip).not.toMatch(/progress/);
+    // The one animation in the region is the head's breathing dot, declared
+    // once — the rows themselves are still.
+    expect(strip.match(/animation:/g)).toHaveLength(1);
+  });
+
   it('suppresses every self-starting animation under prefers-reduced-motion', () => {
     const query = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(query).toMatch(/\[data-role='desktop-feed-row'\]/);

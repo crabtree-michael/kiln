@@ -7,7 +7,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { DesktopScreenView } from '@/components/desktop/DesktopScreenView';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
-import { makeBoard, makeFeedCard, makeFeedSnapshot, makeTicket } from '@/test/fixtures';
+import {
+  makeAgentStatus,
+  makeBoard,
+  makeFeedCard,
+  makeFeedSnapshot,
+  makeTicket,
+} from '@/test/fixtures';
 
 // The in-sheet mic and its transcript are live voice-store consumers (09). These
 // presentational tests render the shell directly (no `VoiceProvider`), so
@@ -43,9 +49,23 @@ vi.mock('@/voice/voice-context', async (importOriginal) => {
 const NOW = Date.parse('2026-08-04T12:00:00Z');
 
 const PROJECTS: RailProject[] = [
-  { id: 'p1', name: 'kiln', state: 'quiet' },
-  { id: 'p2', name: 'atlas', state: 'needs-you' },
+  { id: 'p1', name: 'kiln', state: 'quiet', working: 0 },
+  { id: 'p2', name: 'atlas', state: 'needs-you', working: 0 },
 ];
+
+/** A ticket an agent is mid-turn on, for the working-strip cases. */
+function workingTicket(id: string, title: string, statusChangedAt: string) {
+  return makeTicket({
+    id,
+    title,
+    body: 'the full record',
+    state: 'working',
+    priority: 1,
+    createdAt: '2026-08-04T09:00:00Z',
+    updatedAt: statusChangedAt,
+    statusChangedAt,
+  });
+}
 
 const blockerCard = makeFeedCard({
   kind: 'blocker',
@@ -145,6 +165,101 @@ describe('DesktopScreenView', () => {
       feed: makeFeedSnapshot({ cards: [updateCard], summary: { building: 2 } }),
     });
     expect(container.querySelector('[data-role="desktop-working"]')).not.toBeNull();
+  });
+
+  it('working: NAMES the tickets being worked, so "what is in progress" is answered at a glance', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [
+          workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          workingTicket('t2', 'poller', '2026-08-04T11:50:00Z'),
+        ],
+      }),
+      feed: makeFeedSnapshot({ cards: [updateCard], summary: { building: 2 } }),
+    });
+    const titles = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-role="desktop-working-title"]'),
+    ).map((node) => node.textContent);
+    // Oldest-started first: a ticket picked up now appends, it does not shove
+    // the rows above it down.
+    expect(titles).toEqual(['auth refresh', 'poller']);
+  });
+
+  it('working: the strip sits ABOVE the feed scroll region, so it cannot be scrolled away', () => {
+    const { container } = renderShell({
+      board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+      thinking: true,
+    });
+    const strip = container.querySelector('[data-role="desktop-working"]');
+    expect(strip).not.toBeNull();
+    // In flow in the main column, and NOT inside the feed's own scroller.
+    expect(
+      container.querySelector('[data-role="desktop-feed"] [data-role="desktop-working"]'),
+    ).toBeNull();
+    expect(strip?.parentElement).toHaveAttribute('data-role', 'desktop-main');
+  });
+
+  it('working: shows how long each ticket has been at it, and says so in words for AT', () => {
+    renderShell({
+      board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+      thinking: true,
+    });
+    expect(
+      screen.getByRole('button', { name: 'Open working ticket: auth refresh — working for 1h' }),
+    ).toBeInTheDocument();
+  });
+
+  it('working: a dead session behind a Working ticket is stated, not painted over', () => {
+    // The one lie the strip must not tell: a ticket parked in Working whose
+    // sandbox has failed is not "working".
+    renderShell({
+      board: makeBoard({
+        working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')],
+        agents: [makeAgentStatus('t1', 'errored')],
+      }),
+      thinking: true,
+    });
+    expect(screen.getByText('failing')).toBeInTheDocument();
+  });
+
+  it('working: opening a strip row opens that ticket over the feed', () => {
+    const { container } = renderShell({
+      board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+      thinking: true,
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open working ticket: auth refresh — working for 1h' }),
+    );
+    expect(screen.getByRole('dialog', { name: 'auth refresh' })).toBeInTheDocument();
+    expect(container.querySelector('[data-role="desktop-feed"]')).not.toBeNull();
+  });
+
+  it('working: the brain thinking with nothing in Working still shows the indication, bare', () => {
+    const { container } = renderShell({ thinking: true });
+    expect(container.querySelector('[data-role="desktop-working-head"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="desktop-working-list"]')).toBeNull();
+  });
+
+  it('working: a board naming a working ticket lights the strip even before the summary agrees', () => {
+    const { container } = renderShell({
+      board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+    });
+    expect(container.querySelector('[data-role="desktop-working"]')).not.toBeNull();
+  });
+
+  it('working: no counts and no meters — the strip lists, it does not measure (13 §8)', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [
+          workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          workingTicket('t2', 'poller', '2026-08-04T11:50:00Z'),
+        ],
+      }),
+      thinking: true,
+    });
+    const strip = container.querySelector('[data-role="desktop-working"]');
+    expect(strip?.querySelector('progress')).toBeNull();
+    expect(strip?.textContent).not.toMatch(/2 (working|tickets)/);
   });
 
   it('resting: no working indication when nothing is in motion', () => {

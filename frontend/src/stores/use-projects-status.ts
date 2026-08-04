@@ -22,7 +22,7 @@
 // tighter interval here.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchProjectBoard, type Board, type MeProject } from '@/transport/transport';
-import { deriveProjectState, type ProjectState } from '@/stores/project-status';
+import { deriveProjectStatus, type ProjectStatus } from '@/stores/project-status';
 
 /**
  * How often the non-selected projects are re-read. Deliberately slow: the rail
@@ -34,10 +34,15 @@ import { deriveProjectState, type ProjectState } from '@/stores/project-status';
 export const POLL_INTERVAL_MS = 60_000;
 
 /**
- * Per-project rail state, keyed by `project_id`. Projects not yet heard from map
- * to `unknown`, which the rail renders as absence — see `ProjectState`.
+ * Per-project rail status, keyed by `project_id`. Projects not yet heard from map
+ * to `unknown` with a zero working count, which the rail renders as absence —
+ * see `ProjectState`.
  */
-export type ProjectStates = Record<string, ProjectState>;
+export type ProjectStates = Record<string, ProjectStatus>;
+
+/** The reading for a project no board has ever come back for. A module constant
+ * rather than a literal so the identity is stable across renders. */
+const UNKNOWN: ProjectStatus = { state: 'unknown', working: 0 };
 
 /**
  * The last reading seen for each project, surviving this hook's remounts.
@@ -50,7 +55,7 @@ export type ProjectStates = Record<string, ProjectState>;
  * per-JS-context, so two tabs stay independent (12 §7.2), and it is only ever
  * read as a seed: the poll below overwrites it within a round-trip.
  */
-const lastKnownStates = new Map<string, ProjectState>();
+const lastKnownStates = new Map<string, ProjectStatus>();
 
 /** Clears the cross-remount seed. Test-only: the cache is per-JS-context and a
  * vitest module registry is shared across cases in a file, so without this one
@@ -110,9 +115,9 @@ export function useProjectsStatus(
           if (generationRef.current !== generation) {
             return;
           }
-          const state = deriveProjectState(board);
-          lastKnownStates.set(id, state);
-          setPolled((previous) => ({ ...previous, [id]: state }));
+          const status = deriveProjectStatus(board);
+          lastKnownStates.set(id, status);
+          setPolled((previous) => ({ ...previous, [id]: status }));
         })
         .catch(() => {
           // A failed read leaves the previous reading in place rather than
@@ -163,8 +168,8 @@ export function useProjectsStatus(
     projects.forEach((project) => {
       states[project.id] =
         project.id === currentId
-          ? deriveProjectState(currentBoard)
-          : (polled[project.id] ?? 'unknown');
+          ? deriveProjectStatus(currentBoard)
+          : (polled[project.id] ?? UNKNOWN);
     });
     return states;
   }, [projects, currentId, currentBoard, polled]);

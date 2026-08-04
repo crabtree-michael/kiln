@@ -558,6 +558,32 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   (0,2,0) and this file loads second, so without it the closed transform wins and the panel
   opens stuck out of place. Scope under `[data-role='desktop-screen']` rather than editing
   the mobile rule: a resize swaps shells with both stylesheets still loaded.
+- **The working strip (`WorkingNow.tsx` + `working-now.ts`, 13 D9) reads the BOARD, not the
+  feed.** It answers "which tickets are being worked right now" with one row per ticket in
+  `board.working`, and it has to come off the board because the feed is the brain's curated
+  narration (08 D1) — a ticket can be worked for an hour without earning a card. Four
+  things about it are load-bearing:
+  - **It renders above `[data-role='desktop-feed']`, in flow, not as the column's first
+    row** — same call `SystemAlertBand` makes on mobile. Inside the scroller it would be
+    the first thing lost when you scroll back through history, which is the whole problem
+    it was added to fix. `DesktopScreenView.test.tsx` and the smoke script both pin it.
+  - **Rows sort by `state_changed_at` ASCENDING**, so a ticket picked up now appends at the
+    bottom and nothing already on screen moves. Newest-first — the feed's rule — would
+    reflow the strip under the eye every time an agent starts something.
+  - **A row's status comes from `board.agents`, not from the column.** A ticket parked in
+    Working with a dead session behind it renders "failing"/"stopped"; `building` is the
+    expected case and deliberately renders no word at all.
+  - **`active` and the ticket list are separate props** because they disagree in both
+    directions: the brain thinks (`thinking`) with nothing in Working, and a board snapshot
+    can name a working ticket before the feed summary's `building` catches up. Either
+    lights the strip; only the list names anything.
+- **The rail carries a working COUNT, and it must never paint one** (13 D9). `RailProject`
+  has a required `working: number` and `railHint` folds it into the row's `title` plus the
+  mark's visually-hidden text — nothing else. Two reasons it exists at all: 13 §8 rules out
+  badges and counts by name, *and* `deriveProjectState`'s precedence means a project that is
+  blocked and building reads only as `needs-you`, so without the hint the running work
+  vanishes. `useProjectsStatus` therefore returns `ProjectStatus` objects (`{state,
+  working}`), not bare state strings — the module-level cross-remount cache holds those too.
 - **`tests/desktop-shell-smoke.mjs` is the only thing that can see the layout.** A
   hand-run script (not part of the Playwright suite, no stack needed): it serves
   `frontend/dist`, stubs every `/api` call, and screenshots + measures the shell at 1440px

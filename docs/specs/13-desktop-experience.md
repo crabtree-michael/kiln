@@ -278,6 +278,23 @@ that a glance answers "is it alive, and does it want me":
    `thinking`, and it is the one element permitted to animate on its own. It should read as
    breathing: slow, low-contrast, never a progress bar (there is no progress to report, and
    a bar that doesn't measure anything is a lie).
+
+   **Amended 2026-08-04 (D9): it names what is being worked on.** As first built, the
+   indication said only *that* something was running, and the only way to find out *what*
+   was to open tickets one at a time — the question "which tickets are being worked right
+   now" had no answer on this screen. It is now a short strip: the same breathing dot and
+   word, and under it one row per ticket in the board's Working bucket, each naming the
+   ticket, how long it has been there, and — where the session behind it is not plainly
+   building — that it is starting up, idle, stopped, or failing. The strip sits above the
+   feed's scroll region rather than as the column's first row, so it holds its own height
+   and does not scroll out of sight while reading back through history; a row opens that
+   ticket's detail over the feed, exactly as a card does. Reading the board (not the feed)
+   is what makes it complete: a ticket can be worked for a long time without the brain
+   authoring a card about it.
+
+   Everything the strip does *not* do is the same list as before: no count, no badge, no
+   bar, no log tail, nothing that ticks, and no accent — a row is a title, a word, and a
+   relative age.
 3. **The feed itself changing** — the strongest signal, and free. Cards arriving and
    blockers clearing *are* the evidence that work is happening. The design's job is mostly
    to not get in their way.
@@ -310,7 +327,7 @@ against.
 | State | What it should feel like |
 | --- | --- |
 | **Resting** — nothing needs you | Composed, not empty. The rail is quiet, the feed shows recent history, the window looks almost blank and is completely honest. This is the state the design is optimized for. |
-| **Working** — agents mid-turn, nothing needed | The breathing indication is on; the feed is otherwise still. "It's handling it." |
+| **Working** — agents mid-turn, nothing needed | The breathing indication is on and the tickets being worked are named under it (§8.2, amended); the feed is otherwise still. "It's handling *these*, and it doesn't need you." |
 | **Needs you** — a blocker or a proposal | The one loud moment. Accent present, question in full, answerable in place. Everything else on screen stays exactly as quiet as it was. |
 | **Fresh / zero projects** | Falls through to the existing setup gate (`12` §4.1). Desktop does not invent a second onboarding. |
 | **Disconnected** | Must be stated, not hidden — an ambient app that has silently stopped receiving is worse than one that is visibly off. Low-key and permanent while it lasts, not a modal. |
@@ -370,3 +387,4 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 | D6 | **Dark is desktop's resting register**, in Kiln's existing warm near-black — never a colder black. | Light-first to match mobile's paper default; a new desktop-only dark palette. | A window open all day should recede. Reusing the existing dark theme keeps one design language rather than forking the palette. |
 | D7 | **Detail opens over the feed; there is no third pane.** | A persistent detail/inspector pane; a three-column layout. | A permanent pane doubles the resting complexity to serve something looked at rarely, and re-creates the two-pane management console this design avoids. Overlay keeps the resting state at two regions. |
 | D8 | **Desktop is the responsive web app widening out, not a separate installable application.** | An installable/packaged desktop app; leaving the question open until later. | Directed, and it costs the design nothing: every behavior above works in a browser window, and the client holds no authoritative state (`02` §11), so "a window you leave open" is already just a tab you leave open. Packaging, auto-update, and window-chrome work would buy no part of the experience described here. |
+| D9 | **The working indication names the tickets being worked** (§8.2), as a strip above the feed — and the rail still marks a project with a dot, never a count. | A status chip on each ticket wherever it appears; a "2 working" badge per rail row; leaving the bare one-word indication and letting the feed imply the rest. | A per-card chip was unreachable in practice: a working ticket usually has no card, so the state with the fewest cards is exactly the one that needed showing. A rail badge is the numeral §8 rules out by name, on the surface least able to carry it — but the count is not thrown away either, since the rail's precedence hides "also building" behind `needs-you`: it rides in the row's hover tooltip and assistive text, where it costs no pixels at rest. |

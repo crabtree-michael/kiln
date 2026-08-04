@@ -35,6 +35,20 @@ function project(id: string): MeProject {
   };
 }
 
+const workingBoard = makeBoard({
+  working: [
+    makeTicket({
+      id: 't2',
+      title: 'mid-turn',
+      body: 'body',
+      state: 'working',
+      priority: 1,
+      createdAt: '2026-08-04T09:00:00Z',
+      updatedAt: '2026-08-04T09:00:00Z',
+    }),
+  ],
+});
+
 const blockedBoard = makeBoard({
   blocked: [
     makeTicket({
@@ -80,7 +94,7 @@ describe('useProjectsStatus', () => {
 
   it('reads the selected project straight off the live board, with no fetch', () => {
     const { result } = renderHook(() => useProjectsStatus([project('kiln')], 'kiln', blockedBoard));
-    expect(result.current.kiln).toBe('needs-you');
+    expect(result.current.kiln?.state).toBe('needs-you');
   });
 
   it('derives a polled project state from its own board', async () => {
@@ -89,17 +103,17 @@ describe('useProjectsStatus', () => {
     const { result } = renderHook(() => useProjectsStatus(projects, 'kiln', makeBoard()));
 
     await waitFor(() => {
-      expect(result.current.atlas).toBe('needs-you');
+      expect(result.current.atlas?.state).toBe('needs-you');
     });
     // The selected one is still read locally, unaffected by the poll.
-    expect(result.current.kiln).toBe('quiet');
+    expect(result.current.kiln?.state).toBe('quiet');
   });
 
   it('a project not yet heard from is unknown, not quiet', async () => {
     const projects = [project('kiln'), project('atlas')];
     const { result } = renderHook(() => useProjectsStatus(projects, 'kiln', makeBoard()));
     // Asserted on the very first render, before the in-flight poll can land.
-    expect(result.current.atlas).toBe('unknown');
+    expect(result.current.atlas?.state).toBe('unknown');
     // Then let it settle inside an act scope so the resolved fetch's state
     // update doesn't land after the test has finished.
     await act(async () => {
@@ -112,7 +126,7 @@ describe('useProjectsStatus', () => {
     const projects = [project('kiln'), project('atlas')];
     const { result } = renderHook(() => useProjectsStatus(projects, 'kiln', makeBoard()));
     await waitFor(() => {
-      expect(result.current.atlas).toBe('needs-you');
+      expect(result.current.atlas?.state).toBe('needs-you');
     });
 
     fetchProjectBoard.mockRejectedValue(new Error('offline'));
@@ -123,7 +137,7 @@ describe('useProjectsStatus', () => {
     await waitFor(() => {
       expect(fetchProjectBoard.mock.calls.length).toBeGreaterThan(1);
     });
-    expect(result.current.atlas).toBe('needs-you');
+    expect(result.current.atlas?.state).toBe('needs-you');
   });
 
   it('goes quiet while the tab is hidden, and catches up the moment it comes back', async () => {
@@ -162,7 +176,7 @@ describe('useProjectsStatus', () => {
     const projects = [project('kiln'), project('atlas'), project('ledger')];
     const first = renderHook(() => useProjectsStatus(projects, 'kiln', makeBoard()));
     await waitFor(() => {
-      expect(first.result.current.ledger).toBe('needs-you');
+      expect(first.result.current.ledger?.state).toBe('needs-you');
     });
     first.unmount();
 
@@ -170,9 +184,9 @@ describe('useProjectsStatus', () => {
     // selected now, so its mark must survive the remount rather than blanking
     // back to `unknown` while its board is re-fetched.
     const second = renderHook(() => useProjectsStatus(projects, 'atlas', makeBoard()));
-    expect(second.result.current.ledger).toBe('needs-you');
+    expect(second.result.current.ledger?.state).toBe('needs-you');
     // The newly-selected project switches to the live board immediately.
-    expect(second.result.current.atlas).toBe('quiet');
+    expect(second.result.current.atlas?.state).toBe('quiet');
     await act(async () => {
       await Promise.resolve();
     });
@@ -189,5 +203,10 @@ describe('useProjectsStatus', () => {
       await Promise.resolve();
     });
     expect(fetchProjectBoard.mock.calls.length).toBe(initial + 1);
+  });
+
+  it("carries each project's working count, not just its mark", () => {
+    const { result } = renderHook(() => useProjectsStatus([project('kiln')], 'kiln', workingBoard));
+    expect(result.current.kiln).toEqual({ state: 'working', working: 1 });
   });
 });

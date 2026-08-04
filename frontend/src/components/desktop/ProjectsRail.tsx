@@ -22,10 +22,42 @@ const STATE_LABEL: Record<ProjectState, string> = {
   unknown: '',
 };
 
+/**
+ * The row's state in words: what the mark means, plus how many tickets are
+ * being worked when any are.
+ *
+ * **The count is text, never a badge.** 13 §8 rules out counts and badges in the
+ * resting screen by name, and the rail is the surface that can least afford
+ * them — it is read out of the corner of an eye. So the number never paints: it
+ * rides in the row's `title` (revealed by pointing, which is all pointing ever
+ * does here, 13 §9) and in the mark's assistive text. What it buys is the case
+ * the mark alone cannot state — a project that is blocked on a question *and*
+ * running three agents reads as `needs-you`, correctly, and the running work is
+ * still one hover away instead of gone.
+ *
+ * Zero-width geometry is the other half of the rule: a row that grew a numeral
+ * when a ticket started would reflow the rail, and a rail that reflows is the
+ * opposite of ambient (13 §5).
+ */
+function railHint(state: ProjectState, working: number): string {
+  const label = STATE_LABEL[state];
+  if (working === 0) {
+    return label;
+  }
+  const count = `${working.toString()} working`;
+  // `working` state: the count IS the label, said with a number. Anything else
+  // that also has work running gets both, most important first.
+  return state === 'working' || label === '' ? count : `${label} · ${count}`;
+}
+
 export interface RailProject {
   id: string;
   name: string;
   state: ProjectState;
+  /** How many of this project's tickets are being worked right now. Required,
+   * not optional: every render site should have to say, so a new caller can't
+   * silently drop the one signal the mark's precedence throws away. */
+  working: number;
 }
 
 export interface ProjectsRailProps {
@@ -81,7 +113,7 @@ export function ProjectsRail({
     <nav data-role="projects-rail" aria-label="Projects">
       <ul data-role="rail-list" ref={listRef} onKeyDown={onKeyDown}>
         {projects.map((project) => {
-          const stateLabel = STATE_LABEL[project.state];
+          const hint = railHint(project.state, project.working);
           return (
             <li key={project.id}>
               <button
@@ -91,6 +123,11 @@ export function ProjectsRail({
                 data-state={project.state}
                 data-current={project.id === currentProjectId ? 'true' : undefined}
                 aria-current={project.id === currentProjectId ? 'true' : undefined}
+                // Hover reveals what the mark means, and how much is running
+                // behind it, without the rail painting a single extra pixel at
+                // rest. A resting project has nothing to say, so it gets no
+                // tooltip at all rather than an empty one.
+                title={hint === '' ? undefined : hint}
                 onClick={() => {
                   onSelectProject(project.id);
                 }}
@@ -103,7 +140,7 @@ export function ProjectsRail({
                     a rail that reflows is the opposite of ambient. */}
                 <span data-role="rail-project-state" data-state={project.state}>
                   <span data-role="rail-project-dot" aria-hidden="true" />
-                  {stateLabel !== '' && <span data-role="visually-hidden">{stateLabel}</span>}
+                  {hint !== '' && <span data-role="visually-hidden">{hint}</span>}
                 </span>
               </button>
             </li>

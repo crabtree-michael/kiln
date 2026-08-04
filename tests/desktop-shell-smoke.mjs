@@ -392,6 +392,39 @@ console.log(
   await page.evaluate(() => document.activeElement?.getAttribute('data-role')),
 );
 
+// The bell's panel opens UP and to the RIGHT of the rail foot. Inheriting the
+// phone's down-and-left anchoring put it off the bottom and off the left edge at
+// once, on a shell that cannot be scrolled — so what matters is not which corner
+// it claims but that all four of its edges land inside the window.
+await page.click('[data-role="notify-settings-trigger"]');
+await page.waitForTimeout(400);
+await page.screenshot({ path: '/tmp/desktop-shell-bell.png' });
+console.log(
+  'BELL PANEL',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const panel = document.querySelector('[data-role="notify-settings-panel"]');
+      const bell = document.querySelector('[data-role="notify-settings-trigger"]');
+      if (!panel || !bell) return 'missing';
+      const p = panel.getBoundingClientRect();
+      const b = bell.getBoundingClientRect();
+      return {
+        onScreen:
+          p.top >= 0 &&
+          p.left >= 0 &&
+          p.bottom <= window.innerHeight &&
+          p.right <= window.innerWidth,
+        opensUp: p.bottom <= b.top,
+        opensRight: p.right > b.right,
+        panel: [Math.round(p.left), Math.round(p.top), Math.round(p.right), Math.round(p.bottom)],
+        window: [window.innerWidth, window.innerHeight],
+      };
+    }),
+  ),
+);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+
 // Narrow the window: the mobile shell must take back over — and the theme must
 // not so much as flicker, because it never depended on the shell in the first
 // place (13 D6a). Both shells read the same `data-theme` off <html>.
@@ -408,6 +441,35 @@ console.log(
   await page.evaluate(() => document.documentElement.dataset.theme),
 );
 await page.screenshot({ path: '/tmp/mobile-shell.png' });
+
+// ...and the phone keeps the anchoring it was written for: the bell is up in the
+// header there, so down-and-left is the direction with room. The desktop rule is
+// scoped under the shell root precisely so this is untouched — both stylesheets
+// are loaded at once here, this viewport change did not unload either.
+await page.click('[data-role="notify-settings-trigger"]');
+await page.waitForTimeout(400);
+console.log(
+  'BELL PANEL AT 480px',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const panel = document.querySelector('[data-role="notify-settings-panel"]');
+      const bell = document.querySelector('[data-role="notify-settings-trigger"]');
+      if (!panel || !bell) return 'missing';
+      const p = panel.getBoundingClientRect();
+      const b = bell.getBoundingClientRect();
+      return {
+        onScreen:
+          p.top >= 0 &&
+          p.left >= 0 &&
+          p.bottom <= window.innerHeight &&
+          p.right <= window.innerWidth,
+        opensDown: p.top >= b.bottom,
+        opensLeft: p.left < b.left,
+      };
+    }),
+  ),
+);
+await page.screenshot({ path: '/tmp/mobile-shell-bell.png' });
 
 console.log('PAGE ERRORS', errors.length === 0 ? 'none' : errors);
 

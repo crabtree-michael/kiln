@@ -253,6 +253,37 @@ html:has([data-role='desktop-screen']) body {
   height: 16px;
 }
 
+/* The bell's panel opens UP and to the RIGHT here — the one geometry rule this
+   shell cannot inherit. PrimaryScreen.css anchors the panel to the bell's
+   top-right corner (`top: 100%; right: 0`) because on the phone the bell sits in
+   a header cluster at the TOP RIGHT, so down-and-left is the only direction with
+   room. At a desk the bell sits in the rail's FOOT — bottom LEFT — and that same
+   anchoring aims the panel off two edges at once: below the bottom of a shell
+   locked to 100dvh (nothing scrolls it back into view, see the html rule above),
+   and left past the rail's ~20px inset. Mirroring the anchor to the bell's
+   bottom-left corner points the panel's 264px at the feed, which is the only
+   direction with room on this side.
+
+   The mobile `max-width` clamp is left alone deliberately: it subtracts the
+   phone header's right-hand chrome, and the desktop shell only exists at
+   >=1024px (DESKTOP_MIN_WIDTH), where it can never bite. Scoped under the shell
+   root rather than replacing the mobile rule because both stylesheets are loaded
+   at once — a viewport resize swaps shells without unloading either. */
+[data-role='desktop-screen'] [data-role='notify-settings-panel'] {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  /* The settle animation has to mirror too, or the panel scales out of the
+     corner it is no longer anchored to and drifts the wrong way as it opens. */
+  transform-origin: bottom left;
+  transform: translateY(6px) scale(0.98);
+}
+
+[data-role='desktop-screen'] [data-role='notify-settings-panel'][data-open='true'] {
+  transform: translateY(0) scale(1);
+}
+
 /* Disconnected: stated, low-key, and permanent while it lasts (13 §10). NOT the
    accent — the accent means "a person is needed for a decision", and a dropped
    stream is a fact about the app, not a question for the user. The caution tone

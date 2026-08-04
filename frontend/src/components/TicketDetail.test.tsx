@@ -823,7 +823,9 @@ describe('TicketDetail — sandbox menu', () => {
     );
     expect(gear()).toBeInTheDocument();
 
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Edit' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Edit description' }),
+    );
 
     expect(screen.queryByRole('button', { name: 'Sandbox options' })).toBeNull();
   });

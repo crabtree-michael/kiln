@@ -10,8 +10,8 @@
 //
 //   • the per-ticket sandbox option (`onSetKeepSandbox`) — a setting on the
 //     ticket; and
-//   • the ticket's own title/body text (`onEditText`) — the edit affordance in
-//     the header, which turns the title and body into fields the user types in.
+//   • the ticket's own title/body text (`onEditText`) — pressing the rendered
+//     body turns the title and body into fields the user types in, in place.
 //
 // It also carries the two manual sandbox overrides (`onKillSandbox`,
 // `onReassignSandbox`), which are direct writes for a third reason again: they
@@ -47,7 +47,16 @@
 // than two components because everything above — the record, the actions, the
 // direct writes — is the same sheet either way; only the edge it is anchored to
 // differs (see the prop's doc for why the desk's is a different edge).
-import { useEffect, useState, type JSX, type ReactNode } from 'react';
+// `MouseEvent` is aliased on import: the body's click handler takes React's
+// synthetic event, and the unaliased name would read as the DOM global.
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type JSX,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Drawer } from 'vaul';
@@ -138,15 +147,17 @@ export interface TicketDetailProps {
    * for, and a `building` one warns that a turn is being cut short. Omitted → the
    * line says the sandbox isn't reporting, which is itself a signal. */
   sandboxStatus?: string | undefined;
-  /** When provided, the sheet shows an **edit** affordance beside the title (a
-   * pencil) for a ticket still in EDITABLE_STATES, turning the title and body
-   * into a text field and a textarea the user types in directly. Saving calls
-   * this with only the fields that actually changed. Unlike Accept/Delete/Poke
-   * it carries no intent for the brain to interpret: the caller writes the text
-   * straight to the board (POST /api/tickets/{id}/text), because an LLM pass
-   * between the user and their own words is the drift this affordance exists to
-   * remove. Like the sandbox switch the sheet stays open afterwards — the user
-   * saves and reads the result. Omitted → no pencil, so a read-only sheet is
+  /** When provided, the rendered body of a ticket still in EDITABLE_STATES
+   * becomes the **edit** affordance itself: pressing the text turns the title
+   * and body into a text field and a textarea, in place, where the body was
+   * — there is no separate pencil, because the words the user wants to change
+   * are the obvious thing to reach for. Saving calls this with only the fields
+   * that actually changed. Unlike Accept/Delete/Poke it carries no intent for
+   * the brain to interpret: the caller writes the text straight to the board
+   * (POST /api/tickets/{id}/text), because an LLM pass between the user and
+   * their own words is the drift this affordance exists to remove. Like the
+   * sandbox switch the sheet stays open afterwards — the user saves and reads
+   * the result. Omitted → the body is inert text, so a read-only sheet is
    * unchanged. */
   onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
   /** The live session status of this ticket's bound agent, from the board
@@ -252,7 +263,7 @@ const SANDBOX_OPTIMISTIC_MS = 5000;
  * where wording gets refined before work starts, ready is still queued and not
  * yet briefed to anyone. Once a ticket is working/blocked/done its text is what
  * an agent was actually briefed with, so the board refuses the write (409) and
- * the sheet offers no pencil. This set is the single seam for widening the
+ * the sheet's body is inert text. This set is the single seam for widening the
  * affordance later — widen the board's precondition with it. */
 const EDITABLE_STATES = new Set<Ticket['state']>(['shaping', 'ready']);
 
@@ -395,11 +406,13 @@ export function TicketDetail({
   // DELETABLE_STATES state (shaping or blocked).
   const showVoice = voiceControl !== undefined;
   const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
-  // Whether the sheet is in edit mode. The pencil that enters it is gated
-  // inline on EDITABLE_STATES + onEditText (a backlog ticket whose text the
-  // board will still accept, with the write wired) rather than on a derived
-  // boolean, so TypeScript narrows the callback inside its handler.
+  // Whether the sheet is in edit mode, and whether it can be entered at all —
+  // a backlog ticket whose text the board will still accept, with the write
+  // wired. A derived boolean is safe here, unlike the footer's callbacks: what
+  // it guards only seeds local draft state, and `onEditText` isn't called until
+  // Save, which narrows it itself.
   const editing = draft !== null;
+  const canEditText = EDITABLE_STATES.has(ticket.state) && onEditText !== undefined;
   // A ticket must keep a name: the title is its whole identity on the board and
   // in the feed, and the server rejects a blank one, so Save is disabled rather
   // than letting the user submit into a 400. An empty *body* is a legal edit.
@@ -446,6 +459,59 @@ export function TicketDetail({
           setPendingKeep(keep);
           onSetKeepSandbox(id, keep);
         };
+
+  // Entering edit mode puts the caret in the *body*, because the body is what
+  // the user pressed to get here — and at the end of the text, so pressing a
+  // paragraph to add a line doesn't drop the caret in front of everything
+  // already written. A ref callback rather than `autoFocus` since it has to
+  // place the caret too, and `useCallback` so its identity is stable: an inline
+  // arrow would be a new ref on every render, re-running this (and yanking the
+  // caret back to the end) after every keystroke.
+  const focusBodyEnd = useCallback((node: HTMLTextAreaElement | null) => {
+    if (node === null) {
+      return;
+    }
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+  }, []);
+
+  // The body as it reads on screen. An editable ticket with nothing written yet
+  // gets a prompt in place of the (empty) Markdown: the body is the only way
+  // into edit mode now, so there always has to be something there to press. A
+  // ticket past editing with an empty body still renders as empty — there is
+  // nothing to invite.
+  const renderedBody =
+    canEditText && shownBody.trim() === '' ? (
+      <p data-role="detail-body-placeholder">Add a description</p>
+    ) : (
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{shownBody}</ReactMarkdown>
+    );
+
+  /** Enter edit mode, seeded from what is on screen (the optimistic text while
+   * a save is in flight, otherwise the board's). Both ways in call this: the
+   * press on the body itself, and the keyboard control that stands in for it. */
+  function beginEdit(): void {
+    setDraft({ title: shownTitle, body: shownBody });
+  }
+
+  /** The press on the rendered body — the whole edit affordance now, which is
+   * why it has to leave alone the two presses inside a body that already mean
+   * something else:
+   *   • a link in the Markdown is still a link. Following a reference is not a
+   *     request to rewrite the sentence it sits in.
+   *   • selecting words to quote ends in a click on the region, which would
+   *     otherwise swap the selection out for a textarea the instant the user
+   *     let go — so reading and copying a ticket never drops into edit mode. */
+  function editFromBody(event: ReactMouseEvent<HTMLElement>): void {
+    if (event.target instanceof Element && event.target.closest('a') !== null) {
+      return;
+    }
+    const selection = window.getSelection();
+    if (selection !== null && selection.toString() !== '') {
+      return;
+    }
+    beginEdit();
+  }
 
   /** Commit the draft. Only the fields that actually changed are sent, so an
    * edit to one can't overwrite the other with the text the sheet happened to
@@ -537,7 +603,6 @@ export function TicketDetail({
                   // opt the fields out so selecting text inside one doesn't drag
                   // the whole sheet away mid-edit.
                   data-vaul-no-drag
-                  autoFocus
                   onChange={(event) => {
                     setDraft({ title: event.target.value, body: draft.body });
                   }}
@@ -582,38 +647,9 @@ export function TicketDetail({
                 </div>
               )}
             </div>
-            {/* The edit affordance, beside the title: a pencil that turns the
-                title and body into fields. Icon-only like Delete/Poke, so its
-                accessible name comes from aria-label; the glyph is aria-hidden.
-                Hidden once editing starts — the sheet is already in that mode,
-                and Cancel/Save in the dock are the way out. Narrows on
-                onEditText directly (not the derived canEdit) so TypeScript knows
-                it's defined in the handler, mirroring the dock's buttons. */}
-            {EDITABLE_STATES.has(ticket.state) && onEditText !== undefined && !editing && (
-              <button
-                type="button"
-                data-role="ticket-detail-edit"
-                aria-label="Edit"
-                onClick={() => {
-                  setDraft({ title: shownTitle, body: shownBody });
-                }}
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  aria-hidden="true"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3" />
-                  <path d="M14.5 6.5l3 3" />
-                </svg>
-              </button>
-            )}
+            {/* No edit control up here: the body itself is the way into edit
+                mode (see the scroll region below), so the header carries the
+                one piece of chrome it always did — Close. */}
             <button
               type="button"
               data-role="ticket-detail-close"
@@ -640,6 +676,7 @@ export function TicketDetail({
                 aria-label="Description"
                 value={draft.body}
                 data-vaul-no-drag
+                ref={focusBodyEnd}
                 onChange={(event) => {
                   setDraft({ title: draft.title, body: event.target.value });
                 }}
@@ -649,7 +686,35 @@ export function TicketDetail({
                 {ticket.state === 'blocked' && ticket.blocked_reason != null && (
                   <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
                 )}
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{shownBody}</ReactMarkdown>
+                {/* The body — and, on an editable ticket, the edit affordance
+                    itself: pressing the rendered Markdown replaces it with the
+                    textarea in the same place, so the words never move to be
+                    changed. The wrapper is a plain div, deliberately not a
+                    <button> or a role="button": a button's contents are
+                    announced as its label rather than as the document they are,
+                    and the body is the very thing the sheet exists to show —
+                    plus a body's Markdown may hold links, which cannot live
+                    inside a button at all. The keyboard way in is the sibling
+                    control below instead. A ticket past editing renders the
+                    Markdown bare, exactly as before. */}
+                {canEditText ? (
+                  <>
+                    <div data-role="detail-body-edit-target" onClick={editFromBody}>
+                      {renderedBody}
+                    </div>
+                    {/* The keyboard/assistive route, standing in for the press.
+                        It is off-screen until focused (the skip-link shape)
+                        rather than hidden outright: with the pencil gone this is
+                        the only way in for anyone not using a pointer, so it has
+                        to be tabbable — but it must not become a second visible
+                        affordance beside the body it duplicates. */}
+                    <button type="button" data-role="detail-body-edit-key" onClick={beginEdit}>
+                      Edit description
+                    </button>
+                  </>
+                ) : (
+                  renderedBody
+                )}
               </>
             )}
           </div>

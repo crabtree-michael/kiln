@@ -7,14 +7,14 @@ import { apiBase, seedTicket } from '../keyless';
 //
 // This is the one path in the app where the user's own words must reach the
 // board untouched: voice-dictated change requests get interpreted by the brain
-// and can drift from what was meant, so the sheet's pencil writes the typed text
-// straight through (POST /api/tickets/{id}/text → board.ShapeTicket). The brain
-// is deliberately NOT in this loop — which is exactly why a keyless stack can
-// cover it end to end: the scripted brain never has to be involved.
+// and can drift from what was meant, so pressing the sheet's body writes the
+// typed text straight through (POST /api/tickets/{id}/text → board.ShapeTicket).
+// The brain is deliberately NOT in this loop — which is exactly why a keyless
+// stack can cover it end to end: the scripted brain never has to be involved.
 //
-// Driven through the real browser UI (open the proposal → pencil → type → Save)
-// and asserted on the server snapshot (GET /api/board), so a client-only change
-// that never reached the board fails here.
+// Driven through the real browser UI (open the proposal → press the body → type
+// → Save) and asserted on the server snapshot (GET /api/board), so a client-only
+// change that never reached the board fails here.
 test('@keyless the ticket sheet edits a proposal’s title and body directly', async ({
   page,
   request,
@@ -39,8 +39,10 @@ test('@keyless the ticket sheet edits a proposal’s title and body directly', a
   const sheet = page.getByRole('dialog');
   await expect(sheet).toBeVisible();
 
-  // The pencil turns the title and body into fields seeded with the current text.
-  await sheet.getByRole('button', { name: 'Edit' }).click();
+  // Pressing the body turns the title and body into fields, in place, seeded
+  // with the current text — there is no separate edit control.
+  await expect(sheet.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await sheet.getByText('Send the user somewhere after sign-in.').click();
   const title = page.getByLabel('Title');
   const body = page.getByLabel('Description');
   await expect(title).toHaveValue('Add teh login redirekt');

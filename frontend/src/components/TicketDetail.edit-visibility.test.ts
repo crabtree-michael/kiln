@@ -37,4 +37,27 @@ describe('TicketDetail edit mode', () => {
     expect(body).toMatch(/width:\s*100%/);
     expect(body).toMatch(/min-height:/);
   });
+
+  // The body is the only pointer route into edit mode now, so it has to *read*
+  // as pressable — a caret over the words, and a wash under them on hover.
+  it('makes the pressable body read as a field-in-waiting', () => {
+    expect(ruleBody("[data-role='detail-body-edit-target'] {")).toMatch(/cursor:\s*text/);
+    expect(ruleBody("[data-role='detail-body-edit-target']:hover {")).toMatch(/background:/);
+  });
+
+  // The keyboard stand-in for that press is off-screen until focused. Clipped,
+  // not `display: none` — the latter would take it out of the tab order, which
+  // is the one thing it exists for, and jsdom does no layout so only this can
+  // catch it.
+  it('keeps the keyboard route tabbable while it is off screen', () => {
+    const body = ruleBody("[data-role='detail-body-edit-key'] {");
+    expect(body).toMatch(/clip-path:\s*inset\(50%\)/);
+    expect(body).not.toMatch(/display:\s*none/);
+    expect(body).not.toMatch(/visibility:\s*hidden/);
+    expect(body).toMatch(/position:\s*absolute/);
+    // And it comes back into view — as a real button — once focused.
+    const focused = ruleBody("[data-role='detail-body-edit-key']:focus-visible {");
+    expect(focused).toMatch(/clip-path:\s*none/);
+    expect(focused).toMatch(/position:\s*static/);
+  });
 });

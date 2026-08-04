@@ -638,9 +638,10 @@ html:has([data-role='desktop-screen']) body {
 
 /* Speech on screen: the textarea lies over the heard words, transparent. It is
    still the thing you click into and the thing "/" focuses — and that focus is
-   the handover that turns what was said into text you can edit
-   (DesktopComposer's `adoptTranscript`), at which point this rule stops applying
-   and the words are simply in the field. */
+   the handover that turns what was said into text you can edit (the store's
+   `beginEdit`, 09 §4a), at which point `data-hearing` drops, this rule stops
+   applying, and the same words are simply in the field. Both readings render the
+   same buffer, which is why the type and box above are deliberately identical. */
 [data-role='desktop-field'][data-hearing='true'] [data-role='desktop-input'] {
   position: absolute;
   inset: 0;

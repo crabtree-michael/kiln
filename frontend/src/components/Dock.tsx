@@ -4,6 +4,11 @@
 // only renders `useVoice()`'s `{ micState, settledText, tailText }` and forwards
 // taps to `pause`/`resume`/`cancel`/`sendNow`.
 //
+// The transcript is editable before it goes (09 §4a): tapping the words swaps the
+// read-only spans for a field over the same text, and the store freezes the armed
+// auto-send while that field has focus — so a mis-heard filename can be fixed
+// without racing the countdown, and blurring resumes it where it stopped.
+//
 // The 08 §F selector surface is preserved verbatim (`data-role="dock"`,
 // `"dock-talk"`, `aria-label="Talk"`, and the mic-glyph sub-elements) so
 // `PrimaryScreen.css` and existing selectors keep working; `data-dock-state` now
@@ -42,6 +47,10 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
     sendImminent,
     delaySend,
     getSendCountdown,
+    editing,
+    beginEdit,
+    editTranscript,
+    endEdit,
     keyboardMode,
     openKeyboard,
     closeKeyboard,
@@ -49,6 +58,18 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
   } = useVoice();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // The transcript-correction field (09 §4a) — a separate element from the
+  // keyboard-mode `inputRef` above even though both are textareas in this same
+  // container: that one holds a typed draft the store only sees on submit, this one
+  // is the live transcript itself, written straight back to the store on every
+  // keystroke.
+  const editRef = useRef<HTMLTextAreaElement | null>(null);
+  // Whether THIS dock's words are the ones that were tapped. `editing` is one flag
+  // on one store, and the ticket sheet's transcript (TicketDetailTranscript) is a
+  // second view of the same buffer — so both surfaces see the edit begin, and
+  // without this both would grab the caret. The one that was tapped focuses; the
+  // other just swaps its spans for a field it never steals focus into.
+  const startedEditRef = useRef(false);
   // The depleting arc of the "+10" button's countdown ring (below). Driven
   // imperatively via a rAF loop rather than React state so the ring animates
   // smoothly at frame rate without re-rendering the dock each tick.
@@ -71,6 +92,15 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
   const hasTranscript = settledText !== '' || tailText !== '';
   const showSend = hasTranscript;
   const showCancel = hasTranscript;
+  // Correcting the transcript by hand (09 §4a): the read-only spans give way to a
+  // field over the same words. Voice-mode only — keyboard mode already IS a field,
+  // and its draft is a different buffer.
+  const editingTranscript = editing && !keyboardMode;
+  // The tap target's accessible name carries the WORDS as well as the action. A
+  // plain `aria-label="Edit transcript"` would be the button's whole name and so
+  // swallow the transcript it wraps — the one piece of content on this surface a
+  // screen-reader user most needs read back after speaking.
+  const editLabel = `Edit transcript: ${[settledText, tailText].filter((part) => part !== '').join(' ')}`;
   // The "+10" delay control appears only in the final stretch before an armed
   // end-of-turn auto-send fires (09 §4, `sendImminent`) — not for the whole
   // countdown, and never in the "stuck"/paused case where there is transcript but
@@ -82,8 +112,13 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
   // (they reuse the same container). The keyboard toggle only appears in the
   // resting voice state — never mid-dictation (where the flanks are send + X) and
   // never in keyboard mode — so it never competes with the X for the right slot.
-  const showField = hasTranscript || keyboardMode;
-  const showKeyboardToggle = !keyboardMode && !hasTranscript;
+  // `editingTranscript` keeps the panel up through an edit that empties the text,
+  // so the field doesn't vanish (taking its own focus with it) mid-correction.
+  const showField = hasTranscript || keyboardMode || editingTranscript;
+  // ...and it stays hidden through a correction that empties the text: a field is
+  // already open under the user's caret, so offering a second way to type into the
+  // dock reads as a way OUT of the one they are in.
+  const showKeyboardToggle = !keyboardMode && !hasTranscript && !editingTranscript;
 
   // Submit the typed draft through the same seam as a spoken utterance. Clear the
   // field only on a successful POST; on failure keep the text so the user can
@@ -156,6 +191,41 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight.toString()}px`;
   }, [draft, keyboardMode]);
+
+  // Tapping the transcript should put the user straight into it, keyboard up and
+  // caret ready. End-of-text is the caret's home: the tap target is the whole
+  // utterance (a span-wrapping button carries no character offset), and a
+  // correction that isn't at the end is one swipe away once the field is live.
+  // Only when the tap landed HERE though (`startedEditRef`) — an edit begun in the
+  // ticket sheet's transcript flips the same store flag, and this dock is still
+  // mounted behind the scrim.
+  useEffect(() => {
+    if (!editingTranscript) {
+      startedEditRef.current = false;
+      return;
+    }
+    if (!startedEditRef.current) {
+      return;
+    }
+    startedEditRef.current = false;
+    const el = editRef.current;
+    if (el === null) {
+      return;
+    }
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [editingTranscript]);
+
+  // Grow the correction field with its content, exactly as the typed draft's field
+  // does — the panel's own 28vh cap and internal scroll still bound it.
+  useEffect(() => {
+    const el = editRef.current;
+    if (el === null) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight.toString()}px`;
+  }, [settledText, editingTranscript]);
 
   // Keep the notification hub clear of the dock as the transcript grows (08 §4 /
   // the bottom-anchored-UI layering principle — see the web-client skill). The
@@ -248,6 +318,7 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
           // this overlay; the flag reserves matching bottom padding (CSS) so the
           // transcript text lifts clear rather than the bubble landing on top of it.
           data-send-imminent={showDelay ? 'true' : undefined}
+          data-editing={editingTranscript ? 'true' : undefined}
           ref={transcriptRef}
         >
           {keyboardMode ? (
@@ -290,8 +361,40 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
                 </button>
               )}
             </>
+          ) : editingTranscript ? (
+            // The transcript itself, editable (09 §4a). Same container, same
+            // centred type as the spans it replaces, so tapping the words turns
+            // them into a field in place rather than opening something new. Every
+            // keystroke goes straight back to the store, so the armed auto-send —
+            // frozen for as long as this has focus — fires the corrected sentence
+            // when the blur restarts its countdown.
+            <textarea
+              data-role="dock-transcript-input"
+              ref={editRef}
+              rows={1}
+              value={settledText}
+              onChange={(event) => {
+                editTranscript(event.target.value);
+              }}
+              onBlur={endEdit}
+              aria-label="Edit transcript"
+            />
           ) : (
-            <>
+            // Tap the words to correct them before they send. A real button (not a
+            // click handler on the panel) so the affordance is reachable and
+            // announced; it fills the panel and inherits its type, so it looks
+            // exactly like the text it wraps.
+            <button
+              type="button"
+              data-role="dock-transcript-edit"
+              aria-label={editLabel}
+              onClick={() => {
+                // Mark the caret as this surface's to claim before the store flips
+                // (the effect above reads it on the very next render).
+                startedEditRef.current = true;
+                beginEdit();
+              }}
+            >
               {settledText !== '' && <span data-role="dock-settled">{settledText}</span>}
               {tailText !== '' && (
                 <span data-role="dock-tail" data-ghost="true">
@@ -303,7 +406,7 @@ export function Dock({ alerts = [] }: DockProps): JSX.Element {
                   |
                 </span>
               )}
-            </>
+            </button>
           )}
         </div>
       )}

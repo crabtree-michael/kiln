@@ -131,6 +131,25 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
   past that stretch withdraws the bubble until the countdown runs back down into it. Extending the
   window is I/O (a reschedule), so it stays in the store and dispatches no reducer action — the
   machine stays pure.
+- **The transcript is editable, and an edit FREEZES that countdown (09 §4a).** `beginEdit` /
+  `editTranscript` / `endEdit` + the `editing` flag are the surface; every view of the
+  transcript (`Dock`, `TicketDetailTranscript`, `DesktopComposer`) writes straight back to
+  `settledText` — there is **one buffer**, no local draft copy. Four things are load-bearing:
+  - **The freeze is banked, not a paused deadline.** `holdGraceTimer` records
+    `deadline - now` into `heldRemainingRef` **inside the `beginEdit`/`editTranscript`
+    callback**, before `editing` flips — the grace effect's cleanup runs on that flip and
+    nulls `graceDeadlineRef`, so reading it after would see a fresh full window instead of
+    the remainder. `endEdit` just drops `editing`; the effect resumes with `held ?? COMMIT_DELAY_MS`.
+  - **The grace effect must keep its `editing` early-return.** Each keystroke re-points
+    `pending` at the corrected text, which re-runs the effect — without that branch every
+    character would restart the countdown under the user's hands.
+  - **`pending` survives an edit** (unlike `pause`/`cancel`, which clear it) and follows the
+    edited text; editing to empty disarms it. Don't "tidy" `beginEdit` into a `pause`.
+  - **`resume`/`cancel`/`sendNow`/`openKeyboard` all clear `editing`.** A stale `editing`
+    freezes every later auto-send forever. Background deliberately does NOT clear it — a
+    half-corrected sentence must not post while the app is hidden.
+  - Both mobile views render the field on the *same* store flag while the sheet is open, so
+    each keeps a `startedEditRef` and only the surface that was tapped takes the caret.
 - Escape-hatch ban (02 §4b): no `any`/`as` — narrow `unknown` with guards. The strict
   `.golangci.yml` (err113/errcheck-check-blank/mnd/nonamedreturns/lll) rejects the "obvious"
   Go — use static wrapped sentinels, a lone named-error return for deferred body-close, named

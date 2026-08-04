@@ -290,4 +290,103 @@ describe('commit machine', () => {
     s = voiceReducer(s, { type: 'denied' });
     expect(s.micState).toBe('denied');
   });
+
+  // Correcting the transcript before it goes (09 §4a). The rule that makes this
+  // more than a text field: the armed end-of-turn send SURVIVES the edit, pointed
+  // at the corrected words — it is the store that freezes its countdown, so the
+  // machine must never quietly drop `pending` here the way `pause`/`cancel` do.
+  describe('editing the transcript before it sends', () => {
+    it('beginEdit folds the still-forming tail into the ink and stops the mic', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship the login.' } });
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'partial', text: 'and the' } });
+      s = voiceReducer(s, { type: 'beginEdit' });
+      // One line of editable text, nothing left ghosted or still to arrive.
+      expect(s.settledText).toBe('Ship the login. and the');
+      expect(s.tailText).toBe('');
+      // The mic is released so fresh words can't land in the line being corrected.
+      expect(s.micState).toBe('paused');
+      expect(s.connecting).toBe(false);
+    });
+
+    it('beginEdit KEEPS the armed send, re-pointed at the folded text', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship the login.' } });
+      expect(s.pending).toBe('Ship the login.');
+      s = voiceReducer(s, { type: 'beginEdit' });
+      // The crux: unlike `pause` (which disarms), the send is still armed — the
+      // store merely holds its countdown while the field has focus.
+      expect(s.pending).toBe('Ship the login.');
+      expect(s.commit).toBeUndefined();
+    });
+
+    it('beginEdit is a no-op with nothing on screen — an empty field never stops a live mic', () => {
+      const s = listening();
+      const after = voiceReducer(s, { type: 'beginEdit' });
+      expect(after).toBe(s);
+      expect(after.micState).toBe('listening');
+    });
+
+    it('an edit re-points the armed send at what the user actually wrote', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship the log in.' } });
+      s = voiceReducer(s, { type: 'beginEdit' });
+      s = voiceReducer(s, { type: 'editTranscript', text: 'Ship the login screen.' });
+      expect(s.settledText).toBe('Ship the login screen.');
+      expect(s.pending).toBe('Ship the login screen.');
+      // And that is what fires when the store's countdown resumes.
+      s = voiceReducer(s, { type: 'commitDelayElapsed' });
+      expect(s.commit).toBe('Ship the login screen.');
+    });
+
+    it('an edit holds the text verbatim, so a trailing space mid-word survives', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+      s = voiceReducer(s, { type: 'editTranscript', text: 'Ship it and ' });
+      expect(s.settledText).toBe('Ship it and ');
+      // What POSTs is trimmed even though what shows is not.
+      expect(s.pending).toBe('Ship it and');
+    });
+
+    it('editing the transcript down to nothing disarms the send', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+      s = voiceReducer(s, { type: 'editTranscript', text: '   ' });
+      // Empty utterances never post (09 §4) — there is no countdown left to resume.
+      expect(s.pending).toBeUndefined();
+      s = voiceReducer(s, { type: 'commitDelayElapsed' });
+      expect(s.commit).toBeUndefined();
+    });
+
+    it('typing into an unarmed transcript does not arm a send of its own', () => {
+      let s = listening();
+      // Nothing has ended a turn, so nothing is armed: typing is just typing.
+      s = voiceReducer(s, { type: 'editTranscript', text: 'a typed thought' });
+      expect(s.settledText).toBe('a typed thought');
+      expect(s.pending).toBeUndefined();
+      // Typing is a handover in its own right, so it releases the mic too.
+      expect(s.micState).toBe('paused');
+    });
+
+    it('the send button commits the corrected text, not the heard text', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship the log in.' } });
+      s = voiceReducer(s, { type: 'beginEdit' });
+      s = voiceReducer(s, { type: 'editTranscript', text: 'Ship the login screen.' });
+      s = voiceReducer(s, { type: 'sendNow' });
+      expect(s.commit).toBe('Ship the login screen.');
+      expect(s.micState).toBe('paused');
+    });
+
+    it('the X still wipes an edit in progress', () => {
+      let s = listening();
+      s = voiceReducer(s, { type: 'provider', event: { kind: 'final', text: 'Ship it.' } });
+      s = voiceReducer(s, { type: 'beginEdit' });
+      s = voiceReducer(s, { type: 'editTranscript', text: 'Ship it tomorrow.' });
+      s = voiceReducer(s, { type: 'cancel' });
+      expect(s.settledText).toBe('');
+      expect(s.pending).toBeUndefined();
+      expect(s.commit).toBeUndefined();
+    });
+  });
 });

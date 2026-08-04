@@ -43,8 +43,9 @@ then **updates** newest-first (ticket label + relative age) as **retained histor
 (`Earlier`), then older history below it, paged in on demand ("Show earlier
 updates"). Cards seen more than 10 minutes ago step out of this list and return
 behind "Show seen notifications" (D2″). Update cards may embed an image preview (4c). Empty feed renders the 4d
-"All clear" state with a streams status line (`3 building · 2 idle · last word 6m
-ago`).
+"All clear" state with a streams status line (`3 building`) and the last word as
+smaller subtext under it (`last word 6m ago`) — one fact per line, so neither
+wraps on a phone.
 - **Activity row** — between backlog and dock; hidden when idle (§4).
 - **Dock** — the live transcript and mic (`09` §3–§4).
 

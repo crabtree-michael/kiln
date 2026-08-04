@@ -23,7 +23,7 @@ import { Dock } from '@/components/Dock';
 import { MicButton } from '@/components/MicButton';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
-import { streamDetail } from '@/components/feed-format';
+import { lastWordDetail, streamDetail } from '@/components/feed-format';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { usePullToRefresh } from '@/components/use-pull-to-refresh';
 import '@/components/PrimaryScreen.css';
@@ -264,6 +264,8 @@ export function PrimaryScreenView({
   const summary = feed?.summary ?? EMPTY_SUMMARY;
   const cards = feed?.cards ?? [];
   const isEmpty = cards.length === 0;
+  // The all-clear subtext, null when the brain has never spoken (no line at all).
+  const lastWord = lastWordDetail(summary, now);
   const divider = dividerIndex(cards, lastSeenId);
   // Whether any notification-backed card is present — the trash affordance clears
   // those (blockers/proposals are board state, untouched), so it's disabled when
@@ -420,12 +422,15 @@ export function PrimaryScreenView({
               <div data-role="feed-empty">
                 <img data-role="feed-empty-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
                 <div data-role="feed-empty-status">
-                  <span
-                    data-role="feed-empty-pulse"
-                    data-active={summary.building > 0}
-                    aria-hidden="true"
-                  />
-                  <span>{streamDetail(summary, now)}</span>
+                  <div data-role="feed-empty-status-line">
+                    <span
+                      data-role="feed-empty-pulse"
+                      data-active={summary.building > 0}
+                      aria-hidden="true"
+                    />
+                    <span>{streamDetail(summary)}</span>
+                  </div>
+                  {lastWord !== null && <span data-role="feed-empty-subtext">{lastWord}</span>}
                 </div>
               </div>
             ) : (

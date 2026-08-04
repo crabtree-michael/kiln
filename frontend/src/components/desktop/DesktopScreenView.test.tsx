@@ -161,6 +161,30 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-loading"]')).toBeNull();
   });
 
+  it('resting: the last word is subtext under the count, not bulleted onto it', () => {
+    // Joined onto one line the two wrapped on a narrow window; the count is the
+    // fact the resting state is about, so the last word sits under it, smaller.
+    const { container } = renderShell({
+      feed: makeFeedSnapshot({
+        cards: [],
+        summary: { building: 3, last_word_at: new Date(NOW - 6 * 60_000).toISOString() },
+      }),
+    });
+    expect(container.querySelector('[data-role="desktop-rest-detail"]')).toHaveTextContent(
+      '3 building',
+    );
+    expect(container.querySelector('[data-role="desktop-rest-subtext"]')).toHaveTextContent(
+      'last word 6m ago',
+    );
+    expect(screen.queryByText(/·/)).not.toBeInTheDocument();
+  });
+
+  it('resting: no subtext line at all when the brain has never spoken', () => {
+    const { container } = renderShell({ feed: makeFeedSnapshot({ cards: [] }) });
+    expect(container.querySelector('[data-role="desktop-rest-detail"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="desktop-rest-subtext"]')).toBeNull();
+  });
+
   it('loading: says so while the project is being fetched, above the feed', () => {
     // Switching projects used to give no sign at all until a round-trip landed
     // (12 §4.1). It is stated in flow above the feed, like the working strip, so

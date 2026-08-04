@@ -28,8 +28,16 @@ export interface VoiceStoreValue {
    *  dock gates its visibility on there being transcript text. */
   sendNow: () => void;
   /** True while an end-of-turn auto-send is armed and counting down through the
-   *  post-turn-end grace window before it POSTs (09 §4). */
+   *  post-turn-end grace window before it POSTs (09 §4). Stays true while an edit
+   *  has the countdown frozen (`editing`) — the send is still armed, just not
+   *  running down. */
   countingDown: boolean;
+  /** True while the user has a cursor in the shown transcript, correcting it before
+   *  it sends (09 §4a). The mic is released for the duration and any armed
+   *  auto-send is FROZEN — its countdown stops where it is and resumes from there
+   *  on `endEdit`, so an edit never costs the user the send and never fires one
+   *  mid-sentence. */
+  editing: boolean;
   /** True only in the final stretch (DELAY_REVEAL_WINDOW_MS) before an armed
    *  auto-send fires (09 §4) — a subset of `countingDown`. Drives the dock's "+10"
    *  control, which surfaces just above the mic as the deadline nears; a "+10" tap
@@ -47,6 +55,21 @@ export interface VoiceStoreValue {
    *  countdown ring, so the ring tracks the REAL grace-window deadline the store
    *  owns rather than a parallel animation that could drift out of sync. */
   getSendCountdown: () => number | null;
+  /** A cursor was put in the shown transcript (a tap/click on it, or the desktop
+   *  field taking focus) → take the words over for editing (09 §4a): the tail folds
+   *  into the ink, the mic is released, and the armed auto-send's countdown freezes
+   *  where it stands. A no-op when there is no transcript on screen, so focusing an
+   *  empty field never stops a live mic. */
+  beginEdit: () => void;
+  /** A keystroke in the transcript field → the shown transcript becomes this text
+   *  (09 §4a). An armed auto-send follows the correction, so what fires when the
+   *  countdown resumes is what the user actually wrote; editing it down to nothing
+   *  disarms it. */
+  editTranscript: (text: string) => void;
+  /** The transcript field lost focus → the user is done correcting (09 §4a): a
+   *  frozen auto-send resumes counting down from exactly where it stopped. A no-op
+   *  when nothing was armed. */
+  endEdit: () => void;
   /** Current mic input loudness as a raw RMS (0..~1); the dock samples this each
    *  animation frame to size the volume orb (09 §3). 0 when not listening. */
   getLevel: () => number;

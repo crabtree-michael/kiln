@@ -71,6 +71,13 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   // the pure voice reducer it was built to be.
   const [keyboardMode, setKeyboardMode] = useState(false);
 
+  // Whether the user currently has a cursor in the shown transcript, correcting it
+  // before it sends (09 §4a). Like `keyboardMode` this is UI-level store state, not
+  // machine state: the machine owns what the text IS, while this owns "a human has
+  // their hands on it right now" — which is a fact about focus, and what the
+  // grace-window timer below freezes on.
+  const [editing, setEditing] = useState(false);
+
   // Sending a finalized utterance supersedes any toast on the activity row
   // (08 §4); the commit effect calls this to clear it. Held in a ref so the
   // effect can fire purely on `state.commit` without re-POSTing on identity
@@ -94,6 +101,11 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   // no send armed.
   const graceTimerRef = useRef<number | null>(null);
   const graceDeadlineRef = useRef<number | null>(null);
+  // Time left on the countdown when an edit froze it (09 §4a) — the "where it left
+  // off" the blur resumes from. `null` = nothing banked, i.e. an arming send gets
+  // the full window. Held here rather than as a paused deadline so the frozen
+  // stretch simply doesn't exist on the clock, however long the user takes.
+  const heldRemainingRef = useRef<number | null>(null);
   // The reveal timer that flips `sendImminent` on when the countdown enters its
   // final DELAY_REVEAL_WINDOW_MS — the only stretch the "+10" control is offered
   // in. Rescheduled alongside the grace timer on every arm/extend.
@@ -257,6 +269,21 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     }
   }, [clearGraceTimer]);
 
+  // Freeze the armed auto-send where it stands (09 §4a): bank what is left of the
+  // countdown and stop the timers, so the send neither fires nor loses the time
+  // already elapsed while the user corrects the text. Called at the START of an
+  // edit, before `editing` flips — the effect below runs after that flip and would
+  // otherwise have nulled the deadline this reads. A no-op when nothing is armed.
+  const holdGraceTimer = useCallback((): void => {
+    const deadline = graceDeadlineRef.current;
+    if (deadline === null) {
+      return;
+    }
+    heldRemainingRef.current = Math.max(0, deadline - Date.now());
+    graceDeadlineRef.current = null;
+    clearGraceTimer();
+  }, [clearGraceTimer]);
+
   // Grace-window effect (09 §4): an end-of-turn final arms `pending` rather than
   // committing outright. Set a deadline COMMIT_DELAY_MS out and hold the send until
   // it passes, then `commitDelayElapsed` promotes it to a real commit. If the user
@@ -266,16 +293,30 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   useEffect(() => {
     if (state.pending === undefined) {
       graceDeadlineRef.current = null;
+      heldRemainingRef.current = null;
       clearGraceTimer();
       return;
     }
-    graceDeadlineRef.current = Date.now() + COMMIT_DELAY_MS;
+    if (editing) {
+      // The user is editing the text this send would fire (09 §4a). `holdGraceTimer`
+      // banked the remainder as the edit began and the cleanup above cleared the
+      // timers, so there is nothing to schedule: stay frozen. Deliberately still
+      // here on every keystroke — each one re-points `pending` at the corrected
+      // text, and without this branch that would restart the countdown under the
+      // user's hands.
+      return;
+    }
+    // Resume from the banked remainder if an edit had this send frozen; a freshly
+    // armed final has nothing banked and gets the full window.
+    const held = heldRemainingRef.current;
+    heldRemainingRef.current = null;
+    graceDeadlineRef.current = Date.now() + (held ?? COMMIT_DELAY_MS);
     armGraceTimer();
     return () => {
       graceDeadlineRef.current = null;
       clearGraceTimer();
     };
-  }, [state.pending, armGraceTimer, clearGraceTimer]);
+  }, [state.pending, editing, armGraceTimer, clearGraceTimer]);
 
   // Commit effect (09 §4): a finalized utterance is POSTed to the unchanged
   // /api/message seam. On success the transcript clears back to idle
@@ -327,6 +368,10 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   useEffect(() => {
     function handleVisibility(): void {
       if (document.visibilityState === 'hidden') {
+        // An edit in progress is deliberately left frozen rather than released:
+        // leaving the app must not fire a half-corrected sentence behind the user's
+        // back — the same stance the machine takes for a live mic, which drops its
+        // armed send outright here (09 §4a).
         stopStream();
         dispatch({ type: 'background' });
       }
@@ -344,6 +389,11 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
 
   const resume = useCallback((): void => {
     reconnectedRef.current = false;
+    // Tapping the mic ends any edit: the user has gone back to talking, so the
+    // countdown must be free to run again (a stale `editing` would freeze the next
+    // utterance's auto-send forever). Blur normally does this — this covers the
+    // tap landing while the field still holds focus.
+    setEditing(false);
     dispatch({ type: 'resume' });
     startStream();
   }, [startStream]);
@@ -351,11 +401,50 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
   const cancel = useCallback((): void => {
     // The X only discards the un-committed transcript; it doesn't touch the mic
     // (if listening it keeps listening, if paused it stays paused — nothing here
-    // starts the mic).
+    // starts the mic). There is no longer any text to be editing, so the edit ends
+    // with it.
+    setEditing(false);
     dispatch({ type: 'cancel' });
   }, []);
 
+  const beginEdit = useCallback((): void => {
+    // A cursor landed in the shown transcript (09 §4a). Nothing on screen means
+    // nothing to take over — leave a live mic alone, since focusing an empty field
+    // is just as likely to be someone about to speak.
+    if (state.settledText === '' && state.tailText === '') {
+      return;
+    }
+    // Bank the countdown BEFORE the state flips, while the deadline is still live.
+    holdGraceTimer();
+    // The edit releases the mic: no fresh words into the line being corrected
+    // (the machine drops to Paused; this is the I/O half of that).
+    stopStream();
+    setEditing(true);
+    dispatch({ type: 'beginEdit' });
+  }, [state.settledText, state.tailText, holdGraceTimer, stopStream]);
+
+  const editTranscript = useCallback(
+    (text: string): void => {
+      // Typing is a handover in its own right — it covers the field that was
+      // focused while empty, which `beginEdit` deliberately leaves alone.
+      holdGraceTimer();
+      stopStream();
+      setEditing(true);
+      dispatch({ type: 'editTranscript', text });
+    },
+    [holdGraceTimer, stopStream],
+  );
+
+  const endEdit = useCallback((): void => {
+    // Focus left the transcript: the effect above sees `editing` fall and
+    // reschedules the armed send from the banked remainder — the countdown picks up
+    // exactly where it stopped rather than restarting or firing late.
+    setEditing(false);
+  }, []);
+
   const sendNow = useCallback((): void => {
+    // Sending clears the transcript, so any edit of it is over too.
+    setEditing(false);
     // The send button commits whatever transcript is on screen right now, without
     // waiting for an end-of-turn final (09 §4). The commit effect POSTs the text
     // and releases the mic (→ Paused) so the audio session ends and other apps'
@@ -401,6 +490,7 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
     // so a spoken and a typed message never overlap in one submission. Nothing
     // reopens the mic on its own while the field is up.
     setKeyboardMode(true);
+    setEditing(false);
     pause();
     dispatch({ type: 'cancel' });
   }, [pause]);
@@ -455,6 +545,10 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       sendImminent,
       delaySend,
       getSendCountdown,
+      editing,
+      beginEdit,
+      editTranscript,
+      endEdit,
       getLevel,
       keyboardMode,
       openKeyboard,
@@ -475,6 +569,10 @@ export function VoiceProvider({ children }: VoiceProviderProps): JSX.Element {
       sendNow,
       delaySend,
       getSendCountdown,
+      editing,
+      beginEdit,
+      editTranscript,
+      endEdit,
       getLevel,
       keyboardMode,
       openKeyboard,

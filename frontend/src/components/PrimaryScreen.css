@@ -1772,6 +1772,46 @@ button[data-role='toast-open']:focus-visible {
   padding-bottom: 56px;
 }
 
+/* The whole transcript is one tap target: tapping the words is what turns them
+   into an editable field (09 §4a). It has to disappear as a button entirely —
+   the words must read exactly as they did when they were bare spans — so it
+   carries no chrome and inherits the panel's type and centring. `cursor: text`
+   is the only hint, and it is the honest one: what the tap gives you is a caret. */
+[data-role='dock-transcript-edit'] {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  cursor: text;
+}
+
+/* The correction field, in the same container as the transcript it replaces (and
+   as the typed draft's field below): borderless and transparent so the words keep
+   reading as the transcript rather than becoming a form input. Height is grown to
+   fit its content by the dock, bounded by the panel's 28vh cap. */
+[data-role='dock-transcript-input'] {
+  display: block;
+  width: 100%;
+  min-height: 1.5em;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  resize: none;
+  overflow-y: hidden;
+  font: inherit;
+  line-height: inherit;
+  text-align: center;
+  color: var(--text-body);
+}
+
 [data-role='dock-settled'] {
   color: var(--text-body);
 }

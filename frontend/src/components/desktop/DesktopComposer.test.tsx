@@ -2,8 +2,14 @@
 // right that is both the live transcript and the typed draft. Like the dock's
 // tests, the voice store is mocked to a fixed value per case — deterministic, and
 // no mic/socket I/O.
+//
+// The composer holds NO text state of its own (09 §4a): the field renders the
+// store's transcript and writes every keystroke back to it, so these tests assert
+// what it asks the store to do rather than what it kept. The store's side of that
+// bargain — the mic release, and the auto-send that freezes while the field has
+// focus and resumes on blur — is pinned in `voice-store.test.tsx`.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { DesktopComposer } from '@/components/desktop/DesktopComposer';
 import type { VoiceStoreValue } from '@/voice/voice-context';
 
@@ -29,6 +35,10 @@ function stubVoice(overrides: Partial<VoiceStoreValue> = {}): VoiceStoreValue {
     sendImminent: false,
     delaySend: vi.fn(),
     getSendCountdown: vi.fn(() => null),
+    editing: false,
+    beginEdit: vi.fn(),
+    editTranscript: vi.fn(),
+    endEdit: vi.fn(),
     getLevel: vi.fn(() => 0),
     keyboardMode: false,
     openKeyboard: vi.fn(),
@@ -94,70 +104,102 @@ describe('DesktopComposer', () => {
     );
   });
 
-  it('Enter sends the draft through the same seam a spoken utterance uses', async () => {
-    const submitText = vi.fn(() => Promise.resolve(true));
-    mockVoiceValue = stubVoice({ submitText });
+  it('the field IS the transcript — a keystroke rewrites it in the store, not a local draft', () => {
+    const editTranscript = vi.fn();
+    mockVoiceValue = stubVoice({ editTranscript });
     render(<DesktopComposer />);
 
     fireEvent.change(input(), { target: { value: 'ship the rail' } });
-    fireEvent.keyDown(input(), { key: 'Enter' });
-
-    expect(submitText).toHaveBeenCalledWith('ship the rail');
-    await waitFor(() => {
-      expect(input()).toHaveValue('');
-    });
+    expect(editTranscript).toHaveBeenCalledWith('ship the rail');
   });
 
-  it('Shift+Enter writes a newline instead of sending', () => {
+  it('renders whatever the store holds, however the words got there', () => {
+    // Typed words are transcript text like any other, so they come back through
+    // the same prop the spoken ones do — there is nowhere else for them to live.
+    mockVoiceValue = stubVoice({ settledText: 'ship the rail' });
+    render(<DesktopComposer />);
+    expect(input()).toHaveValue('ship the rail');
+  });
+
+  it('Enter sends the field through the store’s one send seam', () => {
+    const sendNow = vi.fn();
     const submitText = vi.fn(() => Promise.resolve(true));
-    mockVoiceValue = stubVoice({ submitText });
+    mockVoiceValue = stubVoice({ settledText: 'ship the rail', sendNow, submitText });
     render(<DesktopComposer />);
 
-    fireEvent.change(input(), { target: { value: 'line one' } });
-    fireEvent.keyDown(input(), { key: 'Enter', shiftKey: true });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+
+    // One path for typed and spoken alike: the commit machine POSTs the displayed
+    // transcript (09 §4). There is no separate typed-text submit anymore.
+    expect(sendNow).toHaveBeenCalled();
     expect(submitText).not.toHaveBeenCalled();
   });
 
-  it('keeps the text when the send fails, so a sentence is never silently lost', async () => {
-    const submitText = vi.fn(() => Promise.resolve(false));
-    mockVoiceValue = stubVoice({ submitText });
+  it('Shift+Enter writes a newline instead of sending', () => {
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({ settledText: 'line one', sendNow });
     render(<DesktopComposer />);
 
-    fireEvent.change(input(), { target: { value: 'ship the rail' } });
+    fireEvent.keyDown(input(), { key: 'Enter', shiftKey: true });
+    expect(sendNow).not.toHaveBeenCalled();
+  });
+
+  it('never clears the field itself — a failed send leaves the sentence where it is', () => {
+    // The store keeps the words on a failed POST (`commitFailed`, 09 §4) and clears
+    // them on a successful one. The composer holding no copy is what makes that the
+    // only rule there is: nothing here can lose a sentence the store still has.
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({ settledText: 'ship the rail', sendNow });
+    render(<DesktopComposer />);
+
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    await waitFor(() => {
-      expect(submitText).toHaveBeenCalled();
-    });
+    expect(sendNow).toHaveBeenCalled();
     expect(input()).toHaveValue('ship the rail');
   });
 
   it('will not send an empty or whitespace-only field', () => {
-    const submitText = vi.fn(() => Promise.resolve(true));
-    mockVoiceValue = stubVoice({ submitText });
-    render(<DesktopComposer />);
-
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({ sendNow });
+    const { rerender } = render(<DesktopComposer />);
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-    fireEvent.change(input(), { target: { value: '   ' } });
+
+    mockVoiceValue = stubVoice({ settledText: '   ', sendNow });
+    rerender(<DesktopComposer />);
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
     fireEvent.keyDown(input(), { key: 'Enter' });
-    expect(submitText).not.toHaveBeenCalled();
+    expect(sendNow).not.toHaveBeenCalled();
   });
 
-  it('the one send button commits a spoken utterance through the store, not as typed text', () => {
+  it('the one send button commits the spoken utterance through the store', () => {
     const sendNow = vi.fn();
-    const submitText = vi.fn(() => Promise.resolve(true));
     mockVoiceValue = stubVoice({
       micState: 'listening',
       settledText: 'add a retry to ',
       tailText: 'the poller',
       sendNow,
-      submitText,
     });
     render(<DesktopComposer />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(sendNow).toHaveBeenCalled();
-    expect(submitText).not.toHaveBeenCalled();
+  });
+
+  it('sends a half-typed thought and its spoken finish as one message', () => {
+    // Both halves are already the same buffer — the typed words settled into the
+    // transcript, the spoken finish is its tail — so "as one message" is just the
+    // ordinary send. Nothing has to be merged at the last moment.
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({
+      micState: 'listening',
+      settledText: 'add a retry',
+      tailText: 'to the poller',
+      sendNow,
+    });
+    render(<DesktopComposer />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendNow).toHaveBeenCalled();
   });
 
   it('the one clear button empties the field, whichever way the words got there', () => {
@@ -181,93 +223,82 @@ describe('DesktopComposer', () => {
   });
 
   describe('the handover — putting a cursor in the field takes the words over', () => {
-    it('moves what was heard into the field as editable text', () => {
-      const pause = vi.fn();
-      const cancel = vi.fn();
+    it('hands the transcript over on focus and back on blur', () => {
+      const beginEdit = vi.fn();
+      const endEdit = vi.fn();
       mockVoiceValue = stubVoice({
         micState: 'listening',
         settledText: 'add a retry to',
         tailText: 'the poler',
-        pause,
-        cancel,
+        beginEdit,
+        endEdit,
       });
       render(<DesktopComposer />);
 
+      // Focus is the handover: the store stops the mic, folds the tail into the ink
+      // and FREEZES the armed auto-send — it is not cancelled, so clicking away
+      // resumes it on the corrected words (09 §4a).
       fireEvent.focus(input());
+      expect(beginEdit).toHaveBeenCalled();
+      expect(endEdit).not.toHaveBeenCalled();
 
-      // The mic stops (which also disarms the end-of-turn auto-send, 09 §4) and
-      // the store's copy is dropped, so the same sentence can't be both in the
-      // field and in a pending commit.
-      expect(pause).toHaveBeenCalled();
-      expect(cancel).toHaveBeenCalled();
+      fireEvent.blur(input());
+      expect(endEdit).toHaveBeenCalled();
+    });
+
+    it('shows the words as plain editable text once the handover lands', () => {
+      // Mid-edit the field is no longer "hearing": the two-tone heard block gives
+      // way to the textarea over the same buffer, so the words are never on screen
+      // twice and what you edit is what would send.
+      mockVoiceValue = stubVoice({
+        micState: 'paused',
+        settledText: 'add a retry to the poler',
+        editing: true,
+      });
+      const { container } = render(<DesktopComposer />);
+
+      expect(container.querySelector('[data-role="desktop-heard"]')).toBeNull();
+      expect(container.querySelector('[data-role="desktop-field"]')).not.toHaveAttribute(
+        'data-hearing',
+      );
       expect(input()).toHaveValue('add a retry to the poler');
     });
 
-    it('appends to anything already typed rather than replacing it', () => {
-      mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'to the poller' });
-      render(<DesktopComposer />);
-
-      fireEvent.change(input(), { target: { value: 'add a retry' } });
-      fireEvent.focus(input());
-      expect(input()).toHaveValue('add a retry to the poller');
-    });
-
-    it('then sends the corrected sentence as typed text', async () => {
-      const submitText = vi.fn(() => Promise.resolve(true));
+    it('then sends the corrected sentence, not the heard one', () => {
+      const editTranscript = vi.fn();
       const sendNow = vi.fn();
       mockVoiceValue = stubVoice({
-        micState: 'listening',
         settledText: 'add a retry',
-        submitText,
+        editing: true,
+        editTranscript,
         sendNow,
       });
-      render(<DesktopComposer />);
+      const { rerender } = render(<DesktopComposer />);
 
-      fireEvent.focus(input());
-      // The store has handed the words over, so the component now holds them.
-      mockVoiceValue = stubVoice({ settledText: '', submitText, sendNow });
       fireEvent.change(input(), { target: { value: 'add a retry to the poller' } });
-      fireEvent.keyDown(input(), { key: 'Enter' });
+      expect(editTranscript).toHaveBeenCalledWith('add a retry to the poller');
 
-      expect(submitText).toHaveBeenCalledWith('add a retry to the poller');
-      expect(sendNow).not.toHaveBeenCalled();
-      await waitFor(() => {
-        expect(input()).toHaveValue('');
+      // The store now holds the correction, so the send fires that text.
+      mockVoiceValue = stubVoice({
+        settledText: 'add a retry to the poller',
+        editing: true,
+        sendNow,
       });
+      rerender(<DesktopComposer />);
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      expect(sendNow).toHaveBeenCalled();
     });
 
-    it('does nothing when the field is focused with no words on screen', () => {
-      const pause = vi.fn();
-      const cancel = vi.fn();
-      mockVoiceValue = stubVoice({ pause, cancel });
+    it('hands focus to the store even with an empty field — the no-op is the store’s call', () => {
+      // `beginEdit` is a no-op when there is nothing on screen to take over, so a
+      // live mic survives a stray focus. The guard lives in the store (the phone's
+      // transcript needs the same rule), not duplicated here.
+      const beginEdit = vi.fn();
+      mockVoiceValue = stubVoice({ beginEdit });
       render(<DesktopComposer />);
 
       fireEvent.focus(input());
-      expect(pause).not.toHaveBeenCalled();
-      expect(cancel).not.toHaveBeenCalled();
-    });
-  });
-
-  it('sends a half-typed thought and its spoken finish as one message', async () => {
-    const submitText = vi.fn(() => Promise.resolve(true));
-    const cancel = vi.fn();
-    mockVoiceValue = stubVoice({
-      micState: 'listening',
-      settledText: 'to the poller',
-      submitText,
-      cancel,
-    });
-    const { rerender } = render(<DesktopComposer />);
-
-    // Typed first (without focusing, so the handover doesn't fire), then spoken.
-    fireEvent.change(input(), { target: { value: 'add a retry' } });
-    rerender(<DesktopComposer />);
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-
-    expect(cancel).toHaveBeenCalled();
-    expect(submitText).toHaveBeenCalledWith('add a retry to the poller');
-    await waitFor(() => {
-      expect(input()).toHaveValue('');
+      expect(beginEdit).toHaveBeenCalled();
     });
   });
 
@@ -296,13 +327,17 @@ describe('DesktopComposer', () => {
     other.remove();
   });
 
-  it('Escape gets you back out of the input, keeping the draft', () => {
+  it('Escape gets you back out of the input, keeping the words', () => {
+    const endEdit = vi.fn();
+    mockVoiceValue = stubVoice({ settledText: 'half a thought', editing: true, endEdit });
     render(<DesktopComposer />);
     input().focus();
-    fireEvent.change(input(), { target: { value: 'half a thought' } });
 
     fireEvent.keyDown(input(), { key: 'Escape' });
     expect(document.activeElement).not.toBe(input());
+    // The text is the store's, so leaving the field cannot lose it — and the blur
+    // ends the edit, which is what restarts a paused countdown.
     expect(input()).toHaveValue('half a thought');
+    expect(endEdit).toHaveBeenCalled();
   });
 });

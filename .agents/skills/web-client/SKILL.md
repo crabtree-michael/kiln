@@ -566,7 +566,23 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
 - **The desktop composer does not use the voice store's `keyboardMode`.** That toggle is
   modal (entering stops the mic) because a phone has room for one input at a time; a desk
   doesn't have that constraint, so the field and the mic coexist and the user picks
-  per-utterance. Both still POST through `submitText` → `/api/message`.
+  per-utterance.
+- **`DesktopComposer` holds NO text state — the field IS the store's transcript** (09 §4a).
+  It renders `settledText` and writes every keystroke back via `editTranscript`; focus is
+  `beginEdit`, blur is `endEdit`, and Enter/Send is `sendNow` for typed and spoken alike
+  (`submitText` is now the phone's `keyboardMode` only). It used to keep a local draft and
+  *cancel* the armed auto-send on focus to avoid firing stale words — which is exactly what
+  made a correction cost the user their send. Don't reintroduce a draft copy: one buffer is
+  what lets the countdown pause and resume instead. `data-hearing` (the two-tone heard block
+  under a transparent textarea) is now gated on `!editing`, so mid-edit the same words are
+  simply in the field — the heard block and the input are deliberately identical type/box so
+  that swap is invisible.
+- **Every view of the transcript is a view of the same flag.** `Dock`,
+  `TicketDetailTranscript` and `DesktopComposer` all swap to a field when `editing` flips,
+  and the two mobile ones are mounted at once while the sheet is open — so each keeps a
+  `startedEditRef` and only the surface that was tapped takes the caret. The sheet's line
+  also ends the edit on unmount (closing a sheet over a focused field fires no blur, and a
+  stuck `editing` freezes the auto-send forever).
 - **jsdom does no layout, so the desktop geometry is asserted as a CSS string** (`?raw`,
   same technique as `TicketDetail.safe-area.test.ts`) — two-column grid, the feed's
   `overflow-anchor: auto` (the "arrivals land in place" property, 13 §6), the one-column

@@ -151,10 +151,14 @@ actually wants `/debug` (`08` §6), which already exists and is where raw state 
 
 ## 4. How it should look
 
-**Dark, near-black, understated.** Desktop rests in the dark register. Kiln's dark theme
-is a *warm* near-black — a charcoal with brown in it, never a blue-black — and that stays;
-"black" here means the warm one the product already has (`tokens.css`), not a new colder
-one. A window you keep open all day should recede into the desk, not glow at you.
+**Dark, near-black, understated — when the user's OS says dark.** Desktop follows the
+system light/dark preference like every other route (D6, as amended by D6a), and flips live
+if that preference changes. In the dark register Kiln's theme is a *warm* near-black — a
+charcoal with brown in it, never a blue-black — and that stays; "black" here means the warm
+one the product already has (`tokens.css`), not a new colder one. A window you keep open all
+day should recede into the desk, not glow at you — and in light mode the same restraint is
+carried by paper rather than by charcoal: the layout, the hairlines, the near-monochrome
+default and the single accent are identical, only the palette differs.
 
 **Minimal to the point of being nearly invisible.** Very little chrome. Borders are
 hairlines or nothing at all; separation comes from space more often than from lines. No
@@ -384,7 +388,8 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 | D3 | **The rail is both the switcher and the ambient status layer.** | A switcher plus a separate cross-project status strip/header. | Two surfaces means two things to look at, against a premise of one thing you mostly don't look at. The rail is already in peripheral vision; giving it the status job costs no new screen real estate. |
 | D4 | **The feed is scoped to the selected project; cross-project standing lives in the rail.** | A single cross-project feed; a feed with a project column. | Matches existing scoping (`12` §3.2) with no new server work, and keeps a blocker's context unambiguous. Flagged as §13 Q1 for an explicit call. |
 | D5 | **Typing is the primary input on desktop; voice is secondary but present.** | Voice-first, mirroring mobile's dock; voice-only. | At a desk the keyboard is already under your hands, typing is silent around other people, and typed text is more precise for filenames and identifiers. Same message seam either way (`09`), so nothing downstream cares. |
-| D6 | **Dark is desktop's resting register**, in Kiln's existing warm near-black — never a colder black. | Light-first to match mobile's paper default; a new desktop-only dark palette. | A window open all day should recede. Reusing the existing dark theme keeps one design language rather than forking the palette. |
+| D6 | **Desktop follows the OS light/dark preference**, like every other route. In the dark it rests in Kiln's existing warm near-black — never a colder black, and never a desktop-only palette. | *(Originally: dark is desktop's resting register, unconditionally — superseded, see D6a.)* Light-first to match mobile's paper default; a new desktop-only dark palette. | Reusing the existing themes keeps one design language rather than forking the palette. Which of the two is up is the user's call, not the viewport's. |
+| D6a | **Amends D6 (2026-08-04).** The original called dark *unconditionally*, and the shell implemented it by stamping `data-theme="dark"` on `<body>`, which beat the system preference `ThemeColorSync` writes to `<html>`. | Keeping the hard dark; a desktop-only theme setting in the UI. | The argument for D6 — "a window open all day should recede" — is real, but it is an argument about *how dark mode should feel*, not a reason to override someone who has told their OS they want light. It also split one person across two answers: paper on the phone, near-black at the desk, same account, same minute. The palette work D6 bought is untouched: both registers still come from `tokens.css`, and the shell's CSS names neither. |
 | D7 | **Detail opens over the feed; there is no third pane.** | A persistent detail/inspector pane; a three-column layout. | A permanent pane doubles the resting complexity to serve something looked at rarely, and re-creates the two-pane management console this design avoids. Overlay keeps the resting state at two regions. |
 | D8 | **Desktop is the responsive web app widening out, not a separate installable application.** | An installable/packaged desktop app; leaving the question open until later. | Directed, and it costs the design nothing: every behavior above works in a browser window, and the client holds no authoritative state (`02` §11), so "a window you leave open" is already just a tab you leave open. Packaging, auto-update, and window-chrome work would buy no part of the experience described here. |
 | D9 | **The working indication names the tickets being worked** (§8.2), as a strip above the feed — and the rail still marks a project with a dot, never a count. | A status chip on each ticket wherever it appears; a "2 working" badge per rail row; leaving the bare one-word indication and letting the feed imply the rest. | A per-card chip was unreachable in practice: a working ticket usually has no card, so the state with the fewest cards is exactly the one that needed showing. A rail badge is the numeral §8 rules out by name, on the surface least able to carry it — but the count is not thrown away either, since the rail's precedence hides "also building" behind `needs-you`: it rides in the row's hover tooltip and assistive text, where it costs no pixels at rest. |

@@ -7,10 +7,17 @@
    states what a desk earns — the two-region geometry, tighter density, hover as
    a way to reveal, and the reading air the feed's column is given.
 
-   Everything here reads semantic tokens, so the warm near-black comes from
-   [data-theme='dark'] in tokens.css rather than from a second, colder palette
-   invented for desktop (13 D6). The shell stamps that attribute on <body> at
-   mount — see DesktopScreenView.
+   Everything here reads semantic tokens, so BOTH themes come from tokens.css —
+   the warm near-black from [data-theme='dark'], the paper from :root — rather
+   than from a second palette invented for desktop (13 D6). The shell pins no
+   theme of its own: it follows the OS preference like every other route, via
+   the `data-theme` ThemeColorSync writes to <html>. Which means every rule below
+   has to hold in both registers, and the way to keep that true is to reach for
+   the token that carries the INTENT (inset = recessed, card = lifted) rather
+   than the one that happens to look right in the theme you have open. `raised`
+   is lighter than `card` in the dark palette and all but identical to it in the
+   light one, so "firmer on hover" written as `raised` silently becomes "gone on
+   hover" in daylight.
 
    The contrast budget is spent exactly once, on `needs-you`. If you are about to
    add the accent anywhere else in this file, that is the rule you are breaking
@@ -659,9 +666,15 @@ html:has([data-role='desktop-screen']) body {
     color var(--duration-fast) var(--ease-settle);
 }
 
+/* Firms against the composer it sits on, in both themes. `--surface-inset` is
+   the token that means "further from the card" — darker than the card in the
+   light palette, darker still than the resting chip in the dark one — which is
+   why it is the hover fill used throughout PrimaryScreen.css too. `raised`
+   would read as a lift in the dark and as an erasure in the light, where it is
+   three hex points off `--surface-card`. */
 [data-role='desktop-composer'] [data-role='dock-send']:hover,
 [data-role='desktop-send']:not(:disabled):hover {
-  background: var(--surface-raised);
+  background: var(--surface-inset);
   color: var(--text-body);
 }
 

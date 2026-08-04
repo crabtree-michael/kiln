@@ -178,6 +178,22 @@ describe('DesktopScreen.css', () => {
     expect(css).not.toMatch(/\brgba?\(/);
   });
 
+  it('states each rule once for both themes, rather than branching on the theme', () => {
+    // The desk follows the OS preference through the one mechanism every other
+    // route uses: `data-theme` on <html> (ThemeColorSync) re-pointing the
+    // semantic tokens. So this sheet never names a theme. A `[data-theme='dark']`
+    // override or a `prefers-color-scheme` query here would be a second, desktop-
+    // only theme switch — the exact palette fork 13 D6 rules out, and one that
+    // could disagree with <html> about which theme is up.
+    //
+    // Comments are stripped first, the way the vaul-geometry test below does it:
+    // this is about what the sheet DECLARES, not about the prose naming the
+    // tokens dark mode re-points.
+    const declared = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(declared).not.toMatch(/data-theme/);
+    expect(declared).not.toMatch(/prefers-color-scheme/);
+  });
+
   it('caps the ticket sheet to a reading measure instead of the whole monitor', () => {
     // 13 D7: detail opens OVER the feed. Left at its phone geometry the sheet
     // spans a 2000px monitor for a paragraph of text, which is exactly the

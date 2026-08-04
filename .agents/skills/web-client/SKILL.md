@@ -498,10 +498,20 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   `DesktopScreen.css` contains exactly ONE `var(--accent*)` rule and that its selector is the
   needs-you one. This is why the desktop send button is neutral where the dock's is accent:
   a window left open all day must not carry a permanently lit accent in the corner.
-- **Dark is stamped on `<body>`, not on the shell root** (13 D6). `TicketDetail` (vaul)
-  portals to `document.body`, so a root-level `data-theme` would open the sheet in light
-  theme over a dark window. `ThemeColorSync` keeps writing the system preference to `<html>`;
-  body's attribute simply wins for everything inside it, and unmount restores it exactly.
+- **The desktop shell pins no theme — it follows the OS like every other route** (13 D6a).
+  It used to stamp `data-theme="dark"` on `<body>`, which beat the system preference
+  `ThemeColorSync` writes to `<html>` and gave one user paper on their phone and near-black
+  at their desk. There is exactly one theme mechanism in this app: `ThemeColorSync` →
+  `data-theme` on `<html>` → the semantic tokens in `tokens.css`, live on
+  `prefers-color-scheme` flips. Don't reintroduce a per-surface override.
+- **Every desktop rule therefore has to hold in both registers**, and a test asserts
+  `DesktopScreen.css` names no theme (no `[data-theme=…]`, no `prefers-color-scheme`) on top
+  of the existing no-hex-literals check. The trap is picking the surface token that *looks*
+  right in whichever theme you have open: `--surface-raised` is a lift above `--surface-card`
+  in the dark palette but is three hex points off it in the light one, so a "firms on hover"
+  written as `raised` becomes "vanishes on hover" in daylight. Reach for the token that
+  carries the intent — `inset` = recessed/further from the card (and the hover fill used
+  throughout `PrimaryScreen.css`), `card` = lifted.
 - **Cross-project rail status is a poll, and that is deliberate** (`stores/use-projects-status.ts`).
   There is no server-side cross-project status endpoint, and 13 §11 scopes desktop as
   frontend-only over existing contracts — so the hook reads each *non-selected* project's
@@ -529,8 +539,9 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   `overflow-anchor: auto` (the "arrivals land in place" property, 13 §6), the one-column
   max-width, the blocker/proposal unclamp, reduced-motion suppression, and no hex/rgb
   literals (which would fork the palette instead of re-pointing tokens).
-- **`<body data-shell="desktop">` is how the portaled sheet gets desk geometry.** The same
-  mount effect that stamps the theme publishes the shell decision, because `TicketDetail`
+- **`<body data-shell="desktop">` is how the portaled sheet gets desk geometry.** The shell's
+  mount effect publishes the JS shell decision (it is now the *only* thing that effect
+  writes, see D6a above), because `TicketDetail`
   portals out of the shell's subtree and no descendant selector can reach it — but left
   alone it renders a full-bleed phone sheet across a 2000px monitor, which is the
   mobile-stretched reading 13 D7 rules out. `body[data-shell='desktop']` rules in

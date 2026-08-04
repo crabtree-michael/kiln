@@ -13,8 +13,7 @@ exports[`ActivityRow > matches the DOM-structure snapshot: action toast (6b) 1`]
         data-verb="started"
       >
         <button
-          aria-expanded="false"
-          aria-label="Open update: Login Redesign"
+          aria-label="Dismiss update: Login Redesign"
           data-role="toast-open"
           type="button"
         >
@@ -53,8 +52,7 @@ exports[`ActivityRow > matches the DOM-structure snapshot: say pill 1`] = `
         data-role="say-pill"
       >
         <button
-          aria-expanded="false"
-          aria-label="Open message"
+          aria-label="Dismiss message"
           data-role="toast-open"
           type="button"
         >

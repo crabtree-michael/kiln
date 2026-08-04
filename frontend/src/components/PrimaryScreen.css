@@ -1588,10 +1588,10 @@ button[data-role='feed-card-head']:focus-visible {
   animation: kiln-thinking-flicker 1.5s ease-in-out infinite;
 }
 
-/* Both pill kinds are one card surface holding a tappable content region and,
-   once open, a Close control beside it (08 §4). The container carries only the
-   card chrome — its padding lives on `toast-open` so it doesn't double up when
-   that region is a nested element. */
+/* Both pill kinds are one card surface wrapping a single tappable content region
+   — there is no close control in any state (08 §4), so the pill never splits into
+   two targets. The container carries only the card chrome; the padding lives on
+   `toast-open`, which fills it. */
 [data-role='toast-pill'],
 [data-role='say-pill'] {
   display: flex;
@@ -1606,22 +1606,19 @@ button[data-role='feed-card-head']:focus-visible {
   box-shadow: var(--shadow-raised);
 }
 
-/* The tappable content region. It fills the pill and carries the inner flex
-   layout + padding for BOTH states — the collapsed open button and the open
-   state's static preview — so opening a pill doesn't shift its content. */
-[data-role='toast-open'] {
+/* The tappable content region — the whole pill, in every state (collapsed,
+   expanded, and the ticket-routing toast), so a tap anywhere does that pill's one
+   thing. Button chrome is reset away so it reads as plain card content, leaving
+   cursor + focus as the only interactive cues (matches feed-card-head); the
+   layout and padding are identical across states, so expanding a pill reveals
+   text without shifting anything else. */
+button[data-role='toast-open'] {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 9px 14px;
-}
-
-/* The clickable (collapsed) variant: reset the button chrome so it reads exactly
-   like the static region above (layout/padding come from the shared rule),
-   leaving only cursor + focus as the interactive cues (matches feed-card-head). */
-button[data-role='toast-open'] {
   margin: 0;
   border: none;
   background: none;
@@ -1638,42 +1635,6 @@ button[data-role='toast-open']:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
   border-radius: var(--radius-md);
-}
-
-/* The Close control, shown only while a pill is open (08 §4). Closing dismisses
-   the toast entirely — there is no always-on × any more — so it sits at the
-   trailing edge as a full-height tap target, divided from the content by a hair
-   rule that echoes the pill border. */
-[data-role='toast-close'] {
-  flex-shrink: 0;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  margin: 0;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-faint);
-  background: transparent;
-  border: none;
-  border-left: 1px solid var(--accent-soft);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-[data-role='toast-close']:hover,
-[data-role='toast-close']:focus-visible {
-  color: var(--text-body);
-}
-
-[data-role='toast-close']:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
 }
 
 [data-role='toast-icon'] {

@@ -932,8 +932,8 @@ describe('PrimaryScreenView', () => {
 
   it('leaves a live toast untouched when a ticket overlay is closed', () => {
     // Toasts and the ticket overlay are independent now (08 §4): a toast dismisses
-    // only through its own Close control, so closing a feed-card overlay must never
-    // dismiss an unrelated toast that happens to be up at the same time.
+    // only through its own tap (or its timer), so closing a feed-card overlay must
+    // never dismiss an unrelated toast that happens to be up at the same time.
     const onDismiss = vi.fn();
     const ticket = makeTicket({
       id: 't-login',

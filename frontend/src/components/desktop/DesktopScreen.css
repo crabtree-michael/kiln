@@ -564,51 +564,94 @@ html:has([data-role='desktop-screen']) body {
   padding: 0 var(--space-8) var(--space-6);
 }
 
+/* The mic and the field, side by side (13 §7, D5a). The composer itself carries
+   no box — the mic is a raised object and the field is a capsule, and putting a
+   third border around the pair would make the mic read as chrome inside a text
+   input, which is exactly the weighting this layout exists to undo. */
 [data-role='desktop-composer'] {
   max-width: 720px;
   margin: 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+/* The unified field: live transcript and typed draft in one surface, so talking
+   and typing land in the same place (13 §7). Rounded, soft-edged, humanist — the
+   same physical vocabulary as mobile (13 §4). Hairline, not a border that
+   announces itself. */
+[data-role='desktop-field'] {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
-  /* Rounded, soft-edged, humanist — the same physical vocabulary as mobile
-     (13 §4). Hairline, not a border that announces itself. */
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-xl);
   background: var(--surface-card);
   transition: border-color var(--duration-base) var(--ease-settle);
 }
 
-[data-role='desktop-composer']:focus-within {
+[data-role='desktop-field']:focus-within {
   border-color: var(--border-strong);
 }
 
-[data-role='desktop-transcript'] {
-  padding: var(--space-2) var(--space-2) var(--space-3);
-  max-height: 24vh;
-  overflow-y: auto;
-  font: var(--type-small);
+/* While words are being heard the field firms the same way it does under a
+   cursor — one field, so being spoken into and being typed into look alike. */
+[data-role='desktop-field'][data-hearing='true'] {
+  border-color: var(--border-strong);
 }
 
-[data-role='desktop-composer-row'] {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-2);
-}
-
-[data-role='desktop-input'] {
+/* The text surface. `position: relative` so the textarea can lie exactly over
+   the heard words while they are what's on screen. */
+[data-role='desktop-field-text'] {
+  position: relative;
   flex: 1;
   min-width: 0;
   max-height: 30vh;
+  overflow-y: auto;
+}
+
+/* The heard words, in normal flow so they set the field's height — the textarea
+   over them is stretched to whatever this block is. Identical box and type to
+   the input, because it IS the input as far as the eye is concerned. */
+[data-role='desktop-heard'] {
+  padding: var(--space-2) 0;
+  font: var(--type-body);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+[data-role='desktop-input'] {
+  display: block;
+  width: 100%;
+  min-width: 0;
   padding: var(--space-2) 0;
   border: none;
   background: transparent;
   color: var(--text-body);
   font: var(--type-body);
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
+}
+
+/* Speech on screen: the textarea lies over the heard words, transparent. It is
+   still the thing you click into and the thing "/" focuses — and that focus is
+   the handover that turns what was said into text you can edit
+   (DesktopComposer's `adoptTranscript`), at which point this rule stops applying
+   and the words are simply in the field. */
+[data-role='desktop-field'][data-hearing='true'] [data-role='desktop-input'] {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  color: transparent;
+  caret-color: transparent;
 }
 
 [data-role='desktop-input']:focus {
-  /* The composer's own border carries the focus state (`:focus-within` above),
-     so a second ring inside it would be noise. */
+  /* The field's own border carries the focus state (`:focus-within` above), so a
+     second ring inside it would be noise. */
   outline: none;
 }
 
@@ -623,18 +666,19 @@ html:has([data-role='desktop-screen']) body {
   gap: var(--space-1);
 }
 
-/* Typing is primary, voice is secondary (13 D5) — so the mic is an affordance ON
-   the line, sized down from the dock's 54px centrepiece to a peer of the send
-   button. It keeps the dock's glyph, glow and states; only its scale changes. */
-[data-role='desktop-composer'] [data-role='dock-talk'] {
-  padding: 0;
-}
+/* Voice is primary (13 D5a) — the mic keeps the dock's full 54px scale, its
+   raised shadow, its volume-reactive glow and its connecting spinner, unchanged
+   and unshrunk. It used to be sized down to a peer of the send button when
+   typing led the layout; it now leads it, and nothing about the orb is
+   desktop-specific except where it stands.
 
-[data-role='desktop-composer'] [data-role='dock-mic'] {
-  width: 34px;
-  height: 34px;
-  box-shadow: none;
-  border-width: 1px;
+   The bottom margin drops it to the field's baseline: the field is a variable
+   number of lines tall and grows upward, so aligning the row at `flex-end`
+   leaves the orb sitting on the same line as the last one. */
+[data-role='desktop-composer'] [data-role='dock-talk'] {
+  flex: none;
+  padding: 0;
+  margin-bottom: 1px;
 }
 
 [data-role='desktop-composer'] [data-role='dock-cancel'] {
@@ -647,9 +691,8 @@ html:has([data-role='desktop-screen']) body {
    paints for a thumb on a phone). On a window you leave open all day, an
    always-lit accent button in the corner is a permanent spot of heat — and the
    accent's entire job here is to mean "a person is needed" (13 §4). Committing a
-   sentence you just typed is not that. It stays neutral and firms on hover, so the
-   one loud thing on screen is still the only loud thing. */
-[data-role='desktop-composer'] [data-role='dock-send'],
+   sentence you just said or typed is not that. It stays neutral and firms on
+   hover, so the one loud thing on screen is still the only loud thing. */
 [data-role='desktop-send'] {
   display: flex;
   align-items: center;
@@ -672,7 +715,6 @@ html:has([data-role='desktop-screen']) body {
    why it is the hover fill used throughout PrimaryScreen.css too. `raised`
    would read as a lift in the dark and as an erasure in the light, where it is
    three hex points off `--surface-card`. */
-[data-role='desktop-composer'] [data-role='dock-send']:hover,
 [data-role='desktop-send']:not(:disabled):hover {
   background: var(--surface-inset);
   color: var(--text-body);

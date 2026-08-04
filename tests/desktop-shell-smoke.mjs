@@ -333,7 +333,11 @@ async function readRegister() {
       const [x, y] = [rgb(a), rgb(b)];
       return Math.round(Math.sqrt(x.reduce((sum, v, i) => sum + (v - y[i]) ** 2, 0)));
     };
-    const composer = bg('[data-role="desktop-composer"]');
+    // The composer's painted surface is the FIELD, not the row: the mic leads the
+    // row as a raised object of its own and the row itself carries no box
+    // (13 D5a), so the row's background is `rgba(0,0,0,0)` and measuring it would
+    // read as "the composer is invisible" while the field is plainly there.
+    const composer = bg('[data-role="desktop-field"]');
     const send = bg('[data-role="desktop-send"]');
     return {
       htmlTheme: document.documentElement.dataset.theme,

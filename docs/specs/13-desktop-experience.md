@@ -137,10 +137,11 @@ first: what needs you, what is proposed, what has happened. This is `08`'s feed,
 room. The room is not spent on more columns — it is spent on **air**, on letting a line of
 text be a readable line of text rather than a truncated one.
 
-**Below the feed — the way you talk to it.** Kiln has always been conversational; that
-does not change on desktop, only the default input does. On a phone you talk. At a desk
-your hands are already on a keyboard, so **typing is the primary input on desktop** and
-voice is there when you want it. It is a single place to say something, not a form.
+**Below the feed — the way you talk to it.** Kiln has always been conversational, and on
+desktop it stays that way: **the mic is the primary input** (D5a), sitting large at the left
+of one field that is *both* the live transcript and the place you type. Talking and typing
+are the same action landing in the same place, by different means. It is a single place to
+say something, not a form.
 
 That is the whole layout. There is no third pane, no inspector, no bottom drawer of logs.
 Detail opens over the top of the feed when you ask for it and gets out of the way when you
@@ -251,18 +252,48 @@ What changes is what the screen can afford to show of it.
 
 ## 7. Saying something
 
-Talking is still the interface for everything that isn't mechanical (`08` §5). On desktop
-the *default modality* flips (D5): **typing is primary, voice is secondary.** At a desk the
-keyboard is already under your hands, typing is silent in a room with other people in it,
-and a typed sentence is easier to get right than a spoken one when it contains a filename.
-Voice remains available — it is the same message seam either way (`09`), and the brain
-cannot tell the difference — but it is not the thing the layout is built around.
+Talking is the interface for everything that isn't mechanical (`08` §5), and that does not
+change at a desk (D5a). Kiln is voice-first everywhere; the desk is where it gets *room* for
+voice, not where voice steps aside.
 
-Concretely, that means the desktop's input is **one quiet line under the feed**, always
-there, focusable from anywhere by keyboard, with the mic as an affordance on it rather than
-as the centerpiece the mobile dock makes it. It is not a form and it never becomes one:
-there is no ticket-creation dialog, no title field, no priority select. You say what you
-want and Kiln shapes it into something you can agree to.
+Concretely, the desktop's input is **one line under the feed with two parts**:
+
+- **The microphone, large, at the left.** It is the centrepiece, the way the mobile dock's
+  orb is — not an affordance tucked onto the end of a text field. It is the first thing the
+  eye lands on in the composer, and it is the thing the layout is built around.
+- **To its right, one field that is both the live transcript and the typed input.** Not a
+  transcript above a text box; not two UI pieces that happen to be adjacent. **One field.**
+  Spoken words settle into it as ink, the still-forming partial ghosts along after them
+  (`09` §4), and the caret you would type at is the same caret the transcript is arriving
+  at. Type into it mid-utterance and you are editing what you just said.
+
+That last property is the whole point, and it is what a desk earns that a phone cannot: a
+sentence you *spoke* is the fastest way to get it out, and a keyboard is the fastest way to
+fix the one filename the transcriber got wrong. Making them one buffer means you never have
+to choose up front which you are doing.
+
+Two consequences fall out of the one-field rule and are worth stating, because they are
+where a "just put them side by side" reading would go wrong:
+
+- **Ownership passes to you when you put a cursor in the field.** Until then the text is the
+  voice store's, and it behaves exactly as it does on the phone — including the post-turn-end
+  grace window that sends it for you (`09` §4), so pure voice stays hands-free and nothing
+  about that path is re-implemented for the desk. Focusing the field is the handover: what
+  was heard becomes a draft you can edit, the armed auto-send is disarmed, and it now goes
+  when *you* say so. Nothing is lost — you are typing into the words that were already there.
+- **The handover stops the mic, and that is not a mode.** Reaching for the keyboard means
+  you have taken over, and a sentence must not fly off mid-edit — nor should fresh words keep
+  arriving into the line you are correcting. One tap on the orb starts it again; there is no
+  toggle to find, nothing to leave, and the field never changes shape. That is what separates
+  this from the phone dock's `keyboardMode`, which is a real mode with an entrance and an
+  exit.
+- **Speaking after typing appends.** Words heard while a draft exists land at the end of what
+  you have written rather than replacing it or opening a second surface, and they send as one
+  message — so an interleaved type→speak→fix pass is a single utterance, not two.
+
+It is not a form and it never becomes one: there is no ticket-creation dialog, no title
+field, no priority select. You say what you want and Kiln shapes it into something you can
+agree to.
 
 Kiln's replies (`08` §4's `say`) and its action toasts belong in the same low-key register
 they have on mobile — near the input, transient for toasts, persistent for a reply until
@@ -387,7 +418,8 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 | D2 | **No Kanban/ticket board.** The board is not the product surface at any screen size. | Revive the board on desktop where columns finally fit; a hybrid feed-plus-board. | `08` retired the board because it is mechanism, and mechanism is what Kiln handles *for* you. A bigger screen changes the space available, not the argument. A board asks you to manage; this asks you to glance. |
 | D3 | **The rail is both the switcher and the ambient status layer.** | A switcher plus a separate cross-project status strip/header. | Two surfaces means two things to look at, against a premise of one thing you mostly don't look at. The rail is already in peripheral vision; giving it the status job costs no new screen real estate. |
 | D4 | **The feed is scoped to the selected project; cross-project standing lives in the rail.** | A single cross-project feed; a feed with a project column. | Matches existing scoping (`12` §3.2) with no new server work, and keeps a blocker's context unambiguous. Flagged as §13 Q1 for an explicit call. |
-| D5 | **Typing is the primary input on desktop; voice is secondary but present.** | Voice-first, mirroring mobile's dock; voice-only. | At a desk the keyboard is already under your hands, typing is silent around other people, and typed text is more precise for filenames and identifiers. Same message seam either way (`09`), so nothing downstream cares. |
+| D5 | **Typing is the primary input on desktop; voice is secondary but present.** *(Superseded — see D5a.)* | Voice-first, mirroring mobile's dock; voice-only. | At a desk the keyboard is already under your hands, typing is silent around other people, and typed text is more precise for filenames and identifiers. Same message seam either way (`09`), so nothing downstream cares. |
+| D5a | **Reverses D5 (2026-08-04): the desk is voice-first too.** The mic is the composer's centrepiece, large and at the left, and the thing to its right is **one field that is simultaneously the live transcript and the typed input** — not a transcript stacked over a text box. Ownership of that field passes from the voice store to the user when they put a cursor in it (§7). | Keeping D5's typing-first line with a small mic on it (the shipped implementation); a big mic with the transcript still rendered as its own block above the field; a modal voice/keyboard toggle like the phone dock's `keyboardMode`. | D5 read the desk as "the keyboard is already under your hands" and concluded the *product's* default modality should flip there. That was a claim about hardware, not about Kiln: the reason you talk to Kiln is that describing what you want is faster than specifying it, and a keyboard does not change that. What the desk actually earns is **room to have both at once** — a phone dock has space for one input at a time and so has to be modal, while a desk can put a full-size mic and a full-width field on the same line. Unifying transcript and draft into one buffer is what makes that non-modal: there is no "am I in voice mode" question if both land in the same place. D5's precision argument survives intact and is *better* served — you fix the mis-transcribed filename by typing into the transcript itself, instead of abandoning it and retyping the sentence. |
 | D6 | **Desktop follows the OS light/dark preference**, like every other route. In the dark it rests in Kiln's existing warm near-black — never a colder black, and never a desktop-only palette. | *(Originally: dark is desktop's resting register, unconditionally — superseded, see D6a.)* Light-first to match mobile's paper default; a new desktop-only dark palette. | Reusing the existing themes keeps one design language rather than forking the palette. Which of the two is up is the user's call, not the viewport's. |
 | D6a | **Amends D6 (2026-08-04).** The original called dark *unconditionally*, and the shell implemented it by stamping `data-theme="dark"` on `<body>`, which beat the system preference `ThemeColorSync` writes to `<html>`. | Keeping the hard dark; a desktop-only theme setting in the UI. | The argument for D6 — "a window open all day should recede" — is real, but it is an argument about *how dark mode should feel*, not a reason to override someone who has told their OS they want light. It also split one person across two answers: paper on the phone, near-black at the desk, same account, same minute. The palette work D6 bought is untouched: both registers still come from `tokens.css`, and the shell's CSS names neither. |
 | D7 | **Detail opens over the feed; there is no third pane.** | A persistent detail/inspector pane; a three-column layout. | A permanent pane doubles the resting complexity to serve something looked at rarely, and re-creates the two-pane management console this design avoids. Overlay keeps the resting state at two regions. |

@@ -221,6 +221,51 @@ describe('DesktopScreen.css', () => {
     expect(declared).not.toMatch(/(^|;)\s*bottom\s*:/);
   });
 
+  it('leads the composer with the mic and paints no box around the pair', () => {
+    // 13 D5a: the mic is the composer's centrepiece, so the row is a bare flex
+    // line — the mic is a raised object and the field is the capsule. A box
+    // around both would put the mic INSIDE a text field, which is the weighting
+    // this layout exists to undo.
+    const body = ruleBody("[data-role='desktop-composer'] {");
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).not.toMatch(/background/);
+    expect(body).not.toMatch(/border/);
+    // And it is never shrunk: the previous typing-first line sized the orb down
+    // to a peer of the send button, which is exactly how it read.
+    expect(css).not.toMatch(/\[data-role='desktop-composer'\] \[data-role='dock-mic'\]/);
+  });
+
+  it('makes the field itself the painted surface, and the field alone', () => {
+    const body = ruleBody("[data-role='desktop-field'] {");
+    expect(body).toMatch(/background:\s*var\(--surface-card\)/);
+    expect(body).toMatch(/border-radius:\s*var\(--radius-xl\)/);
+    expect(body).toMatch(/flex:\s*1/);
+  });
+
+  it('keeps the heard words and the typed input on identical metrics', () => {
+    // They are ONE field (13 §7): the textarea lies over the heard block while
+    // speech is on screen, so any divergence in type or padding shows up as the
+    // words shifting the moment the transcript is adopted into the draft.
+    const heard = ruleBody("[data-role='desktop-heard'] {");
+    const input = ruleBody("[data-role='desktop-input'] {");
+    for (const declaration of [/font:\s*var\(--type-body\)/, /padding:\s*var\(--space-2\) 0/]) {
+      expect(heard).toMatch(declaration);
+      expect(input).toMatch(declaration);
+    }
+  });
+
+  it('lays the input over the heard words while they are being heard', () => {
+    // The textarea stays the thing you click into and the thing "/" focuses —
+    // that focus is the handover — so it covers the words rather than yielding
+    // to them, and paints in no ink of its own while it does.
+    const body = ruleBody(
+      "[data-role='desktop-field'][data-hearing='true'] [data-role='desktop-input'] {",
+    );
+    expect(body).toMatch(/position:\s*absolute/);
+    expect(body).toMatch(/inset:\s*0/);
+    expect(body).toMatch(/color:\s*transparent/);
+  });
+
   it('the JS breakpoint stays the single source of the desktop threshold', () => {
     // The CSS deliberately carries NO min-width media query for the shell switch:
     // the shell is chosen in JS (useIsDesktop), so a second breakpoint here could

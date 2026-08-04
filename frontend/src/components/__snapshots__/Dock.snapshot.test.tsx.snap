@@ -204,23 +204,29 @@ exports[`Dock snapshots > Listening with a live transcript (settled + ghosted ta
       data-dock-state="listening"
       data-role="dock-transcript"
     >
-      <span
-        data-role="dock-settled"
+      <button
+        aria-label="Edit transcript: Ship the login screen. and wire up"
+        data-role="dock-transcript-edit"
+        type="button"
       >
-        Ship the login screen.
-      </span>
-      <span
-        data-ghost="true"
-        data-role="dock-tail"
-      >
-        and wire up
-      </span>
-      <span
-        aria-hidden="true"
-        data-role="dock-caret"
-      >
-        |
-      </span>
+        <span
+          data-role="dock-settled"
+        >
+          Ship the login screen.
+        </span>
+        <span
+          data-ghost="true"
+          data-role="dock-tail"
+        >
+          and wire up
+        </span>
+        <span
+          aria-hidden="true"
+          data-role="dock-caret"
+        >
+          |
+        </span>
+      </button>
     </div>
     <div
       data-mode="voice"
@@ -298,17 +304,23 @@ exports[`Dock snapshots > Listening with settled ink only (send + X flank the mi
       data-dock-state="listening"
       data-role="dock-transcript"
     >
-      <span
-        data-role="dock-settled"
+      <button
+        aria-label="Edit transcript: Ship the login screen."
+        data-role="dock-transcript-edit"
+        type="button"
       >
-        Ship the login screen.
-      </span>
-      <span
-        aria-hidden="true"
-        data-role="dock-caret"
-      >
-        |
-      </span>
+        <span
+          data-role="dock-settled"
+        >
+          Ship the login screen.
+        </span>
+        <span
+          aria-hidden="true"
+          data-role="dock-caret"
+        >
+          |
+        </span>
+      </button>
     </div>
     <div
       data-mode="voice"
@@ -467,12 +479,18 @@ exports[`Dock snapshots > Retry with an un-committed transcript preserved (09 §
       data-dock-state="retry"
       data-role="dock-transcript"
     >
-      <span
-        data-ghost="true"
-        data-role="dock-tail"
+      <button
+        aria-label="Edit transcript: half a thought"
+        data-role="dock-transcript-edit"
+        type="button"
       >
-        half a thought
-      </span>
+        <span
+          data-ghost="true"
+          data-role="dock-tail"
+        >
+          half a thought
+        </span>
+      </button>
     </div>
     <div
       data-mode="voice"

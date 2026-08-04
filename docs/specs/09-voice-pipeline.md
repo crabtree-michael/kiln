@@ -146,6 +146,42 @@ conversation (`01` §7), and the user can simply speak again. That is why auto-e
 wins over tap-to-send — the always-listening feel of the design costs at worst one
 clarifying exchange.
 
+### 4a. Correcting the transcript before it sends
+
+The shown transcript is **editable**, on every surface that renders it (the phone dock,
+the ticket sheet's line, the desktop field — `13` §7). Tapping or clicking the words puts
+a caret in them; they become a field over the same text, in the same place, with no mode
+to enter or leave.
+
+Three rules make that safe rather than a race against the auto-send:
+
+- **Editing PAUSES the countdown; it does not cancel it.** The post-turn-end grace window
+  (§4) stops the moment the field takes focus and resumes **from where it left off** when
+  focus leaves — 3 s left when you reached for it is 3 s left when you let go, however
+  long the correction took. Speech is still hands-free by default; taking hold of the
+  words is what suspends that, and letting go is what hands it back.
+- **What sends is what you wrote.** The armed send stays armed, re-pointed at the edited
+  text on every keystroke, so the countdown that resumes fires the corrected sentence.
+  Editing it down to nothing disarms it outright — an empty utterance never posts (§4).
+- **The edit releases the mic.** Fresh words must not land in the line being corrected, so
+  taking the transcript over stops the stream and folds any still-forming tail into the
+  ink (there is nothing left to arrive behind the caret). One tap on the mic starts it
+  again; nothing restarts it on its own.
+
+It is **one buffer, not two**: what is being edited is the same text the store already
+owns and would have POSTed, written straight back on every keystroke. A local draft copy
+would have had to *cancel* the armed send to avoid firing stale words — which is exactly
+the behaviour the pause replaces.
+
+The correction is client-side and pre-commit throughout: nothing has been POSTed, so there
+is nothing to amend server-side. This is the direct fix for the failure the design
+otherwise accepts — a mis-transcribed filename or name that the brain would have to be
+talked out of afterwards is faster to just type, and the countdown must not fire mid-fix.
+
+Leaving the app mid-edit leaves the send **frozen**, not released: a half-corrected
+sentence must never post behind the user's back (compare a live mic, which drops its armed
+send outright on background, §3).
+
 ## 5. Failure surfaces
 
 - **Socket drop / token-mint failure:** one silent reconnect attempt (fresh token if
@@ -223,6 +259,7 @@ gate.
 | D4  | Utterance commit via AssemblyAI auto end-of-turn; X cancels pre-commit.                                                                                                                            | Tap-to-stop-and-send; hybrid grace-window coalescing. | User decision. Hands-free matches the design; mis-fires are cheap (`01` §7 confirmation) and hybrid coalescing is client state we don't need yet. |
 | D5  | Mic capture must not silence other apps' audio — duck (not full-stop, not full-volume) via a `play-and-record` Audio Session on iOS; no-op elsewhere (§3a).                                          | Full-stop (status quo); full-volume mix; native wrapper with `AVAudioSession` control. | Ducking matches Siri/Voice Memos and is the cleanest STT input. Duck-vs-mix is ultimately platform-decided; a native wrapper (real `.duckOthers` control) waits on `10` packaging. |
 | D6  | A sent report **releases the mic** (returns to Paused, ending hands-free continuation — amends D4/§3a) so the audio session frees other apps' audio and iOS can resume the paused/ducked music — best effort. | Keep hands-free and resume music mid-session (impossible — a live capture session is what holds the other app's audio); native `AVAudioSession` control (waits on `10` packaging). | User decision. The only web lever to resume another app is our own session going inactive; keeping the mic live precludes it, so a send must end the turn. |
+| D7  | The shown transcript is **editable before it sends**, and an edit **pauses** the armed auto-send rather than cancelling it — the countdown stops on focus and resumes from where it left off on blur (§4a). | Read-only transcript, correct it by talking to the brain after the fact (status quo); disarm the send on edit and require an explicit tap (what the desk's field did first); restart the full window on blur. | User decision. STT mis-hears names and filenames far more often than meaning, and re-speaking a whole report to fix one word is the expensive repair. Cancelling on edit taxes every correction with an extra deliberate act; restarting the window makes a one-character fix cost a fresh wait. Pausing keeps voice hands-free by default and makes the keyboard a correction tool rather than a mode. |
 
 
 **Open questions (owned elsewhere or later):** PWA-vs-wrapped-native packaging — gated

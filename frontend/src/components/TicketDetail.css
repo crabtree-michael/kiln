@@ -571,6 +571,41 @@
   border-bottom: 1px solid var(--border-default);
 }
 
+/* The words are the tap target that opens them for correction (09 §4a), and the
+ * field that replaces them. Both are chromeless and inherit the line's centred
+ * type, so the transcript reads the same in all three states — heard, tappable,
+ * being edited. */
+[data-role='ticket-detail-transcript-edit'] {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  cursor: text;
+}
+
+[data-role='ticket-detail-transcript-input'] {
+  display: block;
+  width: 100%;
+  min-height: 1.5em;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  resize: none;
+  overflow-y: hidden;
+  font: inherit;
+  line-height: inherit;
+  text-align: center;
+  color: var(--text-body);
+}
+
 [data-role='ticket-detail-settled'] {
   color: var(--text-body);
 }

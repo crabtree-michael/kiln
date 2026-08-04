@@ -25,6 +25,8 @@ export type VoiceAction =
   | { type: 'resume' }
   | { type: 'cancel' } // the X — discard the un-committed utterance (09 §4)
   | { type: 'sendNow' } // the send button — commit whatever is on screen now, without waiting for a final
+  | { type: 'beginEdit' } // a cursor was put in the transcript — the user takes the words over (09 §4a)
+  | { type: 'editTranscript'; text: string } // the transcript was rewritten by hand (09 §4a)
   | { type: 'denied' }
   | { type: 'background' } // visibilitychange -> hidden: stop the mic (09 §3)
   | { type: 'commitConsumed' } // the store POSTed the pending commit successfully
@@ -46,6 +48,8 @@ export interface VoiceState {
    *  grace window (09 §4): the store runs a `COMMIT_DELAY_MS` timer off this and
    *  dispatches `commitDelayElapsed` when it closes. Resumed speech (a partial),
    *  a pause, the X, or a failure clears it, cancelling the send before it fires.
+   *  Editing the transcript (09 §4a) does NOT clear it — it stays armed, re-pointed
+   *  at the edited text, while the store holds its countdown frozen.
    *  Explicitly `| undefined` so the reducer can clear it. */
   pending?: string | undefined;
   /** Set for one tick when an utterance is ready to POST; the store consumes it.
@@ -89,10 +93,7 @@ function fireArmedSend(state: VoiceState): VoiceState {
  *  end-of-turn final (09 §4): as soon as any text shows, it can be sent. A no-op
  *  when nothing is shown. */
 function fireDisplayedSend(state: VoiceState): VoiceState {
-  const text = [state.settledText, state.tailText]
-    .filter((part) => part !== '')
-    .join(' ')
-    .trim();
+  const text = displayedText(state);
   if (text === '') {
     return state;
   }
@@ -109,6 +110,71 @@ function fireDisplayedSend(state: VoiceState): VoiceState {
     commit: text,
     micState: 'paused',
     connecting: false,
+  };
+}
+
+/** The whole transcript as one line — settled ink plus whatever tail is still
+ *  forming. The join `fireDisplayedSend` uses, so folding the tail in and sending
+ *  produce the same text. */
+function displayedText(state: VoiceState): string {
+  return [state.settledText, state.tailText]
+    .filter((part) => part !== '')
+    .join(' ')
+    .trim();
+}
+
+/** The user has put a cursor in the shown transcript to correct it before it goes
+ *  (09 §4a). Two things happen and both matter:
+ *
+ *  - **The tail folds into the ink.** The mic is stopping, so a still-forming
+ *    partial would never finalize; folding it in means what the user edits is
+ *    exactly what was on screen, with nothing left to arrive behind their caret.
+ *  - **The mic is released** (→ Paused). Fresh words must not keep landing in the
+ *    line being corrected, and reaching for the keyboard is itself the handover
+ *    (13 §7). Nothing here restarts it — the user taps to talk again.
+ *
+ *  What deliberately does NOT happen is a cancel: an armed end-of-turn send
+ *  SURVIVES the edit, re-pointed at the folded text. The store freezes its
+ *  countdown for as long as the field has focus and resumes it from where it left
+ *  off on blur, so editing pauses the auto-send rather than throwing it away. A
+ *  no-op when there is nothing on screen to edit (focusing an empty field must not
+ *  stop a live mic). */
+function beginTranscriptEdit(state: VoiceState): VoiceState {
+  const text = displayedText(state);
+  if (text === '') {
+    return state;
+  }
+  return {
+    ...state,
+    micState: 'paused',
+    connecting: false,
+    settledText: text,
+    tailText: '',
+    pending: state.pending === undefined ? undefined : text,
+  };
+}
+
+/** A keystroke in the transcript field: the shown transcript becomes exactly what
+ *  the user typed (09 §4a). Held verbatim — untrimmed — so a trailing space they
+ *  are mid-word on survives the round trip through the store.
+ *
+ *  Typing IS the handover, the same as focusing a transcript is, so this releases
+ *  the mic too: it covers the case where the field was focused while empty (which
+ *  `beginEdit` leaves alone) and the user typed before speaking.
+ *
+ *  An armed send follows the edited text, so what fires when the countdown resumes
+ *  is the corrected sentence, not the heard one. Editing the transcript down to
+ *  nothing disarms it outright — an empty utterance never posts (09 §4), and there
+ *  is no countdown left to resume. */
+function applyTranscriptEdit(state: VoiceState, text: string): VoiceState {
+  const trimmed = text.trim();
+  return {
+    ...state,
+    micState: 'paused',
+    connecting: false,
+    settledText: text,
+    tailText: '',
+    pending: state.pending === undefined || trimmed === '' ? undefined : trimmed,
   };
 }
 
@@ -209,6 +275,10 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       // ends and other apps' audio can resume (09 §3a) — `fireDisplayedSend` does
       // both. A no-op if nothing is shown.
       return fireDisplayedSend(state);
+    case 'beginEdit':
+      return beginTranscriptEdit(state);
+    case 'editTranscript':
+      return applyTranscriptEdit(state, action.text);
     default:
       return state;
   }

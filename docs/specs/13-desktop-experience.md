@@ -283,8 +283,10 @@ where a "just put them side by side" reading would go wrong:
   voice store's, and it behaves exactly as it does on the phone — including the post-turn-end
   grace window that sends it for you (`09` §4), so pure voice stays hands-free and nothing
   about that path is re-implemented for the desk. Focusing the field is the handover: what
-  was heard becomes a draft you can edit, the armed auto-send is disarmed, and it now goes
-  when *you* say so. Nothing is lost — you are typing into the words that were already there.
+  was heard becomes text you can edit, and the armed auto-send **pauses** — it stays armed
+  on the words you are correcting, its countdown stopped until you click away, when it
+  picks up from exactly where it stopped (`09` §4a). Nothing is lost — you are typing into
+  the words that were already there, and they are still the ones that will send.
 - **The handover stops the mic, and that is not a mode.** Reaching for the keyboard means
   you have taken over, and a sentence must not fly off mid-edit — nor should fresh words keep
   arriving into the line you are correcting. One tap on the orb starts it again; there is no

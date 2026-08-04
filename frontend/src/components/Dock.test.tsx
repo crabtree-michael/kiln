@@ -30,6 +30,10 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
     sendImminent: false,
     delaySend: vi.fn(),
     getSendCountdown: vi.fn(() => null),
+    editing: false,
+    beginEdit: vi.fn(),
+    editTranscript: vi.fn(),
+    endEdit: vi.fn(),
     getLevel: vi.fn(() => 0),
     keyboardMode: false,
     openKeyboard: vi.fn(),
@@ -127,6 +131,108 @@ describe('Dock', () => {
     const tail = screen.getByText('and then');
     expect(tail).toHaveAttribute('data-role', 'dock-tail');
     expect(tail).toHaveAttribute('data-ghost', 'true');
+  });
+
+  // Correcting the transcript before it goes (09 §4a). The dock's job is the
+  // affordance and the swap; the freeze/resume of the countdown behind it belongs
+  // to the store (pinned in voice-store.test).
+  describe('editing the transcript', () => {
+    it('tapping the words hands them over for correction', () => {
+      const beginEdit = vi.fn();
+      mockVoiceValue = stubVoice({
+        micState: 'listening',
+        settledText: 'Ship the log in.',
+        beginEdit,
+      });
+      render(<Dock />);
+
+      fireEvent.click(screen.getByRole('button', { name: /^Edit transcript:/ }));
+      expect(beginEdit).toHaveBeenCalled();
+    });
+
+    it('swaps the read-only words for a field over the same text', () => {
+      mockVoiceValue = stubVoice({
+        micState: 'paused',
+        settledText: 'Ship the log in.',
+        editing: true,
+      });
+      const { container } = render(<Dock />);
+
+      const field = screen.getByLabelText('Edit transcript');
+      expect(field).toHaveValue('Ship the log in.');
+      // In the same panel the words were in, not a new surface — and the spans are
+      // gone, so the text is never on screen twice.
+      expect(container.querySelector('[data-role="dock-transcript"]')).toContainElement(field);
+      expect(container.querySelector('[data-role="dock-settled"]')).toBeNull();
+    });
+
+    it('a keystroke rewrites the store’s transcript, and blurring ends the edit', () => {
+      const editTranscript = vi.fn();
+      const endEdit = vi.fn();
+      mockVoiceValue = stubVoice({
+        micState: 'paused',
+        settledText: 'Ship the log in.',
+        editing: true,
+        editTranscript,
+        endEdit,
+      });
+      render(<Dock />);
+
+      const field = screen.getByLabelText('Edit transcript');
+      fireEvent.change(field, { target: { value: 'Ship the login screen.' } });
+      expect(editTranscript).toHaveBeenCalledWith('Ship the login screen.');
+
+      fireEvent.blur(field);
+      expect(endEdit).toHaveBeenCalled();
+    });
+
+    it('keeps the panel up when an edit empties the text', () => {
+      // Otherwise the field unmounts under the user's own caret the moment they
+      // select-all and delete to retype the sentence.
+      mockVoiceValue = stubVoice({ micState: 'paused', settledText: '', editing: true });
+      const { container } = render(<Dock />);
+      expect(container.querySelector('[data-role="dock-transcript"]')).not.toBeNull();
+      expect(screen.getByLabelText('Edit transcript')).toHaveValue('');
+    });
+
+    it('leaves keyboard mode alone — the typed draft is a different buffer', () => {
+      mockVoiceValue = stubVoice({ keyboardMode: true, editing: true });
+      const { container } = render(<Dock />);
+      expect(screen.getByLabelText('Message')).toBeInTheDocument();
+      expect(container.querySelector('[data-role="dock-transcript-input"]')).toBeNull();
+    });
+
+    it('puts the caret in the field, at the end of the words, when the tap landed here', () => {
+      mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'Ship the log in.' });
+      const { rerender } = render(<Dock />);
+      fireEvent.click(screen.getByRole('button', { name: /^Edit transcript:/ }));
+      // The store flips `editing` in response to that tap; the field arrives focused
+      // so the soft keyboard is already up and the caret continues the sentence.
+      mockVoiceValue = stubVoice({
+        micState: 'paused',
+        settledText: 'Ship the log in.',
+        editing: true,
+      });
+      rerender(<Dock />);
+
+      const field = screen.getByLabelText('Edit transcript');
+      expect(document.activeElement).toBe(field);
+      expect(field).toHaveProperty('selectionStart', 'Ship the log in.'.length);
+    });
+
+    it('does NOT take the caret when the edit began on another surface', () => {
+      // `editing` is one flag on one store, and the ticket sheet's transcript is a
+      // second view of the same words — with this dock still mounted behind the
+      // sheet's scrim. Tapping the sheet's line must not pull focus down here, or
+      // the user types into a field they cannot see.
+      mockVoiceValue = stubVoice({
+        micState: 'paused',
+        settledText: 'Ship the log in.',
+        editing: true,
+      });
+      render(<Dock />);
+      expect(document.activeElement).not.toBe(screen.getByLabelText('Edit transcript'));
+    });
   });
 
   it('shows the send + X whenever there is transcript text, and forwards taps', () => {

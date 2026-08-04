@@ -11,20 +11,28 @@
 // one text surface to the mic's right, and it is both the live transcript and the
 // draft you type: speech fills it as you talk, and the moment you put a cursor in
 // it the words you just said become editable text you can fix a filename in and
-// send with Enter. That handover is the whole design (`adoptTranscript` below) —
-// it is what makes one field honest rather than two stacked ones wearing the same
-// border.
+// send with Enter. That handover is the whole design — it is what makes one field
+// honest rather than two stacked ones wearing the same border.
+//
+// **There is literally one buffer, and it is the store's.** The field has no local
+// draft state: focusing it hands the transcript over for editing (`beginEdit`) and
+// every keystroke writes straight back through `editTranscript`, so what you are
+// looking at is always the utterance that would send. That is what lets the
+// post-turn-end auto-send *pause* rather than die when you correct something
+// (09 §4a): the send stays armed on the text you are editing, its countdown frozen
+// for as long as the field has focus, and picks up where it left off when you
+// click away. A local draft would have had to cancel the send to avoid firing the
+// stale words — which is what this used to do.
 //
 // It is deliberately NOT the mobile dock's `keyboardMode`. That toggle is modal —
 // entering it stops the mic, leaving it restarts it — because a phone has room
 // for one input at a time. Here there is no mode to be in: one field, two ways to
-// put words in it. Both still POST through the identical seam (`sendNow` /
-// `submitText` → `POST /api/message`, 07 §4 / 09), so the brain cannot tell them
-// apart.
+// put words in it. Both still POST through the identical seam (`sendNow` →
+// `POST /api/message`, 07 §4 / 09), so the brain cannot tell them apart.
 //
 // It is not a form and it never becomes one (13 §7): no title field, no priority
 // select, no ticket-creation dialog.
-import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type JSX, type KeyboardEvent } from 'react';
 import { useVoice } from '@/voice/voice-context';
 import { MicButton } from '@/components/MicButton';
 
@@ -44,7 +52,7 @@ function isTextEntry(target: EventTarget | null): boolean {
 
 /** The transcript as one line of text — settled ink plus whatever tail is still
  * forming. Same join the commit machine's own `sendNow` uses, so what the field
- * hands to the draft is exactly what the store would have sent. */
+ * shows is exactly what the store would send. */
 function spokenText(settled: string, tail: string): string {
   return [settled, tail]
     .filter((part) => part !== '')
@@ -53,76 +61,41 @@ function spokenText(settled: string, tail: string): string {
 }
 
 export function DesktopComposer(): JSX.Element {
-  const { micState, settledText, tailText, pause, cancel, sendNow, submitText } = useVoice();
+  const {
+    micState,
+    settledText,
+    tailText,
+    editing,
+    beginEdit,
+    editTranscript,
+    endEdit,
+    cancel,
+    sendNow,
+  } = useVoice();
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Set when the draft was just replaced wholesale (a transcript adopted into
-  // it): the caret then belongs at the end of the words, not wherever it was.
+  // Set when focus arrives from a keyboard jump ("/" or Cmd-K) rather than a click:
+  // a click carries its own caret position (you clicked the word you meant to fix),
+  // a jump does not, so the caret belongs after the words.
   const caretToEndRef = useRef(false);
-  // The typed draft is view state local to this component — the store only sees
-  // it on submit. Same stance as the dock's draft: keystrokes must not churn the
-  // voice reducer.
-  const [draft, setDraft] = useState('');
 
   const spoken = spokenText(settledText, tailText);
-  const typed = draft.trim();
-  // While there is speech on screen the field renders it; the textarea is still
-  // there, over the words and transparent, so a click or "/" lands in it and
-  // hands over (below). One field, two sources.
-  const hearing = spoken !== '';
-  const canSend = typed !== '' || spoken !== '';
-
-  /** The handover: the user has put a cursor in the field while words were being
-   * heard, so the utterance stops being the store's and becomes the draft's.
-   *
-   * `pause` first — taking the keyboard means you have taken over, so the mic
-   * stops and, more importantly, the armed end-of-turn send is disarmed (09 §4);
-   * a sentence must not fly off mid-edit. `cancel` then clears the store's copy
-   * so the same words cannot be both in the field and in a pending commit. What
-   * was heard is appended to anything already typed, so neither half is lost. */
-  const adoptTranscript = (): void => {
-    if (spoken === '') {
-      return;
-    }
-    pause();
-    cancel();
-    caretToEndRef.current = true;
-    setDraft((current) => (current === '' ? spoken : `${current} ${spoken}`));
-  };
+  // While words are arriving the field renders them as two-tone text — settled ink,
+  // ghosted tail, blinking caret — which a textarea cannot do; the textarea is
+  // still there, over the words and transparent, so a click or "/" lands in it and
+  // hands over. The moment it does, `editing` turns that off and the same words are
+  // simply in the field, editable. One field, one buffer, two readings of it.
+  const hearing = spoken !== '' && !editing;
+  const canSend = spoken !== '';
 
   const send = (): void => {
-    if (typed === '' && spoken === '') {
+    // Everything in the field is the store's transcript now — typed, spoken or
+    // corrected — so there is one send path: commit the displayed text and release
+    // the mic (09 §4, §3a). On failure the store keeps the words on screen (no
+    // modal, no lost sentence); on success it clears back to idle.
+    if (!canSend) {
       return;
     }
-    if (typed === '') {
-      // Pure speech: the store's own seam, unchanged — it commits the displayed
-      // transcript and releases the mic (09 §4, §3a).
-      sendNow();
-      return;
-    }
-    // Anything typed goes out as one message, with any heard words appended, so
-    // a half-typed thought plus a spoken finish is a single utterance rather than
-    // two. Take the transcript off the store first (as the handover does) so it
-    // cannot also auto-send behind us.
-    const text = spoken === '' ? typed : `${typed} ${spoken}`;
-    if (spoken !== '') {
-      pause();
-      cancel();
-      // The heard half now lives only here, so it has to be in the draft to
-      // survive a failed POST below — the store no longer has a copy.
-      setDraft(text);
-    }
-    // Clear only on a successful POST; on failure keep the text so the user can
-    // retry (mirrors the dock: no modal, no lost sentence).
-    void submitText(text).then((sent) => {
-      if (sent) {
-        setDraft('');
-      }
-    });
-  };
-
-  const clear = (): void => {
-    cancel();
-    setDraft('');
+    sendNow();
   };
 
   const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -133,8 +106,9 @@ export function DesktopComposer(): JSX.Element {
     }
     if (event.key === 'Escape') {
       // "…and getting back out of it" (13 §9). Escape returns focus to the page
-      // so the keyboard pass can continue in the feed; the draft is kept, since
-      // losing a half-typed thought to a stray Escape is not calm.
+      // so the keyboard pass can continue in the feed; the text is kept, since
+      // losing a half-typed thought to a stray Escape is not calm. The blur ends
+      // the edit, so a paused auto-send starts counting again from here.
       event.currentTarget.blur();
     }
   };
@@ -158,6 +132,7 @@ export function DesktopComposer(): JSX.Element {
         return;
       }
       event.preventDefault();
+      caretToEndRef.current = true;
       input.focus();
     };
     document.addEventListener('keydown', onKeyDown);
@@ -182,11 +157,12 @@ export function DesktopComposer(): JSX.Element {
     }
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight.toString()}px`;
-  }, [draft, hearing]);
+  }, [settledText, hearing]);
 
-  // After a transcript is adopted the words are suddenly there in front of the
-  // caret; put it after them so typing continues the sentence rather than
-  // landing in the middle of it.
+  // A keyboard jump into a field that already holds words drops the caret wherever
+  // it last was — usually the very start, in front of the sentence. Put it after
+  // the words so typing continues them. Runs once the handover has folded any tail
+  // in (`editing` flips with it), so it measures the final text.
   useEffect(() => {
     if (!caretToEndRef.current) {
       return;
@@ -197,7 +173,7 @@ export function DesktopComposer(): JSX.Element {
       return;
     }
     el.setSelectionRange(el.value.length, el.value.length);
-  }, [draft]);
+  }, [settledText, editing]);
 
   return (
     <div data-role="desktop-composer" data-mic-state={micState}>
@@ -213,7 +189,6 @@ export function DesktopComposer(): JSX.Element {
             // field's height; the textarea over them is transparent, so this is
             // what you read while the same element is what you click into.
             <div data-role="desktop-heard">
-              {draft !== '' && <span data-role="dock-settled">{draft} </span>}
               {settledText !== '' && <span data-role="dock-settled">{settledText}</span>}
               {tailText !== '' && (
                 <span data-role="dock-tail" data-ghost="true">
@@ -231,15 +206,19 @@ export function DesktopComposer(): JSX.Element {
             data-role="desktop-input"
             ref={inputRef}
             rows={1}
-            value={draft}
+            value={settledText}
             onChange={(event) => {
-              setDraft(event.target.value);
+              editTranscript(event.target.value);
             }}
-            // Putting a cursor in the field IS the handover — see
-            // `adoptTranscript`. Focus rather than the first keystroke, so the
-            // words are already editable (and the auto-send already disarmed) by
-            // the time the first character arrives.
-            onFocus={adoptTranscript}
+            // Putting a cursor in the field IS the handover: the mic stops, the
+            // still-forming tail folds into the text, and the armed auto-send
+            // freezes (09 §4a). Focus rather than the first keystroke, so the words
+            // are already editable — and already not about to fly off — by the time
+            // the first character arrives.
+            onFocus={beginEdit}
+            // Clicking away hands it back: the frozen countdown resumes from where
+            // it stopped, now pointed at the corrected sentence.
+            onBlur={endEdit}
             onKeyDown={onInputKeyDown}
             placeholder="Talk, or type…"
             aria-label="Say something"
@@ -251,7 +230,7 @@ export function DesktopComposer(): JSX.Element {
               separate voice send and typed send, because there is no separate
               voice field and typed field. */}
           {canSend && (
-            <button type="button" data-role="dock-cancel" aria-label="Clear" onClick={clear}>
+            <button type="button" data-role="dock-cancel" aria-label="Clear" onClick={cancel}>
               <span aria-hidden="true">×</span>
             </button>
           )}

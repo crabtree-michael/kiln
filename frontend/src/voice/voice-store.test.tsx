@@ -319,6 +319,262 @@ describe('VoiceProvider mic activation', () => {
     }
   });
 
+  // Correcting the transcript before it sends (09 §4a). The machine's half is
+  // pinned in commit-machine.test; what only the store can own is the CLOCK —
+  // the armed countdown has to stop while the user has hold of the words and pick
+  // up from exactly where it stopped, not restart and not fire late.
+  describe('editing the transcript pauses the auto-send countdown', () => {
+    // These cases assert on what did NOT post, so they need the POST spy clean —
+    // the file-level beforeEach only resets the stream stub.
+    beforeEach(() => {
+      vi.mocked(postMessage).mockClear();
+    });
+
+    // Arm an end-of-turn send and burn `elapsed` ms of its 5s window.
+    function armedWith(
+      result: { current: ReturnType<typeof useVoice> },
+      text: string,
+      elapsed: number,
+    ): void {
+      act(() => {
+        result.current.resume();
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'open' });
+      });
+      act(() => {
+        fireProviderEvent({ kind: 'final', text });
+      });
+      act(() => {
+        vi.advanceTimersByTime(elapsed);
+      });
+    }
+
+    it('freezes the countdown on beginEdit and resumes it from where it left off on endEdit', async () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useVoice(), { wrapper });
+        // 2s of the 5s window gone: 3s left when the user reaches for the words.
+        armedWith(result, 'Move it to done.', 2_000);
+        expect(result.current.countingDown).toBe(true);
+
+        act(() => {
+          result.current.beginEdit();
+        });
+        expect(result.current.editing).toBe(true);
+
+        // However long the correction takes, nothing fires: the send is still
+        // armed, it is simply not counting. (A minute is far past both the base
+        // window and any "+10".)
+        await act(async () => {
+          vi.advanceTimersByTime(60_000);
+          await Promise.resolve();
+        });
+        expect(result.current.countingDown).toBe(true);
+        expect(vi.mocked(postMessage)).not.toHaveBeenCalled();
+        // Nothing to animate while it is frozen, so the "+10" ring stops too.
+        expect(result.current.getSendCountdown()).toBeNull();
+        expect(result.current.sendImminent).toBe(false);
+
+        act(() => {
+          result.current.endEdit();
+        });
+        // The banked 3s — not a fresh 5s, and not "already overdue, fire now".
+        await act(async () => {
+          vi.advanceTimersByTime(2_900);
+          await Promise.resolve();
+        });
+        expect(vi.mocked(postMessage)).not.toHaveBeenCalled();
+
+        await act(async () => {
+          vi.advanceTimersByTime(200);
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(vi.mocked(postMessage)).toHaveBeenCalledWith('Move it to done.');
+        expect(result.current.countingDown).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('sends the corrected text when the resumed countdown fires', async () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useVoice(), { wrapper });
+        armedWith(result, 'Ship the log in.', 1_000);
+
+        act(() => {
+          result.current.beginEdit();
+        });
+        act(() => {
+          result.current.editTranscript('Ship the login screen.');
+        });
+        // Keystrokes must not restart the clock: still 4s banked, however many
+        // times `pending` is re-pointed at the text being typed.
+        act(() => {
+          vi.advanceTimersByTime(30_000);
+        });
+        act(() => {
+          result.current.endEdit();
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(4_000);
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(vi.mocked(postMessage)).toHaveBeenCalledWith('Ship the login screen.');
+        expect(result.current.settledText).toBe('');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('the edit releases the mic — no fresh words into the line being corrected', () => {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      act(() => {
+        result.current.resume();
+      });
+      const live = liveStream();
+      act(() => {
+        fireProviderEvent({ kind: 'partial', text: 'add a retry' });
+      });
+
+      act(() => {
+        result.current.beginEdit();
+      });
+
+      expect(live.stop).toHaveBeenCalled();
+      expect(result.current.micState).toBe('paused');
+      // The interim words are folded into the ink, so what is being edited is the
+      // whole utterance rather than the settled half of it.
+      expect(result.current.settledText).toBe('add a retry');
+      expect(result.current.tailText).toBe('');
+    });
+
+    it('editing the words down to nothing drops the send rather than freezing it forever', async () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useVoice(), { wrapper });
+        armedWith(result, 'Move it to done.', 1_000);
+        act(() => {
+          result.current.beginEdit();
+        });
+        // Deleting the whole utterance disarms it — there is nothing left to send,
+        // so the blur has no countdown to resume and nothing can fire later.
+        act(() => {
+          result.current.editTranscript('');
+        });
+        expect(result.current.countingDown).toBe(false);
+        act(() => {
+          result.current.endEdit();
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(60_000);
+          await Promise.resolve();
+        });
+        expect(vi.mocked(postMessage)).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('beginEdit with nothing on screen leaves a live mic alone', () => {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      act(() => {
+        result.current.resume();
+      });
+      const live = liveStream();
+
+      act(() => {
+        result.current.beginEdit();
+      });
+
+      // Focusing an empty field is as likely to be someone about to speak.
+      expect(result.current.editing).toBe(false);
+      expect(result.current.micState).toBe('listening');
+      expect(live.stop).not.toHaveBeenCalled();
+    });
+
+    it('typing is a handover in its own right, even with no armed send to freeze', () => {
+      const { result } = renderHook(() => useVoice(), { wrapper });
+      act(() => {
+        result.current.resume();
+      });
+      const live = liveStream();
+
+      act(() => {
+        result.current.editTranscript('a typed thought');
+      });
+
+      expect(result.current.editing).toBe(true);
+      expect(result.current.settledText).toBe('a typed thought');
+      expect(live.stop).toHaveBeenCalled();
+      // Nothing was armed, so nothing is waiting to go — the user sends it.
+      expect(result.current.countingDown).toBe(false);
+    });
+
+    it('tapping the mic ends the edit, so the next utterance counts down normally', async () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useVoice(), { wrapper });
+        armedWith(result, 'Move it to done.', 1_000);
+        act(() => {
+          result.current.beginEdit();
+        });
+
+        // Talking again is the clearest possible "I'm done editing" — without this
+        // a stale `editing` would freeze every later auto-send forever.
+        act(() => {
+          result.current.resume();
+        });
+        expect(result.current.editing).toBe(false);
+
+        act(() => {
+          fireProviderEvent({ kind: 'open' });
+        });
+        act(() => {
+          fireProviderEvent({ kind: 'final', text: 'And close it.' });
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(GRACE_MS);
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(vi.mocked(postMessage)).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('leaving the app mid-edit fires nothing behind the user’s back', async () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useVoice(), { wrapper });
+        armedWith(result, 'Move it to done.', 1_000);
+        act(() => {
+          result.current.beginEdit();
+        });
+
+        act(() => {
+          setVisibility('hidden');
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(60_000);
+          await Promise.resolve();
+        });
+
+        // A half-corrected sentence must not post while the app is in the
+        // background: the edit stays frozen rather than being released.
+        expect(vi.mocked(postMessage)).not.toHaveBeenCalled();
+        expect(result.current.countingDown).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('backgrounding stops the mic and returning does NOT restart it', () => {
     const { result } = renderHook(() => useVoice(), { wrapper });
     act(() => {

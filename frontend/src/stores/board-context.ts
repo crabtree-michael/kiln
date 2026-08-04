@@ -19,6 +19,14 @@ export interface BoardStoreValue {
   /** True while a `refreshBoard()` fetch is in flight — lets a consumer show a
    * loading affordance distinct from a genuinely empty snapshot. */
   refreshing: boolean;
+  /**
+   * True until this project's own snapshot has landed since mount — the
+   * project-switch wait (12 §4.1). It stays true through the refresh that runs
+   * behind a cache-seeded board, so "we are catching up" and "this project has
+   * nothing on it" never read the same. Unlike `refreshing`, which is about an
+   * explicitly-requested pull, this is about the store's own first load.
+   */
+  loading: boolean;
 }
 
 const { Context: BoardStoreContext, useStore: useBoardStore } =

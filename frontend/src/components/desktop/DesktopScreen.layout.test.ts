@@ -128,11 +128,30 @@ describe('DesktopScreen.css', () => {
     expect(strip.match(/animation:/g)).toHaveLength(1);
   });
 
+  it('keeps the loading line in the feed’s reading column, and off the accent', () => {
+    // It sits directly above the feed and says something about the whole
+    // project, so it has to line up with the column it is about — a different
+    // measure or gutter reads as a second column (the working strip's rule).
+    // The accent assertion is covered in full by the budget case above; what
+    // matters here is that a *waiting* state, of all things, never spends it.
+    const line = ruleBody("[data-role='desktop-loading-line'] {");
+    expect(line).toMatch(/max-width:\s*720px/);
+    expect(line).toMatch(/margin:\s*0 auto/);
+    expect(ruleBody("[data-role='desktop-loading'] {")).toMatch(/flex:\s*none/);
+    const mark = ruleBody("[data-role='desktop-loading-mark'] {");
+    expect(mark).not.toMatch(/var\(--accent/);
+    // Indeterminate by construction: a turning mark, never a filling bar — a
+    // fetch has no measurable progress and a bar that measures nothing is a lie.
+    expect(mark).toMatch(/animation:\s*kiln-spin/);
+    expect(mark).not.toMatch(/width:\s*\d+%/);
+  });
+
   it('suppresses every self-starting animation under prefers-reduced-motion', () => {
     const query = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(query).toMatch(/\[data-role='desktop-feed-row'\]/);
     expect(query).toMatch(/desktop-working-dot/);
     expect(query).toMatch(/rail-project-dot/);
+    expect(query).toMatch(/desktop-loading-mark/);
   });
 
   it('uses desktop density in the rail — no thumb-sized targets', () => {

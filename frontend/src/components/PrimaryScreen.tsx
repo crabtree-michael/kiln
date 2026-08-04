@@ -62,6 +62,7 @@ function PrimaryScreenBody(): JSX.Element {
   const {
     feed,
     connectionState,
+    loading: feedLoading,
     lastSeenId,
     hasMoreHistory,
     loadingMoreHistory,
@@ -75,7 +76,14 @@ function PrimaryScreenBody(): JSX.Element {
     dismissCard,
     dismissAll,
   } = useFeedStore();
-  const { board, refreshBoard, refreshing } = useBoardStore();
+  const { board, refreshBoard, refreshing, loading: boardLoading } = useBoardStore();
+  // One answer to "is this project still loading?" for the shell below. Both
+  // stores are seeded from the per-project cache on a switch and then refresh
+  // (12 §4.1), so either one still being in flight means what's on screen is the
+  // last thing we knew rather than the current thing — which is exactly what the
+  // indication is for. OR rather than AND: the strip should be up for the whole
+  // wait, not just the part where both halves happen to overlap.
+  const loading = boardLoading || feedLoading;
   const { thinking, toasts, dismiss, setToastExpanded } = useActivityStore();
   const { mode: notificationMode, setMode: setNotificationMode } = useNotificationMode();
   const { status: pushStatus, enable: enablePush, disable: disablePush } = useWebPush();
@@ -236,6 +244,7 @@ function PrimaryScreenBody(): JSX.Element {
         feed={feed}
         board={board}
         connectionState={connectionState}
+        loading={loading}
         thinking={thinking}
         toasts={toasts}
         onDismiss={dismiss}

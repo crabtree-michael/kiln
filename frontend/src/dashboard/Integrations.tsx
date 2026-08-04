@@ -273,7 +273,7 @@ interface ApiKeyCardProps {
 }
 
 /** One provider as a single row: brand mark, name, connection state, and the
- * action pinned to the right edge. No detail line under it — the state chip and
+ * action pinned to the right edge. No detail line under it — the state dot and
  * the Connect/Update-key wording already say everything the row needs to, and
  * the stored key's fingerprint shows in the dialog where you'd act on it. */
 function ApiKeyCard({
@@ -286,6 +286,7 @@ function ApiKeyCard({
   onSave,
 }: ApiKeyCardProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  const connectedLabel = status.set ? 'Connected' : 'Not connected';
 
   // One request for whatever the dialog actually changed — a key, the extra
   // config, or both — so a single save chains a single verify run.
@@ -308,9 +309,18 @@ function ApiKeyCard({
           {spec.logo === undefined ? spec.title.slice(0, 1) : <img src={spec.logo} alt="" />}
         </span>
         <span data-role="integration-title">{spec.title}</span>
-        <span data-role="integration-connected" data-connected={String(status.set)}>
-          {status.set ? 'Connected' : 'Not connected'}
-        </span>
+        {/* Connection state as a dot, not a label: on a phone a "Not connected"
+            pill was the widest thing in the row and read louder than the
+            provider's own name. Filled green vs. a grey ring carries it on
+            screen (see Dashboard.css); the accessible name and the hover title
+            still say it in words. */}
+        <span
+          data-role="integration-connected"
+          data-connected={String(status.set)}
+          role="img"
+          aria-label={connectedLabel}
+          title={connectedLabel}
+        />
         <div data-role="integration-action">
           <CredentialStatusIndicator
             name={spec.credential}

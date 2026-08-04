@@ -296,11 +296,12 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                       Amika
                     </span>
                     <span
+                      aria-label="Not connected"
                       data-connected="false"
                       data-role="integration-connected"
-                    >
-                      Not connected
-                    </span>
+                      role="img"
+                      title="Not connected"
+                    />
                     <div
                       data-role="integration-action"
                     >
@@ -342,11 +343,12 @@ exports[`Dashboard > matches the DOM-structure snapshot: settings view 1`] = `
                       Devin
                     </span>
                     <span
+                      aria-label="Not connected"
                       data-connected="false"
                       data-role="integration-connected"
-                    >
-                      Not connected
-                    </span>
+                      role="img"
+                      title="Not connected"
+                    />
                     <div
                       data-role="integration-action"
                     >

@@ -1,12 +1,23 @@
 // Ticket detail sheet. Opening a board card slides a bottom sheet up into view
 // from the bottom edge (a classic mobile sheet) showing the ticket's full
 // record — everything the card elides: the complete body, priority, timestamps,
-// id, and (when blocked) the full blocked reason. It stays read-only inspection
-// over the read-only board (D5) as far as the ticket's *content* goes — there is
-// no edit affordance for title, body, or state. The one thing it does write is
-// the per-ticket sandbox option (`onSetKeepSandbox`), which is the user's own
-// setting on the ticket rather than a board transition, so it does not route
-// through the brain.
+// id, and (when blocked) the full blocked reason. It is read-only inspection
+// over the read-only board (D5) as far as the ticket's *state* goes: Accept,
+// Delete and Poke all only express intent, which the caller routes through the
+// brain. It writes exactly two things directly, both of them the user's own
+// input rather than a board transition:
+//
+//   • the per-ticket sandbox option (`onSetKeepSandbox`) — a setting on the
+//     ticket; and
+//   • the ticket's own title/body text (`onEditText`) — the edit affordance in
+//     the header, which turns the title and body into fields the user types in.
+//
+// The text edit is deliberately NOT routed through the brain, and for a sharper
+// reason than the sandbox toggle: describing a wording change out loud and
+// letting the brain rewrite the ticket is exactly what drifts from what the user
+// meant, so a direct edit exists precisely to put the typed text on the board
+// verbatim. It is offered only while the ticket is still in the backlog
+// (EDITABLE_STATES) — past that, the text is what the agent was briefed with.
 //
 // The slide-up entrance + native rubber-band overscroll and drag-to-dismiss come
 // from `vaul` (direction="bottom") — the standard React drawer/sheet, adopted
@@ -20,7 +31,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Drawer } from 'vaul';
 import type { Ticket } from '@/components/TicketCard';
+import type { components } from '@/schema/generated';
 import '@/components/TicketDetail.css';
+
+/** One direct text edit: the fields the user actually changed. Both are
+ * optional and only changed ones are sent, so an edit to the title alone can't
+ * clobber a body the brain rewrote while the sheet was open. It is the wire
+ * request body itself (POST /api/tickets/{id}/text), taken straight from the
+ * generated schema so the sheet and the transport can't drift. */
+export type TicketTextEdit = components['schemas']['TicketTextRequest'];
 
 export interface TicketDetailProps {
   ticket: Ticket;
@@ -63,6 +82,17 @@ export interface TicketDetailProps {
    * to keep working in) just as much as while it's running. Omitted → no switch,
    * so a read-only sheet is unchanged. */
   onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
+  /** When provided, the sheet shows an **edit** affordance beside the title (a
+   * pencil) for a ticket still in EDITABLE_STATES, turning the title and body
+   * into a text field and a textarea the user types in directly. Saving calls
+   * this with only the fields that actually changed. Unlike Accept/Delete/Poke
+   * it carries no intent for the brain to interpret: the caller writes the text
+   * straight to the board (POST /api/tickets/{id}/text), because an LLM pass
+   * between the user and their own words is the drift this affordance exists to
+   * remove. Like the sandbox switch the sheet stays open afterwards — the user
+   * saves and reads the result. Omitted → no pencil, so a read-only sheet is
+   * unchanged. */
+  onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
   /** The live session status of this ticket's bound agent, from the board
    * snapshot's `agents` join (`AgentStatus.status === 'idle'`). A *working* ticket
    * only offers Poke when this is true — the agent is alive but between turns and
@@ -141,6 +171,23 @@ const DELETE_BLOCKED_CONFIRM =
  * feed store's optimistic card hides use. */
 const SANDBOX_OPTIMISTIC_MS = 5000;
 
+/** The lifecycle states whose text the user may edit directly, when the caller
+ * wires `onEditText`. It mirrors the board's own `shape_ticket` precondition
+ * (shaping or ready) rather than restating a client-side opinion: shaping is
+ * where wording gets refined before work starts, ready is still queued and not
+ * yet briefed to anyone. Once a ticket is working/blocked/done its text is what
+ * an agent was actually briefed with, so the board refuses the write (409) and
+ * the sheet offers no pencil. This set is the single seam for widening the
+ * affordance later — widen the board's precondition with it. */
+const EDITABLE_STATES = new Set<Ticket['state']>(['shaping', 'ready']);
+
+/** How long a saved edit is shown before the sheet defers to the board snapshot
+ * again. The write is fire-and-forget (the new text arrives on the next
+ * `board.updated`), so the sheet shows what was typed immediately and this
+ * time-box is what self-heals it if the write never lands — the same shape the
+ * sandbox switch above uses. */
+const TEXT_OPTIMISTIC_MS = 5000;
+
 export function TicketDetail({
   ticket,
   onClose,
@@ -148,6 +195,7 @@ export function TicketDetail({
   onDelete,
   onPoke,
   onSetKeepSandbox,
+  onEditText,
   agentIdle = false,
   voiceControl,
   transcript,
@@ -194,6 +242,40 @@ export function TicketDetail({
     };
   }, [pendingKeep, serverKeep]);
 
+  // The direct text edit, in two pieces of state:
+  //  • `draft` is non-null exactly while the user is editing, and holds what
+  //    they have typed so far. Entering edit mode seeds it from what is on
+  //    screen; Cancel throws it away.
+  //  • `pendingText` is the just-saved text, shown until the board snapshot
+  //    catches up. Same self-healing shape as `pendingKeep`: it clears the
+  //    moment the snapshot agrees, and otherwise on a time-box, so a write that
+  //    never lands can't leave the sheet showing text the board doesn't have.
+  const [draft, setDraft] = useState<{ title: string; body: string } | null>(null);
+  const [pendingText, setPendingText] = useState<{ title: string; body: string } | null>(null);
+  const serverTitle = ticket.title;
+  const serverBody = ticket.body;
+  useEffect(() => {
+    if (pendingText === null) {
+      return;
+    }
+    if (pendingText.title === serverTitle && pendingText.body === serverBody) {
+      setPendingText(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setPendingText(null);
+    }, TEXT_OPTIMISTIC_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [pendingText, serverTitle, serverBody]);
+  // What the sheet renders: the optimistic text while a save is in flight,
+  // otherwise the board's own. Everything downstream (the title, the Markdown
+  // body, the edit draft's seed) reads these, never the raw ticket, so the saved
+  // wording never flickers back to the pre-edit text for one snapshot.
+  const shownTitle = pendingText === null ? serverTitle : pendingText.title;
+  const shownBody = pendingText === null ? serverBody : pendingText.body;
+
   const isShaping = ticket.state === 'shaping';
   const isBlocked = ticket.state === 'blocked';
   const isWorking = ticket.state === 'working';
@@ -214,13 +296,49 @@ export function TicketDetail({
   // DELETABLE_STATES state (shaping or blocked).
   const showVoice = voiceControl !== undefined;
   const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
+  // Whether the sheet is in edit mode. The pencil that enters it is gated
+  // inline on EDITABLE_STATES + onEditText (a backlog ticket whose text the
+  // board will still accept, with the write wired) rather than on a derived
+  // boolean, so TypeScript narrows the callback inside its handler.
+  const editing = draft !== null;
+  // A ticket must keep a name: the title is its whole identity on the board and
+  // in the feed, and the server rejects a blank one, so Save is disabled rather
+  // than letting the user submit into a 400. An empty *body* is a legal edit.
+  const canSave = draft !== null && draft.title.trim() !== '';
   // The dock is the sheet's bottom region — the unified home for the action
   // controls AND the live voice transcript (08 §5), the mirror of the primary
   // screen's own dock. It renders whenever any footer affordance does; the
   // transcript, when present, stacks above the controls inside it and grows the
   // dock upward as words stream in. The transcript rides the same gate as the mic
-  // (`showVoice`) — it is that mic's on-screen feedback.
-  const showDock = showVoice || canPoke || canDelete || canAccept;
+  // (`showVoice`) — it is that mic's on-screen feedback. While editing it always
+  // renders, because Cancel/Save live there and replace the state actions
+  // wholesale: mid-edit is no moment to be offered Accept or a mic.
+  const showDock = editing || showVoice || canPoke || canDelete || canAccept;
+
+  /** Commit the draft. Only the fields that actually changed are sent, so an
+   * edit to one can't overwrite the other with the text the sheet happened to
+   * open with (the brain may have rewritten it meanwhile). An unchanged draft
+   * sends nothing at all — closing the editor is the whole effect, rather than a
+   * write that would still fan a board.updated out to every open client. */
+  function saveDraft(): void {
+    if (draft === null || onEditText === undefined || !canSave) {
+      return;
+    }
+    const title = draft.title.trim();
+    const { body } = draft;
+    const patch: TicketTextEdit = {};
+    if (title !== shownTitle) {
+      patch.title = title;
+    }
+    if (body !== shownBody) {
+      patch.body = body;
+    }
+    if (patch.title !== undefined || patch.body !== undefined) {
+      setPendingText({ title, body });
+      onEditText(ticket.id, patch);
+    }
+    setDraft(null);
+  }
   return (
     // `open` is fixed true: this component only mounts while a ticket is
     // selected, so Vaul's own open/closed state just mirrors that. Every dismiss
@@ -261,7 +379,34 @@ export function TicketDetail({
                 title gets the full header width instead of ceding room to a badge
                 on its right. */}
             <div data-role="ticket-detail-heading">
-              <Drawer.Title data-role="ticket-detail-title">{ticket.title}</Drawer.Title>
+              {/* The title is always rendered, even mid-edit: Radix names the
+                  dialog by this element (aria-labelledby), so replacing it with
+                  an input would leave the sheet nameless. While editing it is
+                  visually hidden instead (data-editing, clipped in CSS) and the
+                  field below takes its place on screen — the accessible name
+                  stays the ticket's saved title throughout. */}
+              <Drawer.Title
+                data-role="ticket-detail-title"
+                data-editing={editing ? 'true' : undefined}
+              >
+                {shownTitle}
+              </Drawer.Title>
+              {draft !== null && (
+                <input
+                  type="text"
+                  data-role="detail-edit-title"
+                  aria-label="Title"
+                  value={draft.title}
+                  // Vaul reads pointer drags on the sheet as dismiss gestures;
+                  // opt the fields out so selecting text inside one doesn't drag
+                  // the whole sheet away mid-edit.
+                  data-vaul-no-drag
+                  autoFocus
+                  onChange={(event) => {
+                    setDraft({ title: event.target.value, body: draft.body });
+                  }}
+                />
+              )}
               {/* The lifecycle badge: a dot + word directly under the title that
                   names the ticket's state at a glance (In progress / Blocked /
                   Done), each in its own colour. Only the states that carry a
@@ -275,6 +420,38 @@ export function TicketDetail({
                 </span>
               )}
             </div>
+            {/* The edit affordance, beside the title: a pencil that turns the
+                title and body into fields. Icon-only like Delete/Poke, so its
+                accessible name comes from aria-label; the glyph is aria-hidden.
+                Hidden once editing starts — the sheet is already in that mode,
+                and Cancel/Save in the dock are the way out. Narrows on
+                onEditText directly (not the derived canEdit) so TypeScript knows
+                it's defined in the handler, mirroring the dock's buttons. */}
+            {EDITABLE_STATES.has(ticket.state) && onEditText !== undefined && !editing && (
+              <button
+                type="button"
+                data-role="ticket-detail-edit"
+                aria-label="Edit"
+                onClick={() => {
+                  setDraft({ title: shownTitle, body: shownBody });
+                }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3" />
+                  <path d="M14.5 6.5l3 3" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               data-role="ticket-detail-close"
@@ -288,37 +465,57 @@ export function TicketDetail({
           {/* The scroll region: the block message and the Markdown body live
               together inside the one overflowing area, so a long block message
               scrolls with the body instead of being clipped by the panel's
-              overflow: hidden. Both sit under the pinned header/meta. */}
-          <div data-role="ticket-detail-body">
-            {ticket.state === 'blocked' && ticket.blocked_reason != null && (
-              <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
-            )}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{ticket.body}</ReactMarkdown>
-            {/* The per-ticket sandbox option, at the foot of the scroll region:
+              overflow: hidden. Both sit under the pinned header/meta.
+
+              While editing, the whole region becomes the body textarea: the
+              rendered Markdown is what the user is replacing, and the sandbox
+              switch is a different kind of decision that has no place in the
+              middle of typing. The blocked reason never appears here either —
+              a blocked ticket is not editable in the first place. */}
+          <div data-role="ticket-detail-body" data-editing={editing ? 'true' : undefined}>
+            {draft !== null ? (
+              <textarea
+                data-role="detail-edit-body"
+                aria-label="Description"
+                value={draft.body}
+                data-vaul-no-drag
+                onChange={(event) => {
+                  setDraft({ title: draft.title, body: event.target.value });
+                }}
+              />
+            ) : (
+              <>
+                {ticket.state === 'blocked' && ticket.blocked_reason != null && (
+                  <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
+                )}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{shownBody}</ReactMarkdown>
+                {/* The per-ticket sandbox option, at the foot of the scroll region:
                 it is a setting the user reads and considers, not one of the
                 dock's one-tap actions, so it sits with the ticket's own record
                 rather than competing with Accept/Poke/Delete for the thumb. The
                 label wraps the checkbox, so the whole row is the hit target and
                 the accessible name needs no aria plumbing. */}
-            {onSetKeepSandbox !== undefined && (
-              <div data-role="detail-sandbox">
-                <label data-role="detail-sandbox-switch">
-                  <input
-                    type="checkbox"
-                    data-role="detail-keep-sandbox"
-                    checked={pendingKeep ?? serverKeep}
-                    onChange={(event) => {
-                      setPendingKeep(event.target.checked);
-                      onSetKeepSandbox(ticket.id, event.target.checked);
-                    }}
-                  />
-                  Save this ticket&rsquo;s sandbox
-                </label>
-                <p data-role="detail-sandbox-hint">
-                  A saved sandbox isn&rsquo;t torn down when the ticket leaves development, so an
-                  agent can keep working in the same workspace across turns.
-                </p>
-              </div>
+                {onSetKeepSandbox !== undefined && (
+                  <div data-role="detail-sandbox">
+                    <label data-role="detail-sandbox-switch">
+                      <input
+                        type="checkbox"
+                        data-role="detail-keep-sandbox"
+                        checked={pendingKeep ?? serverKeep}
+                        onChange={(event) => {
+                          setPendingKeep(event.target.checked);
+                          onSetKeepSandbox(ticket.id, event.target.checked);
+                        }}
+                      />
+                      Save this ticket&rsquo;s sandbox
+                    </label>
+                    <p data-role="detail-sandbox-hint">
+                      A saved sandbox isn&rsquo;t torn down when the ticket leaves development, so
+                      an agent can keep working in the same workspace across turns.
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -352,84 +549,113 @@ export function TicketDetail({
                   transcript, growing upward as the words stream in. Rides the same
                   gate as the mic (`showVoice`, wired on every state); the node
                   self-gates further on there being transcript text, so it takes no
-                  room until the user speaks. */}
-              {showVoice && transcript}
-              <div data-role="ticket-detail-actions">
-                {/* Bottom-left cluster: the mic. `margin-right: auto` on it pushes
+                  room until the user speaks. Suppressed while editing: the mic is
+                  gone in that mode, so its feedback has nothing to show. */}
+              {!editing && showVoice && transcript}
+              {/* Editing replaces the state actions wholesale with Cancel/Save.
+                  Mid-edit is no moment to be offered Accept, Delete or a mic, and
+                  the two ways out of the mode are the only controls that matter —
+                  so the row below is skipped entirely rather than grown. */}
+              {editing ? (
+                <div data-role="ticket-detail-actions">
+                  <button
+                    type="button"
+                    data-role="detail-edit-cancel"
+                    onClick={() => {
+                      setDraft(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-role="detail-edit-save"
+                    // A blank title is refused by the server, so the button is
+                    // dead rather than inviting the user into a 400.
+                    disabled={!canSave}
+                    onClick={saveDraft}
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <div data-role="ticket-detail-actions">
+                  {/* Bottom-left cluster: the mic. `margin-right: auto` on it pushes
                   the trailing state actions (Delete/Accept/Poke) to the right;
                   absent (a sheet without voice) the row is byte-identical to the
                   old flex-end footer. */}
-                {showVoice && <div data-role="ticket-detail-lead-actions">{voiceControl}</div>}
-                {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
-                  <button
-                    type="button"
-                    data-role="detail-poke"
-                    aria-label="Poke"
-                    onClick={() => {
-                      onPoke(ticket.id);
-                    }}
-                  >
-                    {/* Icon-only, matching Delete: the 👉 is the whole visible
+                  {showVoice && <div data-role="ticket-detail-lead-actions">{voiceControl}</div>}
+                  {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
+                    <button
+                      type="button"
+                      data-role="detail-poke"
+                      aria-label="Poke"
+                      onClick={() => {
+                        onPoke(ticket.id);
+                      }}
+                    >
+                      {/* Icon-only, matching Delete: the 👉 is the whole visible
                       signal for a poke (mirroring the feed's poke card, 08 §3),
                       with no text label around it. The glyph is aria-hidden and the
                       button's accessible name comes from aria-label="Poke". */}
-                    <span data-role="detail-poke-emoji" aria-hidden="true">
-                      👉
-                    </span>
-                  </button>
-                )}
-                {/* Delete shows for a DELETABLE_STATES ticket with onDelete wired,
+                      <span data-role="detail-poke-emoji" aria-hidden="true">
+                        👉
+                      </span>
+                    </button>
+                  )}
+                  {/* Delete shows for a DELETABLE_STATES ticket with onDelete wired,
                   as an icon-only circular button to the left of Accept. Inline the
                   state + callback check (not the derived canDelete) so TypeScript
                   narrows onDelete to defined inside onClick — mirroring the
                   Poke/Accept buttons. The trash glyph is aria-hidden, so the
                   button's accessible name comes from aria-label="Delete". */}
-                {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
-                  <button
-                    type="button"
-                    data-role="detail-delete"
-                    aria-label="Delete"
-                    onClick={() => {
-                      // A blocked delete discards in-progress work and releases a
-                      // worker, with no un-archive — so confirm it (D4). A shaping
-                      // proposal is cheap and re-proposable: delete it immediately,
-                      // no confirm.
-                      if (ticket.state === 'blocked' && !window.confirm(DELETE_BLOCKED_CONFIRM)) {
-                        return;
-                      }
-                      onDelete(ticket.id);
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      aria-hidden="true"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                  {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
+                    <button
+                      type="button"
+                      data-role="detail-delete"
+                      aria-label="Delete"
+                      onClick={() => {
+                        // A blocked delete discards in-progress work and releases a
+                        // worker, with no un-archive — so confirm it (D4). A shaping
+                        // proposal is cheap and re-proposable: delete it immediately,
+                        // no confirm.
+                        if (ticket.state === 'blocked' && !window.confirm(DELETE_BLOCKED_CONFIRM)) {
+                          return;
+                        }
+                        onDelete(ticket.id);
+                      }}
                     >
-                      <path d="M4 7h16" />
-                      <path d="M10 11v6M14 11v6" />
-                      <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
-                      <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
-                    </svg>
-                  </button>
-                )}
-                {isShaping && onAccept !== undefined && (
-                  <button
-                    type="button"
-                    data-role="detail-accept"
-                    onClick={() => {
-                      onAccept(ticket.id);
-                    }}
-                  >
-                    Accept
-                  </button>
-                )}
-              </div>
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M4 7h16" />
+                        <path d="M10 11v6M14 11v6" />
+                        <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+                        <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                      </svg>
+                    </button>
+                  )}
+                  {isShaping && onAccept !== undefined && (
+                    <button
+                      type="button"
+                      data-role="detail-accept"
+                      onClick={() => {
+                        onAccept(ticket.id);
+                      }}
+                    >
+                      Accept
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </Drawer.Content>

@@ -295,27 +295,52 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
 
 _(Accumulate more as you work.)_
 
-## The ticket detail sheet's one write (per-ticket sandbox option)
+## The ticket detail sheet's two direct writes
 
-The sheet is read-only inspection over a read-only board (D5) for the ticket's *content*, and
-Accept / Delete / Poke all express intent that the caller routes **through the brain**. The
-one exception is the **sandbox switch** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
-/api/tickets/{id}/sandbox`): saving a ticket's sandbox stops the board recycling its worker,
-so an agent can keep working in the same workspace across turns. It is a *setting on the
-ticket*, not a board transition, so it writes directly — round-tripping a toggle through an
-LLM pass would be slow and non-deterministic for no gain.
+The sheet is read-only inspection over a read-only board (D5) as far as the ticket's *state*
+goes — Accept / Delete / Poke all express intent that the caller routes **through the brain**.
+Exactly two things bypass it, both because they are the user's own input rather than a
+transition:
 
-Two consequences worth keeping when you touch it:
+- **The sandbox switch** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
+  /api/tickets/{id}/sandbox`): saving a ticket's sandbox stops the board recycling its worker,
+  so an agent can keep working in the same workspace across turns. It is a *setting on the
+  ticket*, so it writes directly — round-tripping a toggle through an LLM pass would be slow
+  and non-deterministic for no gain.
+- **The text edit** (`onEditText` → `editTicketText` → `POST /api/tickets/{id}/text`): the
+  pencil beside the title turns the title and body into a field and a textarea. This one skips
+  the brain for the opposite reason — **an LLM pass is the thing being avoided.** Describing a
+  wording change out loud and letting the brain rewrite the ticket is what drifts from what
+  the user meant (that drift is the whole reason the affordance exists), so the typed text has
+  to land verbatim. Never "improve" this by routing it back through the brain.
 
-- **It does not close the sheet.** Every other action closes on tap; a setting is flipped
-  while reading, so `PrimaryScreenView` passes this one straight through without
-  `closeTicket()`.
-- **The switch is optimistically controlled, time-boxed.** The value lives on the board
-  snapshot, which only comes back over the stream, so the switch renders `pendingKeep ??
-  ticket.keep_sandbox` and drops the overlay as soon as the snapshot agrees — or after
-  `SANDBOX_OPTIMISTIC_MS` if the write never lands, the same self-healing shape the feed
-  store's optimistic card hides use. `PrimaryScreen` also refreshes the board on a failed
-  write so it snaps back at once instead of on the time-box.
+Both share the two consequences below. The text edit adds three of its own:
+
+- **Gated on `EDITABLE_STATES` (shaping/ready), mirroring the board's `shape_ticket`
+  precondition** — not a client-side opinion. Widen the two together or the pencil offers an
+  edit the server answers with 409.
+- **The `<Drawer.Title>` stays mounted while editing**, visually hidden by a *clip* rule
+  (`[data-editing='true']`), because Radix names the dialog by it. `display: none` is the one
+  hiding style an accessible-name computation may skip — don't "simplify" it to that.
+  Asserted in `TicketDetail.edit-visibility.test.ts` (jsdom does no layout, so nothing else
+  in the gate would catch a duplicated on-screen title).
+- **Save sends only the fields that changed**, so editing the title can't clobber a body the
+  brain rewrote while the sheet was open; an unchanged draft sends nothing at all. Edit mode
+  also replaces the dock's state actions (Accept/Delete/Poke/mic) wholesale with Cancel/Save.
+
+Two consequences worth keeping when you touch either:
+
+- **Neither closes the sheet.** Every other action closes on tap; these are things done
+  *while reading* (a setting flipped, wording corrected — and after a correction the user
+  should be looking at the corrected ticket), so `PrimaryScreenView` passes both straight
+  through without `closeTicket()`.
+- **Both are optimistically shown, time-boxed.** The value lives on the board snapshot, which
+  only comes back over the stream, so the sheet renders `pendingKeep ?? ticket.keep_sandbox`
+  (and `pendingText` over `ticket.title`/`.body`) and drops the overlay as soon as the
+  snapshot agrees — or after `SANDBOX_OPTIMISTIC_MS` / `TEXT_OPTIMISTIC_MS` if the write never
+  lands, the same self-healing shape the feed store's optimistic card hides use. `PrimaryScreen`
+  also refreshes the board on a failed write so it snaps back at once instead of on the
+  time-box (for the edit, that covers the 409 a ticket that left the backlog mid-sheet returns).
 
 ## Swipe-to-dismiss (feed cards, 08 §3)
 

@@ -22,6 +22,7 @@ import {
   setActiveProjectId,
   fetchGitHubRepos,
   setTicketSandbox,
+  editTicketText,
   type Board,
   type FeedSnapshot,
   type SayEvent,
@@ -245,6 +246,46 @@ describe('transport', () => {
         vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
       );
       await expect(setTicketSandbox('t-gone', true)).rejects.toThrow('HTTP 404');
+    });
+  });
+
+  describe('editTicketText (POST /api/tickets/{id}/text)', () => {
+    it('POSTs the patch to the ticket text route', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 202 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await editTicketText('t-42', { title: 'Renamed', body: 'New body' });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/tickets/t-42/text');
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBe(JSON.stringify({ title: 'Renamed', body: 'New body' }));
+    });
+
+    // The patch is a patch: an absent field must stay absent on the wire, or the
+    // server would read it as "leave unchanged" for one shape and "blank it" for
+    // another.
+    it('sends only the fields the caller supplied', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 202 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await editTicketText('t-42', { title: 'Only the title' });
+
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      expect(init?.body).toBe(JSON.stringify({ title: 'Only the title' }));
+    });
+
+    it('rejects on a non-2xx so the caller can roll its optimistic text back', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 409 }))),
+      );
+      await expect(editTicketText('t-working', { title: 'Too late' })).rejects.toThrow('HTTP 409');
     });
   });
 

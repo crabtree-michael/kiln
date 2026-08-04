@@ -835,6 +835,15 @@ type TicketSandboxRequest struct {
 	Keep bool `json:"keep"`
 }
 
+// TicketTextRequest POST /api/tickets/{id}/text body — a direct edit of the ticket's own text. Both fields are optional so the sheet can send only what changed, but at least one must be present (neither ⇒ 400). An omitted field is left untouched; a present one replaces the stored value verbatim, including an empty `body` — clearing the description is a legal edit, clearing the title is not.
+type TicketTextRequest struct {
+	// Body The ticket's new body, as Markdown source. May be empty (clears the description); omit the field to leave the body unchanged.
+	Body *string `json:"body,omitempty"`
+
+	// Title The ticket's new title. Must contain a non-whitespace character; omit the field to leave the title unchanged.
+	Title *string `json:"title,omitempty"`
+}
+
 // VerifyCheck defines model for VerifyCheck.
 type VerifyCheck struct {
 	Message string            `json:"message"`
@@ -915,3 +924,6 @@ type SaveSnapshotJSONRequestBody = SaveSnapshotRequest
 
 // SetTicketSandboxJSONRequestBody defines body for SetTicketSandbox for application/json ContentType.
 type SetTicketSandboxJSONRequestBody = TicketSandboxRequest
+
+// EditTicketTextJSONRequestBody defines body for EditTicketText for application/json ContentType.
+type EditTicketTextJSONRequestBody = TicketTextRequest

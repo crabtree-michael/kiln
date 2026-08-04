@@ -16,7 +16,7 @@ import type { WebPushStatus } from '@/stores/use-web-push';
 import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
-import { TicketDetail } from '@/components/TicketDetail';
+import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
 import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
@@ -71,6 +71,14 @@ export interface PrimaryScreenViewProps {
    * brain); omitted (presentational tests) leaves the sheet without the switch, so
    * the DOM/snapshots stay unchanged. */
   onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
+  /** Save the user's own edit of the open ticket's title/body — the ticket
+   * detail's pencil affordance, shown only on a backlog ticket (shaping/ready).
+   * The composing screen writes the text straight to the board; it deliberately
+   * does NOT go through the brain, since an LLM pass between the user and their
+   * own words is the drift a direct edit exists to remove. Omitted
+   * (presentational tests) leaves the sheet without a pencil, so the DOM/snapshots
+   * stay unchanged. */
+  onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
   /** Clear a single update/preview card by its notification id — the swipe-left
    * gesture (08 §3). When provided, notification-backed cards become swipeable;
    * omitted (presentational tests) leaves every card static, so the swipe wrapper
@@ -212,6 +220,7 @@ export function PrimaryScreenView({
   onDelete,
   onPoke,
   onSetKeepSandbox,
+  onEditText,
   onDismissCard,
   onDismissAll,
   onOpenTickets,
@@ -531,6 +540,12 @@ export function PrimaryScreenView({
           // is a setting the user flips while reading, not an action that ends
           // the visit, and the new value arrives on the next board snapshot.
           onSetKeepSandbox={onSetKeepSandbox}
+          // The pencil shows only on a backlog ticket (TicketDetail gates it).
+          // Passed straight through — like the sandbox switch, and unlike
+          // Accept/Delete/Poke, saving an edit does NOT close the sheet: the
+          // user corrected the wording and should see the corrected ticket, not
+          // be thrown back to the feed.
+          onEditText={onEditText}
         />
       )}
     </div>

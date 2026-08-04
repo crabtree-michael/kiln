@@ -86,6 +86,21 @@
   font-size: 1.05rem;
 }
 
+/* While editing, the title element stays in the DOM but leaves the screen: Radix
+ * names the dialog by it (aria-labelledby), and an element referenced that way is
+ * still used for the accessible name even when hidden — but only if it is hidden
+ * by clipping, not by `display: none` in every engine's reading. So it is clipped
+ * out of flow rather than removed, and the title field below occupies its place. */
+[data-role='ticket-detail-title'][data-editing='true'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Lifecycle status badge — a dot + label sitting directly under the title that
  * names the ticket's state at a glance. Shared geometry here; the colour (and
  * the working state's pulse) is keyed per data-state below, each on its own
@@ -163,6 +178,72 @@
   background: var(--surface-raised);
   color: var(--text-body);
   cursor: pointer;
+}
+
+/* The edit affordance, sitting between the heading and Close. Same quiet square
+ * register as Close so the header reads as one cluster of chrome rather than a
+ * button competing with the title; the pencil glyph is the whole signal (the
+ * accessible name is the aria-label). */
+[data-role='ticket-detail-edit'] {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-raised);
+  color: var(--text-body);
+  cursor: pointer;
+}
+
+[data-role='ticket-detail-edit']:active {
+  transform: translateY(1px);
+}
+
+/* The title field, standing in for the (clipped) heading while editing. Sized to
+ * the title's own type scale so the sheet doesn't visibly reflow on entering the
+ * mode — the words stay the same size in the same place, they just become
+ * editable. `min-width: 0` lets it shrink inside the heading's flex column
+ * instead of forcing the header wider than the sheet. */
+[data-role='detail-edit-title'] {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-body);
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.45rem;
+}
+
+/* The body field, filling the scroll region the rendered Markdown had. It grows
+ * with the sheet rather than scrolling inside a fixed box, and stays
+ * user-resizable vertically for a long edit on a desktop; on a phone the sheet's
+ * own max-height governs and the region scrolls as before. */
+[data-role='detail-edit-body'] {
+  display: block;
+  width: 100%;
+  min-height: 9rem;
+  resize: vertical;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.5;
+  color: var(--text-body);
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.6rem;
+}
+
+[data-role='detail-edit-title']:focus-visible,
+[data-role='detail-edit-body']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 [data-role='detail-blocked-reason'] {
@@ -426,6 +507,51 @@
   gap: 0.5rem;
 }
 
+/* Save — the edit mode's affirmative, in the same accent pill as Accept: it is
+ * the one headline decision on the row, and the two never appear together (edit
+ * mode replaces the state actions wholesale), so they can share the register
+ * without competing. Disabled while the title is blank, which the server would
+ * refuse: dimmed and inert rather than inviting a round-trip that 400s. */
+[data-role='detail-edit-save'] {
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0.55rem 1.4rem;
+  cursor: pointer;
+}
+
+[data-role='detail-edit-save']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-role='detail-edit-save']:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* Cancel — the quiet way out, in the neutral outline so it never reads as the
+ * decision. Sits left of Save. */
+[data-role='detail-edit-cancel'] {
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-body);
+  background: transparent;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+[data-role='detail-edit-cancel']:active {
+  transform: translateY(1px);
+}
+
 [data-role='detail-accept'] {
   font-family: inherit;
   font-size: 0.9rem;
@@ -534,6 +660,67 @@
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close']:hover {
   color: var(--text-body);
+}
+
+/* The edit pencil takes the primary skin's round chrome button, matching Close
+ * beside it exactly — the two read as one pair of header controls. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-edit'] {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-faint);
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-edit']:hover {
+  color: var(--text-body);
+}
+
+/* The fields inherit the primary skin's larger register, so entering edit mode
+ * doesn't shrink the words the user is about to change. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-edit-title'] {
+  font-size: 21px;
+  letter-spacing: -0.01em;
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-edit-body'] {
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* Save matches the primary Accept pill exactly (same size, shadow and hover), so
+ * committing an edit reads as the same affirmative action as accepting. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-edit-save'] {
+  font-size: 13px;
+  border-radius: var(--radius-pill);
+  padding: 9px 22px;
+  box-shadow: var(--shadow-raised);
+}
+
+[data-role='ticket-detail'][data-surface='primary']
+  [data-role='detail-edit-save']:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+[data-role='ticket-detail'][data-surface='primary']
+  [data-role='detail-edit-save']:not(:disabled):active {
+  background: var(--accent-press);
+  transform: translateY(1px);
+}
+
+/* Cancel keeps its quiet outlined register on the primary surface — a card-
+ * coloured ghost pill that recedes behind Save beside it. */
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-edit-cancel'] {
+  font-size: 13px;
+  background: var(--surface-card);
+  border-radius: var(--radius-pill);
+  padding: 9px 16px;
+}
+
+[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-edit-cancel']:hover {
+  border-color: var(--accent-soft);
+  color: var(--accent);
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-blocked-reason'] {

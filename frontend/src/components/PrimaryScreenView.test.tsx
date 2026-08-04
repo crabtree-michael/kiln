@@ -475,10 +475,7 @@ describe('PrimaryScreenView', () => {
     // the last word sits under it as its own subtext line rather than being
     // bulleted onto the end of it (where it wrapped).
     expect(screen.getByText('3 building')).toBeInTheDocument();
-    expect(screen.getByText('last word 6m ago')).toHaveAttribute(
-      'data-role',
-      'feed-empty-subtext',
-    );
+    expect(screen.getByText('last word 6m ago')).toHaveAttribute('data-role', 'feed-empty-subtext');
     expect(screen.queryByText(/idle/)).not.toBeInTheDocument();
     // With active builds the pulse dot goes ember/animated via data-active.
     expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(

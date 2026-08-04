@@ -17,6 +17,14 @@ export interface FeedStoreValue {
   /** Stream state for the connection chip (07 §8, 08 §F feed region gate). */
   connectionState: ConnectionState;
   /**
+   * True while a full-snapshot fetch is in flight: the mount/project-switch
+   * load, the reconnect refetch, and pull-to-refresh. It stays true through the
+   * refresh that runs behind a cache-seeded feed (12 §4.1), so a consumer can
+   * distinguish "still catching up with this project" from "this project really
+   * has nothing to show" — two states that otherwise render identically.
+   */
+  loading: boolean;
+  /**
    * The last-seen divider boundary (08 D2′): update/preview cards with a greater
    * `notification_id` are new since the last visit (above the divider); those at
    * or below it are older history (below it). Frozen at the first snapshot of the

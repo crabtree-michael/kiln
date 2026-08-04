@@ -192,9 +192,17 @@ const page = await browser.newPage({
   colorScheme: 'dark',
 });
 
+// How long the board/feed reads are held before answering. Zero for every pass
+// except the project-switch one at the end, which needs the wait to be long
+// enough to look at (12 §4.1's loading indication).
+let apiDelayMs = 0;
+
 await page.route('**/api/**', async (route) => {
   const url = new URL(route.request().url());
-  const json = (body) => route.fulfill({ json: body });
+  const json = async (body) => {
+    if (apiDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, apiDelayMs));
+    return route.fulfill({ json: body });
+  };
   if (url.pathname.endsWith('/me')) {
     return json({
       user: { github_login: 'amika', display_name: 'Amika', avatar_url: '' },
@@ -465,6 +473,76 @@ console.log(
 );
 await page.keyboard.press('Escape');
 await page.waitForTimeout(300);
+
+// ── Switching projects: the cache and the wait (12 §4.1) ───────────────────
+// Both halves of this are invisible to the gate. The DOM tests can prove the
+// loading line RENDERS; only a browser can say whether it lands in the feed's
+// reading column above the cards rather than on top of them — and only a real
+// switch, with the reads held open, shows whether the previous project's cards
+// are still there underneath it or whether the window went blank again.
+apiDelayMs = 1500;
+await page.click('[data-role="rail-project"][data-project-id="p2"]');
+await page.waitForTimeout(300);
+await page.screenshot({ path: '/tmp/desktop-shell-loading.png' });
+console.log(
+  'SWITCH → LOADING',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const line = rect('[data-role="desktop-loading-line"]');
+      const feed = rect('[data-role="desktop-feed"]');
+      const list = rect('[data-role="desktop-feed-list"]');
+      return {
+        shown: line !== null,
+        text: document.querySelector('[data-role="desktop-loading-line"]')?.textContent?.trim(),
+        // Above the scroll region, holding its own height — the working strip's
+        // stance, for the same reason.
+        aboveFeed: line && feed ? line.bottom <= feed.top + 1 : 'missing',
+        // …and in the same column as the cards it is about.
+        alignedWithFeed: line && list ? Math.round(line.left - list.left) : 'missing',
+        // The resting line is a statement of fact, so it is withheld until the
+        // fact is known.
+        restLineShown: document.querySelector('[data-role="desktop-rest"]') !== null,
+      };
+    }),
+    null,
+    2,
+  ),
+);
+
+await page.waitForTimeout(2000);
+console.log(
+  'SWITCH → SETTLED',
+  JSON.stringify(
+    await page.evaluate(() => ({
+      loadingGone: document.querySelector('[data-role="desktop-loading"]') === null,
+      cards: document.querySelectorAll('[data-role="desktop-feed-row"]').length,
+    })),
+  ),
+);
+
+// Back to a project already loaded this session: its cards must be on screen in
+// the same frame as the click, with the refresh running visibly behind them.
+await page.click('[data-role="rail-project"][data-project-id="p1"]');
+await page.waitForTimeout(120);
+await page.screenshot({ path: '/tmp/desktop-shell-cached.png' });
+console.log(
+  'SWITCH BACK → CACHED',
+  JSON.stringify(
+    await page.evaluate(() => ({
+      cardsPaintedImmediately: document.querySelectorAll('[data-role="desktop-feed-row"]').length,
+      stillRefreshing: document.querySelector('[data-role="desktop-loading"]') !== null,
+      workingStrip: Array.from(
+        document.querySelectorAll('[data-role="desktop-working-title"]'),
+      ).map((node) => node.textContent),
+    })),
+  ),
+);
+apiDelayMs = 0;
+await page.waitForTimeout(2000);
 
 // Narrow the window: the mobile shell must take back over — and the theme must
 // not so much as flicker, because it never depended on the shell in the first

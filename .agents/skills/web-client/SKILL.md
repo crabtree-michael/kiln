@@ -541,6 +541,24 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   subtree, so the hook remounts on every switch. Seeding from `{}` would blank every other
   project's mark for one round-trip each time, at exactly the moment the user is looking at
   the rail.
+- **The board and feed stores bridge the same remount through `stores/project-cache.ts`**, for
+  the same reason and with the same justification (a derived cache of server-owned snapshots,
+  module scope because the remount is the point, per-JS-context, memory-only, bounded to 8
+  projects LRU). Each store captures `getActiveProjectId()` once at mount, seeds its state
+  from the cache in a **lazy `useState` initializer** — not an effect, which fires after paint
+  and would still flash one blank frame — and writes back through its single funnel
+  (`applyBoard`; the feed's `remerge`). Three rules when you touch it: the cache **never
+  replaces the fetch** (both stores still load on mount and refresh in place); the feed caches
+  its **optimistic suppressions** too (swipe dismissals, accepted/deleted ticket hides) or a
+  card the user just dealt with flashes back for a round-trip; and the feed **restores the
+  frozen last-seen divider** rather than re-freezing it, since a switch is not a new session.
+- **`loading` on both stores is what a shell renders the wait from**, and it stays true through
+  the refresh that runs *behind* cache-seeded data — that is the whole point, not an edge case.
+  `DesktopScreenView` renders it as one faint line above the feed and **withholds "All quiet."
+  while it is up**: the resting line is a statement that we asked and there was nothing, and
+  saying it mid-fetch teaches the user not to believe the line the screen most needs believed.
+  The mobile shell keeps its own affordances (pull-to-refresh, the header's tickets spinner)
+  and does not render this line, but it gets the cache for free.
 - **Deliberately NOT ported to the desk** (all four are spec calls, not omissions): swipe /
   per-card dismiss and the bulk clear (13 §6 + open Q3 — the brain curates, 08 D1),
   pull-to-refresh (a touch gesture), and the header's ticket dropdown (board mechanism,
@@ -626,4 +644,7 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   `frontend/dist`, stubs every `/api` call, and screenshots + measures the shell at 1440px
   and at 480px. `pnpm build` in `/frontend`, then `node desktop-shell-smoke.mjs` from
   `/tests`. It is what catches the class of bug the CSS-string assertions can't — regions
-  that render but lay out wrong. Run it after any change to `DesktopScreen.css`.
+  that render but lay out wrong. Run it after any change to `DesktopScreen.css`. It also
+  holds the board/feed reads open (`apiDelayMs`) across one project switch, which is the only
+  way to observe the loading line's real geometry and to prove the previous project's cards
+  are still under it rather than the window having gone blank again.

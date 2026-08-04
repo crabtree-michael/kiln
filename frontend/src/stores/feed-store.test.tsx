@@ -11,7 +11,8 @@ import type { JSX } from 'react';
 import { FeedProvider } from '@/stores/feed-store';
 import { useFeedStore } from '@/stores/feed-context';
 import * as transport from '@/transport/transport';
-import type { StreamConnection, StreamHandlers } from '@/transport/transport';
+import type { FeedSnapshot, StreamConnection, StreamHandlers } from '@/transport/transport';
+import { resetProjectCache } from '@/stores/project-cache';
 import { makeFeedCard, makeFeedSnapshot } from '@/test/fixtures';
 
 vi.mock('@/transport/transport', () => ({
@@ -25,6 +26,10 @@ vi.mock('@/transport/transport', () => ({
   fetchMessages: vi.fn(),
   postMessage: vi.fn(),
   openStream: vi.fn(),
+  // Defaults to "no project resolved", which makes the per-project cache a
+  // no-op — so every case below sees a cold store unless it names a project
+  // (see the project-switch cases at the end).
+  getActiveProjectId: vi.fn(() => null),
 }));
 
 function setVisibility(state: DocumentVisibilityState): void {
@@ -72,6 +77,7 @@ function Probe({
   const {
     feed,
     connectionState,
+    loading,
     lastSeenId,
     hasMoreHistory,
     loadingMoreHistory,
@@ -88,6 +94,7 @@ function Probe({
     <div
       data-testid="probe"
       data-connection-state={connectionState}
+      data-loading={String(loading)}
       data-card-count={feed?.cards.length ?? -1}
       data-card-ids={(feed?.cards ?? []).map((card) => card.id).join(',')}
       data-last-seen={lastSeenId ?? ''}
@@ -177,6 +184,10 @@ describe('FeedProvider', () => {
     vi.mocked(transport.dismissFeedCard).mockReset();
     vi.mocked(transport.dismissAllFeedCards).mockReset();
     vi.mocked(transport.openStream).mockReset();
+    vi.mocked(transport.getActiveProjectId).mockReturnValue(null);
+    // The cache is module scope and vitest shares a module registry across the
+    // cases in a file, so one case's feed would seed the next one's mount.
+    resetProjectCache();
   });
 
   it('fetches the feed once on mount for first paint (08 §3)', async () => {
@@ -1063,5 +1074,203 @@ describe('FeedProvider', () => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:4');
     });
     expect(screen.getByTestId('probe').dataset.showSeen).toBe('true');
+  });
+
+  // --- project switching (12 §4.1): the per-project cache + the loading flag ---
+
+  it('reports loading until the first snapshot lands, then stops', async () => {
+    let release: ((snapshot: FeedSnapshot) => void) | undefined;
+    vi.mocked(transport.fetchFeed).mockImplementation(
+      () =>
+        new Promise<FeedSnapshot>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+
+    // Up from the very first frame: an empty feed with no indication is exactly
+    // the state that reads as a frozen window.
+    expect(screen.getByTestId('probe').dataset.loading).toBe('true');
+
+    await waitFor(() => {
+      expect(release).not.toBeUndefined();
+    });
+    await act(async () => {
+      release?.(makeFeedSnapshot({ cards: [update(1, 'hello')] }));
+      // Let the fetch's continuation run inside act, so the state it sets is
+      // flushed before the assertion below.
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.loading).toBe('false');
+    });
+  });
+
+  it('paints a previously-loaded project’s feed at once on switching back, and still refreshes', async () => {
+    vi.mocked(transport.getActiveProjectId).mockReturnValue('p-alpha');
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(7, 'alpha update')] }),
+    );
+
+    const first = render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
+    });
+    first.unmount();
+
+    // Away and back. The refetch is left pending, so anything on screen before
+    // it settles can only have come from the cache.
+    let release: ((snapshot: FeedSnapshot) => void) | undefined;
+    vi.mocked(transport.fetchFeed).mockImplementation(
+      () =>
+        new Promise<FeedSnapshot>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    // Synchronously on the first render — no effect, no frame of blank.
+    expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
+    // …and the cached feed is never presented as final: the refresh is running
+    // and says so.
+    expect(screen.getByTestId('probe').dataset.loading).toBe('true');
+
+    await waitFor(() => {
+      expect(release).not.toBeUndefined();
+    });
+    await act(async () => {
+      release?.(makeFeedSnapshot({ cards: [update(8, 'newer')] }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
+      expect(screen.getByTestId('probe').dataset.loading).toBe('false');
+    });
+  });
+
+  it('keeps each project’s feed separate — an unvisited project opens empty', async () => {
+    vi.mocked(transport.getActiveProjectId).mockReturnValue('p-alpha');
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(7, 'alpha update')] }),
+    );
+    const first = render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
+    });
+    first.unmount();
+
+    vi.mocked(transport.getActiveProjectId).mockReturnValue('p-beta');
+    let release: ((snapshot: FeedSnapshot) => void) | undefined;
+    vi.mocked(transport.fetchFeed).mockImplementation(
+      () =>
+        new Promise<FeedSnapshot>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    // Borrowing the last project's cards here would be worse than any wait.
+    expect(screen.getByTestId('probe').dataset.cardCount).toBe('-1');
+    await waitFor(() => {
+      expect(release).not.toBeUndefined();
+    });
+  });
+
+  it('carries a swiped-away card’s suppression across a switch, so it cannot flash back', async () => {
+    vi.mocked(transport.getActiveProjectId).mockReturnValue('p-alpha');
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(7, 'keep'), update(8, 'swiped')] }),
+    );
+
+    const first = render(
+      <FeedProvider>
+        <Probe dismissId={8} />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8,update:7');
+    });
+    act(() => {
+      screen.getByTestId('dismiss').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
+    });
+    first.unmount();
+
+    // The retract is server-side and the next snapshot will drop the card for
+    // good — but until it lands, the restored feed must not re-show a card the
+    // user has already dealt with.
+    let release: ((snapshot: FeedSnapshot) => void) | undefined;
+    vi.mocked(transport.fetchFeed).mockImplementation(
+      () =>
+        new Promise<FeedSnapshot>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <FeedProvider>
+        <Probe dismissId={8} />
+      </FeedProvider>,
+    );
+    expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
+    await waitFor(() => {
+      expect(release).not.toBeUndefined();
+    });
+  });
+
+  it('restores the frozen divider boundary rather than re-freezing it on return', async () => {
+    // The divider is frozen once per session (08 D2′). A switch away and back is
+    // not a new session, and our own acks have moved the server's mark in the
+    // meantime — re-reading it would slide the "Earlier" line under the user.
+    vi.mocked(transport.getActiveProjectId).mockReturnValue('p-alpha');
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(7, 'a')], summary: { last_seen_notification_id: 3 } }),
+    );
+    const first = render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.lastSeen).toBe('3');
+    });
+    first.unmount();
+
+    // The server now reports the advanced mark, as it would after the ack.
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(7, 'a')], summary: { last_seen_notification_id: 7 } }),
+    );
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    expect(screen.getByTestId('probe').dataset.lastSeen).toBe('3');
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
+    });
+    expect(screen.getByTestId('probe').dataset.lastSeen).toBe('3');
   });
 });

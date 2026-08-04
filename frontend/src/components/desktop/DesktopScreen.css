@@ -552,6 +552,48 @@ html:has([data-role='desktop-screen']) body {
   color: var(--text-faint);
 }
 
+/* ---------------------------------------------------------------- loading */
+
+/* The project-switch wait (12 §4.1). In flow above the feed, in the same
+   reading column and the same faint uppercase caption as the working strip's
+   head — it is the second thing on this screen that is a fact about the whole
+   project rather than about a card, so it should look like the first one rather
+   than like a new kind of surface.
+   Deliberately NOT the accent (13 §4: the budget is spent on needs-you and
+   nothing else) and deliberately not a progress bar — a fetch has no measurable
+   progress, and a bar that doesn't measure anything is a lie (13 §8). */
+[data-role='desktop-loading'] {
+  flex: none;
+  padding: var(--space-6) var(--space-8) 0;
+}
+
+[data-role='desktop-loading-line'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 720px;
+  margin: 0 auto;
+  color: var(--text-faint);
+  font: var(--type-caption);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+/* The smallest mark that reads as "in motion": a hairline ring with one lit
+   quarter, turning. It reuses `kiln-spin` from PrimaryScreen.css (which this
+   sheet layers on top of) rather than declaring a second spin of its own, and
+   it takes its lit edge from the ink tokens instead of the accent version the
+   mobile header spinner uses. */
+[data-role='desktop-loading-mark'] {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-default);
+  border-top-color: var(--text-muted);
+  animation: kiln-spin 0.9s linear infinite;
+}
+
 /* ---------------------------------------------------------------- composer */
 
 /* Containing block for the activity row, which PrimaryScreen.css positions
@@ -842,5 +884,11 @@ body[data-shell='desktop']
     /* Still legible as "present" without the loop — the breathing carries the
        liveness, the mark carries the state. */
     opacity: 0.75;
+  }
+
+  /* The loading mark stops turning but stays on screen: the word beside it is
+     what actually states the wait, so nothing is lost by holding it still. */
+  [data-role='desktop-loading-mark'] {
+    animation: none;
   }
 }

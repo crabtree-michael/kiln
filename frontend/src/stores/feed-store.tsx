@@ -15,10 +15,12 @@ import {
   dismissFeedCard,
   fetchFeed,
   fetchFeedHistory,
+  getActiveProjectId,
   postFeedSeen,
 } from '@/transport/transport';
 import type { ConnectionState, FeedCard, FeedSnapshot } from '@/transport/transport';
 import { FeedStoreContext, type FeedStoreValue } from '@/stores/feed-context';
+import { cacheFeed, readCachedFeed } from '@/stores/project-cache';
 import { subscribeStream } from '@/stores/stream-connection';
 
 export interface FeedProviderProps {
@@ -176,20 +178,32 @@ function mergeFeed(
   return { ...server, cards: [...blockers, ...proposals, ...sortedUpdates] };
 }
 
+/** What the per-project cache seeds this store's first render with — see the
+ * restore in `FeedProvider`. All three fields are `null`/`0` on a project the
+ * app hasn't loaded this session. */
+interface FeedSeed {
+  feed: FeedSnapshot | null;
+  lastSeen: number | null;
+  expiredCount: number;
+}
+
 export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
-  const [feed, setFeed] = useState<FeedSnapshot | null>(null);
+  // The project this instance is scoped to, captured once at mount. A switch
+  // remounts the whole subtree (12 §4.1), so it cannot change under us — which
+  // is what makes it safe to key the cache on for this store's whole lifetime.
+  const [projectId] = useState(getActiveProjectId);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
-  const [lastSeenId, setLastSeenId] = useState<number | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  // True while a full-snapshot fetch is in flight (mount/switch, reconnect
+  // refetch, pull-to-refresh) — including the refresh that runs behind a
+  // cache-seeded feed, so "catching up" never renders as "all quiet".
+  const [loading, setLoading] = useState(true);
   // "Show seen notifications" (08 D2″): false (the default) hides seen cards
   // once their linger window lapses; true reveals them again. View state only —
   // it changes nothing server-side and resets on reopen, so the feed always
   // opens decluttered.
   const [showSeen, setShowSeen] = useState(false);
-  // How many accumulated cards the linger window has expired, whether or not
-  // they are currently revealed — the gate on showing the affordance at all.
-  const [expiredSeenCount, setExpiredSeenCount] = useState(0);
 
   // Session-scoped, render-stable state (mirrors chat-store's ref pattern):
   const updatesRef = useRef<Map<number, FeedCard>>(new Map()); // accumulated update cards by id
@@ -216,6 +230,81 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   // The single pending timer that re-merges the feed when the next seen card's
   // linger window lapses, so a read card leaves on its own.
   const seenSweepRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // How many full-snapshot fetches are in flight, so overlapping ones (a
+  // reconnect refetch landing on top of the mount fetch) can't clear `loading`
+  // while the other is still running.
+  const loadsRef = useRef(0);
+
+  // Seed from the per-project cache (12 §4.1). This runs in a lazy state
+  // initializer rather than a mount effect on purpose: an effect fires after
+  // paint, so a switch back to a loaded project would still flash one empty
+  // frame — which is the exact thing the cache exists to remove. Writing to the
+  // refs from here is a deliberate one-shot restore of THIS instance's own
+  // session state, and it is idempotent, so a StrictMode double-invoke lands on
+  // the same values. Everything restored is still refreshed by the mount fetch
+  // below; nothing here is shown instead of asking the server.
+  const [seed] = useState<FeedSeed>(() => {
+    const cached = readCachedFeed(projectId);
+    if (cached === null) {
+      return { feed: null, lastSeen: null, expiredCount: 0 };
+    }
+    for (const card of cached.updates) {
+      const id = updateId(card);
+      if (id !== null) {
+        updatesRef.current.set(id, card);
+      }
+    }
+    serverFeedRef.current = cached.server;
+    // The divider boundary was frozen when this project was first opened this
+    // session (08 D2′) and it stays frozen across the switch: re-freezing it
+    // against a mark our own acks have since advanced would move the "Earlier"
+    // line under the user for no reason they could see.
+    seededRef.current = true;
+    sessionLastSeenRef.current = cached.lastSeen;
+    ackedRef.current = cached.acked;
+    for (const id of cached.dismissed) {
+      dismissedRef.current.add(id);
+    }
+    const now = Date.now();
+    for (const [ticketId, expiry] of cached.hiddenTickets) {
+      // Restore only hides that are still within their time box; a lapsed one
+      // is exactly a card that should have been allowed back by now.
+      if (expiry > now) {
+        acceptedRef.current.set(ticketId, expiry);
+      }
+    }
+    // No reappear timer is re-armed for the restored hides: `liveAccepted()`
+    // prunes on every merge, and the mount fetch below re-merges within a
+    // round-trip, so a lapsed hide is released then rather than on its own timer.
+    const expired = expiredSeenIds(updatesRef.current, dismissedRef.current, now);
+    return {
+      feed: mergeFeed(
+        cached.server,
+        updatesRef.current,
+        new Set(acceptedRef.current.keys()),
+        dismissedRef.current,
+        expired,
+      ),
+      lastSeen: cached.lastSeen,
+      expiredCount: expired.size,
+    };
+  });
+  const [feed, setFeed] = useState<FeedSnapshot | null>(seed.feed);
+  const [lastSeenId, setLastSeenId] = useState<number | null>(seed.lastSeen);
+  // How many accumulated cards the linger window has expired, whether or not
+  // they are currently revealed — the gate on showing the affordance at all.
+  const [expiredSeenCount, setExpiredSeenCount] = useState(seed.expiredCount);
+
+  // Bracket a full-snapshot fetch, so `loading` is true for exactly as long as
+  // at least one is outstanding.
+  const beginLoad = useCallback((): void => {
+    loadsRef.current += 1;
+    setLoading(true);
+  }, []);
+  const endLoad = useCallback((): void => {
+    loadsRef.current = Math.max(0, loadsRef.current - 1);
+    setLoading(loadsRef.current > 0);
+  }, []);
 
   // Prune expired optimistic acceptances and return the still-live ticket ids —
   // the set `mergeFeed` filters proposals against. Called on every merge, so a
@@ -245,6 +334,17 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     if (server === null) {
       return;
     }
+    // Write through to the per-project cache from the one funnel every mutation
+    // path already goes through, so what a later switch back restores is exactly
+    // what was last on screen — suppressions included (see `CachedFeed`).
+    cacheFeed(projectId, {
+      server,
+      updates: [...updatesRef.current.values()],
+      lastSeen: sessionLastSeenRef.current,
+      acked: ackedRef.current,
+      dismissed: [...dismissedRef.current],
+      hiddenTickets: [...acceptedRef.current],
+    });
     const now = Date.now();
     const expired = expiredSeenIds(updatesRef.current, dismissedRef.current, now);
     setExpiredSeenCount(expired.size);
@@ -276,7 +376,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         Math.max(due - now, 1000),
       );
     }
-  }, [liveAccepted]);
+  }, [liveAccepted, projectId]);
   useEffect(() => {
     remergeRef.current = remerge;
   }, [remerge]);
@@ -433,12 +533,15 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   // success, keep the stale-but-visible feed on failure. Returns the promise so
   // the gesture can keep its spinner up until the round-trip settles.
   const refreshFeed = useCallback(async (): Promise<void> => {
+    beginLoad();
     try {
       applySnapshot(await fetchFeed());
     } catch {
       // Leave the existing (stale-but-visible) feed in place.
+    } finally {
+      endLoad();
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, beginLoad, endLoad]);
 
   // Optimistically drop a ticket's board-derived card (proposal or blocker)
   // ahead of the server confirming its removal: tap-Accept (the proposal becomes
@@ -531,21 +634,29 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
 
     async function loadInitialFeed(): Promise<void> {
       const backoffMs = [250, 500, 1000, 2000, 4000];
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          const initialFeed = await fetchFeed();
-          if (cancelled) {
+      beginLoad();
+      try {
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            const initialFeed = await fetchFeed();
+            if (cancelled) {
+              return;
+            }
+            applySnapshot(initialFeed);
             return;
+          } catch {
+            if (cancelled) {
+              return;
+            }
+            const delay = backoffMs[Math.min(attempt, backoffMs.length - 1)];
+            await new Promise((resolve) => setTimeout(resolve, delay));
           }
-          applySnapshot(initialFeed);
-          return;
-        } catch {
-          if (cancelled) {
-            return;
-          }
-          const delay = backoffMs[Math.min(attempt, backoffMs.length - 1)];
-          await new Promise((resolve) => setTimeout(resolve, delay));
         }
+      } finally {
+        // The retry loop only exits on success or on unmount, so this genuinely
+        // brackets the whole wait — a client stuck on backoff keeps saying so
+        // rather than silently presenting a cache-seeded feed as current.
+        endLoad();
       }
     }
 
@@ -553,7 +664,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [applySnapshot]);
+  }, [applySnapshot, beginLoad, endLoad]);
 
   // Re-run the seen check when the screen becomes visible again: cards rendered
   // while hidden were deliberately not acked (08 §3 "only when visible").
@@ -579,10 +690,13 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     let previousState: ConnectionState = 'connecting';
 
     async function refetchFeed(): Promise<void> {
+      beginLoad();
       try {
         applySnapshot(await fetchFeed());
       } catch {
         // Leave the existing (stale-but-visible) feed in place.
+      } finally {
+        endLoad();
       }
     }
 
@@ -602,12 +716,13 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         setConnectionState(state);
       },
     });
-  }, [applySnapshot]);
+  }, [applySnapshot, beginLoad, endLoad]);
 
   const value = useMemo<FeedStoreValue>(
     () => ({
       feed,
       connectionState,
+      loading,
       lastSeenId,
       hasMoreHistory,
       loadingMoreHistory,
@@ -628,6 +743,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     [
       feed,
       connectionState,
+      loading,
       lastSeenId,
       hasMoreHistory,
       loadingMoreHistory,

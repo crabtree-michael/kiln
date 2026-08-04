@@ -153,6 +153,40 @@ describe('DesktopScreenView', () => {
     const { container } = renderShell({ feed: makeFeedSnapshot({ cards: [] }) });
     expect(container.querySelector('[data-role="desktop-rest"]')).not.toBeNull();
     expect(screen.getByText('All quiet.')).toBeInTheDocument();
+    // Nothing claims to be loading once the answer is in.
+    expect(container.querySelector('[data-role="desktop-loading"]')).toBeNull();
+  });
+
+  it('loading: says so while the project is being fetched, above the feed', () => {
+    // Switching projects used to give no sign at all until a round-trip landed
+    // (12 §4.1). It is stated in flow above the feed, like the working strip, so
+    // it is a fact about the project rather than a card in the history.
+    const { container } = renderShell({ loading: true });
+    const line = container.querySelector('[data-role="desktop-loading"]');
+    expect(line).not.toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+    const region = container.querySelector('[data-role="desktop-feed"]');
+    // `compareDocumentPosition` rather than a DOM-order index: the assertion is
+    // "before the feed region", not "the Nth child of main".
+    expect(line?.compareDocumentPosition(region ?? line)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('loading: withholds "All quiet." until it is actually known to be true', () => {
+    // The resting line is a statement, not a placeholder. Saying it mid-fetch
+    // and then replacing it with three blockers teaches the user not to believe
+    // the one line this screen most needs them to believe.
+    const { container } = renderShell({ feed: makeFeedSnapshot({ cards: [] }), loading: true });
+    expect(container.querySelector('[data-role="desktop-rest"]')).toBeNull();
+    expect(container.querySelector('[data-role="desktop-loading"]')).not.toBeNull();
+  });
+
+  it('loading: cached cards stay on screen under the indication, never blanked', () => {
+    // The point of the per-project cache is that a return switch shows the last
+    // known feed WHILE it refreshes — a loading state that hid it would put the
+    // blank frame straight back.
+    const { container } = renderShell({ loading: true });
+    expect(screen.getByText(/retry once with a fresh token/)).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-role="desktop-feed-row"]')).toHaveLength(2);
   });
 
   it('working: the breathing indication is on while the brain is mid-pass', () => {

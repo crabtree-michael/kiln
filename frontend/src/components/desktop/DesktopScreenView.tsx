@@ -57,6 +57,11 @@ export interface DesktopScreenViewProps {
   feed: FeedSnapshot | null;
   board?: Board | null;
   connectionState: ConnectionState;
+  /** True while this project's state is being fetched — the project-switch wait
+   * (12 §4.1), including the refresh that runs behind a cache-restored feed.
+   * Drives the one line that says so; see the render below for why the resting
+   * state is withheld while it is up. */
+  loading?: boolean;
   thinking: boolean;
   toasts: ActivityToast[];
   onDismiss: (id: number) => void;
@@ -147,6 +152,7 @@ export function DesktopScreenView({
   feed,
   board = null,
   connectionState,
+  loading = false,
   thinking,
   toasts,
   onDismiss,
@@ -349,6 +355,27 @@ export function DesktopScreenView({
           onOpenTicket={setOpenTicketId}
           now={now}
         />
+        {/* The project-switch wait, stated (12 §4.1). Switching used to give no
+            sign at all: the rail's selection moved and the feed sat on whatever
+            it had — nothing, on a first visit — until a round-trip landed, which
+            reads as a window that has stopped working. So it says so, in flow
+            above the feed like the working strip, and for the same reason: it is
+            a fact about the whole project rather than about any one card.
+
+            The register is 13 §1, not a progress bar and not the accent: one
+            faint line and the smallest possible turning mark. It is honest about
+            being indeterminate — we do not know how long a fetch takes — and it
+            goes away the moment the snapshot lands. */}
+        {loading && (
+          <div data-role="desktop-loading">
+            {/* Outer holds the gutter, inner holds the reading column — the
+                working strip's split, so the two line up exactly. */}
+            <div data-role="desktop-loading-line" role="status">
+              <span data-role="desktop-loading-mark" aria-hidden="true" />
+              Loading…
+            </div>
+          </div>
+        )}
         <section
           ref={feedRef}
           role="region"
@@ -362,10 +389,19 @@ export function DesktopScreenView({
             // and not apologised for. One honest line, no illustration, no
             // "nothing here yet!" — this is the state the design is optimised
             // for, so it should look like the app at rest.
-            <div data-role="desktop-rest">
-              <p data-role="desktop-rest-line">All quiet.</p>
-              <p data-role="desktop-rest-detail">{streamDetail(summary, now)}</p>
-            </div>
+            //
+            // Withheld while `loading`, because it is a STATEMENT: "All quiet"
+            // asserts we asked and there was nothing, and mid-fetch we haven't
+            // asked yet. Saying it and then replacing it a beat later with three
+            // blockers is worse than saying nothing — it teaches the user not to
+            // believe the one line this screen most needs them to believe. The
+            // loading line above stands in until the answer is actually known.
+            !loading && (
+              <div data-role="desktop-rest">
+                <p data-role="desktop-rest-line">All quiet.</p>
+                <p data-role="desktop-rest-detail">{streamDetail(summary, now)}</p>
+              </div>
+            )
           ) : (
             <ol data-role="desktop-feed-list">
               {cards.map((card, index) => (

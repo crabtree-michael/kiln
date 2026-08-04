@@ -241,6 +241,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tickets/{id}/sandbox/kill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Destroy the sandbox this ticket's agent is working in.
+         * @description The user's manual override for a wedged or corrupted workspace. It recycles the sandbox behind the ticket's worker slot — the same `agent.release` an accepted ticket emits — while the ticket keeps its state and its slot, so a fresh sandbox comes up in place of the broken one. The per-ticket "save this sandbox" option is deliberately ignored: this is the user asking for the recycle in front of them. No work is sent afterwards, so the ticket sits on an unbriefed sandbox until it is poked or reassigned — use `/sandbox/reassign` to restart it instead. Direct board write, like the sandbox option and unlike Accept/Delete: the whole point of the control is not waiting on an LLM turn.
+         */
+        post: operations["killTicketSandbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/sandbox/reassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move this ticket to a different sandbox and restart it there.
+         * @description The recovery counterpart to `/sandbox/kill`: the ticket is bound to a free (and healthy) worker slot, the work order — the ticket's title and body, exactly what the pull sends — goes out on that slot, and the old slot's sandbox is recycled. A blocked ticket comes back as `working` with its blocked reason cleared, since a briefed agent is on it again. With every slot busy there is nowhere to move to and the request is refused (409) rather than quietly re-running on the same sandbox. Direct board write, like `/sandbox/kill`.
+         */
+        post: operations["reassignTicketSandbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/text": {
         parameters: {
             query?: never;
@@ -1313,6 +1353,76 @@ export interface operations {
             };
             /** @description No such ticket in the caller's project. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    killTicketSandbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The ticket's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted — the release was recorded and the sandbox is being recycled. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such ticket in the caller's project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The ticket has no sandbox to kill — it is not in `working` or `blocked`, so no worker is bound to it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reassignTicketSandbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The ticket's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted — the ticket is bound to a new slot and briefed there. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such ticket in the caller's project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Either the ticket has no sandbox to move (not `working`/`blocked`), or every worker slot is busy so there is none free to move to. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

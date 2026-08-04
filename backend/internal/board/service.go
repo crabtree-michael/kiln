@@ -373,6 +373,105 @@ func (s *Service) SetKeepSandbox(
 	})
 }
 
+// KillSandbox destroys the sandbox behind the ticket's worker slot so the slot
+// recreates a fresh one — the user's manual override for a wedged or corrupted
+// workspace, which until now only the orchestrator could clear up. It is the
+// same recycle AcceptToDone performs (agent.release, 05 §4), just detached from
+// a ticket leaving Developing: the ticket keeps its state and its slot, and only
+// the workspace behind the slot is thrown away.
+//
+// Precondition: state ∈ {working, blocked} with a bound worker — there is no
+// sandbox to kill before a ticket reaches one.
+//
+// KeepSandbox is deliberately IGNORED here, unlike on every automatic exit from
+// Developing (releaseEmissions). Saving a sandbox says "don't recycle this one
+// behind my back"; pressing Kill is the user in front of it, saying to recycle
+// this one now. Honoring the flag would make the one control that exists to
+// escape a corrupted workspace silently do nothing on exactly the tickets most
+// likely to have one.
+//
+// The kill sends no new work: the ticket sits on a fresh, unbriefed sandbox
+// until it is poked or reassigned. That is the point of the pair — Kill stops a
+// runaway agent, ReassignSandbox restarts the ticket somewhere clean.
+func (s *Service) KillSandbox(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, projectID, "kill_sandbox", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if !t.State.Active() || t.WorkerID == nil {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "KillSandbox"}
+		}
+		// No field of the ticket changes — this operates on the sandbox behind
+		// the slot, not the board record — so the locked row is already the
+		// persisted one and there is nothing to write.
+		if err := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicAgentRelease, Payload: ReleasePayload{
+			WorkerID: *t.WorkerID,
+		}}); err != nil {
+			return Ticket{}, fmt.Errorf("board: append agent.release: %w", err)
+		}
+		return *t, nil
+	})
+}
+
+// ReassignSandbox moves the ticket onto a different worker slot and re-briefs
+// it there: the old slot's sandbox is recycled, the ticket binds to a free slot,
+// and the work order (title + body, exactly what RunPull sends) goes out to the
+// new one. It is the recovery half of the manual sandbox controls — the way to
+// restart a ticket whose workspace is beyond saving without waiting on the
+// orchestrator to notice.
+//
+// Precondition: state ∈ {working, blocked} with a bound worker, and a free slot
+// to move to (ErrNoFreeWorker otherwise — with every slot busy there is nowhere
+// to go, and the honest answer is to say so rather than silently re-run on the
+// same sandbox; KillSandbox is the in-place option). FreeWorker cannot hand back
+// the ticket's current slot: an active ticket references it, so it is busy by
+// definition, which makes "a different slot" free rather than something to check.
+// It also skips slots the liveness reconciler has marked errored, so a reassign
+// lands on a healthy sandbox.
+//
+// Result state is working with blocked_reason cleared, exactly as SendToAgent
+// leaves a ticket it sends to: a briefed agent is working on it again, whatever
+// it was stuck on before. KeepSandbox is ignored on the old slot for the same
+// reason as in KillSandbox — this is the user explicitly discarding it.
+//
+// Emits agent.release (the old sandbox), agent.send (the work order on the new
+// slot), and board.updated via mutate. No pull.evaluate: one slot is freed and
+// one taken, so free capacity is unchanged and no waiting ticket became pullable.
+func (s *Service) ReassignSandbox(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
+	return s.mutate(ctx, projectID, "reassign_sandbox", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if !t.State.Active() || t.WorkerID == nil {
+			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ReassignSandbox"}
+		}
+		fresh, ok, err := tx.FreeWorker(ctx, projectID)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: free worker: %w", err)
+		}
+		if !ok {
+			return Ticket{}, ErrNoFreeWorker
+		}
+		old := *t.WorkerID
+		wid := fresh.ID
+		t.State = StateWorking
+		t.WorkerID = &wid
+		t.BlockedReason = nil
+		updated, err := tx.UpdateTicket(ctx, projectID, *t)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
+		}
+		emissions := []Emission{
+			{Topic: TopicAgentRelease, Payload: ReleasePayload{WorkerID: old}},
+			{Topic: TopicAgentSend, Payload: SendPayload{
+				TicketID: updated.ID,
+				WorkerID: wid,
+				Message:  workOrder(updated),
+			}},
+		}
+		for _, e := range emissions {
+			if err := tx.AppendOutbox(ctx, projectID, e); err != nil {
+				return Ticket{}, fmt.Errorf("board: append %s: %w", e.Topic, err)
+			}
+		}
+		return updated, nil
+	})
+}
+
 // recordDoneCommit enforces the one-commit-to-one-ticket rule and stamps the SHA
 // onto t. Lock-then-check (03 §6): the target ticket is already locked, so a
 // commit unspent here cannot be spent by a committed sibling; the partial unique

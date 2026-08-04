@@ -404,6 +404,68 @@
   color: var(--text-muted);
 }
 
+/* The manual sandbox overrides, in the same inset panel register as the save
+ * option above them — they are two halves of one "what happens to this
+ * workspace" decision, so they read as one block rather than two unrelated
+ * settings. It stands alone when the save option isn't wired, hence its own
+ * border/background rather than borrowing the sibling's. */
+[data-role='detail-sandbox-controls'] {
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.7rem;
+  border-top: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+
+[data-role='detail-sandbox-status'] {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+[data-role='detail-sandbox-buttons'] {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+[data-role='detail-sandbox-buttons'] button {
+  flex: 1 1 auto;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-default);
+  color: var(--text-default);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Armed = one tap from destroying something. The button turns the danger colour
+ * and states the consequence, so the confirming tap is never ambiguous about
+ * what it commits to. */
+[data-role='detail-sandbox-buttons'] button[data-armed='true'] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* No free sandbox to move to. Dimmed and unclickable rather than hidden, so the
+ * option stays discoverable and the hint below can say why it's unavailable. */
+[data-role='detail-sandbox-buttons'] button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-role='detail-sandbox-controls-hint'] {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
 /* The dock — the sheet's bottom region, the mirror of the primary screen's own
  * dock (08 §5): one surface carrying BOTH the action controls and the live voice
  * transcript, not a separate area for either. A flex column so the transcript

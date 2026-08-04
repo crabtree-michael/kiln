@@ -6,6 +6,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import {
+  makeAgentStatus,
   makeBoard,
   makeFeedCard,
   makeFeedSnapshot,
@@ -615,6 +616,63 @@ describe('PrimaryScreenView', () => {
     expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', true);
     // Still open — the toggle is a setting, not an exit.
     expect(screen.getByRole('dialog', { name: 'Long-running work' })).toBeInTheDocument();
+  });
+
+  // The manual sandbox overrides reach the sheet the same way, and carry two
+  // things only the board snapshot knows: the sandbox's real session status, and
+  // whether any slot is free to move to.
+  it('flows a sandbox kill up from the ticket sheet, armed by the board snapshot', () => {
+    const card = makeFeedCard({
+      kind: 'proposal',
+      id: 'proposal:t-wedged',
+      label: 'Wedged work',
+      body: 'Its sandbox stopped responding.',
+      ticketId: 't-wedged',
+      createdAt: minutesAgo(1),
+    });
+    const ticket = makeTicket({
+      id: 't-wedged',
+      title: 'Wedged work',
+      body: 'Its sandbox stopped responding.',
+      state: 'working',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    const onKillSandbox = vi.fn();
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({ summary: { stream_count: 1 }, cards: [card] })}
+        board={makeBoard({
+          working: [ticket],
+          agents: [makeAgentStatus('t-wedged', 'errored')],
+          worker_free: 0,
+        })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={noop}
+        onKillSandbox={onKillSandbox}
+        onReassignSandbox={noop}
+        now={NOW}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Wedged work' }));
+    const dialog = screen.getByRole('dialog', { name: 'Wedged work' });
+
+    // The snapshot's agents join drives the status line, not the ticket column.
+    expect(within(dialog).getByText(/sandbox is failing/i)).toBeInTheDocument();
+    // worker_free: 0 — nowhere to move to, so Move is offered but disabled.
+    expect(within(dialog).getByRole('button', { name: /move to a new sandbox/i })).toBeDisabled();
+
+    const kill = within(dialog).getByRole('button', { name: /kill sandbox/i });
+    fireEvent.click(kill);
+    fireEvent.click(within(dialog).getByRole('button', { name: /destroy it/i }));
+
+    expect(onKillSandbox).toHaveBeenCalledWith('t-wedged');
+    // Still open — the user is watching what happens to the sandbox.
+    expect(screen.getByRole('dialog', { name: 'Wedged work' })).toBeInTheDocument();
   });
 
   // A direct text edit reaches the sheet from the composing screen and, like the

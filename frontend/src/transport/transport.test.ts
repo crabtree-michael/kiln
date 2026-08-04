@@ -22,6 +22,8 @@ import {
   setActiveProjectId,
   fetchGitHubRepos,
   setTicketSandbox,
+  killTicketSandbox,
+  reassignTicketSandbox,
   editTicketText,
   type Board,
   type FeedSnapshot,
@@ -246,6 +248,56 @@ describe('transport', () => {
         vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
       );
       await expect(setTicketSandbox('t-gone', true)).rejects.toThrow('HTTP 404');
+    });
+  });
+
+  describe('the sandbox overrides (POST /api/tickets/{id}/sandbox/{kill,reassign})', () => {
+    it('POSTs a bodiless kill to the ticket kill route', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 202 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await killTicketSandbox('t-42');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/tickets/t-42/sandbox/kill');
+      expect(init?.method).toBe('POST');
+      // The ticket in the path is the whole request — there is nothing to send.
+      expect(init?.body).toBeUndefined();
+    });
+
+    it('POSTs a bodiless reassign to the ticket reassign route', async () => {
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(null, { status: 202 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await reassignTicketSandbox('t-42');
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/tickets/t-42/sandbox/reassign');
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBeUndefined();
+    });
+
+    it('rejects a kill the server refuses, so the caller can resync the board', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 409 }))),
+      );
+      await expect(killTicketSandbox('t-shaping')).rejects.toThrow('HTTP 409');
+    });
+
+    // The 409 that matters most for reassign: every slot busy, so there is
+    // nowhere to move to and the sheet must snap back to a disabled button.
+    it('rejects a reassign with no free sandbox to move to', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 409 }))),
+      );
+      await expect(reassignTicketSandbox('t-42')).rejects.toThrow('HTTP 409');
     });
   });
 

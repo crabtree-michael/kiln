@@ -1006,6 +1006,34 @@ export async function setTicketSandbox(id: string, keep: boolean): Promise<void>
   }
 }
 
+/** `POST /api/tickets/{id}/sandbox/kill` — destroy the sandbox this ticket's
+ * agent is working in, so its slot comes back with a fresh one. The manual
+ * override for a wedged or corrupted workspace: the ticket keeps its place on the
+ * board and its slot, and only the workspace is thrown away. Like the sandbox
+ * option this does NOT route through the brain — waiting on an LLM turn is the
+ * delay the control exists to remove. Nothing is sent to the new sandbox, so the
+ * ticket sits unbriefed until it is poked or reassigned. Throws on a non-2xx,
+ * including the 409 for a ticket that has no sandbox to kill. */
+export async function killTicketSandbox(id: string): Promise<void> {
+  const response = await fetch(appPath(`/tickets/${id}/sandbox/kill`), { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`killTicketSandbox: HTTP ${String(response.status)}`);
+  }
+}
+
+/** `POST /api/tickets/{id}/sandbox/reassign` — move this ticket to a different
+ * sandbox and restart it there. The recovery counterpart to `killTicketSandbox`:
+ * the ticket binds to a free, healthy slot, the agent there is briefed with the
+ * ticket's work order, and the old sandbox is recycled. A blocked ticket comes
+ * back as working. Throws on a non-2xx — notably the 409 when every slot is busy,
+ * so there is nowhere to move to and killing in place is the only option left. */
+export async function reassignTicketSandbox(id: string): Promise<void> {
+  const response = await fetch(appPath(`/tickets/${id}/sandbox/reassign`), { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`reassignTicketSandbox: HTTP ${String(response.status)}`);
+  }
+}
+
 /** `POST /api/tickets/{id}/text` — the ticket detail sheet's direct text edit.
  * The user's own typed title/body replaces the ticket's, verbatim: like the
  * sandbox option this does NOT route through the brain, and for a sharper reason

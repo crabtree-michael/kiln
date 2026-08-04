@@ -71,6 +71,16 @@ export interface PrimaryScreenViewProps {
    * brain); omitted (presentational tests) leaves the sheet without the switch, so
    * the DOM/snapshots stay unchanged. */
   onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
+  /** Destroy the open ticket's sandbox — the ticket detail's "Kill sandbox"
+   * action, shown on working/blocked tickets. The manual override for a wedged or
+   * corrupted workspace; the composing screen writes it straight to the board
+   * (not through the brain — an override that waits on an LLM turn isn't one).
+   * Omitted (presentational tests) leaves the sheet without the button. */
+  onKillSandbox?: ((ticketId: string) => void) | undefined;
+  /** Move the open ticket to a different sandbox and restart it there — the
+   * ticket detail's "Move to a new sandbox" action, the recovery counterpart to
+   * the kill. Also a direct board write. Omitted leaves the sheet without it. */
+  onReassignSandbox?: ((ticketId: string) => void) | undefined;
   /** Save the user's own edit of the open ticket's title/body — the ticket
    * detail's pencil affordance, shown only on a backlog ticket (shaping/ready).
    * The composing screen writes the text straight to the board; it deliberately
@@ -220,6 +230,8 @@ export function PrimaryScreenView({
   onDelete,
   onPoke,
   onSetKeepSandbox,
+  onKillSandbox,
+  onReassignSandbox,
   onEditText,
   onDismissCard,
   onDismissAll,
@@ -270,9 +282,11 @@ export function PrimaryScreenView({
   // *working* ticket only offers "👉 Poke" once the agent is `idle`
   // (alive, between turns, waiting) — never while a turn is streaming
   // (`building`), so the user isn't invited to nudge an agent already moving.
-  const openAgentIdle =
-    openTicket !== null &&
-    board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status === 'idle';
+  const openAgentStatus =
+    openTicket === null
+      ? undefined
+      : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
+  const openAgentIdle = openAgentStatus === 'idle';
   // Pull-to-refresh: the feed section is the scroll container, so the gesture
   // reads its scrollTop off this ref. Only wired when `onRefreshFeed` is provided
   // (the composing screen passes it; presentational tests omit it, leaving the
@@ -540,6 +554,18 @@ export function PrimaryScreenView({
           // is a setting the user flips while reading, not an action that ends
           // the visit, and the new value arrives on the next board snapshot.
           onSetKeepSandbox={onSetKeepSandbox}
+          // The manual sandbox overrides, shown only on a working/blocked ticket
+          // (TicketDetail gates them) and, like the switch above, leaving the
+          // sheet open — the user is dealing with a broken sandbox and wants to
+          // watch what happens to it, not be thrown back to the feed.
+          onKillSandbox={onKillSandbox}
+          onReassignSandbox={onReassignSandbox}
+          // The sandbox's own session status, and whether there is a free one to
+          // move to. Both come from the board snapshot the sheet is already
+          // rendering, so the controls describe the real sandbox rather than
+          // guessing from the ticket's column.
+          sandboxStatus={openAgentStatus}
+          canReassign={(board?.worker_free ?? 0) > 0}
           // The pencil shows only on a backlog ticket (TicketDetail gates it).
           // Passed straight through — like the sandbox switch, and unlike
           // Accept/Delete/Poke, saving an edit does NOT close the sheet: the

@@ -35,7 +35,8 @@ done — only *working* is refused, and a **blocked** delete releases the worker
 `agent.release` + `pull.evaluate`, mirroring AcceptToDone, keeping state=blocked as history —
 2026-07-11-delete-blocked-ticket-design.md), `GetTicket`, `GetBoard`,
 `SetWorkerHealth` (driven by the agent-liveness reconciler),
-`SetKeepSandbox` (the per-ticket sandbox option — see below), plus internal `RunPull`.
+`SetKeepSandbox` (the per-ticket sandbox option — see below), `KillSandbox`/`ReassignSandbox`
+(the manual sandbox overrides — see below), plus internal `RunPull`.
 Preconditions are strict: invalid or repeated transitions are typed errors (`ErrNotFound`,
 `ErrInvalidTransition`), never no-ops (D8). Every mutation returns the updated Ticket and
 emits `board.updated`. (An archived ticket is `ErrNotFound` to every subsequent read/op.)
@@ -51,6 +52,28 @@ Everything else is unchanged: the binding still clears and `pull.evaluate` still
 the *slot* is freed — only the sandbox behind it is kept. `SetKeepSandbox` is the module's
 one operation that is a **setting rather than a transition**: no precondition, legal in any
 state, emits only `board.updated`.
+
+**Manual sandbox overrides (`KillSandbox` / `ReassignSandbox`).** The user's direct escape
+from a wedged or corrupted workspace, behind `POST /api/tickets/{id}/sandbox/kill|reassign` —
+previously only the orchestrator could clear one up. Both act on the sandbox behind a slot,
+not on the ticket's place on the board, and both require `state ∈ {working, blocked}` with a
+bound worker (`ErrInvalidTransition` otherwise).
+
+- `KillSandbox` emits `agent.release` for the ticket's own worker and changes **nothing** on
+  the ticket — same state, same slot, no `UpdateTicket` at all. The slot recreates a fresh
+  sandbox; no work is sent, so the ticket sits unbriefed until poked or reassigned.
+- `ReassignSandbox` locks a free worker (`FreeWorker`, so an errored slot is skipped and the
+  ticket's own busy slot can never come back), rebinds the ticket, and emits `agent.release`
+  for the **old** slot plus `agent.send` carrying `workOrder(t)` on the new one. Result state
+  is `working` with `blocked_reason` cleared — a briefed agent is on it again, exactly as
+  `SendToAgent` leaves things. `ErrNoFreeWorker` when every slot is busy. **No
+  `pull.evaluate`**: one slot is vacated and one taken, so free capacity is unchanged.
+
+**Both deliberately ignore `KeepSandbox`** — the one place `releaseEmissions` is bypassed. The
+option means "don't recycle this behind my back"; these are the user in front of it asking for
+the recycle now, and a saved sandbox is exactly the case where a silent no-op would be worst.
+If you add a third exit from Developing, route it through `releaseEmissions`; if you add
+another override, don't.
 
 **Deterministic pull (03 §5).** Ready→Working happens **only** via `RunPull`, never by
 brain action (I6) — it is not in the brain's tool set. Triggered by transactional

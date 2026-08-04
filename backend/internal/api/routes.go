@@ -71,24 +71,41 @@ type BoardReader interface {
 	GetBoard(ctx context.Context, projectID string) (board.Snapshot, error)
 }
 
-// TicketSandboxSetter is the api's ONE direct write onto a ticket, behind POST
-// /api/tickets/{id}/sandbox: the per-ticket sandbox option (save this ticket's
-// sandbox instead of recycling it). It is a deliberate, narrow exception to D5
+// TicketSandboxController is the api's direct write onto a ticket's SANDBOX —
+// the per-ticket surface behind POST /api/tickets/{id}/sandbox and its
+// /kill and /reassign siblings. It is a deliberate, narrow exception to D5
 // ("the client never mutates the board directly") and carries its own port, not
-// a method on BoardReader, so the exception stays visible: Accept and Delete are
-// board *transitions* and still route through the brain, while this is a
-// per-ticket *setting* the user flips from the detail sheet — round-tripping a
-// toggle through an LLM pass would make it slow and non-deterministic for no
-// gain, since it drives no decision the brain owns. Satisfied directly by
-// *board.Service (SetKeepSandbox), mirroring BoardReader. Optional: a nil setter
-// leaves the route unmounted.
-type TicketSandboxSetter interface {
+// methods on BoardReader, so the exception stays visible: Accept and Delete are
+// board *transitions* and still route through the brain.
+//
+// The three methods share one port because they share one justification — none
+// of them is a decision the brain owns:
+//
+//   - SetKeepSandbox is a per-ticket *setting* the user flips from the detail
+//     sheet; round-tripping a toggle through an LLM pass would make it slow and
+//     non-deterministic for no gain.
+//   - KillSandbox and ReassignSandbox are manual *overrides* — the user reaching
+//     past the orchestrator to deal with a wedged or corrupted workspace
+//     directly. Routing an override through the agent that failed to notice the
+//     problem is precisely the wait these controls exist to remove, so they must
+//     be deterministic and immediate.
+//
+// Satisfied directly by *board.Service, mirroring BoardReader. Optional: a nil
+// controller leaves all three routes unmounted.
+type TicketSandboxController interface {
 	SetKeepSandbox(ctx context.Context, projectID string, id board.TicketID, keep bool) (board.Ticket, error)
+	// KillSandbox recycles the sandbox behind the ticket's slot, leaving the
+	// ticket where it is. *board.ErrInvalidTransition when no worker is bound.
+	KillSandbox(ctx context.Context, projectID string, id board.TicketID) (board.Ticket, error)
+	// ReassignSandbox moves the ticket to a free slot and re-briefs it there.
+	// *board.ErrInvalidTransition when no worker is bound; board.ErrNoFreeWorker
+	// when every slot is busy.
+	ReassignSandbox(ctx context.Context, projectID string, id board.TicketID) (board.Ticket, error)
 }
 
 // TicketTextEditor is the api's second direct write onto a ticket, behind POST
 // /api/tickets/{id}/text: the user's own literal edit of a ticket's title and/or
-// body, typed in the detail sheet. Like TicketSandboxSetter it is a deliberate,
+// body, typed in the detail sheet. Like TicketSandboxController it is a deliberate,
 // narrow exception to D5 ("the client never mutates the board directly") and
 // carries its own port so the exception stays visible — but it earns the
 // exception for a sharper reason than the sandbox toggle does. The toggle skips
@@ -399,8 +416,8 @@ type DevSessionMinter interface {
 // Push registration arrives with the notification spec (02 §10); voice with 09.
 type Server struct {
 	boards     BoardReader
-	sandboxes  TicketSandboxSetter // non-nil ⇒ POST /api/tickets/{id}/sandbox is mounted
-	ticketText TicketTextEditor    // non-nil ⇒ POST /api/tickets/{id}/text is mounted
+	sandboxes  TicketSandboxController // non-nil ⇒ the POST /api/tickets/{id}/sandbox[/kill|/reassign] routes are mounted
+	ticketText TicketTextEditor        // non-nil ⇒ POST /api/tickets/{id}/text is mounted
 	poster     MessagePoster
 	messages   MessagesReader
 	feed       FeedReader
@@ -451,10 +468,11 @@ func NewServer(
 	}
 }
 
-// EnableTicketSandbox turns on POST /api/tickets/{id}/sandbox, the per-ticket
-// sandbox option (call before Handler). Satisfied by *board.Service; left unset
-// (presentational/unit wiring) the route simply isn't mounted.
-func (s *Server) EnableTicketSandbox(setter TicketSandboxSetter) { s.sandboxes = setter }
+// EnableTicketSandbox turns on the per-ticket sandbox surface (call before
+// Handler): POST /api/tickets/{id}/sandbox (the save option) plus its /kill and
+// /reassign siblings (the manual overrides). Satisfied by *board.Service; left
+// unset (presentational/unit wiring) the routes simply aren't mounted.
+func (s *Server) EnableTicketSandbox(ctrl TicketSandboxController) { s.sandboxes = ctrl }
 
 // EnableTicketText turns on POST /api/tickets/{id}/text, the ticket detail
 // sheet's direct edit of a ticket's title/body (call before Handler). Satisfied
@@ -655,14 +673,17 @@ func (s *Server) mountProjectScoped(mux *http.ServeMux, method, path string, h p
 // budget as new route groups are added (the same reason mountIdentityRoutes
 // exists).
 //
-//   - The per-TICKET sandbox option (POST /tickets/{id}/sandbox): mounted when a
-//     setter is wired.
+//   - The per-TICKET sandbox surface — the save option (POST
+//     /tickets/{id}/sandbox) and the two manual overrides (/kill, /reassign):
+//     mounted together when the controller is wired, since they are one surface.
 //   - The per-PROJECT snapshot catalog (sandbox selection): mounted when the
 //     catalog is wired. A provider without a catalog is handled per call
 //     (ErrNoSandboxCatalog ⇒ 404), not by leaving these unmounted.
 func (s *Server) mountSandboxRoutes(mux *http.ServeMux) {
 	if s.sandboxes != nil {
 		s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/sandbox", s.handleTicketSandbox)
+		s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/sandbox/kill", s.handleKillSandbox)
+		s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/sandbox/reassign", s.handleReassignSandbox)
 	}
 	if s.sandbox != nil {
 		s.mountProjectScoped(mux, http.MethodGet, "/snapshots", s.handleListSnapshots)
@@ -1038,7 +1059,7 @@ func (s *Server) handleAccept(w http.ResponseWriter, r *http.Request, _ identity
 // suppresses its agent.release, so the workspace is never destroyed-and-recreated
 // and an agent can keep working in it across turns), keep=false restores the
 // default recycle. Unlike Accept and Delete this writes the board directly rather
-// than routing through the brain — see TicketSandboxSetter for why a setting is
+// than routing through the brain — see TicketSandboxController for why a setting is
 // treated differently from a transition. The write emits board.updated, so every
 // open client sees the new value over the stream. Returns 202; an unknown ticket
 // (including one belonging to another project) is 404.
@@ -1058,6 +1079,71 @@ func (s *Server) handleTicketSandbox(
 	case err != nil:
 		slog.Error("api: set ticket sandbox", "err", err)
 		http.Error(w, "set ticket sandbox", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleKillSandbox destroys the sandbox the ticket's agent is working in and
+// lets its slot come back with a fresh one — the user's manual override for a
+// wedged or corrupted workspace, reaching past the orchestrator rather than
+// waiting for it to notice. The ticket keeps its state and its slot; only the
+// workspace goes. Like the sandbox option it writes the board directly (see
+// TicketSandboxController): routing an override through the brain would restore
+// exactly the wait it exists to remove.
+//
+// The board owns the precondition — a ticket with no bound worker has no sandbox
+// to kill — reported here as 409 so the client can say why nothing happened
+// rather than showing a 500. Returns 202; an unknown ticket (including another
+// project's, which the board reports identically) is 404.
+func (s *Server) handleKillSandbox(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	id := board.TicketID(r.PathValue("id"))
+	var invalid *board.ErrInvalidTransition
+	switch _, err := s.sandboxes.KillSandbox(r.Context(), project.ID, id); {
+	case errors.Is(err, board.ErrNotFound):
+		http.Error(w, "no such ticket", http.StatusNotFound)
+		return
+	case errors.As(err, &invalid):
+		http.Error(w, "this ticket has no sandbox to kill", http.StatusConflict)
+		return
+	case err != nil:
+		slog.Error("api: kill ticket sandbox", "err", err)
+		http.Error(w, "kill ticket sandbox", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleReassignSandbox moves the ticket onto a different worker slot, briefs
+// the agent there with the ticket's work order, and recycles the sandbox it
+// left — the recovery counterpart to the kill, for when the workspace is beyond
+// saving and the work should simply start again somewhere clean. Direct board
+// write for the same reason as the kill.
+//
+// Two distinct refusals collapse to 409 with different sentences: the ticket has
+// no worker bound (nothing to move), or every slot is busy (nowhere to move to).
+// Both are states the user can act on — poke it, or wait for capacity — so
+// neither is a 500. Returns 202; an unknown ticket is 404.
+func (s *Server) handleReassignSandbox(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	id := board.TicketID(r.PathValue("id"))
+	var invalid *board.ErrInvalidTransition
+	switch _, err := s.sandboxes.ReassignSandbox(r.Context(), project.ID, id); {
+	case errors.Is(err, board.ErrNotFound):
+		http.Error(w, "no such ticket", http.StatusNotFound)
+		return
+	case errors.Is(err, board.ErrNoFreeWorker):
+		http.Error(w, "no free sandbox to move this ticket to", http.StatusConflict)
+		return
+	case errors.As(err, &invalid):
+		http.Error(w, "this ticket has no sandbox to move", http.StatusConflict)
+		return
+	case err != nil:
+		slog.Error("api: reassign ticket sandbox", "err", err)
+		http.Error(w, "reassign ticket sandbox", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

@@ -72,20 +72,31 @@ the two direct writes `POST /api/tickets/{id}/sandbox|text` — see below);
 outside `/api`); and the SPA `/` catch-all. Every `/api/*` handler is wrapped in `withProject`
 (11 phase 2) — session-authenticated and project-scoped before it runs.
 
-**The two direct board writes (the D5 exceptions).** Everything the client does to the
+**The direct board writes (the D5 exceptions).** Everything the client does to the
 *board* goes through the brain — Accept and Delete are synthesized human messages, not
-mutations. Exactly two routes break that, each behind its own optional port so the exception
-stays visible in the type surface rather than hiding as a method on `BoardReader`:
+mutations. Two ports break that, each optional so the exception stays visible in the type
+surface rather than hiding as a method on `BoardReader`:
 
 | Route | Port | Board op | Why it skips the brain |
 | --- | --- | --- | --- |
-| `POST /api/tickets/{id}/sandbox` | `TicketSandboxSetter` | `SetKeepSandbox` | A toggle; an LLM round-trip would be slow and non-deterministic for no gain. |
+| `POST /api/tickets/{id}/sandbox` | `TicketSandboxController` | `SetKeepSandbox` | A toggle; an LLM round-trip would be slow and non-deterministic for no gain. |
+| `POST /api/tickets/{id}/sandbox/kill` | `TicketSandboxController` | `KillSandbox` | A manual override for a wedged sandbox — waiting on the orchestrator *is* the problem it solves, and routing it through the brain puts that wait back. |
+| `POST /api/tickets/{id}/sandbox/reassign` | `TicketSandboxController` | `ReassignSandbox` | Same as the kill; the board rebinds and re-briefs itself, so there is no decision for the brain to make. |
 | `POST /api/tickets/{id}/text` | `TicketTextEditor` | `ShapeTicket` | An LLM pass is the *thing being avoided* — dictating a wording change and letting the brain rewrite the ticket is what drifts from what the user meant. |
 
-Both are `Enable…`-gated (a nil port leaves the route unmounted) and wired to `boardSvc`
-directly in `enableServerRoutes`. Keep the list at two: a third "just this once" write is how
-D5 stops meaning anything. If you add one, it needs its own port, its own `Enable…`, and a
-reason in the port's doc comment that is about *this* operation, not about convenience.
+The three sandbox routes share **one** port and one `EnableTicketSandbox` because they are one
+surface (per-ticket sandbox control), so a deployment can't end up with a kill route over a
+nil setter. Ports are `Enable…`-gated (a nil port leaves the routes unmounted) and wired to
+`boardSvc` directly in `enableServerRoutes`. Keep the *port* count at two: a third "just this
+once" write is how D5 stops meaning anything. If you add one, it needs its own port, its own
+`Enable…`, and a reason in the port's doc comment that is about *this* operation, not about
+convenience.
+
+The sandbox overrides are the other handlers that map board preconditions to **409**:
+`*board.ErrInvalidTransition` (no worker bound → nothing to kill/move) and, for reassign,
+`board.ErrNoFreeWorker` (every slot busy → nowhere to move to). Both are states the user can
+act on, so neither is a 500. They take **no request body** — the ticket in the path is the
+whole request.
 
 The text route is the only handler that maps a board precondition to **409**: `ShapeTicket`
 accepts only `shaping`/`ready`, so a ticket past the backlog gets `*board.ErrInvalidTransition`

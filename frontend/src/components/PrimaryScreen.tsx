@@ -17,7 +17,9 @@ import {
   acceptTicket,
   deleteTicket,
   editTicketText,
+  killTicketSandbox,
   postMessage,
+  reassignTicketSandbox,
   setTicketSandbox,
 } from '@/transport/transport';
 import type { TicketTextEdit } from '@/components/TicketDetail';
@@ -109,6 +111,37 @@ function PrimaryScreenBody(): JSX.Element {
     [refreshBoard],
   );
 
+  const onKillSandbox = useCallback(
+    (ticketId: string): void => {
+      // The manual override for a wedged or corrupted sandbox. Like the sandbox
+      // option — and unlike accept/delete/poke — it does not go through the
+      // brain: the whole reason it exists is that waiting for the orchestrator
+      // to notice is the problem, so routing it through an LLM turn would put
+      // that wait straight back. The board's agent.release does the work and the
+      // resulting board.updated brings the slot's new status over the stream.
+      // Refresh on failure so a refused kill (409 — the ticket lost its sandbox
+      // while the sheet was open) snaps the sheet back to the truth at once.
+      void killTicketSandbox(ticketId).catch(() => {
+        refreshBoard();
+      });
+    },
+    [refreshBoard],
+  );
+
+  const onReassignSandbox = useCallback(
+    (ticketId: string): void => {
+      // The recovery counterpart to the kill, and a direct write for the same
+      // reason. The board rebinds the ticket and re-briefs the new agent itself,
+      // so there is nothing to send here. A refusal (409 — every slot went busy
+      // between the render and the tap) refreshes the board, which is also what
+      // re-disables the button.
+      void reassignTicketSandbox(ticketId).catch(() => {
+        refreshBoard();
+      });
+    },
+    [refreshBoard],
+  );
+
   const onEditText = useCallback(
     (ticketId: string, patch: TicketTextEdit): void => {
       // A direct text edit is the one place the user's own words must land on
@@ -142,6 +175,8 @@ function PrimaryScreenBody(): JSX.Element {
       onDelete={onDelete}
       onPoke={onPoke}
       onSetKeepSandbox={onSetKeepSandbox}
+      onKillSandbox={onKillSandbox}
+      onReassignSandbox={onReassignSandbox}
       onEditText={onEditText}
       onDismissCard={dismissCard}
       onDismissAll={dismissAll}

@@ -563,3 +563,156 @@ describe('TicketDetail — sandbox option', () => {
     expect(sandboxSwitch()).toBeChecked();
   });
 });
+
+// The manual sandbox overrides: Kill (destroy this ticket's workspace, leave the
+// ticket where it is) and Move to a new sandbox (rebind and start the work over
+// somewhere clean). Both are irreversible, so both are two-tap; both are scoped
+// to a ticket that actually has a sandbox.
+describe('TicketDetail sandbox controls', () => {
+  const blocked = makeTicket({
+    id: 't-blocked',
+    title: 'Stuck work',
+    body: 'body',
+    state: 'blocked',
+    priority: 1,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-01T00:00:00Z',
+    blockedReason: 'the working tree is corrupted',
+  });
+
+  function killButton(): HTMLElement {
+    return screen.getByRole('button', { name: /kill sandbox|destroy it/i });
+  }
+  function moveButton(): HTMLElement {
+    return screen.getByRole('button', { name: /move to a new sandbox|start over there/i });
+  }
+
+  it('is absent by default — a read-only sheet offers no override', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /kill sandbox/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /move to a new sandbox/i })).toBeNull();
+  });
+
+  it('is absent on a ticket with no sandbox, even when wired', () => {
+    const proposal = makeTicket({
+      id: 't-prop',
+      title: 'Proposed work',
+      body: 'body',
+      state: 'shaping',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(
+      <TicketDetail
+        ticket={proposal}
+        onClose={vi.fn()}
+        onKillSandbox={vi.fn()}
+        onReassignSandbox={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /kill sandbox/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /move to a new sandbox/i })).toBeNull();
+  });
+
+  it('takes two taps to kill: the first arms, the second fires with the ticket id', () => {
+    const onKillSandbox = vi.fn();
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={onKillSandbox} />);
+
+    fireEvent.click(killButton());
+    expect(onKillSandbox).not.toHaveBeenCalled();
+    // Armed: the label names the consequence rather than the action.
+    expect(killButton()).toHaveTextContent(/tap to confirm/i);
+
+    fireEvent.click(killButton());
+    expect(onKillSandbox).toHaveBeenCalledWith('t-42');
+    // Disarmed again, so a third stray tap can't kill the replacement sandbox.
+    expect(killButton()).toHaveTextContent(/kill sandbox/i);
+  });
+
+  it('takes two taps to move, and reports the ticket id', () => {
+    const onReassignSandbox = vi.fn();
+    render(
+      <TicketDetail ticket={blocked} onClose={vi.fn()} onReassignSandbox={onReassignSandbox} />,
+    );
+
+    fireEvent.click(moveButton());
+    expect(onReassignSandbox).not.toHaveBeenCalled();
+    fireEvent.click(moveButton());
+    expect(onReassignSandbox).toHaveBeenCalledWith('t-blocked');
+  });
+
+  it('arming one override disarms the other — only one tap is ever live', () => {
+    const onKillSandbox = vi.fn();
+    const onReassignSandbox = vi.fn();
+    render(
+      <TicketDetail
+        ticket={working}
+        onClose={vi.fn()}
+        onKillSandbox={onKillSandbox}
+        onReassignSandbox={onReassignSandbox}
+      />,
+    );
+
+    fireEvent.click(killButton());
+    fireEvent.click(moveButton()); // arms Move, disarms Kill
+    expect(onKillSandbox).not.toHaveBeenCalled();
+    expect(onReassignSandbox).not.toHaveBeenCalled();
+
+    // A tap on Kill now only re-arms it — it does not fire the stale arming.
+    fireEvent.click(killButton());
+    expect(onKillSandbox).not.toHaveBeenCalled();
+  });
+
+  it('disarms when the sheet moves to another ticket, so a tap can’t hit the wrong sandbox', () => {
+    const onKillSandbox = vi.fn();
+    const { rerender } = render(
+      <TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={onKillSandbox} />,
+    );
+    fireEvent.click(killButton());
+    expect(killButton()).toHaveTextContent(/tap to confirm/i);
+
+    rerender(<TicketDetail ticket={blocked} onClose={vi.fn()} onKillSandbox={onKillSandbox} />);
+    expect(killButton()).toHaveTextContent(/kill sandbox/i);
+    fireEvent.click(killButton());
+    expect(onKillSandbox).not.toHaveBeenCalled();
+  });
+
+  it('names the sandbox’s live session status, so the kill is a considered one', () => {
+    render(
+      <TicketDetail
+        ticket={working}
+        onClose={vi.fn()}
+        onKillSandbox={vi.fn()}
+        sandboxStatus="errored"
+      />,
+    );
+    expect(screen.getByText(/sandbox is failing/i)).toBeInTheDocument();
+  });
+
+  it('says so when the sandbox reports nothing at all', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} onKillSandbox={vi.fn()} />);
+    expect(screen.getByText(/sandbox is not reporting/i)).toBeInTheDocument();
+  });
+
+  it('disables Move — and says why — when there is no free sandbox to move to', () => {
+    const onReassignSandbox = vi.fn();
+    render(
+      <TicketDetail
+        ticket={working}
+        onClose={vi.fn()}
+        onKillSandbox={vi.fn()}
+        onReassignSandbox={onReassignSandbox}
+        canReassign={false}
+      />,
+    );
+
+    expect(moveButton()).toBeDisabled();
+    fireEvent.click(moveButton());
+    expect(onReassignSandbox).not.toHaveBeenCalled();
+    expect(screen.getByText(/none free to move this ticket to/i)).toBeInTheDocument();
+    // Kill is still offered: with nowhere to move, recycling in place is the
+    // remaining escape from a corrupted workspace.
+    expect(killButton()).toBeEnabled();
+  });
+});

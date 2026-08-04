@@ -299,8 +299,9 @@ _(Accumulate more as you work.)_
 
 The sheet is read-only inspection over a read-only board (D5) as far as the ticket's *state*
 goes — Accept / Delete / Poke all express intent that the caller routes **through the brain**.
-Exactly two things bypass it, both because they are the user's own input rather than a
-transition:
+Three things bypass it — the first two because they are the user's own input rather than a
+transition, the third because it acts on the *sandbox* behind the ticket's slot rather than on
+the board at all:
 
 - **The sandbox switch** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
   /api/tickets/{id}/sandbox`): saving a ticket's sandbox stops the board recycling its worker,
@@ -313,8 +314,22 @@ transition:
   wording change out loud and letting the brain rewrite the ticket is what drifts from what
   the user meant (that drift is the whole reason the affordance exists), so the typed text has
   to land verbatim. Never "improve" this by routing it back through the brain.
+- **The sandbox overrides** (`onKillSandbox` / `onReassignSandbox` → `killTicketSandbox` /
+  `reassignTicketSandbox` → `POST /api/tickets/{id}/sandbox/kill|reassign`): **Kill sandbox**
+  throws this ticket's workspace away and brings a fresh one up on the same slot, leaving the
+  ticket where it is; **Move to a new sandbox** rebinds it to a free slot and restarts the
+  work there. They skip the brain for a third reason again — they exist so the user can reach
+  *past* the orchestrator when a sandbox is wedged, and an override that waits on an LLM turn
+  is not an override. Rendered under the sandbox switch (`SANDBOX_CONTROL_STATES` =
+  working|blocked, mirroring the board's own "a worker is bound" precondition), each
+  **two-tap**: the first arms the button and its label becomes the consequence, the second
+  fires; arming one disarms the other, and `armed` resets on a ticket-id change so a stray tap
+  can't hit the wrong sandbox. The status line and the Move button's enablement come from the
+  board snapshot the sheet already has — `agents[].status` for the sandbox's real session
+  state (`SANDBOX_STATUS_LABELS`), `worker_free > 0` for `canReassign` — so a disabled Move
+  says *why* instead of walking into the server's 409.
 
-Both share the two consequences below. The text edit adds three of its own:
+All three share the two consequences below. The text edit adds three of its own:
 
 - **Gated on `EDITABLE_STATES` (shaping/ready), mirroring the board's `shape_ticket`
   precondition** — not a client-side opinion. Widen the two together or the pencil offers an
@@ -330,10 +345,10 @@ Both share the two consequences below. The text edit adds three of its own:
 
 Two consequences worth keeping when you touch either:
 
-- **Neither closes the sheet.** Every other action closes on tap; these are things done
+- **None of them closes the sheet.** Every other action closes on tap; these are things done
   *while reading* (a setting flipped, wording corrected — and after a correction the user
-  should be looking at the corrected ticket), so `PrimaryScreenView` passes both straight
-  through without `closeTicket()`.
+  should be looking at the corrected ticket; after a kill they want to watch what happens to
+  the sandbox), so `PrimaryScreenView` passes them straight through without `closeTicket()`.
 - **Both are optimistically shown, time-boxed.** The value lives on the board snapshot, which
   only comes back over the stream, so the sheet renders `pendingKeep ?? ticket.keep_sandbox`
   (and `pendingText` over `ticket.title`/`.body`) and drops the overlay as soon as the

@@ -15,10 +15,12 @@ var ErrNotFound = errors.New("board: ticket not found")
 // emits (03 I7).
 var ErrEmptyTitle = errors.New("board: ticket title must be non-empty")
 
-// ErrNoFreeWorker — a dev SeedTicket asked for a working/blocked ticket but no
-// worker slot is free to bind (03 I3). Dev-seam only; the real pull never fails
-// this way (it simply waits for capacity).
-var ErrNoFreeWorker = errors.New("board: no free worker to bind for seed")
+// ErrNoFreeWorker — an operation needed a free worker slot to bind and there
+// was none (03 I3). Two callers raise it, both of which ask for a specific
+// binding rather than waiting their turn: a dev SeedTicket planting a
+// working/blocked ticket, and ReassignSandbox moving a ticket to a different
+// slot. The real pull never fails this way — it simply waits for capacity.
+var ErrNoFreeWorker = errors.New("board: no free worker to bind")
 
 // ErrCommitAlreadyUsed — AcceptToDone was given a commit SHA already recorded
 // on another ticket in the project (03 §4). One commit maps to at most one

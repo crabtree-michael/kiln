@@ -40,6 +40,26 @@ export interface FeedStoreValue {
    */
   refreshFeed: () => Promise<void>;
   /**
+   * Whether seen cards past their linger window are currently revealed (08 D2″).
+   * False by default — a notification the user has already seen drops out of the
+   * feed ~10 minutes after being seen, so the default view stays a to-attend
+   * list rather than a log. Unseen cards are never affected.
+   */
+  showSeen: boolean;
+  /**
+   * How many accumulated cards the linger window has expired, whether or not
+   * they are currently revealed. Zero means there is nothing behind the "Show
+   * seen notifications" affordance, so it isn't offered.
+   */
+  expiredSeenCount: number;
+  /**
+   * Flip the "Show seen notifications" reveal (08 D2″). Purely local view state:
+   * the expired cards are still held (and still retained server-side), so this
+   * only changes what the merged feed renders — nothing is fetched, retracted, or
+   * persisted, and the reveal resets to off on reopen.
+   */
+  toggleShowSeen: () => void;
+  /**
    * Optimistically hide an accepted proposal card by ticket id: the card drops
    * from the feed immediately, ahead of the server confirming the move. The hide
    * is in-memory and time-boxed (~5 min, or until app reopen) — if the accept

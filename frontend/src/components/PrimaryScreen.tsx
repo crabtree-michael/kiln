@@ -67,6 +67,9 @@ function PrimaryScreenBody(): JSX.Element {
     loadingMoreHistory,
     loadMoreHistory,
     refreshFeed,
+    showSeen,
+    expiredSeenCount,
+    toggleShowSeen,
     acceptProposal,
     deleteTicketCard,
     dismissCard,
@@ -280,6 +283,9 @@ function PrimaryScreenBody(): JSX.Element {
       hasMoreHistory={hasMoreHistory}
       loadingMoreHistory={loadingMoreHistory}
       onLoadMoreHistory={loadMoreHistory}
+      showSeen={showSeen}
+      expiredSeenCount={expiredSeenCount}
+      onToggleShowSeen={toggleShowSeen}
       onRefreshFeed={refreshFeed}
       notificationMode={notificationMode}
       onSelectNotificationMode={setNotificationMode}

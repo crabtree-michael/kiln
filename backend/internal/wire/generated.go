@@ -466,6 +466,9 @@ type FeedCard struct {
 	// NotificationId Set for update/preview cards; the id the client passes to /api/feed/seen as the high-water mark (08 §3).
 	NotificationId *int64 `json:"notification_id,omitempty"`
 
+	// SeenAt When the user's client acked this notification as seen (08 D2″). Set on notification-backed cards the user has already caught up on; null on unseen ones and always null on board-derived blocker/proposal cards. Starts the client's linger timer: once a seen card is older than the linger window it drops out of the default feed and is reachable behind "Show seen notifications". Unseen cards (null) are never auto-hidden.
+	SeenAt *time.Time `json:"seen_at,omitempty"`
+
 	// TicketId Set for blocker/proposal (the derived ticket); optional for authored notes.
 	TicketId *string `json:"ticket_id,omitempty"`
 

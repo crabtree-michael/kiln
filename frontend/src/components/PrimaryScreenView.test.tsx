@@ -282,6 +282,48 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByRole('button', { name: /earlier updates/i })).toBeNull();
   });
 
+  it('offers "Show seen notifications" once the linger window has hidden cards (08 D2″)', () => {
+    const onToggleShowSeen = vi.fn();
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      expiredSeenCount: 2,
+      onToggleShowSeen,
+    });
+    const button = screen.getByRole('button', { name: 'Show seen notifications' });
+    expect(button).toHaveAttribute('data-role', 'feed-show-seen');
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    button.click();
+    expect(onToggleShowSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads "Hide seen notifications" once the seen cards are revealed (08 D2″)', () => {
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      expiredSeenCount: 2,
+      showSeen: true,
+      onToggleShowSeen: noop,
+    });
+    const button = screen.getByRole('button', { name: 'Hide seen notifications' });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('hides the seen affordance when the linger window has hidden nothing', () => {
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
+      expiredSeenCount: 0,
+      onToggleShowSeen: noop,
+    });
+    expect(screen.queryByRole('button', { name: /seen notifications/i })).toBeNull();
+  });
+
+  it('keeps the seen affordance reachable when hiding emptied the feed (08 D2″)', () => {
+    // Hiding the last card leaves the "all clear" empty state — exactly where the
+    // user most needs a way back to what was just on screen, so the affordance
+    // must survive the empty branch.
+    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
+      expiredSeenCount: 1,
+      onToggleShowSeen: noop,
+    });
+    expect(screen.getByRole('button', { name: 'Show seen notifications' })).toBeInTheDocument();
+  });
+
   it('renders the preview image on a preview card (4c)', () => {
     const preview = makeFeedCard({
       kind: 'preview',

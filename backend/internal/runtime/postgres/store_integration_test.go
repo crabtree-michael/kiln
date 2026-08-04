@@ -515,6 +515,15 @@ func TestIntegration_RecentNotifications_RetainsSeenTrimsPageFlagsMore(t *testin
 	if len(got) != 3 || got[0].ID != n3.ID || got[1].ID != n2.ID || got[2].ID != n1.ID {
 		t.Fatalf("recent = %+v, want [n3,n2,n1] newest-first with seen retained", got)
 	}
+	// seen_at rides the read (08 D2″): it starts the client's linger window, so a
+	// read that dropped the column would leave every card looking permanently
+	// unseen and nothing would ever auto-hide.
+	if got[0].SeenAt != nil {
+		t.Errorf("n3.SeenAt = %v, want nil (never acked)", got[0].SeenAt)
+	}
+	if got[1].SeenAt == nil || got[2].SeenAt == nil {
+		t.Errorf("seen rows carry SeenAt = %v/%v, want both stamped", got[1].SeenAt, got[2].SeenAt)
+	}
 
 	// Small page trims to the newest and flags more remaining.
 	page, more, err := store.RecentNotifications(ctx, projA, 2)

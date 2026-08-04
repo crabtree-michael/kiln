@@ -36,6 +36,16 @@ const HISTORY_PAGE_SIZE = 30;
 // a genuinely-failed accept resurfaces the proposal so nothing is silently lost.
 const OPTIMISTIC_ACCEPT_TTL_MS = 5 * 60 * 1000;
 
+// How long a notification-backed card lingers in the default feed after the
+// server stamped it seen (08 D2″). Once the window lapses the card drops out of
+// the default view and is reachable again behind "Show seen notifications" —
+// visibility only, never deletion: the row is still retained history and still
+// pages in. Measured from the server's `seen_at`, not from a local timer, so the
+// countdown survives a reload and a card seen two hours ago in another tab is
+// already hidden when this one opens. UNSEEN cards have no `seen_at` and are
+// therefore never auto-hidden, whatever their age.
+const SEEN_LINGER_MS = 10 * 60 * 1000;
+
 // Notification-backed card kinds (08 §3, §7): update/preview are brain-authored,
 // poke is the steward's mechanical stall nudge, done is the runtime's mechanical
 // completion card. All four are rows in the `notifications` table — the runtime
@@ -85,6 +95,56 @@ function newestUpdateId(updates: Map<number, FeedCard>): number {
   return max;
 }
 
+/** When the server stamped this card seen, in epoch ms — or null when it is
+ * unseen (or carries no parseable stamp). Board-derived blocker/proposal cards
+ * are never stamped, so they always read null and never expire. */
+function seenAtMs(card: FeedCard): number | null {
+  if (card.seen_at == null) {
+    return null;
+  }
+  const ms = Date.parse(card.seen_at);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** The accumulated cards whose linger window has lapsed (08 D2″): seen at least
+ * `SEEN_LINGER_MS` ago, so they drop out of the default feed until the user asks
+ * for them back. Already-dismissed ids are left out — they are suppressed on
+ * their own account, and counting them would inflate the "show seen" affordance
+ * with cards the reveal would not bring back. */
+function expiredSeenIds(
+  updates: Map<number, FeedCard>,
+  dismissedIds: Set<number>,
+  now: number,
+): Set<number> {
+  const expired = new Set<number>();
+  for (const [id, card] of updates) {
+    const seen = seenAtMs(card);
+    if (seen !== null && seen + SEEN_LINGER_MS <= now && !dismissedIds.has(id)) {
+      expired.add(id);
+    }
+  }
+  return expired;
+}
+
+/** When the next still-lingering seen card is due to expire, in epoch ms — or
+ * null when none is pending. Drives the one timer that re-merges the feed at the
+ * moment a card lapses, so a card the user has finished reading disappears on
+ * its own rather than waiting for the next unrelated snapshot. */
+function nextSeenExpiryAt(updates: Map<number, FeedCard>, now: number): number | null {
+  let soonest: number | null = null;
+  for (const card of updates.values()) {
+    const seen = seenAtMs(card);
+    if (seen === null) {
+      continue;
+    }
+    const due = seen + SEEN_LINGER_MS;
+    if (due > now && (soonest === null || due < soonest)) {
+      soonest = due;
+    }
+  }
+  return soonest;
+}
+
 /** Merge the wholesale board-derived cards from the server snapshot with the
  * accumulated (retained) update cards. Order (08 §3): blockers, then proposals,
  * then updates newest-first by `notification_id`. A board-derived card (proposal
@@ -92,19 +152,26 @@ function newestUpdateId(updates: Map<number, FeedCard>): number {
  * the user tapped Accept on a proposal, or Delete on a proposal/blocked ticket,
  * and the card is hidden ahead of the server confirming the move. Update/preview
  * cards whose notification id is in `dismissedIds` are likewise dropped — the
- * user swiped them away and the retract may not have round-tripped yet. */
+ * user swiped them away and the retract may not have round-tripped yet — and so
+ * are those in `hiddenSeenIds`, the seen cards whose linger window lapsed (08
+ * D2″; empty while the user has "Show seen notifications" switched on). */
 function mergeFeed(
   server: FeedSnapshot,
   updates: Map<number, FeedCard>,
   hiddenTicketIds: Set<string>,
   dismissedIds: Set<number>,
+  hiddenSeenIds: Set<number>,
 ): FeedSnapshot {
   const hidden = (card: FeedCard): boolean =>
     card.ticket_id != null && hiddenTicketIds.has(card.ticket_id);
   const blockers = server.cards.filter((card) => card.kind === 'blocker' && !hidden(card));
   const proposals = server.cards.filter((card) => card.kind === 'proposal' && !hidden(card));
   const sortedUpdates = [...updates.values()]
-    .filter((card) => !(card.notification_id != null && dismissedIds.has(card.notification_id)))
+    .filter(
+      (card) =>
+        card.notification_id == null ||
+        !(dismissedIds.has(card.notification_id) || hiddenSeenIds.has(card.notification_id)),
+    )
     .sort((a, b) => (b.notification_id ?? 0) - (a.notification_id ?? 0));
   return { ...server, cards: [...blockers, ...proposals, ...sortedUpdates] };
 }
@@ -115,6 +182,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   const [lastSeenId, setLastSeenId] = useState<number | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  // "Show seen notifications" (08 D2″): false (the default) hides seen cards
+  // once their linger window lapses; true reveals them again. View state only —
+  // it changes nothing server-side and resets on reopen, so the feed always
+  // opens decluttered.
+  const [showSeen, setShowSeen] = useState(false);
+  // How many accumulated cards the linger window has expired, whether or not
+  // they are currently revealed — the gate on showing the affordance at all.
+  const [expiredSeenCount, setExpiredSeenCount] = useState(0);
 
   // Session-scoped, render-stable state (mirrors chat-store's ref pattern):
   const updatesRef = useRef<Map<number, FeedCard>>(new Map()); // accumulated update cards by id
@@ -133,6 +208,14 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   const dismissedRef = useRef<Set<number>>(new Set());
   // Live timers that force the proposal back into view when its TTL lapses.
   const reappearTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Whether seen cards past their linger window are revealed (08 D2″). Mirrors
+  // the `showSeen` state as a ref because every merge reads it: keeping the
+  // merge callbacks off `showSeen` keeps them render-stable, so toggling the
+  // reveal doesn't tear down and re-establish the SSE subscription below.
+  const showSeenRef = useRef(false);
+  // The single pending timer that re-merges the feed when the next seen card's
+  // linger window lapses, so a read card leaves on its own.
+  const seenSweepRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Prune expired optimistic acceptances and return the still-live ticket ids —
   // the set `mergeFeed` filters proposals against. Called on every merge, so a
@@ -146,6 +229,57 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     }
     return new Set(acceptedRef.current.keys());
   }, []);
+
+  // Re-derive the visible feed from the latest server snapshot plus everything
+  // the client suppresses on top of it (optimistic hides, swipe dismissals, and
+  // the lapsed seen cards of 08 D2″). Every mutation path funnels through here
+  // so those three suppressions can never fall out of step, and so the expiry
+  // sweep is re-armed on each pass. No-op before the first snapshot lands.
+  // Held in a ref as well as a callback because the sweep timer it arms calls
+  // back into it.
+  const remergeRef = useRef<() => void>(() => {
+    // Replaced on mount; a sweep can only be armed from inside remerge itself.
+  });
+  const remerge = useCallback((): void => {
+    const server = serverFeedRef.current;
+    if (server === null) {
+      return;
+    }
+    const now = Date.now();
+    const expired = expiredSeenIds(updatesRef.current, dismissedRef.current, now);
+    setExpiredSeenCount(expired.size);
+    setFeed(
+      mergeFeed(
+        server,
+        updatesRef.current,
+        liveAccepted(),
+        dismissedRef.current,
+        // Revealed ⇒ suppress nothing; the cards are still there, just hidden.
+        showSeenRef.current ? new Set<number>() : expired,
+      ),
+    );
+
+    // Re-arm the one sweep timer for the next card due to lapse. Rescheduling
+    // from scratch each pass keeps it correct as cards arrive, get seen, or are
+    // dismissed; a floor of 1s keeps a due-now card from busy-looping.
+    if (seenSweepRef.current !== null) {
+      clearTimeout(seenSweepRef.current);
+      seenSweepRef.current = null;
+    }
+    const due = nextSeenExpiryAt(updatesRef.current, now);
+    if (due !== null) {
+      seenSweepRef.current = setTimeout(
+        () => {
+          seenSweepRef.current = null;
+          remergeRef.current();
+        },
+        Math.max(due - now, 1000),
+      );
+    }
+  }, [liveAccepted]);
+  useEffect(() => {
+    remergeRef.current = remerge;
+  }, [remerge]);
 
   // Mark unseen update cards seen — but only on a visible screen (08 §3). Seen
   // updates are RETAINED now (they stay as history); the ack just advances the
@@ -243,15 +377,21 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       }
 
       ackVisibleSeen();
-      setFeed(mergeFeed(snapshot, updatesRef.current, liveAccepted(), dismissedRef.current));
+      remerge();
     },
-    [ackVisibleSeen, liveAccepted],
+    [ackVisibleSeen, remerge],
   );
 
   const loadMoreHistory = useCallback((): void => {
     if (!seededRef.current) {
       return;
     }
+    // Paging deliberately reveals seen cards (08 D2″): an older page is almost
+    // entirely long-seen updates, so leaving the linger filter on would make
+    // "Show earlier updates" fetch a page and appear to do nothing. Asking for
+    // history IS asking to see what was already read.
+    showSeenRef.current = true;
+    setShowSeen(true);
     setLoadingMoreHistory((inFlight) => {
       if (inFlight) {
         return inFlight; // already fetching — ignore repeat taps
@@ -268,16 +408,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
           }
           pagedBelowWindowRef.current = true;
           setHasMoreHistory(page.has_more);
-          if (serverFeedRef.current !== null) {
-            setFeed(
-              mergeFeed(
-                serverFeedRef.current,
-                updatesRef.current,
-                liveAccepted(),
-                dismissedRef.current,
-              ),
-            );
-          }
+          remerge();
         } catch {
           // Leave the existing feed in place; the button stays available to retry.
         } finally {
@@ -286,7 +417,16 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       })();
       return true;
     });
-  }, [liveAccepted]);
+  }, [remerge]);
+
+  // Toggle the "Show seen notifications" reveal (08 D2″). Pure view state: the
+  // hidden cards were never dropped from the accumulated set, so revealing them
+  // is a re-merge, not a fetch.
+  const toggleShowSeen = useCallback((): void => {
+    showSeenRef.current = !showSeenRef.current;
+    setShowSeen(showSeenRef.current);
+    remerge();
+  }, [remerge]);
 
   // Re-fetch the current snapshot on demand — the pull-to-refresh gesture (this
   // change). Same shape as the reconnect refetch below: apply a fresh snapshot on
@@ -313,30 +453,12 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       acceptedRef.current.set(ticketId, Date.now() + OPTIMISTIC_ACCEPT_TTL_MS);
       const timer = setTimeout(() => {
         reappearTimersRef.current.delete(timer);
-        if (serverFeedRef.current !== null) {
-          setFeed(
-            mergeFeed(
-              serverFeedRef.current,
-              updatesRef.current,
-              liveAccepted(),
-              dismissedRef.current,
-            ),
-          );
-        }
+        remerge();
       }, OPTIMISTIC_ACCEPT_TTL_MS);
       reappearTimersRef.current.add(timer);
-      if (serverFeedRef.current !== null) {
-        setFeed(
-          mergeFeed(
-            serverFeedRef.current,
-            updatesRef.current,
-            liveAccepted(),
-            dismissedRef.current,
-          ),
-        );
-      }
+      remerge();
     },
-    [liveAccepted],
+    [remerge],
   );
 
   // Clear (dismiss) a single update/preview card by its notification id — the
@@ -347,31 +469,13 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
   const dismissCard = useCallback(
     (notificationId: number): void => {
       dismissedRef.current.add(notificationId);
-      if (serverFeedRef.current !== null) {
-        setFeed(
-          mergeFeed(
-            serverFeedRef.current,
-            updatesRef.current,
-            liveAccepted(),
-            dismissedRef.current,
-          ),
-        );
-      }
+      remerge();
       void dismissFeedCard(notificationId).catch(() => {
         dismissedRef.current.delete(notificationId);
-        if (serverFeedRef.current !== null) {
-          setFeed(
-            mergeFeed(
-              serverFeedRef.current,
-              updatesRef.current,
-              liveAccepted(),
-              dismissedRef.current,
-            ),
-          );
-        }
+        remerge();
       });
     },
-    [liveAccepted],
+    [remerge],
   );
 
   // Clear ALL notification-backed cards at once — the header trash affordance
@@ -390,30 +494,17 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
     for (const id of cleared) {
       dismissedRef.current.add(id);
     }
-    if (serverFeedRef.current !== null) {
-      setFeed(
-        mergeFeed(serverFeedRef.current, updatesRef.current, liveAccepted(), dismissedRef.current),
-      );
-    }
+    remerge();
     void dismissAllFeedCards().catch(() => {
       for (const id of cleared) {
         dismissedRef.current.delete(id);
       }
-      if (serverFeedRef.current !== null) {
-        setFeed(
-          mergeFeed(
-            serverFeedRef.current,
-            updatesRef.current,
-            liveAccepted(),
-            dismissedRef.current,
-          ),
-        );
-      }
+      remerge();
     });
-  }, [liveAccepted]);
+  }, [remerge]);
 
-  // Clear any pending reappear timers on unmount so they don't fire into an
-  // unmounted store.
+  // Clear any pending reappear timers — and the seen-linger sweep — on unmount
+  // so they don't fire into an unmounted store.
   useEffect(() => {
     const timers = reappearTimersRef.current;
     return () => {
@@ -421,6 +512,10 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         clearTimeout(timer);
       }
       timers.clear();
+      if (seenSweepRef.current !== null) {
+        clearTimeout(seenSweepRef.current);
+        seenSweepRef.current = null;
+      }
     };
   }, []);
 
@@ -518,6 +613,9 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       refreshFeed,
+      showSeen,
+      expiredSeenCount,
+      toggleShowSeen,
       // Accept and delete are the same optimistic board-card hide (see
       // `hideTicketCard`); the two names keep the caller's intent legible.
       // `deleteTicketCard` covers deleting a proposal or a blocked ticket — both
@@ -535,6 +633,9 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       loadingMoreHistory,
       loadMoreHistory,
       refreshFeed,
+      showSeen,
+      expiredSeenCount,
+      toggleShowSeen,
       hideTicketCard,
       dismissCard,
       dismissAll,

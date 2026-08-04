@@ -1759,6 +1759,7 @@ func feedCardsToWire(in []runtime.FeedCard) []wire.FeedCard {
 			GithubLabel:    c.GitHubLabel,
 			WorkSummary:    c.WorkSummary,
 			CreatedAt:      c.CreatedAt,
+			SeenAt:         c.SeenAt,
 		})
 	}
 	return cards

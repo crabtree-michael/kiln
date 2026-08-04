@@ -428,7 +428,7 @@ func notificationToCard(n Notification, titles map[string]string) (FeedCard, boo
 	card := FeedCard{
 		Kind: string(n.Kind), ID: fmt.Sprintf("update:%d", n.ID),
 		Body: n.Body, TicketID: n.TicketID, NotificationID: &nid,
-		CreatedAt: n.CreatedAt,
+		CreatedAt: n.CreatedAt, SeenAt: n.SeenAt,
 	}
 	if n.TicketID != nil {
 		title, live := titles[*n.TicketID]

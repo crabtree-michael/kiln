@@ -117,6 +117,15 @@ export interface PrimaryScreenViewProps {
   loadingMoreHistory?: boolean;
   /** Fetch and append the next older page of update history (08 D2′). */
   onLoadMoreHistory?: (() => void) | undefined;
+  /** True when seen cards past their linger window are revealed (08 D2″) — flips
+   * the affordance's label between "Show" and "Hide seen notifications". */
+  showSeen?: boolean;
+  /** How many cards the seen-linger window has expired (08 D2″). Zero (the
+   * default) means there is nothing hidden, so no affordance is offered. */
+  expiredSeenCount?: number;
+  /** Flip the seen-card reveal (08 D2″). Omitted (presentational tests) leaves
+   * the affordance absent, mirroring how `onDismissCard` gates the swipe wrapper. */
+  onToggleShowSeen?: (() => void) | undefined;
   /** Re-fetch the whole feed — the pull-to-refresh gesture. When provided, a
    * downward pull from the top of the feed spins up a refresh indicator and
    * re-fetches; the returned promise keeps the indicator up until the fetch
@@ -241,6 +250,9 @@ export function PrimaryScreenView({
   hasMoreHistory = false,
   loadingMoreHistory = false,
   onLoadMoreHistory,
+  showSeen = false,
+  expiredSeenCount = 0,
+  onToggleShowSeen,
   onRefreshFeed,
   notificationMode = 'blocked',
   onSelectNotificationMode,
@@ -466,6 +478,21 @@ export function PrimaryScreenView({
                   </button>
                 )}
               </>
+            )}
+            {/* Seen cards drop out of the feed once their linger window lapses
+                (08 D2″); this brings them back on demand. Deliberately OUTSIDE
+                the empty/non-empty branch: hiding the last card leaves the feed
+                rendering "All clear", and that is exactly the state where the
+                user most needs a way back to what was just there. */}
+            {expiredSeenCount > 0 && onToggleShowSeen !== undefined && (
+              <button
+                type="button"
+                data-role="feed-show-seen"
+                aria-pressed={showSeen}
+                onClick={onToggleShowSeen}
+              >
+                {showSeen ? 'Hide seen notifications' : 'Show seen notifications'}
+              </button>
             )}
           </div>
         </div>

@@ -97,6 +97,9 @@ export interface FeedCardFixtureInput {
   githubUrl?: string;
   githubLabel?: string;
   workSummary?: string;
+  /** ISO timestamp the server stamped the notification seen (08 D2″). Omitted
+   * leaves the card unseen, which is what keeps it out of the linger sweep. */
+  seenAt?: string;
 }
 
 /** Builds a `FeedCard` from the wire schema, adding optional fields only when
@@ -128,7 +131,9 @@ export function makeFeedCard(input: FeedCardFixtureInput): FeedCard {
     input.workSummary !== undefined
       ? { ...withGithubLabel, work_summary: input.workSummary }
       : withGithubLabel;
-  return withWorkSummary;
+  const withSeenAt =
+    input.seenAt !== undefined ? { ...withWorkSummary, seen_at: input.seenAt } : withWorkSummary;
+  return withSeenAt;
 }
 
 export function makeFeedSummary(overrides: Partial<FeedSummary> = {}): FeedSummary {

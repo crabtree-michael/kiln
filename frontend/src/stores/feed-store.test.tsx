@@ -45,6 +45,21 @@ function update(id: number, body: string): ReturnType<typeof makeFeedCard> {
   });
 }
 
+/** A notification-backed card the server has already stamped seen (08 D2″).
+ * `seenAt` is what starts the linger window — a card seen long ago is already
+ * past it the moment the snapshot lands. */
+function seenUpdate(id: number, body: string, seenAt: string): ReturnType<typeof makeFeedCard> {
+  return makeFeedCard({
+    kind: 'update',
+    id: `update:${String(id)}`,
+    label: '',
+    body,
+    createdAt: '2026-07-01T00:00:00Z',
+    notificationId: id,
+    seenAt,
+  });
+}
+
 function Probe({
   acceptId,
   deleteId,
@@ -61,6 +76,9 @@ function Probe({
     hasMoreHistory,
     loadingMoreHistory,
     loadMoreHistory,
+    showSeen,
+    expiredSeenCount,
+    toggleShowSeen,
     acceptProposal,
     deleteTicketCard,
     dismissCard,
@@ -75,7 +93,12 @@ function Probe({
       data-last-seen={lastSeenId ?? ''}
       data-has-more={String(hasMoreHistory)}
       data-loading-more={String(loadingMoreHistory)}
+      data-show-seen={String(showSeen)}
+      data-expired-seen={String(expiredSeenCount)}
     >
+      <button data-testid="toggle-seen" type="button" onClick={toggleShowSeen}>
+        toggle seen
+      </button>
       <button data-testid="load-more" type="button" onClick={loadMoreHistory}>
         more
       </button>
@@ -872,5 +895,173 @@ describe('FeedProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
     });
+  });
+  // -------------------------------------------------- seen-linger auto-hide (D2″)
+
+  it('drops a long-seen card out of the default feed but keeps unseen ones (08 D2″)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({
+        // update(9) is unseen; both others were seen years ago, so their linger
+        // window lapsed long before this snapshot landed.
+        cards: [
+          update(9, 'fresh'),
+          seenUpdate(8, 'read', '2020-01-01T00:00:00Z'),
+          seenUpdate(7, 'also read', '2020-01-01T00:00:00Z'),
+        ],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+    });
+    // Hidden, not lost: the count is what puts the affordance on screen.
+    expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('2');
+    expect(screen.getByTestId('probe').dataset.showSeen).toBe('false');
+  });
+
+  it('never auto-hides an unseen card, however old it is (08 D2″)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      // No seen_at at all: the card predates the linger window by years and still
+      // stays, because the window only ever starts when the user has seen it.
+      makeFeedSnapshot({ cards: [update(3, 'ancient but unread')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:3');
+    });
+    expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('0');
+  });
+
+  it('reveals the hidden seen cards on demand and hides them again (08 D2″)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({
+        cards: [update(9, 'fresh'), seenUpdate(8, 'read', '2020-01-01T00:00:00Z')],
+      }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+    });
+
+    // "Show seen notifications": the hidden card comes back in its ordered place.
+    act(() => {
+      screen.getByTestId('toggle-seen').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
+    });
+    expect(screen.getByTestId('probe').dataset.showSeen).toBe('true');
+
+    // And back off again — this is a view toggle, so it declutters a second time.
+    act(() => {
+      screen.getByTestId('toggle-seen').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+    });
+    expect(screen.getByTestId('probe').dataset.showSeen).toBe('false');
+  });
+
+  it('is visibility only — a revealed seen card is never retracted server-side', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [seenUpdate(8, 'read', '2020-01-01T00:00:00Z')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('1');
+    });
+
+    act(() => {
+      screen.getByTestId('toggle-seen').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
+    });
+    // Auto-hiding is declutter, not deletion: nothing was dismissed or retracted.
+    expect(transport.dismissFeedCard).not.toHaveBeenCalled();
+    expect(transport.dismissAllFeedCards).not.toHaveBeenCalled();
+  });
+
+  it('auto-hides a card on its own timer once the linger window lapses (08 D2″)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-01T12:00:00Z'));
+    try {
+      vi.mocked(transport.fetchFeed).mockResolvedValue(
+        // Seen this very instant: still well inside the 10-minute window.
+        makeFeedSnapshot({ cards: [seenUpdate(8, 'just read', '2026-07-01T12:00:00Z')] }),
+      );
+
+      render(
+        <FeedProvider>
+          <Probe />
+        </FeedProvider>,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
+      expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('0');
+
+      // No further snapshot arrives — the card must leave on its own once the
+      // window lapses, or a quiet feed would never declutter.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      });
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+      expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reveals seen cards when paging older history, so the page is not fetched into hiding', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(9, 'fresh')], hasMoreHistory: true }),
+    );
+    vi.mocked(transport.fetchFeedHistory).mockResolvedValue({
+      cards: [seenUpdate(4, 'old', '2020-01-01T00:00:00Z')],
+      has_more: false,
+    });
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+    });
+
+    // Every card an older page carries is long-seen; leaving the linger filter on
+    // would make "Show earlier updates" appear to do nothing.
+    act(() => {
+      screen.getByTestId('load-more').click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:4');
+    });
+    expect(screen.getByTestId('probe').dataset.showSeen).toBe('true');
   });
 });

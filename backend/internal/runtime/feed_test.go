@@ -130,6 +130,14 @@ func TestService_Feed_RetainsSeenUpdatesFiltersOnlyRetracted(t *testing.T) {
 	if snap.Cards[0].Body != "still unseen" || snap.Cards[1].Body != "already seen" {
 		t.Fatalf("Feed cards = %+v, want [still unseen, already seen] newest-first", snap.Cards)
 	}
+	// SeenAt rides the card (08 D2″) — it is what starts the client's linger
+	// window, so an unseen card must carry nil and never be auto-hidden.
+	if snap.Cards[0].SeenAt != nil {
+		t.Errorf("unseen card SeenAt = %v, want nil (an unseen card never lingers out)", snap.Cards[0].SeenAt)
+	}
+	if snap.Cards[1].SeenAt == nil {
+		t.Error("seen card SeenAt = nil, want the seen stamp (08 D2″ linger window start)")
+	}
 	if snap.Summary.UpdateCount != 1 {
 		t.Errorf("UpdateCount = %d, want 1 (only the unseen one is 'new')", snap.Summary.UpdateCount)
 	}

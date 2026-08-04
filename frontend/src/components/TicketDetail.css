@@ -62,7 +62,12 @@
   border-color: var(--danger);
 }
 
+/* Positioned and lifted above the scrolling body below it: the sandbox menu's
+ * dropdown is absolutely positioned inside this header and opens down over that
+ * body, which would otherwise paint over it. */
 [data-role='ticket-detail-header'] {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
@@ -99,6 +104,18 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* The status row under the title: the lifecycle badge and the sandbox gear on
+ * one line. It spans the heading's width so the gear can sit at the row's end,
+ * clear of the badge's words however long they run — and so a ticket with no
+ * badge (shaping/ready) still puts the gear in the same place rather than
+ * sliding it left. */
+[data-role='ticket-detail-status-row'] {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* Lifecycle status badge — a dot + label sitting directly under the title that
@@ -424,104 +441,142 @@
   text-align: left;
 }
 
-/* The per-ticket sandbox option, at the foot of the scroll region. An inset
- * card separated by a rule, so it reads as "settings for this ticket" rather
- * than as more of the ticket's body: the Markdown above ends, a divider closes
- * it, and the switch sits in its own quiet panel. It scrolls with the body on
- * purpose — it is a considered choice, not a one-tap action, so it never takes
- * room from the dock. */
-[data-role='detail-sandbox'] {
-  margin-top: 0.9rem;
-  padding: 0.6rem 0.7rem;
-  border-top: 1px solid var(--border-default);
+/* The sandbox menu — one gear at the end of the status row, opening a dropdown
+ * that holds every sandbox decision for this ticket. It sits in the header (not
+ * the scrolling body) so it is reachable without scrolling past the ticket's
+ * text, and folded away so the ticket's own words are what the body shows.
+ *
+ * The gear is pushed to the row's end, which lands it under the header's
+ * pencil/close cluster — one column of chrome down the sheet's right edge — and
+ * keeps it in the same place on a ticket that wears no lifecycle badge. */
+[data-role='detail-sandbox-menu'] {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+}
+
+/* Quieter than the header's square pencil/close buttons: this is a third,
+ * rarely-used affordance on a row that is otherwise information, so it reads as
+ * a glyph until it is hovered or open. */
+[data-role='detail-sandbox-trigger'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  margin: -5px;
+  border: none;
   border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='detail-sandbox-trigger']:hover,
+[data-role='detail-sandbox-trigger'][data-open='true'] {
+  color: var(--text-body);
   background: var(--surface-inset);
 }
 
-/* The label wraps the checkbox, so the whole row is the hit target — a
- * comfortable one on a phone — and the accessible name comes from the text. */
-[data-role='detail-sandbox-switch'] {
+/* The dropdown, anchored to the trigger's bottom-right corner so it opens back
+ * across the sheet rather than off its edge. It stays mounted while closed (so
+ * it animates both ways) and is taken out of the page by max-height/opacity plus
+ * the aria-hidden the component writes. It opens *over* the scrolling body, and
+ * the header is given a stacking order above that body for exactly this. */
+[data-role='detail-sandbox-panel'] {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: 232px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  transform-origin: top right;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  max-height: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-base) ease,
+    transform var(--duration-base) var(--ease-settle),
+    max-height var(--duration-base) ease;
+}
+
+[data-role='detail-sandbox-panel'][data-open='true'] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  max-height: 60vh;
+  pointer-events: auto;
+}
+
+/* What the sandbox is doing right now, heading the items that act on it — so
+ * "Re-create" is read against a turn in flight or a failed session, never
+ * blind. */
+[data-role='detail-sandbox-menu-status'] {
+  padding: 10px 12px 6px;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--text-faint);
+}
+
+[data-role='detail-sandbox-menu-list'] {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+}
+
+[data-role='detail-sandbox-menu-list'] button {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-[data-role='detail-sandbox-switch'] input {
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-[data-role='detail-sandbox-hint'] {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
-  line-height: 1.35;
-  color: var(--text-muted);
-}
-
-/* The manual sandbox overrides, in the same inset panel register as the save
- * option above them — they are two halves of one "what happens to this
- * workspace" decision, so they read as one block rather than two unrelated
- * settings. It stands alone when the save option isn't wired, hence its own
- * border/background rather than borrowing the sibling's. */
-[data-role='detail-sandbox-controls'] {
-  margin-top: 0.9rem;
-  padding: 0.6rem 0.7rem;
-  border-top: 1px solid var(--border-default);
+  gap: 8px;
+  width: 100%;
+  padding: 8px 8px;
+  text-align: left;
+  border: none;
   border-radius: var(--radius-sm);
-  background: var(--surface-inset);
-}
-
-[data-role='detail-sandbox-status'] {
-  margin: 0;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-[data-role='detail-sandbox-buttons'] {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-[data-role='detail-sandbox-buttons'] button {
-  flex: 1 1 auto;
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--surface-default);
-  color: var(--text-default);
+  background: none;
+  color: var(--text-body);
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
+  transition: background var(--duration-fast) ease;
 }
 
-/* Armed = one tap from destroying something. The button turns the danger colour
- * and states the consequence, so the confirming tap is never ambiguous about
- * what it commits to. */
-[data-role='detail-sandbox-buttons'] button[data-armed='true'] {
-  border-color: var(--danger);
-  background: var(--danger-soft);
+[data-role='detail-sandbox-menu-list'] button:hover {
+  background: var(--surface-inset);
+}
+
+/* Destroys work irreversibly (behind a confirm). Coloured, not hidden — the
+ * item has to be findable at the moment a sandbox is wedged, and the colour is
+ * what says which two items in the menu are the dangerous ones. */
+[data-role='detail-sandbox-menu-list'] button[data-tone='danger'] {
   color: var(--danger);
-  font-weight: 600;
 }
 
-/* No free sandbox to move to. Dimmed and unclickable rather than hidden, so the
- * option stays discoverable and the hint below can say why it's unavailable. */
-[data-role='detail-sandbox-buttons'] button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* The check column. Every item reserves it, so the two actions' labels line up
+ * with the toggle's rather than stepping left; only the toggle ever fills it,
+ * and only while the option is on. */
+[data-role='detail-sandbox-menu-check'] {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
 }
 
-[data-role='detail-sandbox-controls-hint'] {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
-  line-height: 1.35;
-  color: var(--text-muted);
+[data-role='detail-keep-sandbox'][data-checked='true'] [data-role='detail-sandbox-menu-check'] {
+  opacity: 1;
 }
 
 /* The dock — the sheet's bottom region, the mirror of the primary screen's own

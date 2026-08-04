@@ -160,7 +160,7 @@ function PrimaryScreenBody(): JSX.Element {
       // brain: it writes the flag directly and the board.updated that write emits
       // brings the new value back over the stream. Fire-and-forget: the sheet
       // shows the choice at once and time-boxes it, so a dropped write just means
-      // the switch snaps back and the user can tap again. Refresh the board on
+      // the checkmark clears and the user can tap again. Refresh the board on
       // failure so it snaps back to the truth immediately rather than on the
       // time-box.
       void setTicketSandbox(ticketId, keep).catch(() => {
@@ -193,7 +193,7 @@ function PrimaryScreenBody(): JSX.Element {
       // reason. The board rebinds the ticket and re-briefs the new agent itself,
       // so there is nothing to send here. A refusal (409 — every slot went busy
       // between the render and the tap) refreshes the board, which is also what
-      // re-disables the button.
+      // drops the item from the menu.
       void reassignTicketSandbox(ticketId).catch(() => {
         refreshBoard();
       });

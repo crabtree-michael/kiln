@@ -229,13 +229,22 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
             <div
               data-role="feed-empty-status"
             >
+              <div
+                data-role="feed-empty-status-line"
+              >
+                <span
+                  aria-hidden="true"
+                  data-active="true"
+                  data-role="feed-empty-pulse"
+                />
+                <span>
+                  3 building
+                </span>
+              </div>
               <span
-                aria-hidden="true"
-                data-active="true"
-                data-role="feed-empty-pulse"
-              />
-              <span>
-                3 building · last word 6m ago
+                data-role="feed-empty-subtext"
+              >
+                last word 6m ago
               </span>
             </div>
           </div>

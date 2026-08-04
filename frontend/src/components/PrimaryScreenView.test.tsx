@@ -471,9 +471,11 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    // The idle count is dropped entirely — only the building count (with the
-    // last-word suffix) is shown.
-    expect(screen.getByText('3 building · last word 6m ago')).toBeInTheDocument();
+    // The idle count is dropped entirely — only the building count is shown, and
+    // the last word sits under it as its own subtext line rather than being
+    // bulleted onto the end of it (where it wrapped).
+    expect(screen.getByText('3 building')).toBeInTheDocument();
+    expect(screen.getByText('last word 6m ago')).toHaveAttribute('data-role', 'feed-empty-subtext');
     expect(screen.queryByText(/idle/)).not.toBeInTheDocument();
     // With active builds the pulse dot goes ember/animated via data-active.
     expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(
@@ -498,11 +500,20 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    expect(screen.getByText('0 building · last word 6m ago')).toBeInTheDocument();
+    expect(screen.getByText('0 building')).toBeInTheDocument();
+    expect(screen.getByText('last word 6m ago')).toBeInTheDocument();
     expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(
       'data-active',
       'false',
     );
+  });
+
+  it('drops the last-word subtext entirely when the brain has never spoken', () => {
+    // No line at all rather than an empty one: the subtext is a fact about when
+    // Kiln last said something, and before it ever has there is no such fact.
+    renderView(makeFeedSnapshot({ summary: { stream_count: 0, building: 0, idle: 0 }, cards: [] }));
+    expect(screen.getByText('0 building')).toBeInTheDocument();
+    expect(document.querySelector('[data-role="feed-empty-subtext"]')).toBeNull();
   });
 
   it('renders a real Accept button on a proposal card and calls acceptTicket with the ticket id (08 §5)', () => {

@@ -40,15 +40,23 @@ export function relativeAge(iso: string, now: number = Date.now()): string {
   return `${days.toString()}d`;
 }
 
-/** The all-clear detail line (08 §2 / 4d): "3 building · last word 6m ago". Only
- * the building count is shown — the idle count is deliberately omitted so the
- * all-clear state stays focused on what's actively moving. */
-export function streamDetail(summary: FeedSummary, now: number = Date.now()): string {
-  const base = `${summary.building.toString()} building`;
+/** The all-clear detail line (08 §2 / 4d): "3 building". Only the building count
+ * is shown — the idle count is deliberately omitted so the all-clear state stays
+ * focused on what's actively moving. The last word rides underneath it as
+ * subtext (`lastWordDetail`) rather than sharing this line: bulleted onto the
+ * end it wrapped to two lines on narrow screens, and the count is the fact the
+ * state is about. */
+export function streamDetail(summary: FeedSummary): string {
+  return `${summary.building.toString()} building`;
+}
+
+/** The subtext under the all-clear count: "last word 6m ago", or null when the
+ * brain has never spoken (nothing to date, so no line at all). */
+export function lastWordDetail(summary: FeedSummary, now: number = Date.now()): string | null {
   if (summary.last_word_at == null) {
-    return base;
+    return null;
   }
-  return `${base} · last word ${relativeAge(summary.last_word_at, now)} ago`;
+  return `last word ${relativeAge(summary.last_word_at, now)} ago`;
 }
 
 /** The real session running-state of a worker (amended 2026-07-05): the actual

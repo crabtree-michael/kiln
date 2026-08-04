@@ -81,6 +81,30 @@ describe('TicketDetail', () => {
     expect(document.querySelector('[data-role="ticket-detail-backdrop"]')).not.toBeNull();
   });
 
+  it('rises from the bottom edge by default — the phone sheet is what it is (07 §7)', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
+
+    // Vaul records the direction it was handed on the panel, and derives the
+    // entrance, the closed transform and the drag axis from it. Omitting
+    // `placement` must leave the mobile sheet exactly as it was.
+    expect(screen.getByRole('dialog').getAttribute('data-vaul-drawer-direction')).toBe('bottom');
+  });
+
+  it('slides in from the right when placed there (the desk’s side panel, 13 D7a)', () => {
+    render(<TicketDetail ticket={working} onClose={vi.fn()} placement="right" />);
+
+    expect(screen.getByRole('dialog').getAttribute('data-vaul-drawer-direction')).toBe('right');
+  });
+
+  it('is dismissable from the right-hand placement too — the edge changes, nothing else does', () => {
+    const onClose = vi.fn();
+    render(<TicketDetail ticket={working} onClose={onClose} placement="right" />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('calls onClose from the close button', () => {
     const onClose = vi.fn();
     render(<TicketDetail ticket={working} onClose={onClose} />);

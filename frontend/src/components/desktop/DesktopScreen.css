@@ -726,12 +726,21 @@ html:has([data-role='desktop-screen']) body {
   cursor: default;
 }
 
-/* ---------------------------------------------------- detail, over the feed */
+/* --------------------------------------------------- detail, beside the feed */
 
-/* Detail opens OVER the feed and gets out of the way when you are done (13 D7).
-   There is no third pane and no inspector: a permanent detail pane would double
-   the window's resting complexity to serve something looked at rarely, and would
-   quietly re-create the two-pane management console this design is not.
+/* Detail opens BESIDE the feed and gets out of the way when you are done
+   (13 D7a). It is still an overlay, not a third region: it takes no width from
+   the feed while it is closed, and closing it leaves the window's two regions
+   exactly as they were. A permanent detail pane would double the window's
+   resting complexity to serve something looked at rarely, and would quietly
+   re-create the two-pane management console this design is not.
+
+   What the desk changes is the EDGE. A bottom sheet is the phone's answer, and
+   on a window it lands in the middle of the screen and covers the feed and the
+   working strip — the ongoing work the ticket was opened to be read against.
+   Anchored to the right edge at full height it clears both: the rail, the
+   working strip and the left of the reading column stay visible behind it, so
+   the panel reads as something opened beside the work rather than over it.
 
    The sheet is `vaul` (a Radix Dialog) portaled to `document.body`, so it is not
    a descendant of the shell and cannot be reached by scoping — which is why
@@ -739,35 +748,60 @@ html:has([data-role='desktop-screen']) body {
    attribute IS the JS shell decision; keying off it (rather than a `min-width`
    query restated here) keeps `useIsDesktop` the single source of the threshold.
 
-   What changes is only the geometry, and only what a desk earns. Left full-bleed,
-   the phone sheet spans a 2000px monitor for a paragraph of text. Here it is
-   capped to a reading measure and centred over the feed it belongs to.
-
-   What deliberately does NOT change is `bottom`/`transform`: vaul writes the
-   slide and the drag as inline transforms keyed to its own open/closed state, so
-   overriding either would either be ignored (inline wins) or, with `!important`,
-   would strand the sheet permanently open. The panel keeps rising from the bottom
-   edge — it is simply no longer the width of the window. */
+   The slide itself is NOT here: `placement="right"` hands vaul its `direction`,
+   and vaul writes the entrance, the closed transform and the drag axis as inline
+   styles keyed to its own open/closed state. So this rule states the box and
+   nothing else — a CSS `transform` would be ignored (inline wins) or, forced
+   with `!important`, would strand the panel permanently open, and moving
+   `bottom` off the edge vaul translates away from would put the closed position
+   out of step with the transform meant to hide it. The prop and this rule have
+   to agree about the edge; the prop is the one that decides. */
 body[data-shell='desktop'] [data-role='ticket-detail'][data-surface='primary'] {
-  /* Centred by auto margins inside the full-width fixed box, so the element's own
-     `left`/`right`/`bottom` — and therefore vaul's transform maths — are
-     untouched. */
-  width: min(680px, calc(100vw - var(--space-16)));
-  margin: 0 auto;
-  /* Shorter than the phone's 85dvh: at a desk the sheet is a panel over a window
-     you can still see, not a takeover. */
-  max-height: 76dvh;
-  /* Rounded on all four corners now that it no longer meets the screen edges —
-     the same soft, humanist vocabulary as everything else (13 §4). */
-  border-radius: var(--radius-xl);
-  border-bottom: 1px solid var(--border-default);
-  padding-bottom: var(--space-5);
+  /* Right-anchored and full height: `bottom: 0` carries over from the base rule
+     (which is also why it is not restated here), so releasing `left` and pinning
+     `top` is all it takes to stand the sheet up against the right edge. */
+  top: 0;
+  left: auto;
+  right: 0;
+  /* A reading measure, not a monitor. Narrower than the old centred sheet's
+     680px on purpose: every pixel it claims is feed the user can no longer see
+     behind it, which is the whole point of moving it to the edge. */
+  width: min(460px, calc(100vw - var(--space-16)));
+  /* The phone's 85dvh cap would leave the panel hanging off the top edge, since
+     it is now stretched between top and bottom rather than sitting on one. */
+  max-height: none;
+  /* Flush against three window edges, so it wears no radius: rounded corners
+     against the screen's own corners read as a mistake, not as softness. The one
+     edge it has is the one facing the feed, and that hairline (plus the base
+     rule's overlay shadow) is what separates the two.
+
+     Written as the two edges to DROP rather than as `border: none` plus a new
+     left border, so the left edge keeps the colour TicketDetail.css gives it —
+     including the tint a blocked ticket's border carries, which a `border-left`
+     restated here would win over and silently erase. */
+  border-radius: 0;
+  border-top: none;
+  border-right: none;
+  /* Its own reading air, in place of the phone's home-indicator inset — there is
+     no notch at a desk and no grabber above the header to hold the top gap. */
+  padding: var(--space-5) var(--space-6) var(--space-6);
+}
+
+/* The scrim is dropped to nothing here, and that is the feature (13 D7a): the
+   panel exists so the user can read a ticket WITHOUT losing sight of what is
+   happening, and dimming the feed behind it would take back most of what moving
+   it to the edge just bought. The panel's own hairline and shadow do the
+   separating instead. It still covers the window, so a click anywhere outside
+   closes the panel exactly as it does on the phone — visibility is what changes,
+   not the dismissal. */
+body[data-shell='desktop'] [data-role='ticket-detail-backdrop'] {
+  background: transparent;
 }
 
 /* The drag grabber is a touch affordance with nothing to grab at a desk — the
-   sheet is dismissed with Escape, the close button, or the scrim (13 §9: the
-   keyboard is a first-class way through). Hidden rather than removed from the
-   markup, so the one sheet component still serves both shells. */
+   panel is dismissed with Escape, the close button, or a click outside (13 §9:
+   the keyboard is a first-class way through). Hidden rather than removed from
+   the markup, so the one sheet component still serves both shells. */
 body[data-shell='desktop']
   [data-role='ticket-detail'][data-surface='primary']
   [data-role='ticket-detail-grabber'] {

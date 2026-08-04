@@ -144,9 +144,10 @@ are the same action landing in the same place, by different means. It is a singl
 say something, not a form.
 
 That is the whole layout. There is no third pane, no inspector, no bottom drawer of logs.
-Detail opens over the top of the feed when you ask for it and gets out of the way when you
-are done. If a future need seems to want a third region, it is worth asking whether it
-actually wants `/debug` (`08` §6), which already exists and is where raw state belongs.
+Detail opens over the feed when you ask for it — against its right edge, so the work stays
+in sight (D7a) — and gets out of the way when you are done. If a future need seems to want
+a third region, it is worth asking whether it actually wants `/debug` (`08` §6), which
+already exists and is where raw state belongs.
 
 ---
 
@@ -233,11 +234,14 @@ What changes is what the screen can afford to show of it.
   most directly serves the ambient goal: secondary detail (timestamps in full, the actions
   a card supports) can stay off the screen until the pointer is on the row. A card that is
   quiet until you point at it is a card you can leave in your peripheral vision.
-- **Detail opens over the feed, not beside it** (D7). Opening a ticket brings up its detail
-  and transcript over the top of the column; dismissing returns you exactly where you were.
-  A permanent detail pane would double the screen's resting complexity to serve something
-  you look at rarely, and would quietly re-create the two-pane management console this
-  design is trying not to be.
+- **Detail overlays the feed rather than becoming a region of its own** (D7), and it
+  overlays it **from the right edge** (D7a). Opening a ticket brings up its detail and
+  transcript in a full-height panel against the right of the window; the rail, the working
+  strip and most of the reading column stay visible behind it, and dismissing returns you
+  exactly where you were. A permanent detail pane would double the screen's resting
+  complexity to serve something you look at rarely, and would quietly re-create the
+  two-pane management console this design is trying not to be — so the panel is still an
+  overlay, taking no width from the feed when it is closed.
 - **Arrivals land in place.** A new card appears at the top of the updates section without
   scrolling the column under you, without a badge, and without motion beyond a fade. If you
   were reading something, you keep reading it. This is the "git pull landed" property, and
@@ -423,5 +427,6 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 | D6 | **Desktop follows the OS light/dark preference**, like every other route. In the dark it rests in Kiln's existing warm near-black — never a colder black, and never a desktop-only palette. | *(Originally: dark is desktop's resting register, unconditionally — superseded, see D6a.)* Light-first to match mobile's paper default; a new desktop-only dark palette. | Reusing the existing themes keeps one design language rather than forking the palette. Which of the two is up is the user's call, not the viewport's. |
 | D6a | **Amends D6 (2026-08-04).** The original called dark *unconditionally*, and the shell implemented it by stamping `data-theme="dark"` on `<body>`, which beat the system preference `ThemeColorSync` writes to `<html>`. | Keeping the hard dark; a desktop-only theme setting in the UI. | The argument for D6 — "a window open all day should recede" — is real, but it is an argument about *how dark mode should feel*, not a reason to override someone who has told their OS they want light. It also split one person across two answers: paper on the phone, near-black at the desk, same account, same minute. The palette work D6 bought is untouched: both registers still come from `tokens.css`, and the shell's CSS names neither. |
 | D7 | **Detail opens over the feed; there is no third pane.** | A persistent detail/inspector pane; a three-column layout. | A permanent pane doubles the resting complexity to serve something looked at rarely, and re-creates the two-pane management console this design avoids. Overlay keeps the resting state at two regions. |
+| D7a | **Amends D7 (2026-08-04): the overlay comes from the RIGHT edge, not the bottom.** A full-height panel at a reading measure (460px), flush right, with no scrim over the feed. | Keeping the phone's bottom sheet, centred and capped, on the desk; pushing the feed narrower while the panel is open (a true third column); a dimmed scrim behind the panel. | D7 settled *whether* detail is a region (it is not) and left the edge as a phone inheritance. On a window a bottom sheet lands in the middle of the screen and covers the feed and the working strip — the ongoing work the ticket is being read *against*, which is the one thing this shell exists to keep in view. The right edge clears both. It stays an overlay rather than a pushing column so the closed layout is untouched and D7's argument holds, and the scrim goes because dimming the feed would take back most of what moving the panel just bought. |
 | D8 | **Desktop is the responsive web app widening out, not a separate installable application.** | An installable/packaged desktop app; leaving the question open until later. | Directed, and it costs the design nothing: every behavior above works in a browser window, and the client holds no authoritative state (`02` §11), so "a window you leave open" is already just a tab you leave open. Packaging, auto-update, and window-chrome work would buy no part of the experience described here. |
 | D9 | **The working indication names the tickets being worked** (§8.2), as a strip above the feed — and the rail still marks a project with a dot, never a count. | A status chip on each ticket wherever it appears; a "2 working" badge per rail row; leaving the bare one-word indication and letting the feed imply the rest. | A per-card chip was unreachable in practice: a working ticket usually has no card, so the state with the fewest cards is exactly the one that needed showing. A rail badge is the numeral §8 rules out by name, on the surface least able to carry it — but the count is not thrown away either, since the rail's precedence hides "also building" behind `needs-you`: it rides in the row's hover tooltip and assistive text, where it costs no pixels at rest. |

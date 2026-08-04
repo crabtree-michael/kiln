@@ -471,9 +471,11 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    // The idle count is dropped entirely — only the building count (with the
-    // last-word suffix) is shown.
-    expect(screen.getByText('3 building · last word 6m ago')).toBeInTheDocument();
+    // The idle count is dropped entirely — only the building count is shown, and
+    // the last word sits under it as its own subtext line rather than being
+    // bulleted onto the end of it (where it wrapped).
+    expect(screen.getByText('3 building')).toBeInTheDocument();
+    expect(screen.getByText('last word 6m ago')).toHaveAttribute('data-role', 'feed-empty-subtext');
     expect(screen.queryByText(/idle/)).not.toBeInTheDocument();
     // With active builds the pulse dot goes ember/animated via data-active.
     expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(
@@ -498,11 +500,20 @@ describe('PrimaryScreenView', () => {
         cards: [],
       }),
     );
-    expect(screen.getByText('0 building · last word 6m ago')).toBeInTheDocument();
+    expect(screen.getByText('0 building')).toBeInTheDocument();
+    expect(screen.getByText('last word 6m ago')).toBeInTheDocument();
     expect(document.querySelector('[data-role="feed-empty-pulse"]')).toHaveAttribute(
       'data-active',
       'false',
     );
+  });
+
+  it('drops the last-word subtext entirely when the brain has never spoken', () => {
+    // No line at all rather than an empty one: the subtext is a fact about when
+    // Kiln last said something, and before it ever has there is no such fact.
+    renderView(makeFeedSnapshot({ summary: { stream_count: 0, building: 0, idle: 0 }, cards: [] }));
+    expect(screen.getByText('0 building')).toBeInTheDocument();
+    expect(document.querySelector('[data-role="feed-empty-subtext"]')).toBeNull();
   });
 
   it('renders a real Accept button on a proposal card and calls acceptTicket with the ticket id (08 §5)', () => {
@@ -657,7 +668,11 @@ describe('PrimaryScreenView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Long-running work' }));
     const dialog = screen.getByRole('dialog', { name: 'Long-running work' });
 
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: /save this ticket.s sandbox/i }));
+    // The setting lives behind the sheet's sandbox gear, beside the status row.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sandbox options' }));
+    fireEvent.click(
+      within(dialog).getByRole('menuitemcheckbox', { name: /save sandbox when done/i }),
+    );
 
     expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', true);
     // Still open — the toggle is a setting, not an exit.
@@ -704,19 +719,21 @@ describe('PrimaryScreenView', () => {
         now={NOW}
       />,
     );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Wedged work' }));
     const dialog = screen.getByRole('dialog', { name: 'Wedged work' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sandbox options' }));
 
-    // The snapshot's agents join drives the status line, not the ticket column.
+    // The snapshot's agents join drives the menu's status line, not the ticket
+    // column.
     expect(within(dialog).getByText(/sandbox is failing/i)).toBeInTheDocument();
-    // worker_free: 0 — nowhere to move to, so Move is offered but disabled.
-    expect(within(dialog).getByRole('button', { name: /move to a new sandbox/i })).toBeDisabled();
+    // worker_free: 0 — nowhere to move to, so the Move item isn't offered.
+    expect(within(dialog).queryByRole('menuitem', { name: /move to free sandbox/i })).toBeNull();
 
-    const kill = within(dialog).getByRole('button', { name: /kill sandbox/i });
-    fireEvent.click(kill);
-    fireEvent.click(within(dialog).getByRole('button', { name: /destroy it/i }));
+    fireEvent.click(within(dialog).getByRole('menuitem', { name: /re-create sandbox/i }));
 
     expect(onKillSandbox).toHaveBeenCalledWith('t-wedged');
+    confirm.mockRestore();
     // Still open — the user is watching what happens to the sandbox.
     expect(screen.getByRole('dialog', { name: 'Wedged work' })).toBeInTheDocument();
   });

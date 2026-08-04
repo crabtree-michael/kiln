@@ -37,7 +37,7 @@ import { ProjectsRail, type RailProject } from '@/components/desktop/ProjectsRai
 import { WorkingNow } from '@/components/desktop/WorkingNow';
 import { workingTickets } from '@/components/desktop/working-now';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
-import { streamDetail } from '@/components/feed-format';
+import { lastWordDetail, streamDetail } from '@/components/feed-format';
 import '@/components/PrimaryScreen.css';
 import '@/components/desktop/DesktopScreen.css';
 
@@ -178,6 +178,8 @@ export function DesktopScreenView({
 }: DesktopScreenViewProps): JSX.Element {
   const summary = feed?.summary ?? EMPTY_SUMMARY;
   const cards = feed?.cards ?? [];
+  // The resting-state subtext, null when the brain has never spoken.
+  const lastWord = lastWordDetail(summary, now);
   const divider = dividerIndex(cards, lastSeenId);
   // "Working" for the *selected* project: the brain mid-pass, or agents mid-turn
   // (13 §8.2). Drives the breathing indication — the one thing on this screen
@@ -399,7 +401,8 @@ export function DesktopScreenView({
             !loading && (
               <div data-role="desktop-rest">
                 <p data-role="desktop-rest-line">All quiet.</p>
-                <p data-role="desktop-rest-detail">{streamDetail(summary, now)}</p>
+                <p data-role="desktop-rest-detail">{streamDetail(summary)}</p>
+                {lastWord !== null && <p data-role="desktop-rest-subtext">{lastWord}</p>}
               </div>
             )
           ) : (

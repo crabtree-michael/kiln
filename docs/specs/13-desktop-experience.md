@@ -26,10 +26,10 @@ board as the product surface for a reason that does not change when the screen g
 bigger: the board is *mechanism*, and mechanism is what Kiln exists to handle for you. A
 board asks you to manage. This asks you to glance.
 
-**Two things are deliberately not decided here.** Whether this ships as an installable
-desktop app or as the responsive web app is an implementation question for later — nothing
-below depends on the answer. And no implementation tickets are scoped here; that comes
-after this document is agreed.
+**One thing is deliberately not scoped here.** No implementation tickets are written; that
+comes after this document is agreed. The **delivery form is not an open question**: this is
+the responsive web app widening into a desktop layout, not a separate installable
+application (D8).
 
 ---
 
@@ -323,8 +323,8 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
   semantics, and project scoping all exist server-side already (`08` §7, `12` §3). This is
   overwhelmingly a client-side design landing on top of contracts that are already there.
 - **The mobile screen is not being replaced.** Mobile-first remains the product's stance
-  (`02` §11); this is an additional expression of the same app, and how the two share a
-  codebase is an implementation question deliberately left open (§12).
+  (`02` §11); this is an additional expression of the same app — the same client, widened —
+  and exactly how the two shells share that client is left open (§13 Q4).
 - **`/debug` stays where it is** (`08` §6). Every "shouldn't desktop show raw state?"
   impulse has an existing home, and letting it into the primary screen is how the ambient
   quality dies.
@@ -333,10 +333,6 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 
 ## 12. Deliberately not decided here
 
-- **Installable desktop app vs. responsive web.** Out of scope by direction. Nothing above
-  depends on the answer — every behavior described is expressible either way — and deciding
-  it early would drag packaging, updates, and window-chrome questions into a document about
-  what the thing feels like.
 - **Implementation tickets.** None are scoped. This document is what they get shaped from.
 - **Exact metrics.** Column widths, breakpoints, the type ramp's desktop values, and
   specific key bindings are all downstream of agreeing the experience.
@@ -373,4 +369,4 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 | D5 | **Typing is the primary input on desktop; voice is secondary but present.** | Voice-first, mirroring mobile's dock; voice-only. | At a desk the keyboard is already under your hands, typing is silent around other people, and typed text is more precise for filenames and identifiers. Same message seam either way (`09`), so nothing downstream cares. |
 | D6 | **Dark is desktop's resting register**, in Kiln's existing warm near-black — never a colder black. | Light-first to match mobile's paper default; a new desktop-only dark palette. | A window open all day should recede. Reusing the existing dark theme keeps one design language rather than forking the palette. |
 | D7 | **Detail opens over the feed; there is no third pane.** | A persistent detail/inspector pane; a three-column layout. | A permanent pane doubles the resting complexity to serve something looked at rarely, and re-creates the two-pane management console this design avoids. Overlay keeps the resting state at two regions. |
-| D8 | **Installable app vs. responsive web is not decided here.** | Decide now to constrain the design. | Every behavior described works either way, so deciding early would import packaging and update questions into an experience document for no design benefit. |
+| D8 | **Desktop is the responsive web app widening out, not a separate installable application.** | An installable/packaged desktop app; leaving the question open until later. | Directed, and it costs the design nothing: every behavior above works in a browser window, and the client holds no authoritative state (`02` §11), so "a window you leave open" is already just a tab you leave open. Packaging, auto-update, and window-chrome work would buy no part of the experience described here. |

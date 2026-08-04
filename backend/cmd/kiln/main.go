@@ -73,6 +73,14 @@ type Config struct {
 	WorkerPrefix string // KILN_WORKER_PREFIX — per-environment provider worker-name scope (05 §4)
 	DevEndpoints bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
 
+	// LeaderLock gates the four background work loops on a Postgres advisory
+	// lock so exactly one instance runs them, even while a rolling deploy has
+	// two alive (internal/leader). On by default; KILN_LEADER_LOCK=0 is the
+	// operator escape hatch if the election itself ever misbehaves, and it
+	// restores the pre-lock behaviour — every instance polls, which is the
+	// duplicate-agent bug. Serving HTTP/SSE is never gated either way.
+	LeaderLock bool // KILN_LEADER_LOCK — 0/false disables the leader lock
+
 	// Mechanical stall watchdog (steward): how long a Working ticket's agent may
 	// sit idle/stopped before a poke, and how often the sweep runs. Zero ⇒ the
 	// steward's own defaults (5m / 1m).
@@ -182,6 +190,7 @@ func loadConfig() Config {
 		WorkerCount:      getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
 		WorkerPrefix:     resolveWorkerPrefix(),
 		DevEndpoints:     os.Getenv("KILN_DEV_ENDPOINTS") == "1",
+		LeaderLock:       getenvBool("KILN_LEADER_LOCK", true),
 
 		PokeStall:    getenvDuration("KILN_POKE_STALL", steward.DefaultStall),
 		PokeInterval: getenvDuration("KILN_POKE_INTERVAL", steward.DefaultInterval),
@@ -231,6 +240,22 @@ func getenvInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// getenvBool returns the boolean environment value for key (the strconv set:
+// 1/t/T/TRUE/true/True and their false counterparts), or def when unset or
+// unparseable. Unparseable falls back to def rather than failing the boot, so a
+// typo in a safety switch can never leave the process refusing to start.
+func getenvBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 // getenvDuration returns the Go-duration environment value for key (e.g. "5m",
@@ -293,6 +318,14 @@ func start() int {
 		// not be opened; report the degradation rather than start blind.
 		log.Warn("kiln: log file sink unavailable; logging to stdout only", "err", err)
 	}
+	// Stamp the process-boot instance id onto every record. Two instances run
+	// side by side for ~70–85 s of every rolling deploy, and attributing a line
+	// to one of them was previously only possible from Render's own log labels
+	// — which is why five duplicate-agent investigations needed the Render API
+	// to say anything at all (docs/root-cause-2026-08-03-duplicate-instances.md
+	// §6 item 6). It also makes the leader handoff legible in the interleaved
+	// stream: leader.released on one instance, leader.acquired on the other.
+	log = log.With(obs.InstanceKey, obs.InstanceID())
 	// Make this the process default so every module's slog.*Context call flows
 	// through the turn-id context handler (obs.Handler) as JSON lines.
 	slog.SetDefault(log)

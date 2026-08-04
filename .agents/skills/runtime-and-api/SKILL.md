@@ -154,10 +154,48 @@ backend/internal/api/
   no longer confined to `/dashboard` — the board/chat (`/app`) and `/debug` are session-gated
   too. Only the public marketing/onboarding routes and `/healthz` sit outside the gate.
 
+**The background loops are single-owner (`internal/leader`).** Render's zero-downtime deploy
+runs the old and new instance side by side for **67–83 s of every deploy**, and both used to
+run the full set of background loops — so both polled for the same pending work and both could
+start an agent against the same sandbox and working tree. Five investigations
+(`docs/root-cause-2026-08-02-*` … `-08-04-part5-*`) confirmed it; the fix landed 2026-08-04.
+
+- `graph.startLoops` (`cmd/kiln/wiring.go`) runs the **four** loops — `runWorker(events)`,
+  `runWorker(outbox)`, `runAgent`, `runSteward` — inside `leader.Elector.Run`. Anything else
+  that polls or sweeps on a timer belongs **inside** `backgroundLoops`, not beside it.
+- **The HTTP server is deliberately NOT gated.** A follower serves board/SSE/API normally; it
+  just does no background work. Its writes still land (events queue up), the leader drains them.
+- The lock is `pg_try_advisory_lock(leader.LockKey)` on a **pinned `*sql.Conn`**, not the pool:
+  a lock taken on one pooled connection and released on another is a silent no-op. The Elector
+  unlocks *before* returning the conn to the pool, and re-verifies via `pg_locks` every 5 s that
+  its own backend still holds it — acquiring once at boot is not enough, because a dead
+  connection drops the lock silently. Losing it cancels the loops' context.
+- Handoff is fast because a session-scoped lock dies with the session: measured **5 ms** to
+  release on SIGTERM (successor picks up within its 3 s retry) and **53 ms** end-to-end on
+  SIGKILL. No lease, no heartbeat, no migration — advisory locks are session state, not schema.
+- Log with `leader.acquired` / `leader.standby` / `leader.released` / `leader.lost`, and every
+  record now carries `instance` (`obs.InstanceID()`, stamped on the default logger in `main.go`)
+  so a handoff is legible across two instances' interleaved streams.
+- `KILN_LEADER_LOCK=0` is the operator escape hatch. It restores the pre-lock behaviour — every
+  instance polls — which is the collision itself. Never set it to make a test pass.
+- **A leader lock is not a claim.** `agent` `stepStartTurn` still has no CAS
+  (`docs/ticket-draft-turn-claim-cas.md`) and the event queue still gives a fresh row a 1 s
+  visibility lease (`docs/ticket-draft-queue-visibility-timeout.md`). Both remain real
+  single-instance bugs; the lock does not subsume either.
+
 ## Common footguns
 
-_(Accumulate: mistakes agents predictably make in these modules.)_
+- **Starting a new background loop with a bare `go …` in `graph.run`.** It would run on every
+  instance, re-opening the duplicate-work window the leader lock closes. Add it to
+  `graph.backgroundLoops` instead.
 
 ## Potential gotchas
 
-_(Accumulate: non-obvious traps and edge cases.)_
+- **Session-scoped advisory locks need direct Postgres connections.** Behind a
+  transaction-pooling proxy (PgBouncer in transaction mode) they are meaningless, the Elector's
+  periodic re-verification fails, and *no* instance leads — the symptom is "nothing ever starts
+  working" rather than an error. Render's managed Postgres is a direct connection.
+- **`leader.LockKey`'s high 32 bits must stay below 2^31.** Postgres stores a one-argument
+  advisory key split across `classid`/`objid`, and the re-verification reassembles it with
+  `(classid::bigint << 32) | objid::bigint`, which overflows above that.
+  `TestLockKeyFitsPgLocksReassembly` guards it.

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -32,6 +33,7 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/identity/githubmock"
 	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/verify"
+	"github.com/crabtree-michael/kiln/backend/internal/leader"
 	"github.com/crabtree-michael/kiln/backend/internal/obs"
 	"github.com/crabtree-michael/kiln/backend/internal/push"
 	pushpg "github.com/crabtree-michael/kiln/backend/internal/push/postgres"
@@ -50,10 +52,13 @@ import (
 // AGENT_MODE) — the process cannot serve, so run returns it.
 var errBadConfig = errors.New("kiln: invalid configuration")
 
-// Startup constants.
+// Startup constants. loopDrainTimeout bounds the exit-time join on the
+// background loops: they stop in parallel with the HTTP drain, so this is a
+// backstop against a wedged loop holding the process open, never the norm.
 const (
 	readHeaderTimeout = 10 * time.Second
 	shutdownTimeout   = 15 * time.Second
+	loopDrainTimeout  = 5 * time.Second
 )
 
 // Keyless-e2e mode values (design §3): modeMock is the shared "mock" value for
@@ -174,6 +179,7 @@ type graph struct {
 	agent    *agent.Service
 	steward  *steward.Service
 	registry *tenant.Registry // per-project provider cache; closed on drain (11 §3)
+	db       *sql.DB          // the background loops' leader lock rides on a pinned conn from here
 }
 
 // errIdentityNotConfigured is what every tenant resolver returns when the
@@ -271,6 +277,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 		agent:    agentSvc,
 		steward:  newSteward(cfg, db, clock, projects, boardSvc, agentSvc, rtSvc),
 		registry: registry,
+		db:       db,
 	}, nil
 }
 
@@ -748,18 +755,13 @@ func enableServerRoutes(
 	}
 }
 
-// run starts the two workers and the HTTP server, then blocks until ctx is
-// cancelled and shuts the server down gracefully.
+// run starts the background work loops behind the leader lock and the HTTP
+// server unconditionally, then blocks until ctx is cancelled and shuts both
+// down gracefully.
 func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
-	go g.runWorker(ctx, "events", g.events, log)
-	go g.runWorker(ctx, "outbox", g.outbox, log)
-	// The agent-runtime loops: an initial worker-pool reconcile, then the poller
-	// (advances turns → provider StartTurn/CheckTurn) and reconciler sweep (05 §4–§5).
-	// Without this the pool is never provisioned and agent.send turns never reach Amika.
-	go g.runAgent(ctx, log)
-	// The mechanical stall watchdog's sweep loop: poke idle/stopped Working-ticket
-	// agents, escalate genuine stalls to Blocked. Deterministic, no brain.
-	go g.runSteward(ctx, log)
+	// Only the instance holding the advisory lock runs the loops; every
+	// instance serves HTTP/SSE. See startLoops.
+	loopsStopped := g.startLoops(ctx, cfg, log)
 
 	// Wrap the mux with Sentry's HTTP middleware for request tracing + panic
 	// capture. Its ResponseWriter proxy preserves http.Flusher (it returns an
@@ -791,12 +793,66 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("kiln: http shutdown: %w", err)
 	}
+	// Join the background loops. ctx was cancelled before the HTTP drain above,
+	// so they have been stopping in parallel with it and this is normally
+	// instant. Waiting here is what makes the handoff honest: the replacement
+	// instance cannot take the lock until this one's loops have actually
+	// stopped, and the sooner that happens the sooner it starts working.
+	select {
+	case <-loopsStopped:
+	case <-time.After(loopDrainTimeout):
+		log.Warn("kiln: background loops still draining at exit; the lock dies with the process")
+	}
 	// Release every tenant's per-project resources (HTTP connection pools) now
 	// that no new event can build a bundle (11 §3).
 	if g.registry != nil {
 		g.registry.Close()
 	}
 	return nil
+}
+
+// startLoops runs the four background work loops — the two queue workers, the
+// agent runtime and the steward — under the leader lock, and returns a channel
+// closed once they have stopped and the lock is released.
+//
+// These four are what must have exactly one owner cluster-wide. Every deploy
+// runs two instances side by side for 67–83 s, and without this gate both poll
+// for the same pending work, so both can start an agent against the same
+// sandbox and working tree (docs/root-cause-2026-08-04-part5-fresh-window.md).
+// The HTTP server is deliberately NOT gated: a follower serves the client
+// normally, it just does no background work.
+func (g graph) startLoops(ctx context.Context, cfg Config, log *slog.Logger) <-chan struct{} {
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		if !cfg.LeaderLock {
+			log.Warn("leader.disabled",
+				"lock_key", leader.LockKey,
+				"reason", "KILN_LEADER_LOCK is off: every instance runs the background loops")
+			g.backgroundLoops(ctx, log)
+			return
+		}
+		leader.New(g.db, leader.Config{Key: leader.LockKey, Log: log}).Run(ctx, func(loopCtx context.Context) {
+			g.backgroundLoops(loopCtx, log)
+		})
+	}()
+	return stopped
+}
+
+// backgroundLoops runs the four loops until ctx is cancelled, returning only
+// once all four have stopped — the leader lock is not released before that.
+func (g graph) backgroundLoops(ctx context.Context, log *slog.Logger) {
+	var wg sync.WaitGroup
+	wg.Go(func() { g.runWorker(ctx, "events", g.events, log) })
+	wg.Go(func() { g.runWorker(ctx, "outbox", g.outbox, log) })
+	// The agent-runtime loops: an initial worker-pool reconcile, then the poller
+	// (advances turns → provider StartTurn/CheckTurn) and reconciler sweep (05 §4–§5).
+	// Without this the pool is never provisioned and agent.send turns never reach Amika.
+	wg.Go(func() { g.runAgent(ctx, log) })
+	// The mechanical stall watchdog's sweep loop: poke idle/stopped Working-ticket
+	// agents, escalate genuine stalls to Blocked. Deterministic, no brain.
+	wg.Go(func() { g.runSteward(ctx, log) })
+	wg.Wait()
 }
 
 // runWorker runs one queue worker, logging a non-shutdown error. The deferred

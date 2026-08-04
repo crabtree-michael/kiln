@@ -79,7 +79,13 @@ test-backend:
 	# concurrently by default, so those resets race and wipe each other's rows
 	# mid-test. -p 1 runs the integration packages one at a time (02 §14: the DB
 	# is shared, never isolated per package), which is the only safe order.
-	cd $(BACKEND) && go test -tags=integration -p 1 ./...
+	#
+	# -race because this is where the multi-instance concurrency tests live: the
+	# leader election (internal/leader) and the two-Services-over-one-store turn
+	# test (internal/agent) both run several goroutines against shared state on
+	# purpose. Asserting the outcome without the detector would check the count
+	# and miss the race that produced it.
+	cd $(BACKEND) && go test -race -tags=integration -p 1 ./...
 
 .PHONY: test-frontend
 test-frontend:

@@ -110,6 +110,35 @@ describe('DesktopScreen.css', () => {
     expect(Number(match?.[1])).toBeLessThan(44);
   });
 
+  it('opens the bell panel up and to the right, away from the rail foot', () => {
+    // The bell sits at the BOTTOM LEFT here, not in a top-right header cluster,
+    // so the mobile anchoring it would otherwise inherit (`top: 100%; right: 0`)
+    // puts the panel off the bottom of a 100dvh shell and off the left edge at
+    // once — invisible, with nothing to scroll it back. jsdom does no layout, so
+    // this string assertion is the only thing in the gate that can see it.
+    const body = ruleBody(
+      "[data-role='desktop-screen'] [data-role='notify-settings-panel'] {",
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    // Both mobile anchors must be released, or `top` and `bottom` together
+    // stretch the panel instead of moving it.
+    expect(body).toMatch(/top:\s*auto/);
+    expect(body).toMatch(/right:\s*auto/);
+    expect(body).toMatch(/bottom:\s*calc\(100% \+ \d+px\)/);
+    expect(body).toMatch(/left:\s*0/);
+    expect(body).toMatch(/transform-origin:\s*bottom left/);
+  });
+
+  it('re-states the open transform for the desktop panel, beating the mobile rule', () => {
+    // Specificity trap: the closed desktop rule and the mobile [data-open='true']
+    // rule both weigh (0,2,0), and this file loads second — so without a
+    // higher-specificity open rule the closed transform wins and the panel opens
+    // stuck 6px out of place.
+    const body = ruleBody(
+      "[data-role='desktop-screen'] [data-role='notify-settings-panel'][data-open='true'] {",
+    );
+    expect(body).toMatch(/transform:\s*translateY\(0\)\s*scale\(1\)/);
+  });
+
   it('reads only semantic tokens — no literal colors forked for desktop', () => {
     // Hex literals would fork the palette instead of re-pointing the existing
     // warm near-black (13 D6). `--accent`, `--surface-*` etc. are the contract.

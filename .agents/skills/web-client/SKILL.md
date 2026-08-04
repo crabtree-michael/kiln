@@ -543,6 +543,21 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   desktop shell passes `"more"`. Only the text node changes, so every mobile DOM/image
   snapshot stays byte-identical — which is the pattern to follow for any other copy that is
   a phone word at a desk. Don't fork the component.
+- **A shared popover inherits its ANCHOR too, and the anchor is a fact about the shell.**
+  Inheriting the mobile sheet's unscoped rules is the point (above), but a dropdown's
+  `top`/`right` encode where its trigger sits — and the two shells put the same triggers in
+  opposite corners. The bell is a worked example: `NotificationSettingsMenu` is one
+  component, mounted in the phone's top-right header cluster and in the desk's bottom-left
+  rail foot, and the mobile "open down and to the left" anchoring aimed it off the bottom
+  *and* off the left of a `100dvh` shell that cannot scroll it back — invisible, not merely
+  misplaced. `DesktopScreen.css` re-anchors it to the bell's bottom-left corner (`top`/
+  `right: auto`, `bottom: calc(100% + 8px)`, `left: 0`, `transform-origin: bottom left`).
+  Two things to carry to the next one: release BOTH mobile anchors or the panel stretches
+  between them instead of moving, and **re-state the open-state `transform` at higher
+  specificity** — the desktop closed rule and the mobile `[data-open='true']` rule both weigh
+  (0,2,0) and this file loads second, so without it the closed transform wins and the panel
+  opens stuck out of place. Scope under `[data-role='desktop-screen']` rather than editing
+  the mobile rule: a resize swaps shells with both stylesheets still loaded.
 - **`tests/desktop-shell-smoke.mjs` is the only thing that can see the layout.** A
   hand-run script (not part of the Playwright suite, no stack needed): it serves
   `frontend/dist`, stubs every `/api` call, and screenshots + measures the shell at 1440px

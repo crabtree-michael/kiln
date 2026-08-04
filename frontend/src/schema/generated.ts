@@ -751,6 +751,11 @@ export interface components {
              * @description When the card became current (blocked-at for blockers, request time for proposals, post time for notes); drives the relative age label.
              */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description When the user's client acked this notification as seen (08 D2″). Set on notification-backed cards the user has already caught up on; null on unseen ones and always null on board-derived blocker/proposal cards. Starts the client's linger timer: once a seen card is older than the linger window it drops out of the default feed and is reachable behind "Show seen notifications". Unseen cards (null) are never auto-hidden.
+             */
+            seen_at?: string | null;
         };
         /** @description Server-derived header status counts (08 §2). The client renders the one-line summary from these: "N blocker(s) · M updates" when blockers exist, the active-stream count ("K streams") when not, "Nothing active" when the feed is empty; plus the all-clear detail line (building/idle/last word). */
         FeedSummary: {

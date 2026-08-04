@@ -360,6 +360,42 @@ Two consequences worth keeping when you touch either:
   `--duration-base`), not `transitionend` — under `prefers-reduced-motion` the CSS
   transition is suppressed and `transitionend` would never fire.
 
+## Seen-card auto-hide (feed, 08 D2″)
+
+The default feed shows unseen cards plus recently-seen ones; a card drops out
+`SEEN_LINGER_MS` (10 min) after the **server's** `seen_at`, and a **"Show seen
+notifications"** button at the foot of the feed reveals every hidden card (and puts
+them back). Visibility only — nothing is retracted, so this is unrelated to
+swipe-dismiss above.
+
+- **The clock is `FeedCard.seen_at` off the wire, not a local timer.** `MarkSeen`
+  stamps it server-side and appends `feed.updated` in the same tx, so a fresh
+  snapshot carries the stamp back within the same session. Counting locally instead
+  would restart every card's window on reload and disagree between tabs.
+- **Unseen ⇒ `seen_at` is null ⇒ never hidden**, at any age. That invariant is the
+  whole safety property: keep any new filter reading `seen_at`, never `created_at`
+  and never the session-frozen `lastSeenId` (which is a *divider* boundary — it moves
+  per session and marks cards seen in a previous visit, a different question).
+- **Everything merges through `remerge()`.** The store now has three stacked
+  suppressions (optimistic ticket hides, swipe dismissals, lapsed seen cards); they
+  used to be re-applied by five copy-pasted `setFeed(mergeFeed(...))` blocks. Add a
+  new one inside `mergeFeed` + `remerge`, not at a call site, or the suppressions
+  drift apart depending on which mutation path fired last.
+- **`showSeenRef` shadows the `showSeen` state on purpose.** Every merge callback
+  reads the ref, so `applySnapshot` stays render-stable; make a merge callback depend
+  on the `showSeen` *state* and the `subscribeStream` effect below it re-subscribes —
+  toggling the reveal would drop and reopen the SSE connection.
+- **A quiet feed still declutters:** `remerge` re-arms one `setTimeout` for the next
+  card due to lapse, so a card leaves on its own with no further snapshot. It is
+  cleared on unmount alongside the optimistic-reappear timers.
+- **`loadMoreHistory` force-reveals seen cards.** An older page is almost entirely
+  long-seen updates; without this, "Show earlier updates" fetches a page straight
+  into hiding and reads as a dead button.
+- **The reveal button renders outside the empty/non-empty branch** in
+  `PrimaryScreenView`. Hiding the last card leaves the "all clear" empty state — the
+  one place the user most needs the way back — so keep it out of the `isEmpty`
+  ternary.
+
 ## Potential gotchas
 
 - **A wrapping `<label>` absorbs everything inside it into the field's accessible name.** The

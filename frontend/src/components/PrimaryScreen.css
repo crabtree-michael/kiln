@@ -1284,7 +1284,12 @@ button[data-role='feed-card-head']:focus-visible {
 /* The "Show earlier updates" affordance at the foot of the retained-history
    feed (08 D2′): a quiet, full-width control that pages older updates in rather
    than loading all retained history at once. */
-[data-role='feed-load-more'] {
+/* The two foot-of-feed affordances share one look: "Show earlier updates" pages
+   older history from the server, "Show seen notifications" reveals the seen
+   cards the linger window hid locally (08 D2″). Both are quiet, full-width, and
+   subordinate to the cards above them. */
+[data-role='feed-load-more'],
+[data-role='feed-show-seen'] {
   margin: 14px 0 4px;
   width: 100%;
   font-family: inherit;
@@ -1300,8 +1305,16 @@ button[data-role='feed-card-head']:focus-visible {
   cursor: pointer;
 }
 
-[data-role='feed-load-more']:active {
+[data-role='feed-load-more']:active,
+[data-role='feed-show-seen']:active {
   transform: translateY(1px);
+}
+
+/* Revealed: the affordance now reads "Hide seen notifications", so it takes the
+   pressed-toggle treatment to show the feed is in its expanded state. */
+[data-role='feed-show-seen'][aria-pressed='true'] {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
 }
 
 [data-role='feed-load-more']:disabled {

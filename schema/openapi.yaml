@@ -1161,6 +1161,18 @@ components:
           description: >
             When the card became current (blocked-at for blockers, request time
             for proposals, post time for notes); drives the relative age label.
+        seen_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When the user's client acked this notification as seen (08 D2″).
+            Set on notification-backed cards the user has already caught up on;
+            null on unseen ones and always null on board-derived
+            blocker/proposal cards. Starts the client's linger timer: once a
+            seen card is older than the linger window it drops out of the
+            default feed and is reachable behind "Show seen notifications".
+            Unseen cards (null) are never auto-hidden.
       additionalProperties: false
 
     FeedSummary:

@@ -501,7 +501,7 @@ func (s *Store) MarkSeen(ctx context.Context, projectID string, lastID int64) er
 // that history is retained (08 D2′).
 func (s *Store) UnseenNotifications(ctx context.Context, projectID string) ([]runtime.Notification, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, work_summary, created_at
+		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, work_summary, created_at, seen_at
 		 FROM notifications
 		 WHERE project_id = $1 AND seen_at IS NULL AND retracted_at IS NULL AND kind NOT IN ('poke', 'done')
 		 ORDER BY id DESC`, nullableUUID(projectID))
@@ -519,7 +519,7 @@ func (s *Store) RecentNotifications(
 	ctx context.Context, projectID string, limit int,
 ) ([]runtime.Notification, bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, work_summary, created_at
+		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, work_summary, created_at, seen_at
 		 FROM notifications
 		 WHERE project_id = $2 AND retracted_at IS NULL
 		 ORDER BY id DESC
@@ -541,7 +541,7 @@ func (s *Store) HistoryBefore(
 	ctx context.Context, projectID string, before int64, limit int,
 ) ([]runtime.Notification, bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, work_summary, created_at
+		`SELECT id, kind, ticket_id, body, image_url, github_url, github_label, work_summary, created_at, seen_at
 		 FROM notifications
 		 WHERE project_id = $3 AND retracted_at IS NULL AND id < $1
 		 ORDER BY id DESC
@@ -619,9 +619,11 @@ func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 			githubURL   sql.NullString
 			githubLabel sql.NullString
 			workSummary sql.NullString
+			seenAt      sql.NullTime
 		)
 		if serr := rows.Scan(
-			&n.ID, &kind, &ticketID, &n.Body, &imageURL, &githubURL, &githubLabel, &workSummary, &n.CreatedAt,
+			&n.ID, &kind, &ticketID, &n.Body, &imageURL, &githubURL, &githubLabel, &workSummary,
+			&n.CreatedAt, &seenAt,
 		); serr != nil {
 			return nil, fmt.Errorf("runtime/postgres: scan notification: %w", serr)
 		}
@@ -631,6 +633,13 @@ func scanNotifications(rows *sql.Rows) (_ []runtime.Notification, err error) {
 		n.GitHubURL = nullStringPtr(githubURL)
 		n.GitHubLabel = nullStringPtr(githubLabel)
 		n.WorkSummary = nullStringPtr(workSummary)
+		// seen_at drives the client's seen-card linger (08 D2″); it is nil on
+		// every row the user has not acked yet, which is exactly what keeps an
+		// unseen card from ever being auto-hidden.
+		if seenAt.Valid {
+			t := seenAt.Time
+			n.SeenAt = &t
+		}
 		out = append(out, n)
 	}
 	if rerr := rows.Err(); rerr != nil {

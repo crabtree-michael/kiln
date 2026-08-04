@@ -265,11 +265,20 @@ describe('DesktopScreenView', () => {
     expect(screen.queryByRole('button', { name: 'Clear all notifications' })).toBeNull();
   });
 
-  it('rests in the warm near-black while mounted, and restores the theme on unmount', () => {
+  it('pins no theme of its own, so the desk follows the system preference', () => {
+    // This shell used to stamp `data-theme="dark"` on <body>, which beat the
+    // system preference ThemeColorSync writes to <html> (13 D6). A light-mode
+    // user got a dark window at their desk and a paper one on their phone. The
+    // preference is the person's, not the viewport's — so the shell touches
+    // `data-theme` nowhere, mounted or unmounted, and tokens.css resolves the
+    // palette from <html> exactly as it does on every other route.
+    document.documentElement.dataset.theme = 'light';
     const { unmount } = renderShell();
-    expect(document.body.dataset.theme).toBe('dark');
-    unmount();
     expect(document.body.dataset.theme).toBeUndefined();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    unmount();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    delete document.documentElement.dataset.theme;
   });
 
   it('publishes which shell is up, so the portaled sheet can be styled without a second breakpoint', () => {

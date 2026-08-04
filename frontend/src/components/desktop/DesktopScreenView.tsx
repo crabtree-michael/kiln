@@ -232,36 +232,32 @@ export function DesktopScreenView({
     rows[next]?.focus();
   };
 
-  // Dark is desktop's resting register (13 D6, §4) — Kiln's existing warm
-  // near-black, never a colder one, so this re-points the SAME tokens rather
-  // than forking the palette. Stamped on <body> rather than the shell root
-  // because the ticket-detail sheet portals OUT of this subtree to
-  // `document.body` (see the web-client skill's vaul notes); on the root, the
-  // overlay would open in light theme over a dark window. `ThemeColorSync` keeps
-  // writing the system preference to <html>, which body's attribute simply wins
-  // over for everything inside it — so the mobile shell and every other route
-  // are untouched, and unmounting restores them exactly.
+  // This shell pins NO theme. It used to stamp `data-theme="dark"` on <body>
+  // (13 D6, "dark is desktop's resting register"), which won over the system
+  // preference `ThemeColorSync` writes to <html> and left a light-mode user
+  // staring into a dark window on a desk and a paper one on their phone. The
+  // preference belongs to the person, not to the viewport width, so desktop
+  // follows the OS the way every other route already does — one mechanism,
+  // `data-theme` on <html>, live-updated on `prefers-color-scheme` flips.
   //
-  // The same effect stamps `data-shell="desktop"` for the same reason and one
-  // more. The ticket-detail sheet portals to `document.body`, so it lands OUTSIDE
-  // this shell's subtree and no descendant selector can reach it — but it still
-  // has to stop being a full-bleed phone sheet on a desk (13 D7: it opens *over
-  // the feed*, it is not the window). A `min-width` media query would work and is
-  // deliberately not used: the shell is chosen in JS (`useIsDesktop`), so a
-  // breakpoint restated in CSS is a second source of truth that can silently
-  // disagree with the first. This attribute IS the JS decision, published where
-  // the portal can see it, so the two can never drift.
+  // What survives D6 is the part that was actually about design rather than
+  // about defaults: the dark register is still Kiln's existing WARM near-black,
+  // and this file's CSS reads only semantic tokens, so both themes come from
+  // tokens.css and neither is a desktop-only palette fork.
+  //
+  // `data-shell="desktop"` is still stamped here, and for a reason unrelated to
+  // theming. The ticket-detail sheet portals to `document.body`, so it lands
+  // OUTSIDE this shell's subtree and no descendant selector can reach it — but
+  // it still has to stop being a full-bleed phone sheet on a desk (13 D7: it
+  // opens *over the feed*, it is not the window). A `min-width` media query
+  // would work and is deliberately not used: the shell is chosen in JS
+  // (`useIsDesktop`), so a breakpoint restated in CSS is a second source of
+  // truth that can silently disagree with the first. This attribute IS the JS
+  // decision, published where the portal can see it, so the two can never drift.
   useEffect(() => {
-    const previousTheme = document.body.dataset.theme;
     const previousShell = document.body.dataset.shell;
-    document.body.dataset.theme = 'dark';
     document.body.dataset.shell = 'desktop';
     return () => {
-      if (previousTheme === undefined) {
-        delete document.body.dataset.theme;
-      } else {
-        document.body.dataset.theme = previousTheme;
-      }
       if (previousShell === undefined) {
         delete document.body.dataset.shell;
       } else {

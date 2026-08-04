@@ -179,7 +179,12 @@ const feed = {
 };
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+// Opens in dark because the OS says dark — not because the shell forces it
+// (13 D6a). The light pass below flips exactly this and nothing else.
+const page = await browser.newPage({
+  viewport: { width: 1440, height: 900 },
+  colorScheme: 'dark',
+});
 
 await page.route('**/api/**', async (route) => {
   const url = new URL(route.request().url());
@@ -260,9 +265,12 @@ const geometry = await page.evaluate(() => {
     // A blocker reads in full; an update still clamps.
     blockerClamped: blockerBody ? blockerBody.scrollHeight > blockerBody.clientHeight + 1 : 'missing',
     updateClamped: updateBody ? updateBody.scrollHeight > updateBody.clientHeight + 1 : 'missing',
-    // Warm near-black, and dark stamped on <body> (13 D6).
+    // Warm near-black — because the OS asked for dark, and via the ONE theme
+    // mechanism: `data-theme` on <html> (13 D6a). `bodyTheme` must stay
+    // undefined; the shell pins no theme of its own any more.
     shellBg: getComputedStyle(document.querySelector('[data-role="desktop-screen"]'))
       .backgroundColor,
+    htmlTheme: document.documentElement.dataset.theme,
     bodyTheme: document.body.dataset.theme,
     bodyShell: document.body.dataset.shell,
     // The whole contrast budget: needs-you carries the accent, working doesn't.
@@ -277,6 +285,78 @@ const geometry = await page.evaluate(() => {
   };
 });
 console.log('DESKTOP GEOMETRY', JSON.stringify(geometry, null, 2));
+
+// ── Both registers (13 D6a) ────────────────────────────────────────────────
+// The desk follows the OS preference, so flipping the emulated preference must
+// repaint the window live — no reload, no remount. And every rule has to hold in
+// the light palette too, which jsdom cannot check at all: it resolves no custom
+// properties, so "does paper actually reach the shell, and is anything invisible
+// once it does" is only answerable in a browser.
+//
+// The hover reading is the specific trap worth measuring. `--surface-raised` is
+// a lift above `--surface-card` in the dark palette but sits three hex points
+// off it in the light one, so a send button that "firms on hover" in the dark
+// vanishes into the composer in daylight. Both deltas below must be non-trivial.
+async function readRegister() {
+  // Send is disabled on an empty draft, and the rule is `:not(:disabled):hover`.
+  await page.fill('[data-role="desktop-input"]', 'hello');
+  await page.hover('[data-role="desktop-send"]');
+  await page.waitForTimeout(250);
+  const measured = await page.evaluate(() => {
+    const bg = (selector) => {
+      const el = document.querySelector(selector);
+      return el ? getComputedStyle(el).backgroundColor : 'missing';
+    };
+    const rgb = (value) => (value.match(/\d+/g) ?? []).map(Number).slice(0, 3);
+    // Perceived distance is good enough here: we are asking "can the eye see a
+    // difference at all", not grading a contrast ratio.
+    const delta = (a, b) => {
+      const [x, y] = [rgb(a), rgb(b)];
+      return Math.round(Math.sqrt(x.reduce((sum, v, i) => sum + (v - y[i]) ** 2, 0)));
+    };
+    const composer = bg('[data-role="desktop-composer"]');
+    const send = bg('[data-role="desktop-send"]');
+    return {
+      htmlTheme: document.documentElement.dataset.theme,
+      bodyTheme: document.body.dataset.theme,
+      page: bg('[data-role="desktop-screen"]'),
+      rail: bg('[data-role="desktop-rail"]'),
+      composer,
+      sendHovered: send,
+      // The three separations the shell's legibility rests on.
+      railVsPage: delta(bg('[data-role="desktop-rail"]'), bg('[data-role="desktop-screen"]')),
+      composerVsPage: delta(composer, bg('[data-role="desktop-screen"]')),
+      sendHoverVsComposer: delta(send, composer),
+      accentDot: (() => {
+        const el = document.querySelector(
+          '[data-role="rail-project-state"][data-state="needs-you"] [data-role="rail-project-dot"]',
+        );
+        return el ? getComputedStyle(el).backgroundColor : 'missing';
+      })(),
+    };
+  });
+  await page.fill('[data-role="desktop-input"]', '');
+  return measured;
+}
+
+console.log('DARK REGISTER', JSON.stringify(await readRegister(), null, 2));
+
+await page.emulateMedia({ colorScheme: 'light' });
+await page.waitForTimeout(500);
+await page.screenshot({ path: '/tmp/desktop-shell-light.png' });
+console.log(
+  'LIGHT REGISTER (after a live flip, no reload)',
+  JSON.stringify(await readRegister(), null, 2),
+);
+
+// And back, to prove the subscription is not a one-shot — and to leave the rest
+// of this script measuring the register it was written against.
+await page.emulateMedia({ colorScheme: 'dark' });
+await page.waitForTimeout(500);
+console.log(
+  'FLIPPED BACK → html theme =',
+  await page.evaluate(() => document.documentElement.dataset.theme),
+);
 
 // The rail is the switcher (13 §5).
 await page.click('[data-role="rail-project"][data-project-id="p2"]');
@@ -312,8 +392,9 @@ console.log(
   await page.evaluate(() => document.activeElement?.getAttribute('data-role')),
 );
 
-// Narrow the window: the mobile shell must take back over, and the theme the
-// desktop shell stamped must be restored.
+// Narrow the window: the mobile shell must take back over — and the theme must
+// not so much as flicker, because it never depended on the shell in the first
+// place (13 D6a). Both shells read the same `data-theme` off <html>.
 await page.setViewportSize({ width: 480, height: 900 });
 await page.waitForTimeout(500);
 console.log(
@@ -321,8 +402,10 @@ console.log(
   (await page.locator('[data-role="primary-screen"]').count()) === 1,
   '| desktop shell gone =',
   (await page.locator('[data-role="desktop-screen"]').count()) === 0,
-  '| body theme restored =',
+  '| body theme still unset =',
   (await page.evaluate(() => document.body.dataset.theme)) === undefined,
+  '| html theme unchanged =',
+  await page.evaluate(() => document.documentElement.dataset.theme),
 );
 await page.screenshot({ path: '/tmp/mobile-shell.png' });
 

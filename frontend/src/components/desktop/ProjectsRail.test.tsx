@@ -7,10 +7,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { ProjectsRail, type RailProject } from '@/components/desktop/ProjectsRail';
 
 const PROJECTS: RailProject[] = [
-  { id: 'p1', name: 'kiln', state: 'needs-you' },
-  { id: 'p2', name: 'atlas', state: 'working' },
-  { id: 'p3', name: 'ledger', state: 'quiet' },
-  { id: 'p4', name: 'foundry', state: 'unknown' },
+  { id: 'p1', name: 'kiln', state: 'needs-you', working: 0 },
+  { id: 'p2', name: 'atlas', state: 'working', working: 1 },
+  { id: 'p3', name: 'ledger', state: 'quiet', working: 0 },
+  { id: 'p4', name: 'foundry', state: 'unknown', working: 0 },
 ];
 
 function renderRail(overrides: Partial<React.ComponentProps<typeof ProjectsRail>> = {}) {
@@ -46,7 +46,7 @@ describe('ProjectsRail', () => {
     const { container } = renderRail();
     expect(rows(container).map((row) => row.textContent)).toEqual([
       'kilnneeds you',
-      'atlasworking',
+      'atlas1 working',
       'ledger',
       'foundry',
     ]);
@@ -67,7 +67,41 @@ describe('ProjectsRail', () => {
     const marks = Array.from(
       container.querySelectorAll<HTMLElement>('[data-role="rail-project-state"]'),
     );
-    expect(marks.map((mark) => mark.textContent)).toEqual(['needs you', 'working', '', '']);
+    expect(marks.map((mark) => mark.textContent)).toEqual(['needs you', '1 working', '', '']);
+  });
+
+  it('carries the working count in hover/assistive text — never as a visible badge (13 §8)', () => {
+    const { container } = renderRail({
+      projects: [
+        // Blocked AND building: the mark can only say one thing, and it says the
+        // one that wants a person. The running work is what would otherwise be
+        // lost entirely.
+        { id: 'p1', name: 'kiln', state: 'needs-you', working: 3 },
+        { id: 'p2', name: 'atlas', state: 'working', working: 2 },
+        { id: 'p3', name: 'ledger', state: 'quiet', working: 0 },
+      ],
+      currentProjectId: 'p1',
+    });
+    expect(rows(container).map((row) => row.getAttribute('title'))).toEqual([
+      'needs you · 3 working',
+      '2 working',
+      // A resting project has nothing to say, so it gets no tooltip at all.
+      null,
+    ]);
+    // And nothing paints: the count lives in the mark's visually-hidden text,
+    // which the stylesheet clips out of the layout entirely.
+    const marks = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-role="rail-project-state"] span'),
+    ).filter((node) => node.dataset.role === 'visually-hidden');
+    expect(marks).toHaveLength(2);
+  });
+
+  it('keeps the mark itself binary — a count never changes which dot is drawn', () => {
+    const { container } = renderRail({
+      projects: [{ id: 'p1', name: 'kiln', state: 'needs-you', working: 3 }],
+      currentProjectId: 'p1',
+    });
+    expect(rows(container)[0]).toHaveAttribute('data-state', 'needs-you');
   });
 
   it('marks the current project, once', () => {

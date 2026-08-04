@@ -80,11 +80,17 @@ const boards = {
     shaping: [ticket('t9', 'Rate-limit the webhook retry', 'shaping')],
     ready: [],
     blocked: [ticket('t1', 'auth refresh', 'blocked')],
-    working: [ticket('t2', 'poller', 'working')],
+    // Two tickets being worked, and one of them with a dead session behind it:
+    // the working strip must name both and say plainly that the second is not
+    // actually running (13 §8.2).
+    working: [ticket('t2', 'poller', 'working'), ticket('t4', 'index migration', 'working')],
     done: [],
     worker_total: 3,
-    worker_free: 1,
-    agents: [{ worker_id: 'w1', ticket_id: 't2', status: 'building' }],
+    worker_free: 0,
+    agents: [
+      { worker_id: 'w1', ticket_id: 't2', status: 'building' },
+      { worker_id: 'w2', ticket_id: 't4', status: 'errored' },
+    ],
     alerts: [],
   },
   // atlas: nothing wanted, but building → working.
@@ -239,6 +245,9 @@ const geometry = await page.evaluate(() => {
   const rail = rect('[data-role="desktop-rail"]');
   const feedRegion = rect('[data-role="desktop-feed"]');
   const composer = rect('[data-role="desktop-composer"]');
+  const strip = rect('[data-role="desktop-working"]');
+  const stripHead = rect('[data-role="desktop-working-head"]');
+  const feedList = rect('[data-role="desktop-feed-list"]');
   const blockerBody = document.querySelector(
     '[data-role="desktop-feed-row"][data-kind="blocker"] [data-role="feed-card-body"]',
   );
@@ -257,6 +266,16 @@ const geometry = await page.evaluate(() => {
     feedLeft: feedRegion?.left,
     // The input sits UNDER the feed and never over it.
     composerBelowFeed: composer && feedRegion ? composer.top >= feedRegion.bottom - 1 : null,
+    // The working strip sits ABOVE the feed's scroll region — it holds its own
+    // height rather than scrolling away with the history (13 §8.2).
+    stripAboveFeed: strip && feedRegion ? strip.bottom <= feedRegion.top + 1 : 'missing',
+    // …and in the same reading column as the cards, so the eye travels down one
+    // line rather than between two.
+    stripAlignedWithFeed:
+      stripHead && feedList ? Math.round(stripHead.left - feedList.left) : 'missing',
+    workingTitles: Array.from(
+      document.querySelectorAll('[data-role="desktop-working-title"]'),
+    ).map((node) => node.textContent),
     // A blocker reads in full; an update still clamps.
     blockerClamped: blockerBody ? blockerBody.scrollHeight > blockerBody.clientHeight + 1 : 'missing',
     updateClamped: updateBody ? updateBody.scrollHeight > updateBody.clientHeight + 1 : 'missing',

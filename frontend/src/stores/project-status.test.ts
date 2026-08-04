@@ -2,7 +2,7 @@
 // project looks like out of the corner of your eye, so they are asserted
 // directly rather than through the rail's DOM.
 import { describe, it, expect } from 'vitest';
-import { deriveProjectState } from '@/stores/project-status';
+import { deriveProjectState, deriveProjectStatus } from '@/stores/project-status';
 import { makeBoard, makeTicket } from '@/test/fixtures';
 
 const ticket = (id: string, state: Parameters<typeof makeTicket>[0]['state']) =>
@@ -48,5 +48,26 @@ describe('deriveProjectState', () => {
 
   it('never heard from is unknown, NOT quiet — the rail must not claim an all-clear it has not verified', () => {
     expect(deriveProjectState(null)).toBe('unknown');
+  });
+});
+
+describe('deriveProjectStatus', () => {
+  it('carries the working count alongside the state, which the precedence drops', () => {
+    // The mark says `needs-you` — correctly, the question is what the rail exists
+    // to surface — and without the count nothing anywhere would say that two
+    // agents are also mid-turn on this project.
+    const board = makeBoard({
+      blocked: [ticket('t1', 'blocked')],
+      working: [ticket('t2', 'working'), ticket('t3', 'working')],
+    });
+    expect(deriveProjectStatus(board)).toEqual({ state: 'needs-you', working: 2 });
+  });
+
+  it('a board never heard from has no count to report', () => {
+    expect(deriveProjectStatus(null)).toEqual({ state: 'unknown', working: 0 });
+  });
+
+  it('a resting project counts zero', () => {
+    expect(deriveProjectStatus(makeBoard())).toEqual({ state: 'quiet', working: 0 });
   });
 });

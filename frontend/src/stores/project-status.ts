@@ -53,3 +53,25 @@ export function deriveProjectState(board: Board | null): ProjectState {
   }
   return 'quiet';
 }
+
+/**
+ * One project's rail row: its state, plus how many tickets are being worked.
+ *
+ * The count exists because the precedence above is lossy on purpose — a project
+ * that is blocked on a question AND building elsewhere reads as `needs-you`, and
+ * the fact that three agents are mid-turn on it disappears from the mark. That
+ * is the right call for the *mark* (13 §4: if two states both draw the eye,
+ * neither does) and the wrong one for someone asking "what is running where", so
+ * the number is carried alongside and the rail spends it only on the row's
+ * hover/assistive text — never as a visible badge, which 13 §8 rules out by
+ * name.
+ */
+export interface ProjectStatus {
+  state: ProjectState;
+  /** Tickets in the board's Working bucket; 0 for a board never heard from. */
+  working: number;
+}
+
+export function deriveProjectStatus(board: Board | null): ProjectStatus {
+  return { state: deriveProjectState(board), working: board?.working.length ?? 0 };
+}

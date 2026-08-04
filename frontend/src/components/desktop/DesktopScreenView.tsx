@@ -32,6 +32,8 @@ import { ActivityRow } from '@/components/ActivityRow';
 import { MicButton } from '@/components/MicButton';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { ProjectsRail, type RailProject } from '@/components/desktop/ProjectsRail';
+import { WorkingNow } from '@/components/desktop/WorkingNow';
+import { workingTickets } from '@/components/desktop/working-now';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { streamDetail } from '@/components/feed-format';
 import '@/components/PrimaryScreen.css';
@@ -174,6 +176,11 @@ export function DesktopScreenView({
   // permitted to animate on its own. Never a progress bar: there is no progress
   // to report, and a bar that doesn't measure anything is a lie.
   const working = thinking || summary.building > 0;
+  // …and WHICH tickets those agents are on, straight off the board's Working
+  // bucket. The liveness signal above and this list are kept separate on purpose:
+  // the brain thinks with nothing in Working, and a board snapshot can name a
+  // working ticket before the feed summary agrees. Either lights the strip.
+  const inProgress = workingTickets(board);
   // Disconnected must be STATED, not hidden (13 §10): an ambient app that has
   // silently stopped receiving is worse than one that is visibly off. Low-key
   // and permanent while it lasts — never a modal, and deliberately not in the
@@ -329,6 +336,18 @@ export function DesktopScreenView({
       </aside>
 
       <main data-role="desktop-main">
+        {/* The working indication (13 §8.2), and what it is working ON. Above
+            the feed's scroll region rather than inside it: it is a property of
+            the project, true for as long as the work runs, so it holds its own
+            height and stays in view while the history is scrolled — the same
+            in-flow call `SystemAlertBand` makes for a persistent condition on
+            mobile. Breathing, slow and low-contrast — see DesktopScreen.css. */}
+        <WorkingNow
+          tickets={inProgress}
+          active={working}
+          onOpenTicket={setOpenTicketId}
+          now={now}
+        />
         <section
           ref={feedRef}
           role="region"
@@ -337,15 +356,6 @@ export function DesktopScreenView({
           tabIndex={0}
           onKeyDown={onFeedKeyDown}
         >
-          {/* The working indication (13 §8.2), pinned at the head of the column
-              so it reads as a property of the project rather than of any one
-              card. Breathing, slow and low-contrast — see DesktopScreen.css. */}
-          {working && (
-            <div data-role="desktop-working" role="status">
-              <span data-role="desktop-working-dot" aria-hidden="true" />
-              <span>working</span>
-            </div>
-          )}
           {cards.length === 0 ? (
             // The resting state is the real state (13 §1): composed, not empty,
             // and not apologised for. One honest line, no illustration, no

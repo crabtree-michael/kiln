@@ -367,15 +367,28 @@ html:has([data-role='desktop-screen']) body {
   overflow: visible;
 }
 
-/* The working indication (13 §8.2): slow, low-contrast, breathing. It is the one
-   element on this screen permitted to animate on its own, and it is never a
-   progress bar — there is no progress to report. */
+/* ------------------------------------------------------------ working now */
+
+/* The working strip (13 §8.2, §10). It sits ABOVE the feed's scroll region, in
+   flow, so what is being worked on right now cannot be scrolled out of sight
+   while reading back through the history — the same stance the mobile
+   SystemAlertBand takes for a persistent condition. The horizontal padding
+   matches the feed's so the two columns line up; the vertical is one-sided,
+   because the feed's own top padding supplies the gap below. */
 [data-role='desktop-working'] {
+  flex: none;
+  padding: var(--space-8) var(--space-8) 0;
+}
+
+/* The indication itself: slow, low-contrast, breathing. It is the one element on
+   this screen permitted to animate on its own, and it is never a progress bar —
+   there is no progress to report. */
+[data-role='desktop-working-head'] {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   max-width: 720px;
-  margin: 0 auto var(--space-4);
+  margin: 0 auto;
   color: var(--text-faint);
   font: var(--type-caption);
   letter-spacing: var(--tracking-caps);
@@ -388,6 +401,96 @@ html:has([data-role='desktop-screen']) body {
   border-radius: 50%;
   background: var(--text-muted);
   animation: kiln-breathe var(--breathe-duration, 3800ms) var(--ease-in-out) infinite;
+}
+
+/* One row per ticket an agent is bound to. Same reading column as the feed, so
+   the eye travels down one line rather than between two. */
+[data-role='desktop-working-list'] {
+  list-style: none;
+  max-width: 720px;
+  margin: var(--space-2) auto 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+[data-role='desktop-working-ticket'] {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  /* Desktop density (13 §9), matched to the rail's rows rather than to a thumb. */
+  min-height: 28px;
+  /* Padded, then pulled back out by the same amount — the feed row's trick, so a
+     title here starts on exactly the same vertical line as a card's title below
+     it, the age ends on the same line as a card's age, and only the hover
+     background bleeds past the column. The width is stated because a <button>
+     sizes to its content even as a flex container, where the feed's plain
+     <div> row fills its line for free. */
+  padding: 0 var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  width: calc(100% + var(--space-4));
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--type-small);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-settle),
+    color var(--duration-fast) var(--ease-settle);
+}
+
+/* Hover reveals; it never acts (13 §9). Pointing at a row lifts it a shade, the
+   same amount a rail row lifts — opening still takes a click. */
+[data-role='desktop-working-ticket']:hover {
+  background: var(--surface-subtle);
+  color: var(--text-body);
+}
+
+/* Focus is visible and uses the existing ring token, not a new invention
+   (13 §9) — and it lands on the same rows hover does, so the keyboard path
+   through the strip is the pointer's path. */
+[data-role='desktop-working-ticket']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  color: var(--text-body);
+}
+
+[data-role='desktop-working-title'] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The word only present when the session behind the ticket is NOT plainly
+   building — stopped, failing, starting up. It is stated in the same neutral ink
+   as everything else here: a wedged sandbox is a fact, not an alarm, and the
+   accent belongs to things that want a decision (13 §4). */
+[data-role='desktop-working-note'] {
+  flex: none;
+  color: var(--text-muted);
+  font: var(--type-caption);
+}
+
+/* Time in status. Faint at rest and firm under the pointer, exactly as a feed
+   card's timestamp behaves — secondary detail stays off the screen until asked
+   for (13 §6). */
+[data-role='desktop-working-age'] {
+  flex: none;
+  color: var(--text-faint);
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.4;
+  transition: opacity var(--duration-base) var(--ease-settle);
+}
+
+[data-role='desktop-working-ticket']:hover [data-role='desktop-working-age'],
+[data-role='desktop-working-ticket']:focus-within [data-role='desktop-working-age'] {
+  opacity: 1;
 }
 
 /* The resting state is the real state (13 §1, §10): composed, not empty, and not

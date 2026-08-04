@@ -93,11 +93,18 @@ function PrimaryScreenBody(): JSX.Element {
     current?.id ?? null,
     board,
   );
-  const railProjects: RailProject[] = projects.map((project) => ({
-    id: project.id,
-    name: project.name,
-    state: projectStates[project.id] ?? 'unknown',
-  }));
+  const railProjects: RailProject[] = projects.map((project) => {
+    const status = projectStates[project.id];
+    return {
+      id: project.id,
+      name: project.name,
+      state: status?.state ?? 'unknown',
+      // Carried alongside the state because the state's precedence drops it: a
+      // project that is both blocked and building reads as `needs-you`. The rail
+      // spends it on hover/assistive text only — never a badge (13 §8).
+      working: status?.working ?? 0,
+    };
+  });
 
   const onAccept = useCallback(
     (ticketId: string): void => {

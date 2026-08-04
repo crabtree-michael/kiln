@@ -323,8 +323,8 @@ the board at all:
   so an agent can keep working in the same workspace across turns. It is a *setting on the
   ticket*, so it writes directly — round-tripping a toggle through an LLM pass would be slow
   and non-deterministic for no gain.
-- **The text edit** (`onEditText` → `editTicketText` → `POST /api/tickets/{id}/text`): the
-  pencil beside the title turns the title and body into a field and a textarea. This one skips
+- **The text edit** (`onEditText` → `editTicketText` → `POST /api/tickets/{id}/text`): pressing
+  the rendered body turns the title and body into a field and a textarea. This one skips
   the brain for the opposite reason — **an LLM pass is the thing being avoided.** Describing a
   wording change out loud and letting the brain rewrite the ticket is what drifts from what
   the user meant (that drift is the whole reason the affordance exists), so the typed text has
@@ -347,8 +347,24 @@ the board at all:
 All three share the two consequences below. The text edit adds three of its own:
 
 - **Gated on `EDITABLE_STATES` (shaping/ready), mirroring the board's `shape_ticket`
-  precondition** — not a client-side opinion. Widen the two together or the pencil offers an
+  precondition** — not a client-side opinion. Widen the two together or the body invites an
   edit the server answers with 409.
+- **The body IS the affordance — there is no pencil** (removed; don't reintroduce one). The
+  rendered Markdown of an editable ticket is wrapped in `[data-role='detail-body-edit-target']`,
+  and pressing it swaps that same region for the textarea, so the words never move to be
+  changed. Four things make that safe and reachable, all covered by tests:
+  - **A plain `div`, never a `<button>`/`role="button"`.** A button announces its contents as
+    its own label instead of as the document they are — and the body is what the sheet exists
+    to show — plus Markdown can contain links, which cannot live inside a button.
+  - **The keyboard/AT route is a separate control**, `[data-role='detail-body-edit-key']`
+    ("Edit description"), clipped off-screen until focused (skip-link shape). It is the *only*
+    way in without a pointer, so it must stay tabbable — clipped, not `display: none`.
+  - **Two presses inside the body must NOT open the editor**: a click on an `<a>` (following a
+    reference isn't a request to rewrite the sentence) and a click that ends a text selection
+    (otherwise copying a ticket is impossible). Both guarded in `editFromBody`.
+  - **An empty body renders a placeholder** ("Add a description"), because an editable ticket
+    with nothing written would otherwise have nothing to press. Entering the mode focuses the
+    *body* textarea with the caret at the end — the body is what the user pressed.
 - **The `<Drawer.Title>` stays mounted while editing**, visually hidden by a *clip* rule
   (`[data-editing='true']`), because Radix names the dialog by it. `display: none` is the one
   hiding style an accessible-name computation may skip — don't "simplify" it to that.

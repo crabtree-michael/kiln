@@ -1,9 +1,11 @@
-// The ticket detail sheet's direct text edit: the pencil beside the title turns
-// the title and body into fields, and Save writes the typed text to the board
-// without a brain pass. These cover the gating (which states offer it, and that
-// an unwired sheet is unchanged), the patch the sheet actually emits (only what
-// changed), the blank-title guard, and the optimistic hold that keeps the saved
-// wording on screen until the board snapshot catches up.
+// The ticket detail sheet's direct text edit: pressing the rendered body turns
+// the title and body into fields in place, and Save writes the typed text to the
+// board without a brain pass. These cover the gating (which states offer it, and
+// that an unwired sheet is unchanged), the entry point itself (the body, the
+// keyboard stand-in, and the two presses inside a body that must NOT open the
+// editor), the patch the sheet actually emits (only what changed), the
+// blank-title guard, and the optimistic hold that keeps the saved wording on
+// screen until the board snapshot catches up.
 //
 // Like the rest of the sheet's tests, content portals to document.body — query
 // via `screen`/`document`, not the render container.
@@ -26,37 +28,162 @@ function ticketIn(state: Ticket['state']): Ticket {
   });
 }
 
-/** Enters edit mode and returns the two fields. */
+/** The pressable body region — the sheet's only pointer route into edit mode.
+ * Null on a ticket the board would refuse the write for, which is exactly what
+ * the gating tests assert. */
+function bodyTarget(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-role="detail-body-edit-target"]');
+}
+
+/** Presses the body and returns the two fields it swapped itself for. */
 function startEditing(): { title: HTMLElement; body: HTMLElement } {
-  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const target = bodyTarget();
+  if (target === null) {
+    throw new Error('the body is not pressable — no [data-role="detail-body-edit-target"]');
+  }
+  fireEvent.click(target);
   return { title: screen.getByLabelText('Title'), body: screen.getByLabelText('Description') };
 }
 
 describe('TicketDetail — direct text edit', () => {
-  it('offers no pencil when the caller did not wire the write', () => {
-    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} />);
+  // There is no pencil anywhere on the sheet any more; the body is the whole
+  // affordance. Asserted by name so a reintroduced icon fails here.
+  it('shows no separate edit control', () => {
+    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
 
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(document.querySelector('[data-role="ticket-detail-edit"]')).toBeNull();
+  });
+
+  it('leaves the body inert when the caller did not wire the write', () => {
+    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} />);
+
+    expect(bodyTarget()).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit description' })).toBeNull();
   });
 
   // Shaping is where wording gets refined before work starts; ready is queued
   // but not yet briefed to anyone. Both are still editable board-side.
-  it.each<Ticket['state']>(['shaping', 'ready'])('offers the pencil on a %s ticket', (state) => {
-    render(<TicketDetail ticket={ticketIn(state)} onClose={vi.fn()} onEditText={vi.fn()} />);
-
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
-  });
-
-  // Past the backlog the text is what an agent was actually briefed with, and
-  // the board refuses the write — so the sheet must not offer it either.
-  it.each<Ticket['state']>(['working', 'blocked', 'done'])(
-    'hides the pencil on a %s ticket',
+  it.each<Ticket['state']>(['shaping', 'ready'])(
+    'makes the body pressable on a %s ticket',
     (state) => {
       render(<TicketDetail ticket={ticketIn(state)} onClose={vi.fn()} onEditText={vi.fn()} />);
 
-      expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+      expect(bodyTarget()).not.toBeNull();
     },
   );
+
+  // Past the backlog the text is what an agent was actually briefed with, and
+  // the board refuses the write — so the sheet must not offer it either. The
+  // body still renders; it just does nothing when pressed.
+  it.each<Ticket['state']>(['working', 'blocked', 'done'])(
+    'leaves the body inert on a %s ticket',
+    (state) => {
+      render(<TicketDetail ticket={ticketIn(state)} onClose={vi.fn()} onEditText={vi.fn()} />);
+
+      expect(bodyTarget()).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Edit description' })).toBeNull();
+      expect(screen.getByText('Send the user to /app after sign-in.')).toBeInTheDocument();
+      fireEvent.click(screen.getByText('Send the user to /app after sign-in.'));
+      expect(screen.queryByLabelText('Description')).toBeNull();
+    },
+  );
+
+  // The pointer route is a press on the words themselves — not on a wrapper the
+  // user can't see, so pressing a paragraph *inside* the body must work too.
+  it('enters edit mode when the rendered Markdown itself is pressed', () => {
+    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('Send the user to /app after sign-in.'));
+
+    expect(screen.getByLabelText('Description')).toHaveValue(
+      'Send the user to /app after sign-in.',
+    );
+  });
+
+  // With the pencil gone, a keyboard user needs a real control — the off-screen
+  // stand-in that a tab brings into view.
+  it('offers a keyboard route into edit mode', () => {
+    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+
+    expect(screen.getByLabelText('Title')).toHaveValue('Add teh login redirect');
+    // It is the way *in*: once the fields are up, Cancel/Save are the way out
+    // and a second copy of it would just be noise behind the textarea.
+    expect(screen.queryByRole('button', { name: 'Edit description' })).toBeNull();
+  });
+
+  // A reference in the body is still a reference. Following one is not a
+  // request to rewrite the sentence it sits in.
+  it('does not enter edit mode when a link in the body is followed', () => {
+    const ticket = makeTicket({
+      id: 't-42',
+      title: 'Add teh login redirect',
+      // A hash target, so jsdom treats the click as a navigation it implements
+      // (an external href logs a "not implemented" error). What the guard reads
+      // is the <a> itself, not where it points.
+      body: 'See [the RFC](#rfc) first.',
+      state: 'shaping',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={ticket} onClose={vi.fn()} onEditText={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('link', { name: 'the RFC' }));
+
+    expect(screen.queryByLabelText('Description')).toBeNull();
+  });
+
+  // Selecting words to quote ends in a click on the body; swapping the
+  // selection out for a textarea the instant the user lets go would make the
+  // ticket impossible to copy from.
+  it('does not enter edit mode when the press ends a text selection', () => {
+    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
+    const paragraph = screen.getByText('Send the user to /app after sign-in.');
+    const selection = window.getSelection();
+    expect(selection).not.toBeNull();
+    selection?.selectAllChildren(paragraph);
+
+    fireEvent.click(paragraph);
+
+    expect(screen.queryByLabelText('Description')).toBeNull();
+    selection?.removeAllRanges();
+  });
+
+  // An empty body renders nothing at all — with no pencil that would leave an
+  // editable ticket with nothing to press.
+  it('offers a prompt to press when the body is empty', () => {
+    const ticket = makeTicket({
+      id: 't-42',
+      title: 'Add teh login redirect',
+      body: '',
+      state: 'shaping',
+      priority: 1,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={ticket} onClose={vi.fn()} onEditText={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('Add a description'));
+
+    expect(screen.getByLabelText('Description')).toHaveValue('');
+  });
+
+  // The body is what the user pressed, so it is where the caret belongs — at
+  // the end, so adding a line doesn't land in front of what is already there.
+  it('puts the caret at the end of the body', () => {
+    render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
+
+    const { body } = startEditing();
+
+    expect(body).toHaveFocus();
+    expect(body).toBeInstanceOf(HTMLTextAreaElement);
+    if (body instanceof HTMLTextAreaElement) {
+      expect(body.selectionStart).toBe(body.value.length);
+    }
+  });
 
   it('seeds the fields from the ticket and swaps the rendered body for them', () => {
     render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
@@ -96,9 +223,10 @@ describe('TicketDetail — direct text edit', () => {
       title: 'Add the login redirect',
       body: 'Land on /app, not /.',
     });
-    // A correction should leave the user looking at the corrected ticket.
+    // A correction should leave the user looking at the corrected ticket, with
+    // the body pressable again for the next one.
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(bodyTarget()).not.toBeNull();
   });
 
   // The patch is a patch: an untouched field must not be sent, or an edit to one

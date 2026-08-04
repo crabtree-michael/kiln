@@ -180,27 +180,78 @@
   cursor: pointer;
 }
 
-/* The edit affordance, sitting between the heading and Close. Same quiet square
- * register as Close so the header reads as one cluster of chrome rather than a
- * button competing with the title; the pencil glyph is the whole signal (the
- * accessible name is the aria-label). */
-[data-role='ticket-detail-edit'] {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  padding: 0;
+/* The rendered body of an editable ticket IS the edit affordance — there is no
+ * pencil. It has to read as pressable without pretending to be a button: the
+ * text caret says "these words are a field waiting to be one", and the inset
+ * wash on hover confirms it under the pointer. Touch gets no hover, which is
+ * why an empty body still shows the placeholder below rather than nothing. */
+[data-role='detail-body-edit-target'] {
+  cursor: text;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
-  background: var(--surface-raised);
-  color: var(--text-body);
-  cursor: pointer;
+  /* The wash stands a little proud of the words, cancelled by the matching
+   * negative margin so the text stays on exactly the line it renders on once
+   * the ticket is past editing. Vertical only, on purpose: this region is the
+   * sheet's overflow container and carries no horizontal padding to absorb a
+   * bleed, so a child wider than its content box would scroll it sideways. */
+  padding: 0.3rem 0;
+  margin: -0.3rem 0;
+  transition: background-color var(--duration-fast) ease;
 }
 
-[data-role='ticket-detail-edit']:active {
-  transform: translateY(1px);
+[data-role='detail-body-edit-target']:hover {
+  background: var(--surface-inset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='detail-body-edit-target'] {
+    transition: none;
+  }
+}
+
+/* The prompt standing in for an empty body: quiet, but a real hit target, since
+ * with no pencil an empty ticket would otherwise have nothing to press. Keyed
+ * under the scrolling region to out-specify its `p` rule's margin. */
+[data-role='ticket-detail-body'] [data-role='detail-body-placeholder'] {
+  margin: 0;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* The keyboard route into edit mode. Off-screen until focused — the skip-link
+ * shape — so a pointer user never sees a second affordance beside the body it
+ * duplicates, while a tab lands on a real, visible button. Clipped rather than
+ * `display: none`, which would take it out of the tab order and defeat the
+ * whole point. */
+[data-role='detail-body-edit-key'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  color: inherit;
+}
+
+[data-role='detail-body-edit-key']:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  margin-top: 0.6rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-body);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* The title field, standing in for the (clipped) heading while editing. Sized to
@@ -290,11 +341,18 @@
 /* The body is Markdown rendered to real block elements (react-markdown + GFM),
  * not a bare text node — dress the common tags with the app's own tokens. First
  * and last child margins are collapsed so the block hugs its border/padding. */
-[data-role='ticket-detail-body'] > :first-child {
+/* The collapse applies to whatever sits directly in the scroll region, and — on
+ * an editable ticket, where the Markdown is one level in — to the wrapper's own
+ * children. The wrapper itself is excluded: its negative margins are what cancel
+ * its padding, and zeroing them would drop the body off the alignment it shares
+ * with the blocked reason and the sandbox card. */
+[data-role='ticket-detail-body'] > :first-child:not([data-role='detail-body-edit-target']),
+[data-role='detail-body-edit-target'] > :first-child {
   margin-top: 0;
 }
 
-[data-role='ticket-detail-body'] > :last-child {
+[data-role='ticket-detail-body'] > :last-child:not([data-role='detail-body-edit-target']),
+[data-role='detail-body-edit-target'] > :last-child {
   margin-bottom: 0;
 }
 
@@ -721,21 +779,6 @@
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close']:hover {
-  color: var(--text-body);
-}
-
-/* The edit pencil takes the primary skin's round chrome button, matching Close
- * beside it exactly — the two read as one pair of header controls. */
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-edit'] {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-default);
-  background: var(--surface-card);
-  color: var(--text-faint);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-edit']:hover {
   color: var(--text-body);
 }
 

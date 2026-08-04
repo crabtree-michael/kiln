@@ -755,7 +755,8 @@ describe('PrimaryScreenView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Add teh login redirect' }));
     const dialog = screen.getByRole('dialog', { name: 'Add teh login redirect' });
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Edit' }));
+    // The body itself is the way into edit mode — there is no pencil.
+    fireEvent.click(within(dialog).getByText('Send the user to /app after sign-in.'));
     fireEvent.change(screen.getByLabelText('Title'), {
       target: { value: 'Add the login redirect' },
     });

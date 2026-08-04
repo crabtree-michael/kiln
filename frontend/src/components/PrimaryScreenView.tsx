@@ -81,12 +81,12 @@ export interface PrimaryScreenViewProps {
    * ticket detail's "Move to a new sandbox" action, the recovery counterpart to
    * the kill. Also a direct board write. Omitted leaves the sheet without it. */
   onReassignSandbox?: ((ticketId: string) => void) | undefined;
-  /** Save the user's own edit of the open ticket's title/body — the ticket
-   * detail's pencil affordance, shown only on a backlog ticket (shaping/ready).
+  /** Save the user's own edit of the open ticket's title/body — reached by
+   * pressing the ticket detail's body, on a backlog ticket (shaping/ready).
    * The composing screen writes the text straight to the board; it deliberately
    * does NOT go through the brain, since an LLM pass between the user and their
    * own words is the drift a direct edit exists to remove. Omitted
-   * (presentational tests) leaves the sheet without a pencil, so the DOM/snapshots
+   * (presentational tests) leaves the sheet's body inert, so the DOM/snapshots
    * stay unchanged. */
   onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
   /** Clear a single update/preview card by its notification id — the swipe-left
@@ -593,7 +593,7 @@ export function PrimaryScreenView({
           // guessing from the ticket's column.
           sandboxStatus={openAgentStatus}
           canReassign={(board?.worker_free ?? 0) > 0}
-          // The pencil shows only on a backlog ticket (TicketDetail gates it).
+          // The body is pressable only on a backlog ticket (TicketDetail gates it).
           // Passed straight through — like the sandbox switch, and unlike
           // Accept/Delete/Poke, saving an edit does NOT close the sheet: the
           // user corrected the wording and should see the corrected ticket, not

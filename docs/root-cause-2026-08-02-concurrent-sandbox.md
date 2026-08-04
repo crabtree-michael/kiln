@@ -20,6 +20,15 @@
 > within one**. **Rec #3 (per-slot mutex / single-flight) cannot fix this** — an in-process
 > lock does not exclude another process. §1 remains a real bug; it is not the one that
 > duplicates work in production.
+>
+> **Confirmed again — see [`root-cause-2026-08-04-followup.md`](root-cause-2026-08-04-followup.md).**
+> A second, non-overlapping window (2026-08-03T12:34Z → 2026-08-04T04:00Z) adds **7 more duplicate
+> turn starts, again 7/7 cross-instance and 0/7 within one process**. Across ~65 h on two windows,
+> §1's in-process race has produced **zero** duplicate turn starts. §1's recommendations stay as
+> engineering (adopt-on-conflict, pin the turn to its sandbox, don't destroy a sandbox with a live
+> turn); they are not the fix for corrupted work. Rec #2 (`Turn.ProviderWorker`) is now **more**
+> urgent than §1 argued, for a reason found later: `s.update` overwrites `provider_turn` from a
+> stale snapshot, so the lost handle is what makes an orphaned agent unstoppable.
 
 ## 0. Status of each deliverable
 

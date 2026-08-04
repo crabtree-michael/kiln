@@ -10,6 +10,18 @@ Third in the series, after
 [`root-cause-2026-08-02-concurrent-sandbox.md`](root-cause-2026-08-02-concurrent-sandbox.md)
 and [`root-cause-2026-08-03-render-logs.md`](root-cause-2026-08-03-render-logs.md).
 
+> **Continued in [`root-cause-2026-08-04-followup.md`](root-cause-2026-08-04-followup.md).**
+> A fresh, non-overlapping log window (2026-08-03T12:34Z → 2026-08-04T04:00Z) **corroborates this
+> document's mechanism and finds nothing fixed**: 7 of 47 turns started twice (**14.9 %**, up from
+> §4's 4.9 %), 3 of them `fresh:true`, all cross-instance, all inside a deploy overlap window.
+> Two refinements to §3.1: the race window is a **whole poll pass**, not one send (gaps of 12.4 s,
+> 10.0 s and 17.9 s exceed the 12 s `agentSendTimeout`), and `s.update` **overwrites**
+> `provider_turn` from a stale snapshot — which is the specific step that orphans a live session,
+> and a design constraint on §6 item 2's CAS. §4's "gaps are 1.0–1.9 s, the visibility timeout
+> exactly" holds only for that window; here they run 1–20 s. That doc also answers the
+> investigation ticket's standing question **why no lock exists** (spec 04 §4 + spec 10 §1: an
+> explicit, documented choice resting on a single-instance premise the deploy model falsifies).
+
 A worker reported, mid-turn, that a **second Claude Code process was editing the same files
 in the same working directory on the identical prompt**. The dispatch logs settle how. It is
 not the in-process goroutine race the first document blamed, and no in-process lock would

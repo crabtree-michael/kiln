@@ -9,6 +9,16 @@
 > (so its fix stays P0). §5's unexplained 10-second gen1→gen2 rotation on `bb268f76` was two
 > instances rotating the same slot.
 
+> **Also see [`root-cause-2026-08-04-followup.md`](root-cause-2026-08-04-followup.md)** (part 4).
+> It **qualifies §3's frequency claim**: the 15-second failed `srv.Shutdown` fired on **6 of 13
+> deploys (46 %)** in the 2026-08-04 window, not "essentially every deploy" — it is conditional on
+> a connected SSE client, which is consistent with §3's own root cause but not with its rate.
+> §3's fix and its P0 ranking are unaffected, and are now drafted as
+> [`ticket-draft-sse-shutdown.md`](ticket-draft-sse-shutdown.md). §2's refutation of F3 strengthens
+> (0 build failures in 13 further deploys), and §5's tombstone hypothesis is **still unconfirmed
+> and still un-instrumented** — 14 more `rotating slot … past unadoptable record` events, and the
+> P1 logging it needs has not landed.
+
 Follow-up to [`root-cause-2026-08-02-concurrent-sandbox.md`](root-cause-2026-08-02-concurrent-sandbox.md).
 That investigation could not pull the Render logs — `RENDER_API_KEY` inside the sandbox
 was the 14-char literal string `RENDER_API_KEY`, so every call 401'd, and §5 was written

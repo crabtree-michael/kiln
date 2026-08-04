@@ -430,6 +430,54 @@ console.log(
     }),
   ),
 );
+
+// The sheet's sandbox menu: one gear on the status row opening a dropdown with
+// every sandbox decision for the ticket. It is absolutely positioned inside a
+// header that sits above a scrolling body, inside a panel with `overflow:
+// hidden` — so the thing to look at is that it opens OVER the body and stays
+// within the panel's own bounds, neither clipped nor painted under the text.
+// This is a shaping proposal with no sandbox behind it yet, so the menu holds
+// the save toggle alone; a working ticket's adds Re-create (and Move, when the
+// board has a free slot).
+await page.click('[data-role="detail-sandbox-trigger"]');
+await page.waitForTimeout(500);
+await page.screenshot({ path: '/tmp/desktop-shell-sandbox-menu.png' });
+console.log(
+  'SANDBOX MENU',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const panel = document.querySelector('[data-role="detail-sandbox-panel"]');
+      const sheet = document.querySelector('[data-role="ticket-detail"]');
+      if (!panel || !sheet) return 'missing';
+      const p = panel.getBoundingClientRect();
+      const s = sheet.getBoundingClientRect();
+      return {
+        items: [...panel.querySelectorAll('button')].map((b) => b.textContent?.trim()),
+        insideSheet: p.left >= s.left && p.right <= s.right && p.bottom <= s.bottom,
+        // The topmost element at the panel's own centre is the panel itself, not
+        // the body text it opened over.
+        onTop: document
+          .elementFromPoint((p.left + p.right) / 2, (p.top + p.bottom) / 2)
+          ?.closest('[data-role="detail-sandbox-panel"]')
+          ? 'panel'
+          : 'something else',
+      };
+    }),
+  ),
+);
+// Escape closes the menu first and the sheet only on the second press — the key
+// belongs to the topmost layer, and the sheet is a Radix dialog listening for it
+// too.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+console.log(
+  'ESCAPE CLOSES MENU, NOT SHEET =',
+  await page.evaluate(
+    () =>
+      document.querySelector('[data-role="detail-sandbox-panel"]')?.dataset.open === 'false' &&
+      document.querySelector('[data-role="ticket-detail"]') !== null,
+  ),
+);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(500);
 

@@ -21,6 +21,12 @@
 // behind the ticket's slot rather than on the ticket's place on the board, which
 // is why they are not board transitions at all.
 //
+// All three live together behind ONE gear beside the lifecycle badge
+// (`TicketDetailSandboxMenu`) rather than as controls in the sheet's body: they
+// are decisions about the *workspace*, not about the work, and the row of
+// buttons and explanatory paragraphs they used to be pushed the ticket's own
+// text down the screen on every visit to serve a choice made on almost none.
+//
 // The text edit is deliberately NOT routed through the brain, and for a sharper
 // reason than the sandbox toggle: describing a wording change out loud and
 // letting the brain rewrite the ticket is exactly what drifts from what the user
@@ -46,6 +52,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Drawer } from 'vaul';
 import type { Ticket } from '@/components/TicketCard';
+import { TicketDetailSandboxMenu } from '@/components/TicketDetailSandboxMenu';
 import type { components } from '@/schema/generated';
 import '@/components/TicketDetail.css';
 
@@ -85,48 +92,51 @@ export interface TicketDetailProps {
    * work is stalled by definition, so Poke shows whenever wired. Omitted → no Poke
    * affordance (read-only inspection). */
   onPoke?: ((ticketId: string) => void) | undefined;
-  /** When provided, the sheet shows the per-ticket **sandbox option** — a switch
-   * reading the ticket's own `keep_sandbox`. Saving a ticket's sandbox stops the
-   * board releasing its worker when the ticket leaves Developing, so the workspace
-   * survives and an agent can keep working in that same sandbox across turns.
+  /** When provided, the gear menu carries the per-ticket **sandbox option** —
+   * "Save sandbox when done", a toggle reading the ticket's own `keep_sandbox`.
+   * Saving a ticket's sandbox stops the board releasing its worker when the
+   * ticket leaves Developing, so the workspace survives and an agent can keep
+   * working in that same sandbox across turns.
    * Unlike Accept/Delete/Poke this is a setting rather than an intent, so the
    * caller writes it directly (POST /api/tickets/{id}/sandbox) rather than routing
    * it through the brain, and the sheet stays open after the toggle — the user may
    * well flip it and keep reading. Offered on every lifecycle state: the choice
    * matters before the sandbox exists (a proposal the user already knows they want
-   * to keep working in) just as much as while it's running. Omitted → no switch,
-   * so a read-only sheet is unchanged. */
+   * to keep working in) just as much as while it's running. Omitted → no toggle;
+   * with the two overrides also unwired there is no gear at all, so a read-only
+   * sheet is unchanged. */
   onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
-  /** When provided on a ticket that has a sandbox (working|blocked), the sheet
-   * shows **Kill sandbox** — destroy the workspace this ticket's agent is in so
-   * its slot comes back with a fresh one. This is the manual override for a
+  /** When provided on a ticket that has a sandbox (working|blocked), the gear menu
+   * carries **Re-create sandbox** — destroy the workspace this ticket's agent is
+   * in so its slot comes back with a fresh one. This is the manual override for a
    * wedged or corrupted sandbox: the thing that previously meant waiting for the
-   * orchestrator to notice and clean up. Like the sandbox switch (and unlike
+   * orchestrator to notice and clean up. Like the sandbox toggle (and unlike
    * Accept/Delete/Poke) the caller writes it directly rather than routing it
    * through the brain — an override that waits on an LLM turn is not an override.
-   * Destructive and irreversible, so it is gated behind a confirm tap. Omitted →
-   * no button. */
+   * Destructive and irreversible, so the menu gates it behind a confirm naming
+   * what is lost. Omitted → no item. */
   onKillSandbox?: ((ticketId: string) => void) | undefined;
-  /** When provided on a ticket that has a sandbox (working|blocked), the sheet
-   * shows **Move to a new sandbox** — the recovery counterpart to Kill: the
+  /** When provided on a ticket that has a sandbox (working|blocked), the gear menu
+   * carries **Move to free sandbox** — the recovery counterpart to Re-create: the
    * ticket is bound to a different free sandbox and the agent there is briefed
    * with the ticket's work order from scratch, while the old workspace is thrown
    * away. Use it when the workspace is beyond saving and the work should simply
    * start again somewhere clean. Also a direct write, also confirm-gated (it
-   * discards whatever the current agent had done). Omitted → no button. */
+   * discards whatever the current agent had done). Omitted → no item. */
   onReassignSandbox?: ((ticketId: string) => void) | undefined;
   /** Whether there is a free sandbox to move this ticket to, from the board
-   * snapshot's `worker_free`. False disables the Move button and says why, so the
-   * user isn't offered an action the server would only refuse with a 409 — with
-   * every slot busy there is nowhere to go and Kill is the option left. Defaults
-   * true (unknown capacity → offer it and let the server be the judge). */
+   * snapshot's `worker_free`. False drops the Move item from the menu entirely
+   * rather than showing a dead one: with every slot busy there is nowhere to go,
+   * the server would only answer 409, and inside a menu an unavailable line is
+   * pure noise — Re-create is the option left. Defaults true (unknown capacity →
+   * offer it and let the server be the judge). */
   canReassign?: boolean;
   /** The live session status of this ticket's sandbox, from the board snapshot's
-   * `agents` join — the same lookup that feeds `agentIdle`, shown verbatim beside
-   * the controls. It is what makes Kill a considered action rather than a blind
-   * one: an `errored` or `stopped` sandbox is the case the control exists for,
-   * and a `building` one warns that a turn is being cut short. Omitted → the
-   * status line says the sandbox isn't reporting, which is itself a signal. */
+   * `agents` join — the same lookup that feeds `agentIdle`, shown as the gear
+   * menu's first line. It is what makes Re-create a considered action rather than
+   * a blind one: an `errored` or `stopped` sandbox is the case the control exists
+   * for, and a `building` one warns that a turn is being cut short. Omitted → the
+   * line says the sandbox isn't reporting, which is itself a signal. */
   sandboxStatus?: string | undefined;
   /** When provided, the sheet shows an **edit** affordance beside the title (a
    * pencil) for a ticket still in EDITABLE_STATES, turning the title and body
@@ -247,13 +257,13 @@ const SANDBOX_OPTIMISTIC_MS = 5000;
 const EDITABLE_STATES = new Set<Ticket['state']>(['shaping', 'ready']);
 
 /** The lifecycle states that actually have a sandbox behind them, and so the
- * only ones the Kill / Move controls appear on. It mirrors the board's own
- * precondition (a worker is bound iff the ticket is working or blocked) rather
- * than restating a client-side opinion — on any other state the server refuses
- * with a 409, so offering the button would only produce an error. */
+ * only ones the gear menu's Re-create / Move items appear on. It mirrors the
+ * board's own precondition (a worker is bound iff the ticket is working or
+ * blocked) rather than restating a client-side opinion — on any other state the
+ * server refuses with a 409, so offering the item would only produce an error. */
 const SANDBOX_CONTROL_STATES = new Set<Ticket['state']>(['working', 'blocked']);
 
-/** How the sandbox's live session status reads in the sheet's status line. The
+/** How the sandbox's live session status reads at the head of the gear menu. The
  * wire values (05 §2) are neutral machine words; these are the user-facing
  * sentences that say what each one means for the decision in front of them —
  * whether killing this sandbox interrupts something or rescues it. */
@@ -309,10 +319,10 @@ export function TicketDetail({
   // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
   // optional chain, which the lint gate rejects (mirrors FeedCardItem).
-  // The sandbox switch renders the user's choice at once, then hands back to the
-  // board snapshot: `pendingKeep` is null whenever the snapshot is authoritative.
-  // It clears as soon as the snapshot agrees, and otherwise on the time-box — so a
-  // write that never lands can't leave the switch stuck on a lie.
+  // The gear menu's save toggle renders the user's choice at once, then hands
+  // back to the board snapshot: `pendingKeep` is null whenever the snapshot is
+  // authoritative. It clears as soon as the snapshot agrees, and otherwise on the
+  // time-box — so a write that never lands can't leave the checkmark on a lie.
   const [pendingKeep, setPendingKeep] = useState<boolean | null>(null);
   const serverKeep = ticket.keep_sandbox;
   useEffect(() => {
@@ -330,18 +340,6 @@ export function TicketDetail({
       clearTimeout(timer);
     };
   }, [pendingKeep, serverKeep]);
-
-  // Which sandbox override is one tap from firing, if any. Both are destructive
-  // and neither can be undone — a killed workspace is gone, and a moved ticket
-  // starts over from the work order — so each takes two taps: the first arms the
-  // button (its label becomes the consequence), the second commits. Arming one
-  // disarms the other, and the arming clears the moment the sheet is showing a
-  // different ticket, so a stray tap can never land on the wrong sandbox.
-  const [armed, setArmed] = useState<'kill' | 'reassign' | null>(null);
-  const ticketId = ticket.id;
-  useEffect(() => {
-    setArmed(null);
-  }, [ticketId]);
 
   // The direct text edit, in two pieces of state:
   //  • `draft` is non-null exactly while the user is editing, and holds what
@@ -415,30 +413,39 @@ export function TicketDetail({
   // renders, because Cancel/Save live there and replace the state actions
   // wholesale: mid-edit is no moment to be offered Accept or a mic.
   const showDock = editing || showVoice || canPoke || canDelete || canAccept;
-  // The manual sandbox overrides. They render only where a sandbox exists to act
-  // on (working|blocked) and only when the caller wired at least one of them —
-  // the same shape as every other affordance here, so a read-only sheet is
-  // unchanged. Each button still re-checks its own callback inline so TypeScript
-  // narrows it inside the handler.
-  const showSandboxControls =
-    SANDBOX_CONTROL_STATES.has(ticket.state) &&
-    (onKillSandbox !== undefined || onReassignSandbox !== undefined);
-  // The status line reads the sandbox's own session state, not the ticket's board
-  // column. An unknown status is reported as such rather than guessed at: "not
-  // reporting" is itself the signal that something is wrong with the sandbox,
-  // which is exactly when these controls matter.
+  // Whether there is a sandbox behind this ticket to override at all — the two
+  // destructive items are offered only on working|blocked, mirroring the board's
+  // own "a worker is bound" precondition rather than restating a client-side
+  // opinion. The save toggle is not gated on it: that choice predates the
+  // sandbox.
+  const hasSandbox = SANDBOX_CONTROL_STATES.has(ticket.state);
+  // The gear appears when any of the three items would — the same shape as every
+  // other affordance here, so a read-only sheet is unchanged. It is suppressed
+  // mid-edit: what happens to the workspace is a different kind of decision from
+  // the wording of the ticket, and has no place in the middle of typing.
+  const showSandboxMenu =
+    !editing &&
+    (onSetKeepSandbox !== undefined ||
+      (hasSandbox && (onKillSandbox !== undefined || onReassignSandbox !== undefined)));
+  // The menu's status line reads the sandbox's own session state, not the
+  // ticket's board column. An unknown status is reported as such rather than
+  // guessed at: "not reporting" is itself the signal that something is wrong with
+  // the sandbox, which is exactly when these controls matter.
   const sandboxStatusLabel =
     sandboxStatus === undefined
       ? 'not reporting'
       : (SANDBOX_STATUS_LABELS[sandboxStatus] ?? sandboxStatus);
-  // What the two buttons mean, in one sentence — and, when there is no free
-  // sandbox to move to, why the Move button is greyed out, so a disabled control
-  // never reads as a bug.
-  const sandboxControlsHint = canReassign
-    ? 'Killing the sandbox throws its workspace away and brings a fresh one up in its place, ' +
-      'leaving this ticket where it is. Moving it also starts the work over on a different sandbox.'
-    : 'Killing the sandbox throws its workspace away and brings a fresh one up in its place. ' +
-      'Every other sandbox is busy right now, so there is none free to move this ticket to.';
+  // The toggle's write, bound here rather than in the menu so the optimistic
+  // value stays with the state that holds it. Built inside the ternary so
+  // TypeScript narrows the callback to defined — the same reason every button
+  // below re-checks its own prop instead of a derived boolean.
+  const setKeepSandbox =
+    onSetKeepSandbox === undefined
+      ? undefined
+      : (id: string, keep: boolean): void => {
+          setPendingKeep(keep);
+          onSetKeepSandbox(id, keep);
+        };
 
   /** Commit the draft. Only the fields that actually changed are sent, so an
    * edit to one can't overwrite the other with the text the sheet happened to
@@ -536,17 +543,43 @@ export function TicketDetail({
                   }}
                 />
               )}
-              {/* The lifecycle badge: a dot + word directly under the title that
-                  names the ticket's state at a glance (In progress / Blocked /
-                  Done), each in its own colour. Only the states that carry a
-                  signal show one; shaping/ready wear none. Keyed on data-state
-                  (not Radix's own data-state, which lives on the panel) for its
-                  per-state colour. */}
-              {statusLabel !== undefined && (
-                <span data-role="ticket-detail-status" data-state={ticket.state}>
-                  <span data-role="ticket-detail-status-dot" aria-hidden="true" />
-                  {statusLabel}
-                </span>
+              {/* The status row, directly under the title: the lifecycle badge and
+                  the sandbox gear, side by side. They share a line because they
+                  answer the two questions asked at a glance — what is happening
+                  to this ticket, and what can be done about the workspace behind
+                  it — and because the gear needs a home that exists on every
+                  lifecycle state, including the ones that wear no badge. It is
+                  skipped entirely when neither has anything to show. */}
+              {(statusLabel !== undefined || showSandboxMenu) && (
+                <div data-role="ticket-detail-status-row">
+                  {/* The lifecycle badge: a dot + word that names the ticket's
+                      state at a glance (In progress / Blocked / Done), each in its
+                      own colour. Only the states that carry a signal show one;
+                      shaping/ready wear none. Keyed on data-state (not Radix's own
+                      data-state, which lives on the panel) for its per-state
+                      colour. */}
+                  {statusLabel !== undefined && (
+                    <span data-role="ticket-detail-status" data-state={ticket.state}>
+                      <span data-role="ticket-detail-status-dot" aria-hidden="true" />
+                      {statusLabel}
+                    </span>
+                  )}
+                  {/* Every sandbox decision for this ticket, behind one gear. Each
+                      item is gated by whether its callback arrives: the two
+                      destructive ones only on a ticket that has a sandbox, and Move
+                      only while a free slot exists to move it to (`canReassign`) —
+                      an item the server would refuse is worse than no item. */}
+                  {showSandboxMenu && (
+                    <TicketDetailSandboxMenu
+                      ticketId={ticket.id}
+                      keepSandbox={pendingKeep ?? serverKeep}
+                      onSetKeepSandbox={setKeepSandbox}
+                      onKillSandbox={hasSandbox ? onKillSandbox : undefined}
+                      onReassignSandbox={hasSandbox && canReassign ? onReassignSandbox : undefined}
+                      sandboxStatusLabel={hasSandbox ? sandboxStatusLabel : undefined}
+                    />
+                  )}
+                </div>
               )}
             </div>
             {/* The edit affordance, beside the title: a pencil that turns the
@@ -597,10 +630,9 @@ export function TicketDetail({
               overflow: hidden. Both sit under the pinned header/meta.
 
               While editing, the whole region becomes the body textarea: the
-              rendered Markdown is what the user is replacing, and the sandbox
-              switch is a different kind of decision that has no place in the
-              middle of typing. The blocked reason never appears here either —
-              a blocked ticket is not editable in the first place. */}
+              rendered Markdown is what the user is replacing. The blocked reason
+              never appears here either — a blocked ticket is not editable in the
+              first place. */}
           <div data-role="ticket-detail-body" data-editing={editing ? 'true' : undefined}>
             {draft !== null ? (
               <textarea
@@ -618,83 +650,6 @@ export function TicketDetail({
                   <p data-role="detail-blocked-reason">{ticket.blocked_reason}</p>
                 )}
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{shownBody}</ReactMarkdown>
-                {/* The per-ticket sandbox option, at the foot of the scroll region:
-                it is a setting the user reads and considers, not one of the
-                dock's one-tap actions, so it sits with the ticket's own record
-                rather than competing with Accept/Poke/Delete for the thumb. The
-                label wraps the checkbox, so the whole row is the hit target and
-                the accessible name needs no aria plumbing. */}
-                {onSetKeepSandbox !== undefined && (
-                  <div data-role="detail-sandbox">
-                    <label data-role="detail-sandbox-switch">
-                      <input
-                        type="checkbox"
-                        data-role="detail-keep-sandbox"
-                        checked={pendingKeep ?? serverKeep}
-                        onChange={(event) => {
-                          setPendingKeep(event.target.checked);
-                          onSetKeepSandbox(ticket.id, event.target.checked);
-                        }}
-                      />
-                      Save this ticket&rsquo;s sandbox
-                    </label>
-                    <p data-role="detail-sandbox-hint">
-                      A saved sandbox isn&rsquo;t torn down when the ticket leaves development, so
-                      an agent can keep working in the same workspace across turns.
-                    </p>
-                  </div>
-                )}
-                {/* The manual sandbox overrides, directly under the save option
-                they argue with: one row says "keep this workspace", the next
-                says "throw it away", and reading them together is what makes the
-                choice obvious. Only on a ticket that actually has a sandbox. */}
-                {showSandboxControls && (
-                  <div data-role="detail-sandbox-controls">
-                    <p data-role="detail-sandbox-status">
-                      This ticket&rsquo;s sandbox is {sandboxStatusLabel}.
-                    </p>
-                    <div data-role="detail-sandbox-buttons">
-                      {onKillSandbox !== undefined && (
-                        <button
-                          type="button"
-                          data-role="detail-kill-sandbox"
-                          data-armed={armed === 'kill' ? 'true' : undefined}
-                          onClick={() => {
-                            if (armed !== 'kill') {
-                              setArmed('kill');
-                              return;
-                            }
-                            setArmed(null);
-                            onKillSandbox(ticket.id);
-                          }}
-                        >
-                          {armed === 'kill' ? 'Destroy it — tap to confirm' : 'Kill sandbox'}
-                        </button>
-                      )}
-                      {onReassignSandbox !== undefined && (
-                        <button
-                          type="button"
-                          data-role="detail-reassign-sandbox"
-                          data-armed={armed === 'reassign' ? 'true' : undefined}
-                          disabled={!canReassign}
-                          onClick={() => {
-                            if (armed !== 'reassign') {
-                              setArmed('reassign');
-                              return;
-                            }
-                            setArmed(null);
-                            onReassignSandbox(ticket.id);
-                          }}
-                        >
-                          {armed === 'reassign'
-                            ? 'Start over there — tap to confirm'
-                            : 'Move to a new sandbox'}
-                        </button>
-                      )}
-                    </div>
-                    <p data-role="detail-sandbox-controls-hint">{sandboxControlsHint}</p>
-                  </div>
-                )}
               </>
             )}
           </div>

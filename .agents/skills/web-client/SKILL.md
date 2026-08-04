@@ -318,11 +318,12 @@ Three things bypass it — the first two because they are the user's own input r
 transition, the third because it acts on the *sandbox* behind the ticket's slot rather than on
 the board at all:
 
-- **The sandbox switch** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
+- **The sandbox toggle** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
   /api/tickets/{id}/sandbox`): saving a ticket's sandbox stops the board recycling its worker,
   so an agent can keep working in the same workspace across turns. It is a *setting on the
   ticket*, so it writes directly — round-tripping a toggle through an LLM pass would be slow
-  and non-deterministic for no gain.
+  and non-deterministic for no gain. It reads "Save sandbox when done" and lives in the gear
+  menu below, not in the sheet's body.
 - **The text edit** (`onEditText` → `editTicketText` → `POST /api/tickets/{id}/text`): the
   pencil beside the title turns the title and body into a field and a textarea. This one skips
   the brain for the opposite reason — **an LLM pass is the thing being avoided.** Describing a
@@ -330,19 +331,18 @@ the board at all:
   the user meant (that drift is the whole reason the affordance exists), so the typed text has
   to land verbatim. Never "improve" this by routing it back through the brain.
 - **The sandbox overrides** (`onKillSandbox` / `onReassignSandbox` → `killTicketSandbox` /
-  `reassignTicketSandbox` → `POST /api/tickets/{id}/sandbox/kill|reassign`): **Kill sandbox**
-  throws this ticket's workspace away and brings a fresh one up on the same slot, leaving the
-  ticket where it is; **Move to a new sandbox** rebinds it to a free slot and restarts the
-  work there. They skip the brain for a third reason again — they exist so the user can reach
-  *past* the orchestrator when a sandbox is wedged, and an override that waits on an LLM turn
-  is not an override. Rendered under the sandbox switch (`SANDBOX_CONTROL_STATES` =
-  working|blocked, mirroring the board's own "a worker is bound" precondition), each
-  **two-tap**: the first arms the button and its label becomes the consequence, the second
-  fires; arming one disarms the other, and `armed` resets on a ticket-id change so a stray tap
-  can't hit the wrong sandbox. The status line and the Move button's enablement come from the
-  board snapshot the sheet already has — `agents[].status` for the sandbox's real session
-  state (`SANDBOX_STATUS_LABELS`), `worker_free > 0` for `canReassign` — so a disabled Move
-  says *why* instead of walking into the server's 409.
+  `reassignTicketSandbox` → `POST /api/tickets/{id}/sandbox/kill|reassign`): **Re-create
+  sandbox** throws this ticket's workspace away and brings a fresh one up on the same slot,
+  leaving the ticket where it is; **Move to free sandbox** rebinds it to a free slot and
+  restarts the work there. They skip the brain for a third reason again — they exist so the
+  user can reach *past* the orchestrator when a sandbox is wedged, and an override that waits
+  on an LLM turn is not an override. Both are scoped to `SANDBOX_CONTROL_STATES`
+  (working|blocked, mirroring the board's own "a worker is bound" precondition) and each is
+  gated behind a `window.confirm` naming what is lost — the same gate the blocked-ticket
+  Delete uses. The status line and Move's *presence* come from the board snapshot the sheet
+  already has — `agents[].status` for the sandbox's real session state
+  (`SANDBOX_STATUS_LABELS`), `worker_free > 0` for `canReassign` — so the user is never walked
+  into the server's 409.
 
 All three share the two consequences below. The text edit adds three of its own:
 
@@ -371,6 +371,36 @@ Two consequences worth keeping when you touch either:
   lands, the same self-healing shape the feed store's optimistic card hides use. `PrimaryScreen`
   also refreshes the board on a failed write so it snaps back at once instead of on the
   time-box (for the edit, that covers the 409 a ticket that left the backlog mid-sheet returns).
+
+### All of it lives behind ONE gear (`TicketDetailSandboxMenu`)
+
+The three sandbox affordances used to be a checkbox, two buttons and three paragraphs of
+explanation at the foot of the sheet's scrolling body. They are now one gear on the sheet's
+**status row** (beside the "In progress"/"Blocked"/"Done" badge, under the title) opening a
+dropdown. Points worth keeping:
+
+- **Each item self-gates on its callback arriving.** `TicketDetail` decides — toggle whenever
+  `onSetKeepSandbox` is wired, the two overrides only when `hasSandbox`, Move only when
+  `canReassign` too — and the menu renders what it is handed. No gear at all when nothing is
+  wired, so a read-only sheet is byte-identical.
+- **`canReassign: false` now HIDES Move rather than disabling it.** Inside a menu a dead line
+  is pure noise; there is no room for the "why it's greyed out" hint that justified the
+  disabled button.
+- **Escape must reach the menu before the sheet, and that takes `window` capture.** Radix
+  (under vaul) listens for Escape *in the capture phase on `document`* and mounts first, so a
+  `document` listener in either phase — capture included — loses the race and the whole sheet
+  dismisses. The menu listens on **`window`** with `capture: true` (the first node in the
+  propagation path) and calls `stopPropagation`, only while open. Any future popover inside
+  this sheet needs the same trick.
+- **The panel is absolutely positioned inside the header, which carries `position: relative;
+  z-index: 1`** so it paints over the scrolling body rather than under it. It opens
+  down-and-left from the trigger at the row's right end, which keeps it inside the sheet's
+  `overflow: hidden` in both shells — the desktop panel needs no re-anchoring (unlike the
+  bell, above). `desktop-shell-smoke.mjs` measures exactly that (`SANDBOX MENU`: inside the
+  sheet, panel on top, Escape closes the menu and not the sheet).
+- **A closed panel stays mounted** (so it animates both ways) and is taken out of the page by
+  `aria-hidden`. Consequence for tests: a closed menu's items are *absent* from role queries,
+  so every test opens the gear first.
 
 ## Swipe-to-dismiss (feed cards, 08 §3)
 

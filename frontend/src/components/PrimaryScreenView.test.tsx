@@ -657,7 +657,11 @@ describe('PrimaryScreenView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Long-running work' }));
     const dialog = screen.getByRole('dialog', { name: 'Long-running work' });
 
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: /save this ticket.s sandbox/i }));
+    // The setting lives behind the sheet's sandbox gear, beside the status row.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sandbox options' }));
+    fireEvent.click(
+      within(dialog).getByRole('menuitemcheckbox', { name: /save sandbox when done/i }),
+    );
 
     expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', true);
     // Still open — the toggle is a setting, not an exit.
@@ -704,19 +708,21 @@ describe('PrimaryScreenView', () => {
         now={NOW}
       />,
     );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Wedged work' }));
     const dialog = screen.getByRole('dialog', { name: 'Wedged work' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sandbox options' }));
 
-    // The snapshot's agents join drives the status line, not the ticket column.
+    // The snapshot's agents join drives the menu's status line, not the ticket
+    // column.
     expect(within(dialog).getByText(/sandbox is failing/i)).toBeInTheDocument();
-    // worker_free: 0 — nowhere to move to, so Move is offered but disabled.
-    expect(within(dialog).getByRole('button', { name: /move to a new sandbox/i })).toBeDisabled();
+    // worker_free: 0 — nowhere to move to, so the Move item isn't offered.
+    expect(within(dialog).queryByRole('menuitem', { name: /move to free sandbox/i })).toBeNull();
 
-    const kill = within(dialog).getByRole('button', { name: /kill sandbox/i });
-    fireEvent.click(kill);
-    fireEvent.click(within(dialog).getByRole('button', { name: /destroy it/i }));
+    fireEvent.click(within(dialog).getByRole('menuitem', { name: /re-create sandbox/i }));
 
     expect(onKillSandbox).toHaveBeenCalledWith('t-wedged');
+    confirm.mockRestore();
     // Still open — the user is watching what happens to the sandbox.
     expect(screen.getByRole('dialog', { name: 'Wedged work' })).toBeInTheDocument();
   });

@@ -307,8 +307,15 @@ describe('DesktopScreenView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: auth refresh' }));
     // The sheet portals to document.body, so query it via `screen`, not `container`.
-    expect(screen.getByRole('dialog', { name: 'auth refresh' })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'auth refresh' });
+    expect(dialog).toBeInTheDocument();
     expect(container.querySelector('[data-role="desktop-feed"]')).not.toBeNull();
+    // …and it opens from the RIGHT edge, not up from the bottom (13 D7a). The
+    // attribute is vaul's own record of the `direction` our `placement` prop
+    // hands it, which is what drives the entrance, the closed transform and the
+    // drag axis — jsdom does no layout, so this is the only thing in the gate
+    // that can see the panel is anchored where the CSS expects it.
+    expect(dialog.getAttribute('data-vaul-drawer-direction')).toBe('right');
   });
 
   it('accepts a proposal in place, without opening it first', () => {

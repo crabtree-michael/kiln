@@ -386,19 +386,37 @@ console.log(
   await page.getAttribute('[data-role="rail-project"][data-current="true"]', 'data-project-id'),
 );
 
-// Ticket detail opens OVER the feed, capped rather than full-bleed (13 D7).
+// Ticket detail opens BESIDE the feed: a right-anchored, full-height panel
+// rather than a bottom pop-up (13 D7a). What matters is that it is flush to the
+// right edge, spans the window's height, and leaves the rail and a usable slice
+// of the feed visible to its left — the whole reason it moved off the bottom.
 await page.click('[data-role="rail-project"][data-project-id="p1"]');
 await page.waitForTimeout(600);
 await page.click('[aria-label="Open ticket: Rate-limit the webhook retry"]');
 await page.waitForTimeout(600);
 await page.screenshot({ path: '/tmp/desktop-shell-detail.png' });
 console.log(
-  'SHEET WIDTH =',
-  await page.evaluate(() => {
-    const el = document.querySelector('[data-role="ticket-detail"]');
-    return el ? Math.round(el.getBoundingClientRect().width) : 'missing';
-  }),
-  '(window 1440)',
+  'DETAIL PANEL',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-role="ticket-detail"]');
+      if (!el) return 'missing';
+      const r = el.getBoundingClientRect();
+      const feed = document.querySelector('[data-role="desktop-feed"]');
+      return {
+        direction: el.getAttribute('data-vaul-drawer-direction'),
+        left: Math.round(r.left),
+        width: Math.round(r.width),
+        top: Math.round(r.top),
+        height: Math.round(r.height),
+        flushRight: Math.round(window.innerWidth - r.right) === 0,
+        fullHeight: Math.round(r.height) === window.innerHeight,
+        // How much of the feed's own column is still uncovered to its left.
+        feedVisible: feed ? Math.round(r.left - feed.getBoundingClientRect().left) : 'no feed',
+        window: `${window.innerWidth}x${window.innerHeight}`,
+      };
+    }),
+  ),
 );
 await page.keyboard.press('Escape');
 await page.waitForTimeout(500);

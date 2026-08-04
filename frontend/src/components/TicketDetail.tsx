@@ -1,5 +1,6 @@
-// Ticket detail sheet. Opening a board card slides a bottom sheet up into view
-// from the bottom edge (a classic mobile sheet) showing the ticket's full
+// Ticket detail sheet. Opening a board card slides it into view from the edge
+// the shell asks for — up from the bottom on a phone, in from the right at a
+// desk (see `placement`) — showing the ticket's full
 // record — everything the card elides: the complete body, priority, timestamps,
 // id, and (when blocked) the full blocked reason. It is read-only inspection
 // over the read-only board (D5) as far as the ticket's *state* goes: Accept,
@@ -27,13 +28,19 @@
 // verbatim. It is offered only while the ticket is still in the backlog
 // (EDITABLE_STATES) — past that, the text is what the agent was briefed with.
 //
-// The slide-up entrance + native rubber-band overscroll and drag-to-dismiss come
-// from `vaul` (direction="bottom") — the standard React drawer/sheet, adopted
-// with explicit user sign-off waiving the former blanket no-library rule
-// (07 D4). Vaul owns dismissal entirely: dragging the sheet back down past the
-// threshold, clicking the scrim, and pressing Escape all route through
-// `onOpenChange(false)` → `onClose`, so this component adds none of that by
-// hand — dismiss stays low-friction, never a trap (07 §7–§8).
+// The slide-in entrance + native rubber-band overscroll and drag-to-dismiss come
+// from `vaul` — the standard React drawer/sheet, adopted with explicit user
+// sign-off waiving the former blanket no-library rule (07 D4). Vaul owns
+// dismissal entirely: dragging the sheet back past the threshold, clicking the
+// scrim, and pressing Escape all route through `onOpenChange(false)` →
+// `onClose`, so this component adds none of that by hand — dismiss stays
+// low-friction, never a trap (07 §7–§8).
+//
+// WHICH edge it comes from is the `placement` prop: `'bottom'` (the default) is
+// the phone's sheet, `'right'` is the desk's side panel. It is one prop rather
+// than two components because everything above — the record, the actions, the
+// direct writes — is the same sheet either way; only the edge it is anchored to
+// differs (see the prop's doc for why the desk's is a different edge).
 import { useEffect, useState, type JSX, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -168,6 +175,25 @@ export interface TicketDetailProps {
    * `data-surface`. Defaults to the base/denser register; the primary screen
    * passes `'primary'` for the app's first-class card skin (08 §5). */
   surface?: 'debug' | 'primary';
+  /** Which edge the sheet is anchored to — and so which direction it slides in
+   * from, which axis a drag dismisses along, and where its closed position is.
+   * The value is handed straight to vaul as its `direction`, so all three follow
+   * from this one prop and nothing here (or in CSS) restates them.
+   *
+   * `'bottom'` is the default and the phone's reading: a classic mobile sheet
+   * that rises from the bottom edge across the full width (07 §7). The desktop
+   * shell passes `'right'` instead, because on a window that reading is wrong —
+   * a sheet that takes the middle of the screen hides the feed and the working
+   * strip the user opened the ticket to check against. Anchored to the right
+   * edge at full height it is a panel beside the work rather than over it, and
+   * the rail and most of the feed stay on screen behind it.
+   *
+   * The matching geometry is CSS, and it is keyed off `data-shell` on <body>
+   * (published by the same desktop shell that passes this prop) rather than off
+   * a `data-placement` attribute here: the sheet portals to document.body, so
+   * `body[data-shell='desktop'] …` is the one selector that can reach it — see
+   * the "detail, beside the feed" section of DesktopScreen.css. */
+  placement?: 'bottom' | 'right';
 }
 
 /** The header status badge — a dot + word pinned to the header's top-right that
@@ -262,6 +288,7 @@ export function TicketDetail({
   voiceControl,
   transcript,
   surface = 'debug',
+  placement = 'bottom',
 }: TicketDetailProps): JSX.Element {
   // Which affordances the sheet's footer carries is decided purely by lifecycle
   // state, so the caller can't wire a nonsensical one:
@@ -443,9 +470,11 @@ export function TicketDetail({
     // path (drag past threshold, scrim click, Escape) fires onOpenChange(false),
     // which we forward to onClose — the caller then unmounts us.
     <Drawer.Root
-      // Bottom-anchored: slides up into view from the bottom edge (07 §7 — a
-      // classic mobile sheet).
-      direction="bottom"
+      // The anchored edge, straight from `placement`: the phone's sheet rises
+      // from the bottom (07 §7), the desk's panel slides in from the right
+      // (13 D7a). Vaul derives the entrance, the closed transform and the drag
+      // axis from it, so this is the only place the direction is stated.
+      direction={placement}
       open
       onOpenChange={(next) => {
         if (!next) {
@@ -469,7 +498,9 @@ export function TicketDetail({
           data-surface={surface}
         >
           {/* A bottom sheet's drag affordance sits on its upper edge — the
-              grabber is the first child, above the header. */}
+              grabber is the first child, above the header. The desk's
+              right-anchored panel has no edge to grab and hides it in CSS,
+              rather than branching the markup: one sheet serves both shells. */}
           <Drawer.Handle data-role="ticket-detail-grabber" />
 
           <header data-role="ticket-detail-header">

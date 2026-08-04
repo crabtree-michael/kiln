@@ -194,31 +194,67 @@ describe('DesktopScreen.css', () => {
     expect(declared).not.toMatch(/prefers-color-scheme/);
   });
 
-  it('caps the ticket sheet to a reading measure instead of the whole monitor', () => {
-    // 13 D7: detail opens OVER the feed. Left at its phone geometry the sheet
-    // spans a 2000px monitor for a paragraph of text, which is exactly the
-    // mobile-stretched view this shell exists to replace.
+  it('stands the ticket detail up against the right edge, at a reading measure', () => {
+    // 13 D7a: detail opens BESIDE the feed. The phone's bottom sheet lands in
+    // the middle of a window and covers the feed and the working strip — the
+    // ongoing work the ticket is being read against — so at a desk it is
+    // anchored to the right edge instead. `top: 0` with the base rule's
+    // `bottom: 0` is what makes it full height; `left: auto` is what releases
+    // the phone's full-bleed span (without it the width below is ignored, since
+    // left+right+width over-constrain the box and `left` wins).
     const body = ruleBody(
       "body[data-shell='desktop'] [data-role='ticket-detail'][data-surface='primary'] {",
     );
+    expect(body).toMatch(/top:\s*0/);
+    expect(body).toMatch(/left:\s*auto/);
+    expect(body).toMatch(/right:\s*0/);
     expect(body).toMatch(/width:\s*min\(\d+px/);
-    expect(body).toMatch(/margin:\s*0 auto/);
-    expect(body).toMatch(/border-radius:\s*var\(--radius-xl\)/);
+    // The phone's 85dvh cap would leave a top-and-bottom-anchored panel hanging
+    // off the top edge.
+    expect(body).toMatch(/max-height:\s*none/);
+    // Every pixel the panel claims is feed the user can no longer see behind
+    // it, which is the whole reason it moved to the edge.
+    const width = /width:\s*min\((\d+)px/.exec(body);
+    expect(Number(width?.[1])).toBeLessThan(680);
+  });
+
+  it('leaves the work behind the panel visible — no scrim over the feed', () => {
+    // The panel exists so a ticket can be read WITHOUT losing sight of what is
+    // happening; dimming the feed behind it takes back most of what anchoring it
+    // to the edge just bought. It still covers the window, so a click outside
+    // still dismisses — visibility is what changes, not the dismissal.
+    const body = ruleBody("body[data-shell='desktop'] [data-role='ticket-detail-backdrop'] {");
+    expect(body).toMatch(/background:\s*transparent/);
   });
 
   it('never overrides the sheet geometry vaul owns', () => {
     // Vaul writes the slide and the drag as INLINE transforms keyed to its own
-    // open/closed state. A CSS `transform` here would be ignored (inline wins)
-    // and, forced with `!important`, would strand the sheet permanently open;
-    // moving its `bottom` would put the closed position out of step with the
-    // translate that is supposed to hide it. Comments are stripped first — this
-    // is about what the rule DECLARES, not about the prose explaining it.
+    // open/closed state and to the `direction` the shell passes as `placement`.
+    // A CSS `transform` here would be ignored (inline wins) and, forced with
+    // `!important`, would strand the panel permanently open; moving `bottom` off
+    // the edge vaul translates away from would put the closed position out of
+    // step with the translate that is supposed to hide it. Comments are stripped
+    // first — this is about what the rule DECLARES, not about the prose
+    // explaining it.
     const declared = ruleBody(
       "body[data-shell='desktop'] [data-role='ticket-detail'][data-surface='primary'] {",
     ).replace(/\/\*[\s\S]*?\*\//g, '');
     expect(declared).not.toMatch(/(^|;)\s*transform\s*:/);
     expect(declared).not.toMatch(/!important/);
     expect(declared).not.toMatch(/(^|;)\s*bottom\s*:/);
+  });
+
+  it('drops only the three edges that meet the window, so a blocked panel keeps its tint', () => {
+    // `border: none` plus a fresh `border-left` here would out-specify the
+    // blocked ticket's `border-color` rule in TicketDetail.css and quietly erase
+    // the one border the panel still shows.
+    const declared = ruleBody(
+      "body[data-shell='desktop'] [data-role='ticket-detail'][data-surface='primary'] {",
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(declared).toMatch(/border-top:\s*none/);
+    expect(declared).toMatch(/border-right:\s*none/);
+    expect(declared).not.toMatch(/border-left:/);
+    expect(declared).not.toMatch(/(^|;)\s*border\s*:/);
   });
 
   it('the JS breakpoint stays the single source of the desktop threshold', () => {

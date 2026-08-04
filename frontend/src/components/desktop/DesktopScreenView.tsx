@@ -5,8 +5,10 @@
 //
 // Two regions, and only two (13 §3): the projects rail on the left, the selected
 // project's feed on the right with the input under it. There is no third pane,
-// no inspector, and no board — ticket detail opens OVER the feed (13 D7) and
-// raw state still lives at `/debug` (08 §6).
+// no inspector, and no board — ticket detail is an OVERLAY, opened against the
+// window's right edge so the work stays in sight (13 D7/D7a) but taking no width
+// from the feed when it is closed — and raw state still lives at `/debug`
+// (08 §6).
 //
 // The register is 13 §1: present without being loud. Everything here that looks
 // like restraint is load-bearing — the accent appears only on `needs-you`, the
@@ -255,8 +257,11 @@ export function DesktopScreenView({
   // `data-shell="desktop"` is still stamped here, and for a reason unrelated to
   // theming. The ticket-detail sheet portals to `document.body`, so it lands
   // OUTSIDE this shell's subtree and no descendant selector can reach it — but
-  // it still has to stop being a full-bleed phone sheet on a desk (13 D7: it
-  // opens *over the feed*, it is not the window). A `min-width` media query
+  // it still has to stop being a full-bleed phone sheet on a desk (13 D7/D7a:
+  // it opens beside the feed, it is not the window). The direction it slides in
+  // from is a prop (`placement="right"`, below); the geometry that goes with it
+  // — right edge, full height, a reading measure wide — is CSS, and this
+  // attribute is what lets that CSS find the portaled panel. A `min-width` query
   // would work and is deliberately not used: the shell is chosen in JS
   // (`useIsDesktop`), so a breakpoint restated in CSS is a second source of
   // truth that can silently disagree with the first. This attribute IS the JS
@@ -432,9 +437,19 @@ export function DesktopScreenView({
         // opens, with the same actions wired the same way; a permanent detail
         // pane would double the resting complexity to serve something looked at
         // rarely, and re-create the two-pane console this design avoids.
+        //
+        // What the desk changes is the EDGE it comes from (13 D7a). A bottom
+        // sheet is a phone's answer: it rises into the middle of the window and
+        // covers the feed and the working strip — exactly the ongoing work the
+        // user opened a ticket to read *against*. `placement="right"` anchors it
+        // to the right edge at full height instead, so it reads as a panel
+        // beside the work rather than a pop-up over it. Still an overlay, not a
+        // third column: it takes no width from the feed while closed, and
+        // closing it returns the window to its two regions untouched.
         <TicketDetail
           ticket={openTicket}
           surface="primary"
+          placement="right"
           agentIdle={openAgentIdle}
           voiceControl={<MicButton sendable ticketContext={openTicket.title} />}
           transcript={<TicketDetailTranscript />}

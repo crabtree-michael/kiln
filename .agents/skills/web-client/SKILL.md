@@ -554,17 +554,28 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   `overflow-anchor: auto` (the "arrivals land in place" property, 13 §6), the one-column
   max-width, the blocker/proposal unclamp, reduced-motion suppression, and no hex/rgb
   literals (which would fork the palette instead of re-pointing tokens).
-- **`<body data-shell="desktop">` is how the portaled sheet gets desk geometry.** The shell's
-  mount effect publishes the JS shell decision (it is now the *only* thing that effect
-  writes, see D6a above), because `TicketDetail`
-  portals out of the shell's subtree and no descendant selector can reach it — but left
-  alone it renders a full-bleed phone sheet across a 2000px monitor, which is the
-  mobile-stretched reading 13 D7 rules out. `body[data-shell='desktop']` rules in
-  `DesktopScreen.css` cap it to a reading measure and centre it. **Change only `width` /
-  `margin` / `max-height` / radius there — never `transform` or `bottom`:** vaul writes the
-  slide and the drag as *inline* transforms keyed to its own open/closed state, so a CSS
-  `transform` is ignored (inline wins) and, forced with `!important`, strands the sheet
-  permanently open. Both facts are pinned by `DesktopScreen.layout.test.ts`.
+- **Ticket detail is a RIGHT-SIDE panel at a desk, a bottom sheet on a phone** (13 D7a
+  amending D7), and the split is one prop plus one attribute:
+  - **`placement` (`'bottom' | 'right'`, default `'bottom'`) is the JS half.** It is handed
+    straight to vaul as its `direction`, which is what derives the entrance, the closed
+    transform *and* the drag axis — so the edge is stated exactly once, in
+    `DesktopScreenView`'s `<TicketDetail placement="right">`. Never re-state a slide in
+    CSS to move the sheet: vaul writes those as *inline* transforms keyed to its own
+    open/closed state, so a CSS `transform` is ignored (inline wins) and, forced with
+    `!important`, strands the panel permanently open.
+  - **`<body data-shell="desktop">` is the CSS half.** The shell's mount effect publishes
+    the JS shell decision (it is now the *only* thing that effect writes, see D6a above),
+    because `TicketDetail` portals out of the shell's subtree and no descendant selector
+    can reach it. `body[data-shell='desktop']` rules in `DesktopScreen.css` stand the
+    panel up against the right edge (`top: 0` + the base rule's `bottom: 0`, `left: auto`,
+    `right: 0`, `width: min(460px, …)`, `max-height: none`) and drop the scrim to
+    `transparent` — the panel exists so the feed and working strip stay *visible*, and
+    dimming them takes back what moving it to the edge just bought. The rule must not
+    declare `bottom` (that is the edge vaul translates away from) and must drop
+    `border-top`/`border-right` rather than writing `border: none` + a new `border-left`,
+    which would out-specify and erase a blocked ticket's tinted border. All pinned by
+    `DesktopScreen.layout.test.ts`; the mobile sheet is untouched because omitting the
+    prop changes no DOM at all.
 - **`FeedCardItem` takes a `moreLabel`**, defaulting to the mobile "tap to see more"; the
   desktop shell passes `"more"`. Only the text node changes, so every mobile DOM/image
   snapshot stays byte-identical — which is the pattern to follow for any other copy that is

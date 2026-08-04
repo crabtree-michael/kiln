@@ -130,7 +130,7 @@ export interface paths {
         };
         /**
          * One older page of retained update/preview history (08 §3, D2′).
-         * @description Keyset pagination over retained (unretracted) update/preview notifications, newest-first, older than the `before` cursor — the "Show earlier updates" affordance (08 §3, D2′). Blockers and proposals are board-derived and never paged; this returns only notification-backed cards. Mirrors the /api/messages `limit` convention. `before` omitted means start from the newest (rarely needed — GET /api/feed already carries the first page). `has_more` signals another page remains.
+         * @description Keyset pagination over retained (unretracted) update/preview notifications, newest-first, older than the `before` cursor — the "Show earlier" affordance (08 §3, D2′/D2‴). Blockers and proposals are board-derived and never paged; this returns only notification-backed cards. Mirrors the /api/messages `limit` convention. `before` omitted means start from the newest (rarely needed — GET /api/feed already carries the first page). `has_more` signals another page remains.
          */
         get: operations["getFeedHistory"];
         put?: never;
@@ -152,7 +152,7 @@ export interface paths {
         put?: never;
         /**
          * Ack that update cards up to a high-water mark were seen (08 §3).
-         * @description Retained-history semantics (08 D2′): stamps seen_at on every unseen notification with id <= last_notification_id, advancing the persistent last-seen high-water mark. Seen updates STAY in the feed as history below the last-seen divider (they no longer drop out); the mark only moves the divider on the next visit. Blockers and proposals ignore seen entirely. Fired by the client when update cards render on a foregrounded, visible screen (08 §3).
+         * @description Retained-history semantics (08 D2′): stamps seen_at on every unseen notification with id <= last_notification_id, advancing the persistent last-seen high-water mark. Seen updates are RETAINED server-side — this never deletes or retracts anything. The mark is what the client opens its next visit against (08 D2‴): cards at or below it have been caught up on, so they collapse out of the default feed and wait behind "Show earlier". Blockers and proposals ignore seen entirely. Fired by the client when update cards render on a foregrounded, visible screen (08 §3).
          */
         post: operations["postFeedSeen"];
         delete?: never;
@@ -793,7 +793,7 @@ export interface components {
             created_at: string;
             /**
              * Format: date-time
-             * @description When the user's client acked this notification as seen (08 D2″). Set on notification-backed cards the user has already caught up on; null on unseen ones and always null on board-derived blocker/proposal cards. Starts the client's linger timer: once a seen card is older than the linger window it drops out of the default feed and is reachable behind "Show seen notifications". Unseen cards (null) are never auto-hidden.
+             * @description When the user's client acked this notification as seen (08 D2‴). Set on notification-backed cards the user has already caught up on; null on unseen ones and always null on board-derived blocker/proposal cards. The client collapses already-seen cards out of the default feed with no delay, so this is the server's record of that ack rather than the start of any timer; unseen cards (null) are never collapsed, at any age, and nothing is deleted either way — "Show earlier" brings the collapsed cards back.
              */
             seen_at?: string | null;
         };

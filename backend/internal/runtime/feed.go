@@ -71,12 +71,11 @@ type FeedCard struct {
 	// on a done card whose summary was unavailable.
 	WorkSummary *string
 	CreatedAt   time.Time
-	// SeenAt is the notification row's seen_at (08 D2″): when the client acked
+	// SeenAt is the notification row's seen_at (08 D2‴): when the client acked
 	// this card as caught-up-on. Nil on unseen notifications and always nil on
-	// board-derived blocker/proposal cards. The client starts its linger timer
-	// from here — a seen card older than the linger window drops out of the
-	// default feed and is reachable behind "Show seen notifications" — so an
-	// unseen card (nil) can never be auto-hidden.
+	// board-derived blocker/proposal cards. The client collapses already-seen
+	// cards out of the default feed with no delay, reachable again behind
+	// "Show earlier"; an unseen card (nil) is never collapsed, at any age.
 	SeenAt *time.Time
 }
 

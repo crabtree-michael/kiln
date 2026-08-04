@@ -353,6 +353,20 @@ html:has([data-role='desktop-screen']) body {
   padding: 0;
 }
 
+/* "Show earlier" (08 D2‴) sits BELOW the list rather than inside it, because it
+   has to survive the empty feed — where there is no list to be inside. So it has
+   to be told the column's measure itself, or it stretches the full width of the
+   feed region while every card above it stops at 720px. */
+[data-role='desktop-screen'] [data-role='feed-show-earlier'] {
+  /* `display: block` is load-bearing, not tidying: a button is inline-block by
+     default, and `margin: auto` on an inline-block computes to 0 — the control
+     would sit hard against the left edge of the feed while the cards above it
+     are centred. */
+  display: block;
+  max-width: 720px;
+  margin: var(--space-4) auto var(--space-2);
+}
+
 [data-role='desktop-feed-row'] {
   padding: var(--space-2) var(--space-4);
   margin: 0 calc(var(--space-4) * -1);

@@ -110,22 +110,17 @@ export interface PrimaryScreenViewProps {
    * `notification_id` are new since the last visit; those at or below it are
    * older history. `null` (default) shows no divider. */
   lastSeenId?: number | null;
-  /** True when older retained update history remains to page in (08 D2′) — shows
-   * the "Show earlier updates" affordance at the foot of the feed. */
-  hasMoreHistory?: boolean;
-  /** True while a history page fetch is in flight (button shows a loading label). */
-  loadingMoreHistory?: boolean;
-  /** Fetch and append the next older page of update history (08 D2′). */
-  onLoadMoreHistory?: (() => void) | undefined;
-  /** True when seen cards past their linger window are revealed (08 D2″) — flips
-   * the affordance's label between "Show" and "Hide seen notifications". */
-  showSeen?: boolean;
-  /** How many cards the seen-linger window has expired (08 D2″). Zero (the
-   * default) means there is nothing hidden, so no affordance is offered. */
-  expiredSeenCount?: number;
-  /** Flip the seen-card reveal (08 D2″). Omitted (presentational tests) leaves
-   * the affordance absent, mirroring how `onDismissCard` gates the swipe wrapper. */
-  onToggleShowSeen?: (() => void) | undefined;
+  /** True when there is anything further back to show (08 D2‴) — already-seen
+   * cards collapsed out of the feed, or older history still on the server. Shows
+   * the single "Show earlier" control at the foot of the feed. */
+  hasEarlier?: boolean;
+  /** True while that control has a history page fetch in flight (it disables,
+   * but never renames itself — there is one label). */
+  loadingEarlier?: boolean;
+  /** Bring back what the feed has tucked away (08 D2‴) — the collapsed seen
+   * cards first, then older history. Omitted (presentational tests) leaves the
+   * control absent, mirroring how `onDismissCard` gates the swipe wrapper. */
+  onShowEarlier?: (() => void) | undefined;
   /** Re-fetch the whole feed — the pull-to-refresh gesture. When provided, a
    * downward pull from the top of the feed spins up a refresh indicator and
    * re-fetches; the returned promise keeps the indicator up until the fetch
@@ -247,12 +242,9 @@ export function PrimaryScreenView({
   onOpenTickets,
   ticketsRefreshing = false,
   lastSeenId = null,
-  hasMoreHistory = false,
-  loadingMoreHistory = false,
-  onLoadMoreHistory,
-  showSeen = false,
-  expiredSeenCount = 0,
-  onToggleShowSeen,
+  hasEarlier = false,
+  loadingEarlier = false,
+  onShowEarlier,
   onRefreshFeed,
   notificationMode = 'blocked',
   onSelectNotificationMode,
@@ -472,31 +464,25 @@ export function PrimaryScreenView({
                     </div>
                   );
                 })}
-                {hasMoreHistory && onLoadMoreHistory !== undefined && (
-                  <button
-                    type="button"
-                    data-role="feed-load-more"
-                    onClick={onLoadMoreHistory}
-                    disabled={loadingMoreHistory}
-                  >
-                    {loadingMoreHistory ? 'Loading…' : 'Show earlier updates'}
-                  </button>
-                )}
               </>
             )}
-            {/* Seen cards drop out of the feed once their linger window lapses
-                (08 D2″); this brings them back on demand. Deliberately OUTSIDE
-                the empty/non-empty branch: hiding the last card leaves the feed
-                rendering "All clear", and that is exactly the state where the
-                user most needs a way back to what was just there. */}
-            {expiredSeenCount > 0 && onToggleShowSeen !== undefined && (
+            {/* The ONE way back to what the feed has tucked away (08 D2‴):
+                already-seen cards collapse out of it, and older history is a
+                page away on the server. One control, one label — it always means
+                "further back", so it never has to say which of the two it is
+                about to do. Deliberately OUTSIDE the empty/non-empty branch:
+                collapsing the last card leaves the feed rendering "All clear",
+                and that is exactly the state where the user most needs a way
+                back to what was just there. */}
+            {hasEarlier && onShowEarlier !== undefined && (
               <button
                 type="button"
-                data-role="feed-show-seen"
-                aria-pressed={showSeen}
-                onClick={onToggleShowSeen}
+                data-role="feed-show-earlier"
+                onClick={onShowEarlier}
+                disabled={loadingEarlier}
+                aria-busy={loadingEarlier || undefined}
               >
-                {showSeen ? 'Hide seen notifications' : 'Show seen notifications'}
+                Show earlier
               </button>
             )}
           </div>

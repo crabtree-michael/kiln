@@ -40,9 +40,11 @@ for a ticket's thread of work; the label on a card is its ticket title.)
 top (ember dot, `Blocker` tag, question in full), then **pending proposals** (§5),
 then **updates** newest-first (ticket label + relative age) as **retained history**
 (D2′): new-since-last-visit updates on top, then the **last-seen** divider
-(`Earlier`), then older history below it, paged in on demand ("Show earlier
-updates"). Cards seen more than 10 minutes ago step out of this list and return
-behind "Show seen notifications" (D2″). Update cards may embed an image preview (4c). Empty feed renders the 4d
+(`Earlier`), then older history below it. By default that history is **collapsed
+away** — cards the user was already caught up on when the visit began are not in
+the list at all (D2‴) — and **one** control at the foot of the feed, always
+reading **"Show earlier"**, opens it back up and then keeps paging older history
+under the same label. Update cards may embed an image preview (4c). Empty feed renders the 4d
 "All clear" state with a streams status line (`3 building`) and the last word as
 smaller subtext under it (`last word 6m ago`) — one fact per line, so neither
 wraps on a phone.
@@ -77,19 +79,30 @@ on every unseen notification with `id ≤ last`, advancing a **persistent last-s
 high-water mark**. Seen updates **stay in the feed as history** — seen only moves the
 divider on the *next* visit, it does not remove the card. Blockers and proposals
 ignore seen entirely; they persist until resolved.
-- **Seen cards linger, then step aside** (**D2″**). A seen card is not history the
-user has to keep scrolling past: **10 minutes after its `seen_at` stamp** it drops out
-of the default feed, and a **"Show seen notifications"** control at the foot of the
-feed brings every hidden card back (and puts them away again). This is *visibility,
-not deletion* — the row is untouched, still returned by `GET /api/feed`, still paged
-by `/api/feed/history`, still the brain's to edit or retract. Two properties carry the
-whole rule: the countdown starts at **seen**, so an **unseen card is never hidden**
-however old it is; and it is measured from the **server's `seen_at`** (carried on
-`FeedCard.seen_at`), not a local timer, so it survives a reload and agrees across
-tabs. The reveal is client-side view state and resets on reopen — the feed always
-opens decluttered. Asking for older history ("Show earlier updates") reveals seen
-cards too, since an older page is almost entirely long-seen updates and would
-otherwise page straight into hiding.
+- **Seen cards collapse away; one control brings them back** (**D2‴**, replacing
+D2″'s linger window). A seen card is not history the user has to keep scrolling
+past, and there is **no timer** deciding when it stops being current: everything the
+user had already caught up on **when this visit began** is simply not in the default
+feed. One control at the foot of the feed, always reading **"Show earlier"** — never
+"Show seen notifications", never a second label for the reverse — opens the whole
+thing up, and once nothing is collapsed the same button keeps paging older history
+under the same word. There is no counterpart that puts them away again: the reveal is
+client-side view state and resets on reopen, so the feed always opens decluttered.
+This is *visibility, not deletion* — the row is untouched, still returned by
+`GET /api/feed`, still paged by `/api/feed/history`, still the brain's to edit or
+retract. Three properties carry the whole rule:
+  - **Unseen is never collapsed**, at any age. The boundary is the server's last-seen
+    high-water (the same mark the divider is frozen from), which only ever covers ids
+    the server stamped `seen_at` — so nothing the user hasn't looked at can vanish.
+  - **A card is never taken off the screen the user is reading it on.** Rendering a
+    card acks it seen within a round-trip; if that ack collapsed it, the feed would
+    empty itself a second after opening and the notification would be unreadable. So
+    the boundary is fixed for the length of a **visit**, and a visit ends when the app
+    is backgrounded, closed, or reloaded — coming back is what tucks away what was
+    read. (A project switch is *not* a new visit: it restores what was last on screen
+    for that project, `12` §4.1.)
+  - **Asking for older history reveals the collapsed cards too**, since an older page
+    is almost entirely long-seen updates and would otherwise page straight into hiding.
 - **The divider.** The feed carries `summary.last_seen_notification_id`; update cards
 with a greater id are new since the last visit (above the `Earlier` divider), those at
 or below it are older history (below). The client **freezes** this boundary at the
@@ -199,9 +212,11 @@ Append + stamp only; no edits.
 Blocked tickets, **all Shaping tickets**) with the **newest page of unretracted
 notifications — seen and unseen** (D2′, retained history) → the `FeedSnapshot` wire
 shape, which also carries `last_seen_notification_id` (max seen id) and
-`has_more_history`. Each notification-backed card carries its own `seen_at`, which is
-what the client's D2″ linger window counts from (null on unseen cards and on
-board-derived ones, so neither can ever be auto-hidden). Used by both `GET /api/feed` and the `feed.updated` executor. A
+`has_more_history`. `last_seen_notification_id` is what the client opens a visit
+against (D2‴): cards at or below it collapse out of the default feed, and because the
+server only ever advances it over rows it stamped `seen_at`, an unseen card cannot
+fall below it. Each notification-backed card still carries its own `seen_at` (null on
+unseen cards and always on board-derived ones). Used by both `GET /api/feed` and the `feed.updated` executor. A
 second route `GET /api/feed/history?before=&limit=` keyset-pages older
 update/preview cards (default 30, bounds 1–100). A partial index over unretracted
 rows keeps the growing-history scans cheap.
@@ -236,10 +251,11 @@ accept route precondition (rejects non-Shaping, idempotent on replay); `feed.upd
 emission on Shaping create/shape; toast emission per transition verb.
 - **Unit (frontend):** feed store (board cards replace wholesale; update history
 **accumulates** across snapshots with window reconciliation; frozen last-seen divider;
-`loadMoreHistory` paging — D2′; **seen-linger auto-hide — a long-seen card drops from
-the default feed while an unseen one of any age stays, the reveal toggle brings it
-back without retracting anything, and a card seen mid-session leaves on its own timer
-with no further snapshot** — D2″), activity store (pill contention: say replaces toast,
+history paging — D2′; **collapse-on-seen — a card seen before this visit is absent
+from the default feed while an unseen one of any age stays, a card seen mid-visit is
+NOT taken off the screen being read, coming back to the screen collapses what was
+read, and "Show earlier" brings them back without retracting anything** — D2‴),
+activity store (pill contention: say replaces toast,
 toasts queue, thinking coexists with the pill stacked above it; auto-dismiss timing), seen-ack firing only when
 visible.
 - **Image snapshots (**`02` **§4a):** backlog with blocker on top (4a), updates-only (4b),
@@ -261,7 +277,8 @@ resync (D2′, no longer drains). The `07` e2e keeps covering the debug view.
 | D1  | Hybrid feed: blockers/proposals derived from board state; updates in a brain-authored `notifications` table.           | One brain-managed `feed_items` table for everything; fully derived projection with no new state.          | Derived cards cannot drift from ticket truth and the brain already "removes" them by doing its job; authored updates need storage and retraction anyway. One table for all would let blocker cards go stale; fully derived would make updates read like chat history. |
 | D2  | ~~Inbox that drains: seen-means-gone for updates; blockers/proposals persist until resolved; brain curates and retracts.~~ **Superseded by D2′.** | Append-only feed with a last-seen divider; bounded recency window.                                        | User decision. The screen should tend toward "All clear" — the feed is a to-attend list, not a log. History belongs to the debug view and the transcript.                                                                                                             |
 | D2′ | **Retained history with a last-seen divider (reversing D2): seen no longer removes an update — it stays as scrollable history, split from new-since-last-visit by a divider frozen at the session's last-seen mark. History is paginated (`GET /api/feed/history`), not pruned.** | Keep D2's inbox-drain; append-only with no divider; auto-expiry now. | User decision (reversing D2 — the alternative D2 itself had listed). Erasing updates on return lost the record of what happened while away; returning users need to see it. Time-based expiry is deliberately deferred (see open questions) so we can feel the model first; retention is "reasonably long" (all unretracted) for now, and pagination keeps a growing history cheap to load. |
-| D2″ | **Seen cards auto-hide from the default feed 10 minutes after `seen_at`, revealed on demand by a "Show seen notifications" control. Visibility only — nothing is retracted or deleted, and unseen cards are never hidden.** | Keep D2′'s unbounded retained list; server-side pruning/deletion after a window; a longer window (up to an hour); hide on seen with no delay. | User decision, and the resolution of D2′'s deferred expiry question. D2′ traded a draining inbox for a growing log: correct for *returning*, but it left the everyday screen accumulating cards the user had already read, which is the pile D2 existed to prevent. Expiring on **seen** rather than on **age** is what keeps both properties — nothing the user hasn't looked at can ever disappear, and what they have looked at stops competing for attention. 10 minutes (the short end of the 10-minute–1-hour range considered) because the linger only needs to outlast the reading session that saw the card; anything longer just delays the declutter. Deletion was rejected outright: retention is D2′'s whole point, so this is a view filter over the same retained rows, and the reveal is one tap away. The stamp is the server's `seen_at` on the wire rather than a client timer so the countdown survives a reload and agrees across tabs. |
+| D2″ | ~~Seen cards auto-hide from the default feed 10 minutes after `seen_at`, revealed by a "Show seen notifications" control.~~ **Superseded by D2‴.** | Keep D2′'s unbounded retained list; server-side pruning/deletion after a window; a longer window (up to an hour); hide on seen with no delay. | User decision, and the resolution of D2′'s deferred expiry question. D2′ traded a draining inbox for a growing log: correct for *returning*, but it left the everyday screen accumulating cards the user had already read, which is the pile D2 existed to prevent. Expiring on **seen** rather than on **age** is what kept both properties. The 10-minute window and the two-state reveal are what D2‴ removes; the seen-not-age principle is what it keeps. |
+| D2‴ | **Seen cards collapse out of the default feed with no delay, and there is exactly ONE control to get them back, always labelled "Show earlier" — it reveals the collapsed cards and then keeps paging older history under the same label. "Seen" is fixed per *visit*, so a card is never taken off the screen it is being read on. Visibility only; unseen cards are never collapsed.** | Keep D2″'s 10-minute linger; collapse the instant the seen-ack round-trips; keep the pager and the reveal as two separate controls; a "Hide earlier" counterpart to close it again. | User decision. Two things were wrong with D2″ rather than one. The timer was arbitrary — the feed decluttered ten minutes after the user stopped caring, so the everyday screen was still a log for exactly as long as it took to stop being one — and the foot of the feed had grown two controls with three labels between them ("Show earlier updates", "Show seen notifications", "Hide seen notifications"), which is three answers to a question the user only ever asks one way: *show me what came before*. Collapsing on the raw ack instead was rejected as self-defeating: rendering a card marks it seen within a round-trip, so the notification would erase itself a second after the user opened the app to read it. Pinning "seen" to the start of the visit is what makes "no timer" safe — nothing moves while you are looking, and everything you have read is gone when you come back. |
 | D3  | Activity layer is ephemeral SSE, never stored.                                                                         | Persist toasts as feed rows; derive thinking from queue-table polling.                                    | A toast repeats what the board/feed already record durably; storing it would double-write one fact. Missing a toast while disconnected loses nothing.                                                                                                                 |
 | D4  | `say` replies render in the same pill as toasts, persistent until the next utterance or dismissal.                     | A chat strip on the primary screen; replies as feed items.                                                | User decision. The pill is the live-exchange surface; the primary screen deliberately has no chat history (that is `/debug`). Feed items are for things that must survive being away.                                                                                 |
 | D5  | ~~Approval gate at the brain's discretion; prompted to gate complex technical decisions.~~ **Superseded by D5′.**       | Mandatory approval for every ticket; no gate (status quo).                                                | User decision — this is what Shaping means. Mandatory gating would tax routine work; no gate wastes the backlog's decision surface.                                                                                                                                   |
@@ -273,8 +290,8 @@ resync (D2′, no longer drains). The `07` e2e keeps covering the debug view.
 **Open questions (owned elsewhere or later):** push payload mapping and deep links
 (`10`); where preview images come from — agent artifacts need a storage/URL story
 (`05`-adjacent, future); ~~notification retention / auto-expiry — the explicit
-follow-up to D2′~~ **resolved by D2″ for *visibility* (seen cards leave the default
-feed after 10 minutes). Storage-side retention — whether unbounded retained rows ever
+follow-up to D2′~~ **resolved by D2‴ for *visibility* (seen cards leave the default
+feed at the end of the visit that saw them). Storage-side retention — whether unbounded retained rows ever
 get pruned or archived — is still open** (`02` §15, with the transcript); whether the header's stream-status line needs worker liveness
 beyond board state (`05` §4's reconciler may already suffice); multi-blocker ordering beyond
 blocked-at (revisit if real usage stacks blockers).

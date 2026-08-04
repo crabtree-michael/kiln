@@ -266,66 +266,46 @@ describe('PrimaryScreenView', () => {
     expect(screen.queryByText('Earlier')).toBeNull();
   });
 
-  it('shows the "Show earlier updates" affordance when history remains, wired to the loader (08 D2′)', () => {
-    const onLoadMoreHistory = vi.fn();
+  it('shows the one "Show earlier" control when anything is further back, wired to it (08 D2‴)', () => {
+    const onShowEarlier = vi.fn();
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-      hasMoreHistory: true,
-      onLoadMoreHistory,
+      hasEarlier: true,
+      onShowEarlier,
     });
-    const button = screen.getByRole('button', { name: 'Show earlier updates' });
-    expect(button).toHaveAttribute('data-role', 'feed-load-more');
+    const button = screen.getByRole('button', { name: 'Show earlier' });
+    expect(button).toHaveAttribute('data-role', 'feed-show-earlier');
     button.click();
-    expect(onLoadMoreHistory).toHaveBeenCalledTimes(1);
+    expect(onShowEarlier).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the "Show earlier updates" affordance when no history remains', () => {
+  it('hides the control when there is nothing further back', () => {
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-      hasMoreHistory: false,
-      onLoadMoreHistory: noop,
+      hasEarlier: false,
+      onShowEarlier: noop,
     });
-    expect(screen.queryByRole('button', { name: /earlier updates/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /earlier/i })).toBeNull();
   });
 
-  it('offers "Show seen notifications" once the linger window has hidden cards (08 D2″)', () => {
-    const onToggleShowSeen = vi.fn();
+  it('keeps one label while a page is in flight — the control never renames itself (08 D2‴)', () => {
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-      expiredSeenCount: 2,
-      onToggleShowSeen,
+      hasEarlier: true,
+      loadingEarlier: true,
+      onShowEarlier: noop,
     });
-    const button = screen.getByRole('button', { name: 'Show seen notifications' });
-    expect(button).toHaveAttribute('data-role', 'feed-show-seen');
-    expect(button).toHaveAttribute('aria-pressed', 'false');
-    button.click();
-    expect(onToggleShowSeen).toHaveBeenCalledTimes(1);
+    const button = screen.getByRole('button', { name: 'Show earlier' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy', 'true');
   });
 
-  it('reads "Hide seen notifications" once the seen cards are revealed (08 D2″)', () => {
-    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-      expiredSeenCount: 2,
-      showSeen: true,
-      onToggleShowSeen: noop,
-    });
-    const button = screen.getByRole('button', { name: 'Hide seen notifications' });
-    expect(button).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('hides the seen affordance when the linger window has hidden nothing', () => {
-    renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-      expiredSeenCount: 0,
-      onToggleShowSeen: noop,
-    });
-    expect(screen.queryByRole('button', { name: /seen notifications/i })).toBeNull();
-  });
-
-  it('keeps the seen affordance reachable when hiding emptied the feed (08 D2″)', () => {
-    // Hiding the last card leaves the "all clear" empty state — exactly where the
-    // user most needs a way back to what was just on screen, so the affordance
+  it('keeps the control reachable when collapsing emptied the feed (08 D2‴)', () => {
+    // Collapsing the last card leaves the "all clear" empty state — exactly where
+    // the user most needs a way back to what was just on screen, so the control
     // must survive the empty branch.
     renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
-      expiredSeenCount: 1,
-      onToggleShowSeen: noop,
+      hasEarlier: true,
+      onShowEarlier: noop,
     });
-    expect(screen.getByRole('button', { name: 'Show seen notifications' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show earlier' })).toBeInTheDocument();
   });
 
   it('renders the preview image on a preview card (4c)', () => {
@@ -1224,7 +1204,7 @@ describe('PrimaryScreenView', () => {
     expect(body.querySelector('[data-role="feed-card-more"]')).toBeNull();
   });
 
-  it('matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′)', () => {
+  it('matches the DOM-structure snapshot: blocker + last-seen divider + show-earlier (4a, D2′)', () => {
     const { container } = renderView(
       makeFeedSnapshot({
         summary: {
@@ -1238,7 +1218,7 @@ describe('PrimaryScreenView', () => {
         cards: [blockerCard, ...updateCards],
         hasMoreHistory: true,
       }),
-      { lastSeenId: 20, hasMoreHistory: true, onLoadMoreHistory: noop },
+      { lastSeenId: 20, hasEarlier: true, onShowEarlier: noop },
     );
     expect(container).toMatchSnapshot();
   });

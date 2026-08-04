@@ -50,6 +50,16 @@ export interface CachedFeed {
   lastSeen: number | null;
   /** The highest notification id already POSTed to `/feed/seen` this session. */
   acked: number;
+  /**
+   * The visit's seen floor (08 D2‴) — notification ids at or below it have been
+   * caught up on and are collapsed out of the default feed. Cached for the same
+   * reason the suppressions above are: a switch back should paint exactly what
+   * was last on screen for this project. Recomputing it from the server's mark
+   * instead would collapse everything the user had been reading a moment ago,
+   * which is the blank screen this cache exists to prevent. The floor advances
+   * on its own terms — a reload, or coming back to a backgrounded app.
+   */
+  seenFloor: number;
   /** Notification ids swiped away and not yet reconciled by a snapshot. */
   dismissed: number[];
   /** Optimistically hidden ticket ids → their expiry timestamp in epoch ms. */

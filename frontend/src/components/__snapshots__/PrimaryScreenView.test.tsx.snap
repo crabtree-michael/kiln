@@ -338,7 +338,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
 </div>
 `;
 
-exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-seen divider + load-more (4a, D2′) 1`] = `
+exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-seen divider + show-earlier (4a, D2′) 1`] = `
 <div>
   <div
     data-connection-state="connected"
@@ -682,10 +682,10 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
             </article>
           </div>
           <button
-            data-role="feed-load-more"
+            data-role="feed-show-earlier"
             type="button"
           >
-            Show earlier updates
+            Show earlier
           </button>
         </div>
       </div>

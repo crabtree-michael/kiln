@@ -74,9 +74,12 @@ export interface DesktopScreenViewProps {
   onReassignSandbox?: ((ticketId: string) => void) | undefined;
   onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
   lastSeenId?: number | null;
-  hasMoreHistory?: boolean;
-  loadingMoreHistory?: boolean;
-  onLoadMoreHistory?: (() => void) | undefined;
+  /** Anything further back to show — collapsed already-seen cards, or older
+   * history on the server (08 D2‴). The desk gets the same one control as the
+   * phone: the feed collapses what has been seen everywhere it is rendered. */
+  hasEarlier?: boolean;
+  loadingEarlier?: boolean;
+  onShowEarlier?: (() => void) | undefined;
   notificationMode?: NotificationModeValue;
   onSelectNotificationMode?: ((mode: NotificationModeValue) => void) | undefined;
   pushStatus?: WebPushStatus | undefined;
@@ -165,9 +168,9 @@ export function DesktopScreenView({
   onReassignSandbox,
   onEditText,
   lastSeenId = null,
-  hasMoreHistory = false,
-  loadingMoreHistory = false,
-  onLoadMoreHistory,
+  hasEarlier = false,
+  loadingEarlier = false,
+  onShowEarlier,
   notificationMode = 'blocked',
   onSelectNotificationMode,
   pushStatus,
@@ -433,22 +436,23 @@ export function DesktopScreenView({
                   </div>
                 </li>
               ))}
-              {hasMoreHistory && onLoadMoreHistory !== undefined && (
-                <li>
-                  {/* On a desk you scroll back further and more often than on a
-                      phone, so paging older history should feel like a normal
-                      scroll rather than a deliberate act (13 §6). */}
-                  <button
-                    type="button"
-                    data-role="feed-load-more"
-                    onClick={onLoadMoreHistory}
-                    disabled={loadingMoreHistory}
-                  >
-                    {loadingMoreHistory ? 'Loading…' : 'Show earlier updates'}
-                  </button>
-                </li>
-              )}
             </ol>
+          )}
+          {/* Outside the empty/non-empty branch for the same reason as the phone:
+              a feed whose cards have all collapsed away renders the resting
+              state, and that is precisely where the way back has to stay. One
+              control, one label — the desk collapses seen cards exactly like the
+              phone does, so it gets exactly the same affordance (08 D2‴). */}
+          {hasEarlier && onShowEarlier !== undefined && (
+            <button
+              type="button"
+              data-role="feed-show-earlier"
+              onClick={onShowEarlier}
+              disabled={loadingEarlier}
+              aria-busy={loadingEarlier || undefined}
+            >
+              Show earlier
+            </button>
           )}
         </section>
 

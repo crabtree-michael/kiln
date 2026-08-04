@@ -50,6 +50,18 @@ describe('DesktopScreen.css', () => {
     expect(body).not.toMatch(/column-count/);
   });
 
+  it('holds "Show earlier" to the same column as the cards above it (08 D2‴)', () => {
+    // The control renders below the list, not inside it, so that it survives a
+    // feed whose cards have all collapsed away — which also means the list's own
+    // measure does not reach it and it has to be given one.
+    const body = ruleBody("[data-role='desktop-screen'] [data-role='feed-show-earlier'] {");
+    expect(body).toMatch(/max-width:\s*720px/);
+    expect(body).toMatch(/margin:[^;]*auto/);
+    // And a button is inline-block by default, on which auto margins compute to
+    // zero — without this the control hugs the left edge of the feed region.
+    expect(body).toMatch(/display:\s*block/);
+  });
+
   it('spends the whole accent budget on needs-you, and on nothing else at all', () => {
     // 13 §4: "If the accent is on screen, it means something. That is the entire
     // contrast budget, and spending it on anything else breaks the one loud thing

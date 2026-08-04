@@ -436,41 +436,56 @@ dropdown. Points worth keeping:
   `--duration-base`), not `transitionend` — under `prefers-reduced-motion` the CSS
   transition is suppressed and `transitionend` would never fire.
 
-## Seen-card auto-hide (feed, 08 D2″)
+## Seen cards collapse away, one "Show earlier" brings them back (feed, 08 D2‴)
 
-The default feed shows unseen cards plus recently-seen ones; a card drops out
-`SEEN_LINGER_MS` (10 min) after the **server's** `seen_at`, and a **"Show seen
-notifications"** button at the foot of the feed reveals every hidden card (and puts
-them back). Visibility only — nothing is retracted, so this is unrelated to
-swipe-dismiss above.
+The default feed shows **only what the user hasn't caught up on**: everything already
+seen when the visit began is collapsed out of it, with no timer — the old
+`SEEN_LINGER_MS` 10-minute window is gone, and so is the "Show seen notifications"
+toggle. There is exactly **one** foot-of-feed control, `[data-role='feed-show-earlier']`,
+always reading **"Show earlier"** in both shells. It reveals the collapsed cards, then
+keeps paging older history under the same label; it has no counterpart that puts them
+back (the reveal is view state and resets on reopen). Visibility only — nothing is
+retracted, so this is unrelated to swipe-dismiss above.
 
-- **The clock is `FeedCard.seen_at` off the wire, not a local timer.** `MarkSeen`
-  stamps it server-side and appends `feed.updated` in the same tx, so a fresh
-  snapshot carries the stamp back within the same session. Counting locally instead
-  would restart every card's window on reload and disagree between tabs.
-- **Unseen ⇒ `seen_at` is null ⇒ never hidden**, at any age. That invariant is the
-  whole safety property: keep any new filter reading `seen_at`, never `created_at`
-  and never the session-frozen `lastSeenId` (which is a *divider* boundary — it moves
-  per session and marks cards seen in a previous visit, a different question).
-- **Everything merges through `remerge()`.** The store now has three stacked
-  suppressions (optimistic ticket hides, swipe dismissals, lapsed seen cards); they
-  used to be re-applied by five copy-pasted `setFeed(mergeFeed(...))` blocks. Add a
-  new one inside `mergeFeed` + `remerge`, not at a call site, or the suppressions
-  drift apart depending on which mutation path fired last.
-- **`showSeenRef` shadows the `showSeen` state on purpose.** Every merge callback
-  reads the ref, so `applySnapshot` stays render-stable; make a merge callback depend
-  on the `showSeen` *state* and the `subscribeStream` effect below it re-subscribes —
-  toggling the reveal would drop and reopen the SSE connection.
-- **A quiet feed still declutters:** `remerge` re-arms one `setTimeout` for the next
-  card due to lapse, so a card leaves on its own with no further snapshot. It is
-  cleared on unmount alongside the optimistic-reappear timers.
-- **`loadMoreHistory` force-reveals seen cards.** An older page is almost entirely
-  long-seen updates; without this, "Show earlier updates" fetches a page straight
-  into hiding and reads as a dead button.
-- **The reveal button renders outside the empty/non-empty branch** in
-  `PrimaryScreenView`. Hiding the last card leaves the "all clear" empty state — the
-  one place the user most needs the way back — so keep it out of the `isEmpty`
-  ternary.
+- **The boundary is the seen FLOOR, an id, not a per-card clock.** `seenFloorRef` holds
+  the server's last-seen high-water; `collapsedSeenIds` collapses every accumulated id
+  at or below it. `seen_at` is still on the wire (and still what the server stamps) but
+  the client no longer reads it. **Unseen ⇒ above the floor ⇒ never collapsed**, at any
+  age: the floor only ever advances to a mark the server stamped seen, and that
+  invariant is the whole safety property. Never key a filter here on `created_at`.
+- **The floor is per VISIT, and that is the load-bearing part.** Rendering a card acks
+  it seen within a round-trip, so collapsing on the raw ack would erase a notification
+  a second after the user opened the app to read it. The floor is therefore read at the
+  **first snapshot of a visit** (in `applySnapshot`'s freeze block, deliberately
+  *before* `ackVisibleSeen` advances the server's mark) and again on
+  **visibilitychange → visible** (from our own `ackedRef`, so it costs no fetch).
+  Nothing moves while the user is looking; what they read is gone when they come back.
+  That return-to-visible advance is also the only thing that declutters a surface which
+  is never reloaded — the desktop window left open all day.
+- **A project switch is NOT a new visit.** `seenFloor` rides in `CachedFeed` and is
+  restored verbatim, for the same reason the optimistic suppressions are: a switch back
+  paints what was last on screen (12 §4.1). Recomputing it from the server's
+  ack-advanced mark would blank a feed the user was reading a moment ago.
+- **Everything merges through `remerge()`.** The store has three stacked suppressions
+  (optimistic ticket hides, swipe dismissals, collapsed seen cards); they used to be
+  re-applied by five copy-pasted `setFeed(mergeFeed(...))` blocks. Add a new one inside
+  `mergeFeed` + `remerge`, not at a call site, or the suppressions drift apart depending
+  on which mutation path fired last.
+- **`showEarlierRef` is a ref with no state beside it.** Every merge callback reads it,
+  so `applySnapshot` stays render-stable; make a merge callback depend on a `showEarlier`
+  *state* and the `subscribeStream` effect below it re-subscribes — revealing would drop
+  and reopen the SSE connection. Flipping it is always followed by `remerge()`, which is
+  what re-renders.
+- **`showEarlier()` is one action with two jobs, in order:** reveal the collapsed cards
+  if any, else page older history (`loadMoreHistory`, which force-reveals for the same
+  reason — an older page is almost entirely long-seen updates and would otherwise fetch
+  straight into hiding). `hasEarlier` (collapsed count OR `hasMoreHistory`) is the gate,
+  so the button is never on screen with nothing to do — that, not a hardcoded "always
+  render", is what "one always-present control" means in practice.
+- **The control renders outside the empty/non-empty branch** in BOTH shells. Collapsing
+  the last card leaves the "all clear" / "All quiet." resting state — the one place the
+  user most needs the way back — so keep it out of the `isEmpty` ternary, and out of the
+  desktop `<ol>` (which isn't rendered at all when there are no cards).
 
 ## Potential gotchas
 

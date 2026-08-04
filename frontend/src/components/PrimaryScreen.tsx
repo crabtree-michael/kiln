@@ -64,13 +64,10 @@ function PrimaryScreenBody(): JSX.Element {
     connectionState,
     loading: feedLoading,
     lastSeenId,
-    hasMoreHistory,
-    loadingMoreHistory,
-    loadMoreHistory,
+    hasEarlier,
+    loadingEarlier,
+    showEarlier,
     refreshFeed,
-    showSeen,
-    expiredSeenCount,
-    toggleShowSeen,
     acceptProposal,
     deleteTicketCard,
     dismissCard,
@@ -257,9 +254,9 @@ function PrimaryScreenBody(): JSX.Element {
         onReassignSandbox={onReassignSandbox}
         onEditText={onEditText}
         lastSeenId={lastSeenId}
-        hasMoreHistory={hasMoreHistory}
-        loadingMoreHistory={loadingMoreHistory}
-        onLoadMoreHistory={loadMoreHistory}
+        hasEarlier={hasEarlier}
+        loadingEarlier={loadingEarlier}
+        onShowEarlier={showEarlier}
         notificationMode={notificationMode}
         onSelectNotificationMode={setNotificationMode}
         pushStatus={pushStatus}
@@ -296,12 +293,9 @@ function PrimaryScreenBody(): JSX.Element {
       onOpenTickets={refreshBoard}
       ticketsRefreshing={refreshing}
       lastSeenId={lastSeenId}
-      hasMoreHistory={hasMoreHistory}
-      loadingMoreHistory={loadingMoreHistory}
-      onLoadMoreHistory={loadMoreHistory}
-      showSeen={showSeen}
-      expiredSeenCount={expiredSeenCount}
-      onToggleShowSeen={toggleShowSeen}
+      hasEarlier={hasEarlier}
+      loadingEarlier={loadingEarlier}
+      onShowEarlier={showEarlier}
       onRefreshFeed={refreshFeed}
       notificationMode={notificationMode}
       onSelectNotificationMode={setNotificationMode}

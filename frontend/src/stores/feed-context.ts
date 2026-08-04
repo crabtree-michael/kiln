@@ -32,13 +32,16 @@ export interface FeedStoreValue {
    * when nothing has ever been seen (no divider).
    */
   lastSeenId: number | null;
-  /** True when older retained update history remains to page in (08 D2′). */
-  hasMoreHistory: boolean;
-  /** True while a `loadMoreHistory()` page fetch is in flight. */
-  loadingMoreHistory: boolean;
-  /** Fetch and append the next older page of update history (08 D2′). No-op when
-   * `hasMoreHistory` is false or a fetch is already in flight. */
-  loadMoreHistory: () => void;
+  /**
+   * True when there is anything further back to show (08 D2‴): cards that have
+   * collapsed out of the default feed for having been seen already, or older
+   * retained history still on the server. It is the whole gate on the single
+   * "Show earlier" control — false means that control has nothing to do, so it
+   * isn't offered.
+   */
+  hasEarlier: boolean;
+  /** True while `showEarlier()` has a history page fetch in flight. */
+  loadingEarlier: boolean;
   /**
    * Re-fetch the current feed snapshot on demand — the pull-to-refresh gesture
    * (this change). Mirrors the reconnect refetch: applies the fresh snapshot on
@@ -48,25 +51,16 @@ export interface FeedStoreValue {
    */
   refreshFeed: () => Promise<void>;
   /**
-   * Whether seen cards past their linger window are currently revealed (08 D2″).
-   * False by default — a notification the user has already seen drops out of the
-   * feed ~10 minutes after being seen, so the default view stays a to-attend
-   * list rather than a log. Unseen cards are never affected.
+   * The one "Show earlier" action (08 D2‴), and the only way back to what the
+   * feed has tucked away. It means *further back* and does whatever that takes
+   * next: first it reveals the collapsed already-seen cards (purely local — they
+   * are still held here and still retained server-side, so nothing is fetched,
+   * retracted, or persisted), then, once nothing is collapsed, it pages the next
+   * older window of history. There is no counterpart that puts them back: the
+   * reveal is view state and resets on reopen, so the feed still always opens
+   * decluttered.
    */
-  showSeen: boolean;
-  /**
-   * How many accumulated cards the linger window has expired, whether or not
-   * they are currently revealed. Zero means there is nothing behind the "Show
-   * seen notifications" affordance, so it isn't offered.
-   */
-  expiredSeenCount: number;
-  /**
-   * Flip the "Show seen notifications" reveal (08 D2″). Purely local view state:
-   * the expired cards are still held (and still retained server-side), so this
-   * only changes what the merged feed renders — nothing is fetched, retracted, or
-   * persisted, and the reveal resets to off on reopen.
-   */
-  toggleShowSeen: () => void;
+  showEarlier: () => void;
   /**
    * Optimistically hide an accepted proposal card by ticket id: the card drops
    * from the feed immediately, ahead of the server confirming the move. The hide

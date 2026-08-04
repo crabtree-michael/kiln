@@ -421,8 +421,8 @@ describe('DesktopScreenView', () => {
     );
   });
 
-  it('draws the last-seen divider, and paging older history is a plain button', () => {
-    const onLoadMoreHistory = vi.fn();
+  it('draws the last-seen divider, and reaching back is the same one plain button (08 D2‴)', () => {
+    const onShowEarlier = vi.fn();
     const older = makeFeedCard({
       kind: 'update',
       id: 'c4',
@@ -434,13 +434,24 @@ describe('DesktopScreenView', () => {
     const { container } = renderShell({
       feed: makeFeedSnapshot({ cards: [updateCard, older], hasMoreHistory: true }),
       lastSeenId: 5,
-      hasMoreHistory: true,
-      onLoadMoreHistory,
+      hasEarlier: true,
+      onShowEarlier,
     });
 
     expect(container.querySelector('[data-role="feed-divider"]')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Show earlier updates' }));
-    expect(onLoadMoreHistory).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier' }));
+    expect(onShowEarlier).toHaveBeenCalled();
+  });
+
+  it('keeps the control on a feed whose cards have all collapsed away (08 D2‴)', () => {
+    // The desk collapses seen cards exactly like the phone, so it needs the way
+    // back in exactly the state where every card has gone: the resting view.
+    renderShell({
+      feed: makeFeedSnapshot({ cards: [] }),
+      hasEarlier: true,
+      onShowEarlier: vi.fn(),
+    });
+    expect(screen.getByRole('button', { name: 'Show earlier' })).toBeInTheDocument();
   });
 
   it('has no swipe wrapper and no bulk clear — dismissal is not ported to the desk (13 §6, Q3)', () => {

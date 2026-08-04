@@ -50,19 +50,11 @@ function update(id: number, body: string): ReturnType<typeof makeFeedCard> {
   });
 }
 
-/** A notification-backed card the server has already stamped seen (08 D2″).
- * `seenAt` is what starts the linger window — a card seen long ago is already
- * past it the moment the snapshot lands. */
-function seenUpdate(id: number, body: string, seenAt: string): ReturnType<typeof makeFeedCard> {
-  return makeFeedCard({
-    kind: 'update',
-    id: `update:${String(id)}`,
-    label: '',
-    body,
-    createdAt: '2026-07-01T00:00:00Z',
-    notificationId: id,
-    seenAt,
-  });
+/** A snapshot summary whose last-seen high-water is `mark` — the boundary the
+ * store opens a visit against (08 D2‴): cards at or below it were caught up on
+ * before now, so they collapse out of the default feed. */
+function seenThrough(mark: number): { last_seen_notification_id: number } {
+  return { last_seen_notification_id: mark };
 }
 
 function Probe({
@@ -79,12 +71,9 @@ function Probe({
     connectionState,
     loading,
     lastSeenId,
-    hasMoreHistory,
-    loadingMoreHistory,
-    loadMoreHistory,
-    showSeen,
-    expiredSeenCount,
-    toggleShowSeen,
+    hasEarlier,
+    loadingEarlier,
+    showEarlier,
     acceptProposal,
     deleteTicketCard,
     dismissCard,
@@ -98,16 +87,11 @@ function Probe({
       data-card-count={feed?.cards.length ?? -1}
       data-card-ids={(feed?.cards ?? []).map((card) => card.id).join(',')}
       data-last-seen={lastSeenId ?? ''}
-      data-has-more={String(hasMoreHistory)}
-      data-loading-more={String(loadingMoreHistory)}
-      data-show-seen={String(showSeen)}
-      data-expired-seen={String(expiredSeenCount)}
+      data-has-earlier={String(hasEarlier)}
+      data-loading-earlier={String(loadingEarlier)}
     >
-      <button data-testid="toggle-seen" type="button" onClick={toggleShowSeen}>
-        toggle seen
-      </button>
-      <button data-testid="load-more" type="button" onClick={loadMoreHistory}>
-        more
+      <button data-testid="show-earlier" type="button" onClick={showEarlier}>
+        show earlier
       </button>
       <button
         data-testid="accept"
@@ -384,7 +368,10 @@ describe('FeedProvider', () => {
       }),
     );
     await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7,update:5');
+      // update(5) was already seen when this visit opened, so it is collapsed
+      // (08 D2‴) — but update(7), seen only just now by our own ack, stays put:
+      // a card must not evaporate while the user is reading it.
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:7');
     });
     expect(screen.getByTestId('probe').dataset.lastSeen).toBe('5');
   });
@@ -441,7 +428,7 @@ describe('FeedProvider', () => {
     });
   });
 
-  it('pages in older history on demand and toggles has-more (08 D2′)', async () => {
+  it('pages in older history on demand and turns the control off when spent (08 D2′)', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
       makeFeedSnapshot({ cards: [update(9, 'i'), update(8, 'h')], hasMoreHistory: true }),
     );
@@ -456,10 +443,12 @@ describe('FeedProvider', () => {
       </FeedProvider>,
     );
     await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.hasMore).toBe('true');
+      expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('true');
     });
 
-    screen.getByTestId('load-more').click();
+    // Nothing is collapsed here (nothing was seen before this visit), so the one
+    // control goes straight to paging.
+    screen.getByTestId('show-earlier').click();
 
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe(
@@ -468,8 +457,9 @@ describe('FeedProvider', () => {
     });
     // The keyset cursor is the oldest held id (8) with the default page size.
     expect(transport.fetchFeedHistory).toHaveBeenCalledWith(8, 30);
-    // The page reported no more, so the affordance turns off.
-    expect(screen.getByTestId('probe').dataset.hasMore).toBe('false');
+    // The page reported no more and nothing is collapsed, so the one control has
+    // nothing left to do and is withdrawn rather than left on screen dead.
+    expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('false');
   });
 
   it('reflects connection-state changes from the stream (07 §8)', async () => {
@@ -907,18 +897,15 @@ describe('FeedProvider', () => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
     });
   });
-  // -------------------------------------------------- seen-linger auto-hide (D2″)
+  // ------------------------------------------- seen cards collapse away (D2‴)
 
-  it('drops a long-seen card out of the default feed but keeps unseen ones (08 D2″)', async () => {
+  it('collapses the cards seen before this visit and keeps the rest (08 D2‴)', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
       makeFeedSnapshot({
-        // update(9) is unseen; both others were seen years ago, so their linger
-        // window lapsed long before this snapshot landed.
-        cards: [
-          update(9, 'fresh'),
-          seenUpdate(8, 'read', '2020-01-01T00:00:00Z'),
-          seenUpdate(7, 'also read', '2020-01-01T00:00:00Z'),
-        ],
+        // The user had caught up through id 7 before opening this screen, so 7
+        // and 6 are already-read history; 9 and 8 are new since.
+        summary: seenThrough(7),
+        cards: [update(9, 'fresh'), update(8, 'also fresh'), update(7, 'read'), update(6, 'read')],
       }),
     );
 
@@ -929,17 +916,49 @@ describe('FeedProvider', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
     });
-    // Hidden, not lost: the count is what puts the affordance on screen.
-    expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('2');
-    expect(screen.getByTestId('probe').dataset.showSeen).toBe('false');
+    // Collapsed, not lost — which is what puts the one control on screen.
+    expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('true');
   });
 
-  it('never auto-hides an unseen card, however old it is (08 D2″)', async () => {
+  it('collapses on seen with no delay — there is no linger window to wait out (08 D2‴)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-01T12:00:00Z'));
+    try {
+      vi.mocked(transport.fetchFeed).mockResolvedValue(
+        // Seen one second ago, in a previous look at the screen. The old rule
+        // kept this for another ten minutes; there is no timer now.
+        makeFeedSnapshot({ summary: seenThrough(8), cards: [update(8, 'just read')] }),
+      );
+
+      render(
+        <FeedProvider>
+          <Probe />
+        </FeedProvider>,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+      expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('true');
+      // And no pending timer is what makes that stable: advancing the clock an
+      // hour changes nothing, in either direction.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      });
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never collapses an unseen card, however old it is (08 D2‴)', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
-      // No seen_at at all: the card predates the linger window by years and still
-      // stays, because the window only ever starts when the user has seen it.
+      // Nothing has ever been seen here, so the floor is open: a card that has
+      // sat unread for years still stays, because collapsing is about being
+      // caught up, never about age.
       makeFeedSnapshot({ cards: [update(3, 'ancient but unread')] }),
     );
 
@@ -952,13 +971,71 @@ describe('FeedProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:3');
     });
-    expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('0');
+    expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('false');
   });
 
-  it('reveals the hidden seen cards on demand and hides them again (08 D2″)', async () => {
+  it('does not collapse a card the user is looking at right now (08 D2‴)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(9, 'arrived while away')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(transport.postFeedSeen).toHaveBeenCalledWith(9);
+    });
+
+    // The ack we just fired comes back stamped on the very next snapshot. It
+    // must NOT take the card off the screen the user is reading it on — that
+    // ack is about the next visit.
+    capturedHandlers?.onFeed?.(
+      makeFeedSnapshot({ summary: seenThrough(9), cards: [update(9, 'arrived while away')] }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+    });
+    expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('false');
+  });
+
+  it('collapses what was read once the screen is come back to (08 D2‴)', async () => {
+    vi.mocked(transport.fetchFeed).mockResolvedValue(
+      makeFeedSnapshot({ cards: [update(9, 'read this visit')] }),
+    );
+
+    render(
+      <FeedProvider>
+        <Probe />
+      </FeedProvider>,
+    );
+    await waitFor(() => {
+      expect(transport.postFeedSeen).toHaveBeenCalledWith(9);
+    });
+    expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
+
+    // Away and back: a return to the screen is a new visit, and everything acked
+    // during the last one has now been looked at. This is what keeps a window
+    // left open all day from silting up — nothing here is ever reloaded.
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    setVisibility('visible');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
+    });
+    expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('true');
+  });
+
+  it('brings the collapsed cards back on "Show earlier", in their ordered place (08 D2‴)', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
       makeFeedSnapshot({
-        cards: [update(9, 'fresh'), seenUpdate(8, 'read', '2020-01-01T00:00:00Z')],
+        summary: seenThrough(8),
+        cards: [update(9, 'fresh'), update(8, 'read')],
       }),
     );
 
@@ -971,28 +1048,20 @@ describe('FeedProvider', () => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
     });
 
-    // "Show seen notifications": the hidden card comes back in its ordered place.
     act(() => {
-      screen.getByTestId('toggle-seen').click();
+      screen.getByTestId('show-earlier').click();
     });
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:8');
     });
-    expect(screen.getByTestId('probe').dataset.showSeen).toBe('true');
-
-    // And back off again — this is a view toggle, so it declutters a second time.
-    act(() => {
-      screen.getByTestId('toggle-seen').click();
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
-    });
-    expect(screen.getByTestId('probe').dataset.showSeen).toBe('false');
+    // One control with one meaning: it does not toggle back, and with no older
+    // history left on the server it withdraws rather than sitting there dead.
+    expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('false');
   });
 
-  it('is visibility only — a revealed seen card is never retracted server-side', async () => {
+  it('is visibility only — a collapsed card is never retracted server-side', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
-      makeFeedSnapshot({ cards: [seenUpdate(8, 'read', '2020-01-01T00:00:00Z')] }),
+      makeFeedSnapshot({ summary: seenThrough(8), cards: [update(8, 'read')] }),
     );
 
     render(
@@ -1001,58 +1070,32 @@ describe('FeedProvider', () => {
       </FeedProvider>,
     );
     await waitFor(() => {
-      expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('1');
+      expect(screen.getByTestId('probe').dataset.hasEarlier).toBe('true');
     });
 
     act(() => {
-      screen.getByTestId('toggle-seen').click();
+      screen.getByTestId('show-earlier').click();
     });
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
     });
-    // Auto-hiding is declutter, not deletion: nothing was dismissed or retracted.
+    // Collapsing is declutter, not deletion: nothing was dismissed or retracted.
     expect(transport.dismissFeedCard).not.toHaveBeenCalled();
     expect(transport.dismissAllFeedCards).not.toHaveBeenCalled();
   });
 
-  it('auto-hides a card on its own timer once the linger window lapses (08 D2″)', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-01T12:00:00Z'));
-    try {
-      vi.mocked(transport.fetchFeed).mockResolvedValue(
-        // Seen this very instant: still well inside the 10-minute window.
-        makeFeedSnapshot({ cards: [seenUpdate(8, 'just read', '2026-07-01T12:00:00Z')] }),
-      );
-
-      render(
-        <FeedProvider>
-          <Probe />
-        </FeedProvider>,
-      );
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:8');
-      expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('0');
-
-      // No further snapshot arrives — the card must leave on its own once the
-      // window lapses, or a quiet feed would never declutter.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-      });
-      expect(screen.getByTestId('probe').dataset.cardIds).toBe('');
-      expect(screen.getByTestId('probe').dataset.expiredSeen).toBe('1');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('reveals seen cards when paging older history, so the page is not fetched into hiding', async () => {
+  it('reveals collapsed cards when paging older history, so the page is not fetched into hiding', async () => {
     vi.mocked(transport.fetchFeed).mockResolvedValue(
-      makeFeedSnapshot({ cards: [update(9, 'fresh')], hasMoreHistory: true }),
+      // Caught up through id 4, but the newest page holds nothing that old — so
+      // the control is offered for the server-side history alone.
+      makeFeedSnapshot({
+        summary: seenThrough(4),
+        cards: [update(9, 'fresh')],
+        hasMoreHistory: true,
+      }),
     );
     vi.mocked(transport.fetchFeedHistory).mockResolvedValue({
-      cards: [seenUpdate(4, 'old', '2020-01-01T00:00:00Z')],
+      cards: [update(4, 'old')],
       has_more: false,
     });
 
@@ -1065,15 +1108,15 @@ describe('FeedProvider', () => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9');
     });
 
-    // Every card an older page carries is long-seen; leaving the linger filter on
-    // would make "Show earlier updates" appear to do nothing.
+    // Every card an older page carries is long-seen; leaving the collapse on
+    // would make "Show earlier" fetch a page straight into hiding and read as a
+    // dead button.
     act(() => {
-      screen.getByTestId('load-more').click();
+      screen.getByTestId('show-earlier').click();
     });
     await waitFor(() => {
       expect(screen.getByTestId('probe').dataset.cardIds).toBe('update:9,update:4');
     });
-    expect(screen.getByTestId('probe').dataset.showSeen).toBe('true');
   });
 
   // --- project switching (12 §4.1): the per-project cache + the loading flag ---

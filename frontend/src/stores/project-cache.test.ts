@@ -37,6 +37,7 @@ function feedFor(projectId: string): CachedFeed {
     updates: [],
     lastSeen: null,
     acked: 0,
+    seenFloor: 0,
     dismissed: [],
     hiddenTickets,
   };

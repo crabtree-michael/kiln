@@ -73,9 +73,9 @@
   gap: 0.5rem;
 }
 
-/* Title + lifecycle badge, stacked and left-aligned. Takes the header's spare
- * width (the close button is the only sibling) so the title can wrap to its
- * full extent instead of being clipped by a badge beside it. */
+/* Title + status row, stacked and left-aligned. It is the header's only child
+ * now (the × is gone), so it takes the full width and the title wraps to the
+ * sheet's own edge instead of stopping short of a button. */
 [data-role='ticket-detail-heading'] {
   flex: 1 1 auto;
   min-width: 0;
@@ -85,10 +85,12 @@
   gap: 0.35rem;
 }
 
+/* With no button beside it the title is free to read at its natural size rather
+ * than at whatever cleared the chrome next to it. */
 [data-role='ticket-detail-title'] {
   margin: 0;
   min-width: 0;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
 }
 
 /* While editing, the title element stays in the DOM but leaves the screen: Radix
@@ -106,11 +108,10 @@
   white-space: nowrap;
 }
 
-/* The status row under the title: the lifecycle badge and the sandbox gear on
- * one line. It spans the heading's width so the gear can sit at the row's end,
- * clear of the badge's words however long they run — and so a ticket with no
- * badge (shaping/ready) still puts the gear in the same place rather than
- * sliding it left. */
+/* The status row under the title: the sandbox gear and the lifecycle badge on
+ * one line, in that order. It spans the heading's width, and the gear leads it
+ * so the glyph starts on the title's own left edge — the same place on every
+ * lifecycle state, including the ones (shaping/ready) that wear no badge. */
 [data-role='ticket-detail-status-row'] {
   align-self: stretch;
   display: flex;
@@ -182,19 +183,6 @@
   [data-role='ticket-detail-status'][data-state='working'] [data-role='ticket-detail-status-dot'] {
     animation: none;
   }
-}
-
-[data-role='ticket-detail-close'] {
-  flex: 0 0 auto;
-  width: 1.9rem;
-  height: 1.9rem;
-  line-height: 1;
-  font-size: 1.2rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
-  background: var(--surface-raised);
-  color: var(--text-body);
-  cursor: pointer;
 }
 
 /* The rendered body of an editable ticket IS the edit affordance — there is no
@@ -446,18 +434,18 @@
  * the scrolling body) so it is reachable without scrolling past the ticket's
  * text, and folded away so the ticket's own words are what the body shows.
  *
- * The gear is pushed to the row's end, which lands it under the header's
- * pencil/close cluster — one column of chrome down the sheet's right edge — and
- * keeps it in the same place on a ticket that wears no lifecycle badge. */
+ * The gear leads the status row, so it sits directly under the title's first
+ * character rather than off in the sheet's right corner. The trigger's negative
+ * margin cancels its own hit-area padding, which is what puts the *glyph* — not
+ * the button's box — on the title's left edge. */
 [data-role='detail-sandbox-menu'] {
   position: relative;
-  margin-left: auto;
   display: flex;
 }
 
-/* Quieter than the header's square pencil/close buttons: this is a third,
- * rarely-used affordance on a row that is otherwise information, so it reads as
- * a glyph until it is hovered or open. */
+/* Quieter than a bordered button: this is a rarely-used affordance on a row that
+ * is otherwise information, so it reads as a glyph until it is hovered or
+ * open. */
 [data-role='detail-sandbox-trigger'] {
   display: inline-flex;
   align-items: center;
@@ -480,15 +468,17 @@
   background: var(--surface-inset);
 }
 
-/* The dropdown, anchored to the trigger's bottom-right corner so it opens back
- * across the sheet rather than off its edge. It stays mounted while closed (so
- * it animates both ways) and is taken out of the page by max-height/opacity plus
- * the aria-hidden the component writes. It opens *over* the scrolling body, and
- * the header is given a stacking order above that body for exactly this. */
+/* The dropdown, anchored to the trigger's bottom-LEFT corner — the gear now
+ * leads the status row, so it opens down and to the right, back across the
+ * sheet rather than off its edge (the mirror of where it hung when the gear sat
+ * at the row's end). It stays mounted while closed (so it animates both ways)
+ * and is taken out of the page by max-height/opacity plus the aria-hidden the
+ * component writes. It opens *over* the scrolling body, and the header is given
+ * a stacking order above that body for exactly this. */
 [data-role='detail-sandbox-panel'] {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -498,7 +488,7 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-overlay);
   overflow: hidden;
-  transform-origin: top right;
+  transform-origin: top left;
   opacity: 0;
   transform: translateY(-6px) scale(0.98);
   max-height: 0;
@@ -851,31 +841,20 @@
   border-color: var(--accent-soft);
 }
 
+/* The ticket's name is the first thing the sheet says, and with the × gone it no
+ * longer shares its line with anything — so it reads a full step up, just under
+ * the app wordmark's own size. */
 [data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-title'] {
-  font-size: 21px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--text-body);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close'] {
-  width: 32px;
-  height: 32px;
-  font-size: 20px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-default);
-  background: var(--surface-card);
-  color: var(--text-faint);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='ticket-detail-close']:hover {
   color: var(--text-body);
 }
 
 /* The fields inherit the primary skin's larger register, so entering edit mode
  * doesn't shrink the words the user is about to change. */
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-edit-title'] {
-  font-size: 21px;
+  font-size: 24px;
   letter-spacing: -0.01em;
 }
 

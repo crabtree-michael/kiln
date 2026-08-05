@@ -40,7 +40,11 @@
 // dismissal entirely: dragging the sheet back past the threshold, clicking the
 // scrim, and pressing Escape all route through `onOpenChange(false)` →
 // `onClose`, so this component adds none of that by hand — dismiss stays
-// low-friction, never a trap (07 §7–§8).
+// low-friction, never a trap (07 §7–§8). That is also why the header carries
+// **no × button**: with three dismiss paths already there, the one piece of
+// chrome it bought was a fourth — at the cost of a column of the header the
+// title had to be shrunk to clear. The title now takes the full width and reads
+// at its natural size, and the sheet is dismissed the way every sheet is.
 //
 // WHICH edge it comes from is the `placement` prop: `'bottom'` (the default) is
 // the phone's sheet, `'right'` is the desk's side panel. It is one prop rather
@@ -577,9 +581,10 @@ export function TicketDetail({
           <Drawer.Handle data-role="ticket-detail-grabber" />
 
           <header data-role="ticket-detail-header">
-            {/* Title and its lifecycle badge stack in a left-aligned column so the
-                title gets the full header width instead of ceding room to a badge
-                on its right. */}
+            {/* Title, gear and lifecycle badge stack in one left-aligned column:
+                the header has no second column at all now (no × — see the file
+                header), so the title gets the sheet's full width and every row
+                below it starts on the title's own left edge. */}
             <div data-role="ticket-detail-heading">
               {/* The title is always rendered, even mid-edit: Radix names the
                   dialog by this element (aria-labelledby), so replacing it with
@@ -608,27 +613,17 @@ export function TicketDetail({
                   }}
                 />
               )}
-              {/* The status row, directly under the title: the lifecycle badge and
-                  the sandbox gear, side by side. They share a line because they
-                  answer the two questions asked at a glance — what is happening
-                  to this ticket, and what can be done about the workspace behind
-                  it — and because the gear needs a home that exists on every
-                  lifecycle state, including the ones that wear no badge. It is
-                  skipped entirely when neither has anything to show. */}
+              {/* The status row, directly under the title: the sandbox gear and
+                  the lifecycle badge, side by side. They share a line because
+                  they answer the two questions asked at a glance — what can be
+                  done about the workspace behind this ticket, and what is
+                  happening to it — and because the gear needs a home that exists
+                  on every lifecycle state, including the ones that wear no badge.
+                  The gear leads the row so it sits on the title's own left edge
+                  rather than off in the corner the × used to hold. It is skipped
+                  entirely when neither has anything to show. */}
               {(statusLabel !== undefined || showSandboxMenu) && (
                 <div data-role="ticket-detail-status-row">
-                  {/* The lifecycle badge: a dot + word that names the ticket's
-                      state at a glance (In progress / Blocked / Done), each in its
-                      own colour. Only the states that carry a signal show one;
-                      shaping/ready wear none. Keyed on data-state (not Radix's own
-                      data-state, which lives on the panel) for its per-state
-                      colour. */}
-                  {statusLabel !== undefined && (
-                    <span data-role="ticket-detail-status" data-state={ticket.state}>
-                      <span data-role="ticket-detail-status-dot" aria-hidden="true" />
-                      {statusLabel}
-                    </span>
-                  )}
                   {/* Every sandbox decision for this ticket, behind one gear. Each
                       item is gated by whether its callback arrives: the two
                       destructive ones only on a ticket that has a sandbox, and Move
@@ -644,20 +639,25 @@ export function TicketDetail({
                       sandboxStatusLabel={hasSandbox ? sandboxStatusLabel : undefined}
                     />
                   )}
+                  {/* The lifecycle badge: a dot + word that names the ticket's
+                      state at a glance (In progress / Blocked / Done), each in its
+                      own colour. Only the states that carry a signal show one;
+                      shaping/ready wear none. Keyed on data-state (not Radix's own
+                      data-state, which lives on the panel) for its per-state
+                      colour. */}
+                  {statusLabel !== undefined && (
+                    <span data-role="ticket-detail-status" data-state={ticket.state}>
+                      <span data-role="ticket-detail-status-dot" aria-hidden="true" />
+                      {statusLabel}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
-            {/* No edit control up here: the body itself is the way into edit
-                mode (see the scroll region below), so the header carries the
-                one piece of chrome it always did — Close. */}
-            <button
-              type="button"
-              data-role="ticket-detail-close"
-              aria-label="Close"
-              onClick={onClose}
-            >
-              ×
-            </button>
+            {/* No chrome column beside the heading: the body itself is the way
+                into edit mode (see the scroll region below), and dismissal is
+                Vaul's — drag, scrim, Escape — so the header is the heading and
+                nothing else. */}
           </header>
 
           {/* The scroll region: the block message and the Markdown body live

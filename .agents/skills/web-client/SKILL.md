@@ -391,9 +391,9 @@ Two consequences worth keeping when you touch either:
 ### All of it lives behind ONE gear (`TicketDetailSandboxMenu`)
 
 The three sandbox affordances used to be a checkbox, two buttons and three paragraphs of
-explanation at the foot of the sheet's scrolling body. They are now one gear on the sheet's
-**status row** (beside the "In progress"/"Blocked"/"Done" badge, under the title) opening a
-dropdown. Points worth keeping:
+explanation at the foot of the sheet's scrolling body. They are now one gear **leading** the
+sheet's **status row** (directly under the title's left edge, ahead of the
+"In progress"/"Blocked"/"Done" badge) opening a dropdown. Points worth keeping:
 
 - **Each item self-gates on its callback arriving.** `TicketDetail` decides — toggle whenever
   `onSetKeepSandbox` is wired, the two overrides only when `hasSandbox`, Move only when
@@ -410,10 +410,13 @@ dropdown. Points worth keeping:
   this sheet needs the same trick.
 - **The panel is absolutely positioned inside the header, which carries `position: relative;
   z-index: 1`** so it paints over the scrolling body rather than under it. It opens
-  down-and-left from the trigger at the row's right end, which keeps it inside the sheet's
-  `overflow: hidden` in both shells — the desktop panel needs no re-anchoring (unlike the
-  bell, above). `desktop-shell-smoke.mjs` measures exactly that (`SANDBOX MENU`: inside the
-  sheet, panel on top, Escape closes the menu and not the sheet).
+  down-and-**right** (`left: 0`, `transform-origin: top left`) from the trigger at the row's
+  **start**, which keeps it inside the sheet's `overflow: hidden` in both shells — the desktop
+  panel needs no re-anchoring (unlike the bell, above). **The anchor tracks the trigger:** it
+  hung `right: 0` while the gear sat at the row's end, and moving the gear without moving the
+  anchor would clip the panel off the sheet's edge. `desktop-shell-smoke.mjs` measures exactly
+  that (`SANDBOX MENU`: inside the sheet, panel on top, Escape closes the menu and not the
+  sheet); `TicketDetail.header-layout.test.ts` pins the CSS in the gate.
 - **A closed panel stays mounted** (so it animates both ways) and is taken out of the page by
   `aria-hidden`. Consequence for tests: a closed menu's items are *absent* from role queries,
   so every test opens the gear first.
@@ -526,6 +529,12 @@ retracted, so this is unrelated to swipe-dismiss above.
     `onOpenChange(false)` → our `onClose`; don't hand-roll Escape/backdrop handlers. Vaul
     renders and closes fine in jsdom (Escape works), but its drag physics don't — don't
     assert on them.
+  - **The header carries no × — don't add one back.** Those three paths are the whole of
+    dismissal, and a button was a fourth. It cost a chrome column down the sheet's right
+    edge that the title had to be shrunk to clear; the header is now a single full-width
+    heading column (title over status row) and the title reads at 24px on the primary skin.
+    Both shells, one markup. Tests that used to close the sheet by clicking `Close` press
+    Escape instead (`PrimaryScreenView.test.tsx`).
 
 - **A `max-height` flex column shrinks EVERY item, not just the scrolling one.** The
   ticket sheet caps at `85dvh` and clips; flexbox removes the overflow in proportion to

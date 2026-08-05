@@ -967,7 +967,8 @@ describe('PrimaryScreenView', () => {
       onDismiss,
     });
     fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Login Redesign' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    // The sheet has no × of its own; Escape is Vaul's dismiss reaching onClose.
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(onDismiss).not.toHaveBeenCalled();
   });
 

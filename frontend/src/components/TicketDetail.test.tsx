@@ -2,9 +2,9 @@
 // trap (07 §7–§8). It renders as a `vaul` bottom sheet, so its content and scrim
 // portal to document.body (query via `screen`/`document`, not the render
 // container) and dismissal — Escape, scrim, drag — is Vaul's concern, routed to
-// onClose via onOpenChange. We test our own surface here (the close button, the
-// content, the Escape wiring reaching onClose); the drag physics are the
-// library's and are not re-tested.
+// onClose via onOpenChange. The header carries no × of its own, so those three
+// paths are the whole of it: we test the content and the Escape wiring reaching
+// onClose; the drag physics are the library's and are not re-tested.
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { TicketDetail } from '@/components/TicketDetail';
@@ -105,13 +105,15 @@ describe('TicketDetail', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onClose from the close button', () => {
-    const onClose = vi.fn();
-    render(<TicketDetail ticket={working} onClose={onClose} />);
+  it('carries no × in the header — dismissal is the scrim, Escape and the drag', () => {
+    // The header is the heading and nothing else: a × was a fourth way out on a
+    // sheet that already had three, and the column it held is what forced the
+    // title to render small. Dismissal is unchanged (the Escape test below, and
+    // the scrim/drag that are Vaul's own).
+    render(<TicketDetail ticket={working} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.getByRole('dialog').textContent).not.toContain('×');
   });
 
   it('calls onClose when Escape is pressed (Vaul dismiss → onOpenChange → onClose)', () => {
@@ -564,13 +566,18 @@ describe('TicketDetail — sandbox menu', () => {
     expect(keepToggle()).toBeInTheDocument();
   });
 
-  it('sits on the status row, beside the lifecycle badge', () => {
+  it('leads the status row, on the title’s left edge, ahead of the lifecycle badge', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
     const row = gear().closest('[data-role="ticket-detail-status-row"]');
     expect(row).not.toBeNull();
     expect(row?.querySelector('[data-role="ticket-detail-status"]')?.textContent).toContain(
       'In progress',
     );
+    // The gear comes first in the row — that (plus the row starting at the
+    // heading's left edge) is what left-aligns it with the title. jsdom does no
+    // layout, so DOM order is what there is to assert; the geometry rides on the
+    // CSS assertion in TicketDetail.header-layout.test.ts.
+    expect(row?.firstElementChild?.getAttribute('data-role')).toBe('detail-sandbox-menu');
   });
 
   describe('save sandbox when done', () => {

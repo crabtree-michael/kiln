@@ -61,6 +61,7 @@ type Config struct {
 	DevinMaxACULimit int    // DEVIN_MAX_ACU_LIMIT — per-session ACU cap; 0 leaves Devin's default
 	AnthropicAPIKey  string // ANTHROPIC_API_KEY — the brain's LLM adapter (06 §2)
 	BrainModel       string // KILN_BRAIN_MODEL, default brain.DefaultModel (06 §2)
+	BrainEffort      string // KILN_BRAIN_EFFORT, default brain.DefaultEffort (06 §2)
 	// Keyless-e2e brain (design docs/keyless-e2e-tests-design.md §3.1): the
 	// counterpart to AGENT_MODE=mock. "scripted" swaps the Anthropic adapter for
 	// a fixture-driven LLM so the whole loop runs with no Anthropic key; "" (or
@@ -183,6 +184,7 @@ func loadConfig() Config {
 		DevinMaxACULimit: getenvInt("DEVIN_MAX_ACU_LIMIT", 0),
 		AnthropicAPIKey:  os.Getenv("ANTHROPIC_API_KEY"),
 		BrainModel:       os.Getenv("KILN_BRAIN_MODEL"),
+		BrainEffort:      os.Getenv("KILN_BRAIN_EFFORT"),
 		BrainMode:        os.Getenv("KILN_BRAIN_MODE"),
 		BrainScript:      os.Getenv("KILN_BRAIN_SCRIPT"),
 		HTTPAddr:         resolveHTTPAddr(),

@@ -33,6 +33,13 @@ tool-following at low latency and cost is the profile, and latency matters doubl
 voice arrives (§10, D1). Temperature and other sampling knobs stay at SDK defaults until
 the golden tests (§9) say otherwise.
 
+**Output effort** (amended 2026-08-05, from the brain-optimization findings) is set
+explicitly to **`medium`**, overridable via `KILN_BRAIN_EFFORT` — backend-only, the same
+treatment as the model. Leaving it unset meant every round of every pass ran at the API's
+`high` default, which is a deliberation budget a dispatcher with thinking disabled does not
+spend. `DefaultEffort` in `llm.go`; the env var makes a sweep (e.g. down to `low`) a config
+change measurable from the existing `brain: llm round` records.
+
 ## 3. Input contract — one pass's context
 
 Each pass is built fresh; the brain holds no in-process state between events (`01` §6).

@@ -15,10 +15,16 @@ consumed: LLM (Anthropic client behind a port; scripted fake in tests), Board AP
 Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
 
 **Open decisions — resolved in `docs/specs/06-orchestrator-brain.md` (status: proposed).**
-- [x] Model → 06 §2: Anthropic Go SDK, default `claude-haiku-4-5-20251001` (`DefaultModel`
-      in `llm.go` — switched from Sonnet to Haiku to cut cost/latency), `KILN_BRAIN_MODEL`
-      override (`ModelEnvVar`). Backend-only: the model is NOT user/project-configurable —
-      resolved at the composition root from `KILN_BRAIN_MODEL` else `DefaultModel`.
+- [x] Model → 06 §2: Anthropic Go SDK, default `claude-sonnet-5` (`DefaultModel` in
+      `llm.go`), `KILN_BRAIN_MODEL` override (`ModelEnvVar`). Backend-only: the model is
+      NOT user/project-configurable — resolved at the composition root from
+      `KILN_BRAIN_MODEL` else `DefaultModel`.
+- [x] Output effort → 06 §2 (amended 2026-08-05): `output_config.effort` is set
+      explicitly, default `medium` (`DefaultEffort` in `llm.go`), `KILN_BRAIN_EFFORT`
+      override (`EffortEnvVar`), same backend-only treatment as the model. Left unset it
+      defaulted to the API's `high` on every round of every pass — a deliberation budget a
+      dispatcher with thinking disabled does not need (docs/brain-optimization-2026-08-05.md
+      §4).
 - [x] Input contract → 06 §3 (amended by the CRUD consolidation): fresh context per pass —
       last 20 transcript messages + the event (agent output truncated ~8k head+tail). The
       board is NO LONGER injected — the model pulls it via list_tickets/get_ticket, so a

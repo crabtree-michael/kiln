@@ -790,9 +790,13 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	// Detach from the (now-cancelled) parent for a bounded graceful drain.
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("kiln: http shutdown: %w", err)
-	}
+	// Hold the HTTP drain's error rather than returning on it: in prod it is
+	// never nil (every observed exit is "context deadline exceeded", because the
+	// SSE streams never close — docs/ticket-draft-sse-shutdown.md), and
+	// returning here skipped the loop join below entirely. That is the exact
+	// window a queue entry's detached outcome write needs in order to land, so
+	// an early return would silently undo runtime.Worker's fix.
+	shutdownErr := srv.Shutdown(shutdownCtx)
 	// Join the background loops. ctx was cancelled before the HTTP drain above,
 	// so they have been stopping in parallel with it and this is normally
 	// instant. Waiting here is what makes the handoff honest: the replacement
@@ -807,6 +811,9 @@ func (g graph) run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	// that no new event can build a bundle (11 §3).
 	if g.registry != nil {
 		g.registry.Close()
+	}
+	if shutdownErr != nil {
+		return fmt.Errorf("kiln: http shutdown: %w", shutdownErr)
 	}
 	return nil
 }

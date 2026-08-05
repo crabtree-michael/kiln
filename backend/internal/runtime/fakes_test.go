@@ -9,6 +9,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -116,6 +117,17 @@ type deadCall struct {
 	calledAt  time.Time
 }
 
+// markCtxState captures what the outcome-write context looked like when a
+// Mark* call arrived. The worker must write the outcome on a context detached
+// from the one it handled with, so a shutdown-cancelled pass still records its
+// failure instead of leaving the row pending on the claim's 1s due time
+// (docs/root-cause-2026-08-05-part6.md §3).
+type markCtxState struct {
+	method      string
+	err         error // ctx.Err() at call time — non-nil means the write would fail
+	hasDeadline bool  // detached must still be bounded, never open-ended
+}
+
 // fakeStore is an in-memory runtime.Store over both queues, driven by a
 // shared Clock so "due" (next_attempt_at <= now) means exactly what it means
 // against real Postgres (04 §3 step 1), and so the backoff schedule can be
@@ -133,6 +145,7 @@ type fakeStore struct {
 	retryCalls []retryCall
 	deadCalls  []deadCall
 	claimCalls []claimCall
+	markCtxs   []markCtxState
 	seenKeys   map[int64]struct{} // non-zero event idempotency keys already admitted
 }
 
@@ -192,9 +205,12 @@ func (s *fakeStore) ClaimNextDue(
 	}, true, nil
 }
 
-func (s *fakeStore) MarkDone(_ context.Context, q runtime.QueueName, id int64) error {
+func (s *fakeStore) MarkDone(ctx context.Context, q runtime.QueueName, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.recordMarkCtx(ctx, "MarkDone"); err != nil {
+		return err
+	}
 	s.rows[q][id].status = statusDone
 	s.doneCalls = append(s.doneCalls, struct {
 		queue runtime.QueueName
@@ -204,10 +220,13 @@ func (s *fakeStore) MarkDone(_ context.Context, q runtime.QueueName, id int64) e
 }
 
 func (s *fakeStore) MarkRetry(
-	_ context.Context, q runtime.QueueName, id int64, lastError string, nextAttemptAt time.Time,
+	ctx context.Context, q runtime.QueueName, id int64, lastError string, nextAttemptAt time.Time,
 ) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.recordMarkCtx(ctx, "MarkRetry"); err != nil {
+		return err
+	}
 	row := s.rows[q][id]
 	row.lastError = lastError
 	row.nextAttemptAt = nextAttemptAt
@@ -217,14 +236,38 @@ func (s *fakeStore) MarkRetry(
 	return nil
 }
 
-func (s *fakeStore) MarkDead(_ context.Context, q runtime.QueueName, id int64, lastError string) error {
+func (s *fakeStore) MarkDead(ctx context.Context, q runtime.QueueName, id int64, lastError string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.recordMarkCtx(ctx, "MarkDead"); err != nil {
+		return err
+	}
 	row := s.rows[q][id]
 	row.status = "dead"
 	row.lastError = lastError
 	s.deadCalls = append(s.deadCalls, deadCall{queue: q, id: id, lastError: lastError, calledAt: s.clock.Now()})
 	return nil
+}
+
+// recordMarkCtx notes the outcome-write context and reports whether the write
+// should fail. A cancelled context fails the write, modelling the Postgres
+// driver: that is exactly how the four prod replays were produced — the mark
+// went out on the shutdown context and came back
+// "runtime/postgres: mark retry: context canceled".
+func (s *fakeStore) recordMarkCtx(ctx context.Context, method string) error {
+	_, hasDeadline := ctx.Deadline()
+	s.markCtxs = append(s.markCtxs, markCtxState{method: method, err: ctx.Err(), hasDeadline: hasDeadline})
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("fakeStore %s: %w", method, err)
+	}
+	return nil
+}
+
+// markContexts returns every recorded outcome-write context state.
+func (s *fakeStore) markContexts() []markCtxState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]markCtxState(nil), s.markCtxs...)
 }
 
 // seed inserts a pending row directly into q, bypassing InsertEvent — the

@@ -483,3 +483,159 @@ func TestWorker_CrashReplay_ReRunsAPendingEntryWithPriorAttempts(t *testing.T) {
 	}
 	testutil.Eventually(t, func() bool { return store.status(runtime.QueueOutbox, id) == statusDone })
 }
+
+// ---- the outcome write survives shutdown (root-cause part 6 §3) ------------
+//
+// A deploy cancels the worker's context mid-pass. Marking the outcome on that
+// same context meant the failure was never recorded, so the row kept the
+// claim's 1s due time and the next leader re-claimed it almost immediately —
+// replaying a brain pass whose side effects (created tickets, posted updates)
+// were already committed. The outcome write must therefore be detached from
+// cancellation, and bounded so it cannot hang the drain.
+
+// assertMarksDetached checks every outcome write the worker made ran on a
+// context that was neither cancelled nor unbounded.
+func assertMarksDetached(t *testing.T, store *fakeStore, wantMethod string) {
+	t.Helper()
+	marks := store.markContexts()
+	if len(marks) == 0 {
+		t.Fatalf("no outcome write reached the store at all; want a %s", wantMethod)
+	}
+	for _, m := range marks {
+		if m.err != nil {
+			t.Errorf("%s ran on a cancelled context (%v) — it must be detached from shutdown, "+
+				"or the entry stays pending on the claim's 1s due time and replays", m.method, m.err)
+		}
+		if !m.hasDeadline {
+			t.Errorf("%s ran on a context with no deadline; detached must still be bounded "+
+				"so a wedged write cannot hang the drain", m.method)
+		}
+	}
+}
+
+// TestWorker_ShutdownRecordsFailure_NotPendingOnClaimDueTime is the regression
+// test for the prod defect: a handler killed by shutdown must still land a
+// MarkRetry carrying its error and the D8 backoff.
+func TestWorker_ShutdownRecordsFailure_NotPendingOnClaimDueTime(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	id := store.seed(runtime.QueueEvents, string(runtime.EventHumanMessage), []byte(`{}`), 0)
+
+	entered := make(chan struct{})
+	var enterOnce sync.Once
+	// The real shape: a brain pass whose LLM call dies with the context, which
+	// in prod surfaced as "anthropic messages.new: context canceled".
+	handle := func(ctx context.Context, _ runtime.Entry) error {
+		enterOnce.Do(func() { close(entered) })
+		<-ctx.Done()
+		return fmt.Errorf("brain: llm call: %w", ctx.Err())
+	}
+
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, noopDeadLetter, clock)
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- w.Run(ctx) }()
+
+	<-entered
+	cancel()
+
+	select {
+	case <-runDone:
+	case <-time.After(testutil.EventuallyTimeout):
+		t.Fatal("Run did not return after the in-flight pass was cancelled")
+	}
+
+	calls := store.retryCallsFor(id)
+	if len(calls) != 1 {
+		t.Fatalf("got %d MarkRetry calls after a shutdown-killed pass, want exactly 1 — an unrecorded "+
+			"failure leaves the row pending on the claim's 1s due time and the next leader replays it", len(calls))
+	}
+	if calls[0].lastError == "" {
+		t.Error("MarkRetry recorded no last_error; the failure must be durable, not just logged")
+	}
+	if got := calls[0].nextAttemptAt.Sub(calls[0].calledAt); got != time.Second {
+		t.Errorf("backoff after the first failure = %s, want 1s (min(1s*2^(attempts-1),60s), 04 D8) — "+
+			"a cancelled pass must retry on the real schedule, not the claim's push-out", got)
+	}
+	assertMarksDetached(t, store, "MarkRetry")
+}
+
+// TestWorker_ShutdownMarksSucceededEntryDone covers the worse latent half: a
+// pass that finished its work and was cancelled before MarkDone landed would
+// replay in full, with every side effect already committed.
+func TestWorker_ShutdownMarksSucceededEntryDone(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	id := store.seed(runtime.QueueEvents, string(runtime.EventHumanMessage), []byte(`{}`), 0)
+
+	entered := make(chan struct{})
+	var enterOnce sync.Once
+	handle := func(ctx context.Context, _ runtime.Entry) error {
+		enterOnce.Do(func() { close(entered) })
+		<-ctx.Done()
+		return nil // the pass completed its work just as shutdown arrived
+	}
+
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, noopDeadLetter, clock)
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- w.Run(ctx) }()
+
+	<-entered
+	cancel()
+	<-runDone
+
+	if got := store.status(runtime.QueueEvents, id); got != statusDone {
+		t.Errorf("status after a succeeded-then-cancelled pass = %q, want done — otherwise the entry "+
+			"replays a pass whose side effects are already committed", got)
+	}
+	assertMarksDetached(t, store, "MarkDone")
+}
+
+// TestWorker_ShutdownDeadLettersExhaustedEntry pins the third outcome. Once an
+// entry is dead there is no retry left to deliver the user's notification, so
+// losing the dead-letter action to a cancel would be silent and permanent.
+func TestWorker_ShutdownDeadLettersExhaustedEntry(t *testing.T) {
+	clock := testutil.NewFakeClock()
+	store := newFakeStore(clock)
+	id := store.seed(runtime.QueueEvents, string(runtime.EventHumanMessage), []byte(`{}`), runtime.MaxAttempts)
+
+	entered := make(chan struct{})
+	var enterOnce sync.Once
+	handle := func(ctx context.Context, _ runtime.Entry) error {
+		enterOnce.Do(func() { close(entered) })
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	deadLettered := make(chan runtime.Entry, 1)
+	deadLetter := func(ctx context.Context, e runtime.Entry, _ error) error {
+		if ctx.Err() != nil {
+			t.Errorf("dead-letter action ran on a cancelled context (%v); the entry is already terminal, "+
+				"so nothing would ever retry the notification", ctx.Err())
+		}
+		deadLettered <- e
+		return nil
+	}
+
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, deadLetter, clock)
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- w.Run(ctx) }()
+
+	<-entered
+	cancel()
+	<-runDone
+
+	if got := len(store.deadCallsFor(id)); got != 1 {
+		t.Errorf("got %d MarkDead calls for the exhausted entry, want exactly 1", got)
+	}
+	select {
+	case e := <-deadLettered:
+		if e.ID != id {
+			t.Errorf("dead-letter action got entry %d, want %d", e.ID, id)
+		}
+	default:
+		t.Error("dead-letter action never ran for an entry exhausted during shutdown")
+	}
+	assertMarksDetached(t, store, "MarkDead")
+}

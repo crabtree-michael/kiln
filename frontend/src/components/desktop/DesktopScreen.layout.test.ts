@@ -249,13 +249,14 @@ describe('DesktopScreen.css', () => {
     expect(Number(width?.[1])).toBeLessThan(680);
   });
 
-  it('leaves the work behind the panel visible — no scrim over the feed', () => {
-    // The panel exists so a ticket can be read WITHOUT losing sight of what is
-    // happening; dimming the feed behind it takes back most of what anchoring it
-    // to the edge just bought. It still covers the window, so a click outside
-    // still dismisses — visibility is what changes, not the dismissal.
+  it('dims the window behind the panel, so the open ticket is plainly the lit surface', () => {
+    // 13 D7b, amending D7a: the scrim is back. Undimmed, an open ticket read as
+    // one more surface among several on a wide window, and the panel's hairline
+    // is too quiet a boundary to carry "this is what you are attending to" on
+    // its own. `--scrim` and nothing else — a desktop-only dim value would fork
+    // the token that already means exactly this in both themes.
     const body = ruleBody("body[data-shell='desktop'] [data-role='ticket-detail-backdrop'] {");
-    expect(body).toMatch(/background:\s*transparent/);
+    expect(body).toMatch(/background:\s*var\(--scrim\)/);
   });
 
   it('never overrides the sheet geometry vaul owns', () => {

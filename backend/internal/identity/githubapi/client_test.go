@@ -13,19 +13,27 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/identity/githubapi"
 )
 
+// Shared across this file and app_test.go — one spelling each, so a test that
+// asserts on them cannot drift from the one that sends them.
 const (
 	testClientID     = "client-123"
 	testClientSecret = "secret-xyz"
+	// testGitHubHost stands in for github.com wherever a test asserts on URL
+	// building rather than on a round trip through httptest.
+	testGitHubHost = "https://github.example"
+	testState      = "state-abc"
+	testRepoName   = "acme/api"
+	testRepoURL    = "https://github.com/acme/api"
 )
 
 func TestAuthorizeURL(t *testing.T) {
 	c := githubapi.New(githubapi.Config{
 		ClientID:     testClientID,
 		ClientSecret: testClientSecret,
-		OAuthBaseURL: "https://github.example",
+		OAuthBaseURL: testGitHubHost,
 	}, nil)
 
-	got := c.AuthorizeURL("state-abc", "")
+	got := c.AuthorizeURL(testState, "")
 
 	u, err := url.Parse(got)
 	if err != nil {
@@ -38,7 +46,7 @@ func TestAuthorizeURL(t *testing.T) {
 	if q.Get("client_id") != testClientID {
 		t.Errorf("client_id = %q, want client-123", q.Get("client_id"))
 	}
-	if q.Get("state") != "state-abc" {
+	if q.Get("state") != testState {
 		t.Errorf("state = %q, want state-abc", q.Get("state"))
 	}
 	// Sign-in asks for nothing (11 §2 D2): repo access is a separate, explicit
@@ -46,7 +54,7 @@ func TestAuthorizeURL(t *testing.T) {
 	if q.Has("scope") {
 		t.Errorf("expected no scope param on the sign-in grant, got %q", q.Get("scope"))
 	}
-	if !strings.HasPrefix(got, "https://github.example/") {
+	if !strings.HasPrefix(got, testGitHubHost+"/") {
 		t.Errorf("AuthorizeURL = %q, want prefix https://github.example/", got)
 	}
 }
@@ -58,10 +66,10 @@ func TestAuthorizeURLWithRepoScope(t *testing.T) {
 	c := githubapi.New(githubapi.Config{
 		ClientID:     testClientID,
 		ClientSecret: testClientSecret,
-		OAuthBaseURL: "https://github.example",
+		OAuthBaseURL: testGitHubHost,
 	}, nil)
 
-	u, err := url.Parse(c.AuthorizeURL("state-abc", githubapi.ScopeRepo))
+	u, err := url.Parse(c.AuthorizeURL(testState, githubapi.ScopeRepo))
 	if err != nil {
 		t.Fatalf("parse AuthorizeURL result: %v", err)
 	}
@@ -69,7 +77,7 @@ func TestAuthorizeURLWithRepoScope(t *testing.T) {
 	if q.Get("scope") != "repo" {
 		t.Errorf("scope = %q, want repo", q.Get("scope"))
 	}
-	if q.Get("state") != "state-abc" {
+	if q.Get("state") != testState {
 		t.Errorf("state = %q, want state-abc", q.Get("state"))
 	}
 	if q.Get("client_id") != testClientID {
@@ -268,7 +276,7 @@ func TestListReposSuccess(t *testing.T) {
 		t.Errorf("per_page = %q, want 100", got)
 	}
 	want := []githubapi.Repo{
-		{FullName: "acme/api", HTMLURL: "https://github.com/acme/api", Private: true},
+		{FullName: testRepoName, HTMLURL: testRepoURL, Private: true},
 		{FullName: "nobody/blog", HTMLURL: "https://github.com/nobody/blog", Private: false},
 	}
 	if len(repos) != len(want) {

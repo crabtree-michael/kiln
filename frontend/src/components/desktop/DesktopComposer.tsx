@@ -220,7 +220,14 @@ export function DesktopComposer(): JSX.Element {
             // it stopped, now pointed at the corrected sentence.
             onBlur={endEdit}
             onKeyDown={onInputKeyDown}
-            placeholder="Talk, or type…"
+            // The prompt goes the instant there are words to read, not when the
+            // first utterance settles. While speech is on screen the textarea is
+            // transparent OVER the heard block, and its value is only the settled
+            // ink — so through the whole interim stretch (tail text, nothing
+            // settled yet) an empty textarea would paint "Talk, or type…" straight
+            // across the words being spoken. `hearing` is exactly "there is
+            // transcript on screen", interim included, so it is what gates this.
+            placeholder={hearing ? undefined : 'Talk, or type…'}
             aria-label="Say something"
           />
         </div>

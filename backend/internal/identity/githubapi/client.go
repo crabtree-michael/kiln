@@ -1,10 +1,20 @@
-// Package githubapi is the GitHub OAuth HTTP adapter — the one place
-// GitHub-OAuth vocabulary (authorize URL, code exchange, `/user`, `/user/repos`)
-// is legal (11 §2). It performs the three-legged OAuth web application flow:
-// build the authorize URL, exchange the callback code for an access token, fetch
-// the authenticated user's profile, and list the repos that token can reach.
-// ClientSecret never leaves the backend (02 §2) — it is only ever sent, over
-// HTTPS, as part of the token exchange request body.
+// Package githubapi is the GitHub HTTP adapter — the one place GitHub's own
+// vocabulary is legal (11 §2). It has two halves:
+//
+//   - OAuth App (this file): the three-legged web application flow — build the
+//     authorize URL, exchange the callback code for an access token, fetch the
+//     authenticated user's profile, and list the repos that token can reach.
+//   - GitHub App (app.go): the installation flow the repo-selection migration
+//     moves to — build the install URL, sign an app JWT, mint short-lived
+//     installation tokens, and list one installation's repos.
+//
+// Both halves are live during the migration (design 2026-08-04 §6): an
+// installation is used when one exists, and the stored OAuth token is the
+// fallback until every user has moved.
+//
+// ClientSecret and the App private key never leave the backend (02 §2) — the
+// secret is only ever sent, over HTTPS, as part of the token exchange request
+// body, and the private key is only ever used to sign locally.
 //
 // This package is standalone: it knows nothing about Kiln's identity domain
 // (users, sessions, allowlists). A later layer (internal/identity) composes
@@ -14,6 +24,7 @@ package githubapi
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,23 +70,41 @@ var ErrListRepos = errors.New("githubapi: list repos")
 // transport failure. Wraps ErrListRepos so either sentinel matches.
 var ErrUnauthorized = fmt.Errorf("%w: token rejected", ErrListRepos)
 
-// Config configures a Client. ClientID/ClientSecret are the OAuth app's
-// credentials (GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET, the
-// latter a secret that never leaves the backend). OAuthBaseURL and
+// Config configures a Client. ClientID/ClientSecret are the app's OAuth
+// credentials (the secret never leaves the backend). OAuthBaseURL and
 // APIBaseURL default to GitHub's public hosts; overridable for tests.
+//
+// AppID/AppSlug/AppPrivateKey are the GitHub App half (app.go, design
+// 2026-08-04 §5). They are OPTIONAL on purpose: during the OAuth-App → GitHub-App
+// migration a deployment may be configured for either, and a client built
+// without them still serves every OAuth call — only the mint refuses, with
+// ErrNoAppCredentials. Enforcing that a deployment configures one or the other
+// is the composition root's boot gate, not this adapter's.
 type Config struct {
 	ClientID     string
 	ClientSecret string
 	OAuthBaseURL string
 	APIBaseURL   string
+
+	// AppID is the App's numeric id, the `iss` of every app JWT.
+	AppID string
+	// AppSlug is the App's public-link slug, which builds InstallURL.
+	AppSlug string
+	// AppPrivateKey signs app JWTs. Parse it once at boot with
+	// ParsePrivateKey so a malformed key fails the boot gate, not a sign-in.
+	AppPrivateKey *rsa.PrivateKey
 }
 
-// Client is the GitHub OAuth adapter.
+// Client is the GitHub adapter — OAuth App flow (this file) and GitHub App
+// installation flow (app.go).
 type Client struct {
 	clientID     string
 	clientSecret string
 	oauthBaseURL string
 	apiBaseURL   string
+	appID        string
+	appSlug      string
+	appKey       *rsa.PrivateKey
 	http         *http.Client
 }
 
@@ -99,6 +128,9 @@ func New(cfg Config, hc *http.Client) *Client {
 		clientSecret: cfg.ClientSecret,
 		oauthBaseURL: oauthBaseURL,
 		apiBaseURL:   apiBaseURL,
+		appID:        cfg.AppID,
+		appSlug:      cfg.AppSlug,
+		appKey:       cfg.AppPrivateKey,
 		http:         hc,
 	}
 }

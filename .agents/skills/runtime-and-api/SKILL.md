@@ -128,7 +128,9 @@ backend/internal/identity/
   cipher.go         AES-GCM envelope for secrets-at-rest (KILN_SECRETS_KEY)
   entities.go/store.go   User/Project/Settings + the Store port
   postgres/         Store adapter + migrations (users, projects, settings, sessions)
-  githubapi/        GitHub OAuth + user-info client
+  githubapi/        GitHub client — OAuth App flow (client.go) + GitHub App
+                    installation flow (app.go: install URL, app JWT, mint,
+                    installation repo listing)
   verify/           live connection checks (anthropic/amika/repo) — 11 §4
 backend/internal/api/
   auth_handlers.go       GET /auth/github/connect·/callback, POST /auth/logout
@@ -149,6 +151,20 @@ backend/internal/api/
 - **Write-only secrets**: `PUT /api/settings` accepts raw secret values but `GET /api/me`
   only ever returns a `{set, tail}` status per secret (encrypted at rest via `cipher.go`,
   fingerprint/tail derived at write time) — the plaintext never round-trips over the wire.
+- **GitHub App migration, in progress** (`docs/superpowers/specs/2026-08-04-github-app-repo-selection-design.md`).
+  Kiln is moving off the OAuth App (blanket `repo` scope) onto a GitHub App, so the user picks
+  which repos Kiln may reach. `githubapi/app.go` is landed and unused so far: `InstallURL`,
+  `MintInstallationToken` (RS256 app JWT → a **1-hour** installation token), and
+  `ListInstallationRepos`. Three things to know before touching it:
+  - **The adapter is stateless.** A mint is a network call; the caller caches until shortly
+    before `ExpiresAt`. That cache belongs in `identity`, not here — same as `ExchangeCode`
+    not remembering tokens.
+  - **Both halves are live during the migration.** A client with no `AppID`/`AppPrivateKey`
+    still serves every OAuth call and returns `ErrNoAppCredentials` only from the mint. Do not
+    "fix" that by requiring App config in `New` — the boot gate is `cmd/kiln`'s job.
+  - **`ListInstallationRepos` takes a USER token, not the minted one**, and hits
+    `/user/installations/{id}/repositories`. This is deliberate: the installation-wide listing
+    would offer an org member repos they cannot themselves reach.
 - **Whole surface is project-scoped now (11 phase 2).** `withProject` authenticates the
   session and resolves the caller's project before every `/api/*` handler runs, so identity is
   no longer confined to `/dashboard` — the board/chat (`/app`) and `/debug` are session-gated

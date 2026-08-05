@@ -745,6 +745,36 @@ html:has([data-role='desktop-screen']) body {
   padding: var(--space-6) var(--space-8) var(--space-6);
 }
 
+/* A toast stops where the line it is answering stops. The activity row is
+   stretched edge to edge of its containing block (`left: 0; right: 0`,
+   PrimaryScreen.css) because on a phone that IS the composer's width; here the
+   composer is a 720px column centred in a region that can be far wider, so a
+   long ticket title or `say` grew its pill out past the right edge of the field
+   below it. Two declarations, both load-bearing:
+
+   - the band takes the region's own side padding in place of the phone's 26px
+     safe margin, so the stack's content box is exactly the composer's box;
+   - the pills take the composer's measure as their cap, which lands their right
+     edge on the field's in both regimes — 720px on a wide window, the region's
+     inner width on a narrow one. `min(…, 100%)` rather than 720px alone: a
+     centred flex item is sized by its content and overflows the column happily
+     without the percentage term (the same reason the mobile rule states it).
+
+   The band itself stays full-bleed. Its opaque page tone is what hides the
+   feed's last card behind the toasts, and capping THAT would leave the card's
+   hover fill — which bleeds a --space-4 gutter past the reading column — showing
+   at both ends of the band. The text wraps and clamps inside the cap (see
+   toast-text); the pill never widens to fit it. */
+[data-role='desktop-composer-region'] [data-role='toast-stack'] {
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
+}
+
+[data-role='desktop-composer-region'] [data-role='toast-pill'],
+[data-role='desktop-composer-region'] [data-role='say-pill'] {
+  max-width: min(720px, 100%);
+}
+
 /* The mic and the field, side by side (13 §7, D5a). The composer itself carries
    no box — the mic is a raised object and the field is a capsule, and putting a
    third border around the pair would make the mic read as chrome inside a text

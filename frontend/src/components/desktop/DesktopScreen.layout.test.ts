@@ -403,6 +403,32 @@ describe('DesktopScreen.css', () => {
     expect(Number(scale?.[1])).toBeGreaterThanOrEqual(MIC_GLOW_REACH_PX);
   });
 
+  it('holds a toast to the composer’s measure, so it never runs past the field', () => {
+    // The activity row is a full-width overlay on the composer region (its
+    // `left: 0; right: 0` is PrimaryScreen.css's, sized for a phone where that
+    // IS the composer). At a desk the composer is a centred column, so without
+    // these two the pill grows with its text until it overhangs the right edge
+    // of the line it is answering. jsdom lays nothing out, so this is the only
+    // place in the gate that can see it.
+    const stack = ruleBody("[data-role='desktop-composer-region'] [data-role='toast-stack'] {");
+    // The phone's 26px safe margin replaced by the region's own gutter — that
+    // equality is what makes the stack's content box the composer's box.
+    expect(stack).toMatch(/padding-left:\s*var\(--space-8\)/);
+    expect(stack).toMatch(/padding-right:\s*var\(--space-8\)/);
+    // ...and the band is NOT capped: its opaque fill is what hides the feed's
+    // last card behind the toasts, right out to the region's edges.
+    expect(stack).not.toMatch(/max-width/);
+
+    const pill = ruleBody(
+      "[data-role='desktop-composer-region'] [data-role='toast-pill'],\n[data-role='desktop-composer-region'] [data-role='say-pill'] {",
+    );
+    // The feed's measure, so a wide window lines the pill up with the field —
+    // and the percentage term, so a narrow one does too (a centred flex item is
+    // sized by its content and will overflow the column without it).
+    expect(pill).toMatch(/max-width:\s*min\(720px,\s*100%\)/);
+    expect(ruleBody("[data-role='desktop-composer'] {")).toMatch(/max-width:\s*720px/);
+  });
+
   it('makes the field itself the painted surface, and the field alone', () => {
     const body = ruleBody("[data-role='desktop-field'] {");
     expect(body).toMatch(/background:\s*var\(--surface-card\)/);

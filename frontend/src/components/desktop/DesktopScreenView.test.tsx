@@ -173,6 +173,32 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-loading"]')).toBeNull();
   });
 
+  it('resting: leads with the bell mark, and it is decoration the reader never hears', () => {
+    // The same mark the phone's all-clear state shows, so the two shells' resting
+    // views read as one app. It carries no meaning the lines beneath it don't
+    // already carry, so it is hidden from assistive tech rather than described —
+    // an alt of "bell" would announce a glyph in place of "All quiet."
+    const { container } = renderShell({ feed: makeFeedSnapshot({ cards: [] }) });
+    const mark = container.querySelector('[data-role="desktop-rest-mark"]');
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute('aria-hidden', 'true');
+    expect(mark).toHaveAttribute('alt', '');
+    // It leads the block: the icon is above the words, not beside them.
+    const line = container.querySelector('[data-role="desktop-rest-line"]');
+    expect(mark?.compareDocumentPosition(line ?? mark)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('resting: nothing but the resting state is marked empty — a feed with cards is not', () => {
+    // The attribute is what switches the region to the centred, foot-anchored
+    // layout, so a populated feed carrying it would centre the card column and
+    // strand "Show earlier" at the bottom of the window.
+    const empty = renderShell({ feed: makeFeedSnapshot({ cards: [] }) });
+    expect(feedRegion(empty.container)).toHaveAttribute('data-empty', 'true');
+    empty.unmount();
+    const full = renderShell();
+    expect(feedRegion(full.container)).not.toHaveAttribute('data-empty');
+  });
+
   it('resting: the last word is subtext under the count, not bulleted onto it', () => {
     // Joined onto one line the two wrapped on a narrow window; the count is the
     // fact the resting state is about, so the last word sits under it, smaller.
@@ -505,12 +531,21 @@ describe('DesktopScreenView', () => {
   it('keeps the control on a feed whose cards have all collapsed away (08 D2‴)', () => {
     // The desk collapses seen cards exactly like the phone, so it needs the way
     // back in exactly the state where every card has gone: the resting view.
-    renderShell({
+    const { container } = renderShell({
       feed: makeFeedSnapshot({ cards: [] }),
       hasEarlier: true,
       onShowEarlier: vi.fn(),
     });
     expect(screen.getByRole('button', { name: 'Show earlier' })).toBeInTheDocument();
+    // And it sits at the FOOT of the resting state, below the mark and the
+    // lines — the last thing in the feed region, so the next thing under it is
+    // the input. (The CSS is what pins it to the bottom edge; this pins the
+    // order it has to be in for that to mean anything.)
+    const region = feedRegion(container);
+    expect(region.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
+    const rest = container.querySelector('[data-role="desktop-rest"]');
+    const button = region.lastElementChild;
+    expect(rest?.compareDocumentPosition(button ?? rest)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('has no swipe wrapper and no bulk clear — dismissal is not ported to the desk (13 §6, Q3)', () => {

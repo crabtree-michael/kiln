@@ -336,6 +336,30 @@ html:has([data-role='desktop-screen']) body {
   padding: var(--space-8) var(--space-8) var(--space-10);
 }
 
+/* With no cards, the region is not a list any more — it is one composed state
+   with a way back at its foot. A column lets the resting block take the free
+   height (and centre itself in it) while "Show earlier" is carried to the
+   bottom, landing directly above the input rather than floating under the text
+   with the rest of the window blank beneath it.
+   The bottom pad also comes off: `--space-10` is reading air for scrolling the
+   LAST CARD clear of the composer's top edge, and with no cards it only holds
+   the control away from the input it is supposed to sit above. */
+[data-role='desktop-feed'][data-empty='true'] {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--space-4);
+}
+
+/* `margin-top: auto` only bites when the resting block is absent — during the
+   project-switch fetch, when "All quiet." is deliberately withheld (see the
+   view) and the region would otherwise leave the control stranded at the top.
+   With the block present it grows into the space instead and this resolves to
+   zero. Longhand, so the horizontal `auto` centring from the rule above
+   survives. */
+[data-role='desktop-feed'][data-empty='true'] [data-role='feed-show-earlier'] {
+  margin-top: auto;
+}
+
 /* The feed region is the keyboard's entry point into the column (13 §9), so it
    is a tab stop — but a full-bleed ring around the whole region shouts. Inset
    it: same token, same rules as everything else, just not two centimetres of
@@ -602,10 +626,34 @@ html:has([data-role='desktop-screen']) body {
 /* The resting state is the real state (13 §1, §10): composed, not empty, and not
    apologised for. */
 [data-role='desktop-rest'] {
+  /* Takes the free height of the empty region and centres its own contents in
+     it, which is also what carries "Show earlier" (its next sibling) down to
+     the foot. `flex-shrink: 0` deliberately: on a short window the block keeps
+     its height and the region scrolls, rather than the mark and the lines being
+     squeezed into each other. */
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Centred, unlike every other block on this screen. The reading column is
+     ragged-left because it is a column of cards to be scanned; this is one
+     composed statement with nothing above or below it to line up with, so it
+     sits on the axis of the region instead of against its left edge. */
+  text-align: center;
   max-width: 720px;
   margin: 0 auto;
-  padding: var(--space-12) 0;
+  padding: var(--space-8) 0;
   color: var(--text-muted);
+}
+
+/* The bell, large — the same mark the phone's all-clear state shows, at the
+   size a desk affords. It is the whole illustration: there is no second glyph,
+   no spot art, and nothing under it that moves. */
+[data-role='desktop-rest-mark'] {
+  width: 72px;
+  height: 72px;
+  margin-bottom: var(--space-5);
 }
 
 [data-role='desktop-rest-line'] {

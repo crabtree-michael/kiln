@@ -70,6 +70,47 @@ describe('DesktopScreen.css', () => {
     expect(body).toMatch(/display:\s*block/);
   });
 
+  it('centres the resting state and carries "Show earlier" to the foot of it', () => {
+    // The empty feed is not a short list, it is one composed state with the way
+    // back beneath it. jsdom does no layout, so this string is the only thing in
+    // the gate that can tell the intended arrangement from the control simply
+    // rendering directly under the text with the window blank below it.
+    const region = ruleBody("[data-role='desktop-feed'][data-empty='true'] {");
+    expect(region).toMatch(/display:\s*flex/);
+    expect(region).toMatch(/flex-direction:\s*column/);
+
+    const rest = ruleBody("[data-role='desktop-rest'] {");
+    // Grows into the region's free height, which is what pushes the sibling
+    // control down; centred on both axes, and centred text with it.
+    expect(rest).toMatch(/flex:\s*1 0 auto/);
+    expect(rest).toMatch(/justify-content:\s*center/);
+    expect(rest).toMatch(/align-items:\s*center/);
+    expect(rest).toMatch(/text-align:\s*center/);
+
+    // The fallback for the one empty state with no resting block in it: mid
+    // project-switch, "All quiet." is withheld and nothing else would hold the
+    // control down.
+    const control = ruleBody(
+      "[data-role='desktop-feed'][data-empty='true'] [data-role='feed-show-earlier'] {",
+    );
+    expect(control).toMatch(/margin-top:\s*auto/);
+    // Longhand only — the shorthand would drop the horizontal `auto` that keeps
+    // the control on the same centred measure as the cards.
+    expect(control).not.toMatch(/(^|;)\s*margin\s*:/);
+  });
+
+  it('gives the resting state a large mark, sized in the sheet rather than on the tag', () => {
+    // An <img> with no CSS size renders at the asset's intrinsic box; stating it
+    // here keeps the one number in the same place as the rest of the geometry.
+    const mark = ruleBody("[data-role='desktop-rest-mark'] {");
+    const width = /width:\s*(\d+)px/.exec(mark);
+    expect(width).not.toBeNull();
+    // "Large" is the whole point — bigger than the phone's 64px mark, since a
+    // desk has the room for it.
+    expect(Number(width?.[1])).toBeGreaterThanOrEqual(64);
+    expect(mark).toMatch(/height:\s*\d+px/);
+  });
+
   it('spends the whole accent budget on needs-you, and on nothing else at all', () => {
     // 13 §4: "If the accent is on screen, it means something. That is the entire
     // contrast budget, and spending it on anything else breaks the one loud thing

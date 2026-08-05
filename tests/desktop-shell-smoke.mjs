@@ -184,6 +184,29 @@ const feed = {
   ],
 };
 
+// The same project with nothing to say — the resting state (13 §1, §10), which
+// is what a window left open all day actually shows. `has_more_history` is true
+// so the one "Show earlier" control is on screen with it: the empty state has to
+// hold that control at its foot, and there is no way to see that without cards
+// to be absent. Swapped in for the empty-feed pass near the end.
+const emptyFeed = {
+  summary: {
+    blocker_count: 0,
+    update_count: 0,
+    stream_count: 0,
+    building: 0,
+    idle: 3,
+    last_word_at: '2026-08-04T11:52:00Z',
+    last_seen_notification_id: 44,
+  },
+  has_more_history: true,
+  cards: [],
+};
+
+// Which of the two the `/feed` stub answers with. A `let` rather than a second
+// route so the swap needs nothing but a reload.
+let feedBody = feed;
+
 const browser = await chromium.launch();
 // Opens in dark because the OS says dark — not because the shell forces it
 // (13 D6a). The light pass below flips exactly this and nothing else.
@@ -219,7 +242,7 @@ await page.route('**/api/**', async (route) => {
   }
   const board = Object.entries(boards).find(([id]) => url.pathname.includes(id));
   if (url.pathname.endsWith('/board')) return json(board ? board[1] : boards.p1);
-  if (url.pathname.endsWith('/feed')) return json(feed);
+  if (url.pathname.endsWith('/feed')) return json(feedBody);
   if (url.pathname.endsWith('/activity')) return json({ thinking: false });
   // An empty body closes the SSE connection at once, so the shell settles into
   // its `reconnecting` state — which is convenient: the disconnected indication
@@ -642,6 +665,56 @@ console.log(
 );
 apiDelayMs = 0;
 await page.waitForTimeout(2000);
+
+// The resting state, which is the one this shell is optimised for and the one
+// the CSS-string test can least see: whether the mark and the lines actually sit
+// on the region's axis, and whether "Show earlier" is carried to the foot rather
+// than left hanging under the text with the window blank beneath it.
+feedBody = emptyFeed;
+await page.reload();
+await page.waitForSelector('[data-role="desktop-rest"]', { timeout: 10_000 });
+await page.waitForTimeout(600);
+await page.screenshot({ path: '/tmp/desktop-shell-empty.png' });
+console.log(
+  'EMPTY FEED',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const region = rect('[data-role="desktop-feed"]');
+      const mark = rect('[data-role="desktop-rest-mark"]');
+      const line = rect('[data-role="desktop-rest-line"]');
+      const button = rect('[data-role="feed-show-earlier"]');
+      const composer = rect('[data-role="desktop-composer-region"]');
+      const lineEl = document.querySelector('[data-role="desktop-rest-line"]');
+      if (!region || !mark || !line || !button || !composer) return 'missing';
+      const centre = (r) => Math.round(r.left + r.width / 2);
+      return {
+        // A bell, and a large one — the phone shows the same mark at 64.
+        markSize: [Math.round(mark.width), Math.round(mark.height)],
+        // On the region's axis, both of them, and stacked (mark over words).
+        markCentred: Math.abs(centre(mark) - centre(region)) <= 1,
+        lineCentred: Math.abs(centre(line) - centre(region)) <= 1,
+        markAboveLine: mark.bottom <= line.top,
+        textCentred: lineEl ? getComputedStyle(lineEl).textAlign : 'missing',
+        // The block sits in the middle of the free height rather than at the
+        // top, with the control carried down clear of it.
+        restBelowRegionTop: Math.round(mark.top - region.top),
+        buttonBelowLine: button.top > line.bottom,
+        // …and the control lands directly above the input: a small, deliberate
+        // gap, not the 40px of reading air a list of cards ends with.
+        gapToComposer: Math.round(composer.top - button.bottom),
+        buttonAboveComposer: button.bottom <= composer.top + 1,
+        // Still on the cards' centred measure, not stretched across the region.
+        buttonCentred: Math.abs(centre(button) - centre(region)) <= 1,
+        buttonWidth: Math.round(button.width),
+      };
+    }),
+  ),
+);
+feedBody = feed;
 
 // Narrow the window: the mobile shell must take back over — and the theme must
 // not so much as flicker, because it never depended on the shell in the first

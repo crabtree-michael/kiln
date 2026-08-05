@@ -38,8 +38,8 @@ import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
 import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
+import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
 import { ActivityRow } from '@/components/ActivityRow';
-import { MicButton } from '@/components/MicButton';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { ProjectsRail, type RailProject } from '@/components/desktop/ProjectsRail';
 import { WorkingNow } from '@/components/desktop/WorkingNow';
@@ -215,6 +215,12 @@ export function DesktopScreenView({
   // A tapped push notification deep-links here exactly as it does on mobile
   // (02 §10 / 12 §6.3) — desktop being open changes nothing about being found.
   useDeepLinkTicket(setOpenTicketId);
+  // A live voice session inside the open panel, reported up from its voice cluster
+  // — the same seam and the same reason as the mobile shell's (this view is not a
+  // voice consumer either). The rearrangement it drives is the sheet's own, so both
+  // shells get it from one place: the mic joins Send and × at the panel's trailing
+  // end and Accept stands down while the user is speaking.
+  const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
   const openTicket = findTicket(board, openTicketId);
   const openAgentStatus =
     openTicket === null
@@ -526,7 +532,13 @@ export function DesktopScreenView({
           surface="primary"
           placement="right"
           agentIdle={openAgentIdle}
-          voiceControl={<MicButton sendable ticketContext={openTicket.title} />}
+          voiceControl={
+            <TicketDetailVoiceActions
+              ticketTitle={openTicket.title}
+              onActiveChange={setTicketVoiceActive}
+            />
+          }
+          voiceActive={ticketVoiceActive}
           transcript={<TicketDetailTranscript />}
           onClose={closeTicket}
           onAccept={(ticketId) => {

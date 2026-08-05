@@ -258,7 +258,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
         data-role="activity-row"
       />
       <div
-        data-dock-state="listening"
+        data-dock-state="paused"
         data-role="dock"
       >
         <div
@@ -270,8 +270,8 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: all-clear (4d) 
           >
             <button
               aria-label="Talk"
-              aria-pressed="true"
-              data-dock-state="listening"
+              aria-pressed="false"
+              data-dock-state="paused"
               data-role="dock-talk"
               type="button"
             >
@@ -697,7 +697,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
         data-role="activity-row"
       />
       <div
-        data-dock-state="listening"
+        data-dock-state="paused"
         data-role="dock"
       >
         <div
@@ -709,8 +709,8 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
           >
             <button
               aria-label="Talk"
-              aria-pressed="true"
-              data-dock-state="listening"
+              aria-pressed="false"
+              data-dock-state="paused"
               data-role="dock-talk"
               type="button"
             >
@@ -1070,7 +1070,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
         data-role="activity-row"
       />
       <div
-        data-dock-state="listening"
+        data-dock-state="paused"
         data-role="dock"
       >
         <div
@@ -1082,8 +1082,8 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
           >
             <button
               aria-label="Talk"
-              aria-pressed="true"
-              data-dock-state="listening"
+              aria-pressed="false"
+              data-dock-state="paused"
               data-role="dock-talk"
               type="button"
             >
@@ -1421,7 +1421,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
         data-role="activity-row"
       />
       <div
-        data-dock-state="listening"
+        data-dock-state="paused"
         data-role="dock"
       >
         <div
@@ -1433,8 +1433,8 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: proposal card w
           >
             <button
               aria-label="Talk"
-              aria-pressed="true"
-              data-dock-state="listening"
+              aria-pressed="false"
+              data-dock-state="paused"
               data-role="dock-talk"
               type="button"
             >
@@ -1812,7 +1812,7 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
         data-role="activity-row"
       />
       <div
-        data-dock-state="listening"
+        data-dock-state="paused"
         data-role="dock"
       >
         <div
@@ -1824,8 +1824,8 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
           >
             <button
               aria-label="Talk"
-              aria-pressed="true"
-              data-dock-state="listening"
+              aria-pressed="false"
+              data-dock-state="paused"
               data-role="dock-talk"
               type="button"
             >

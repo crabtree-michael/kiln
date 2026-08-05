@@ -428,6 +428,48 @@ sheet's **status row** (directly under the title's left edge, ahead of the
   `aria-hidden`. Consequence for tests: a closed menu's items are *absent* from role queries,
   so every test opens the gear first.
 
+### The sheet's footer has TWO arrangements, and speaking picks the second
+
+At rest the footer is left-group / right-group: the voice cluster
+(`[data-role='ticket-detail-voice-actions']`) at the bottom-left, the state actions
+(Poke, Delete, and Accept last) at the right. **While a voice session is live on the ticket
+the cluster crosses to the trailing end** and brings Send and a discard × with it, so the row
+reads Send, ×, mic inward from the right edge — and **Accept stands down for the duration**,
+because Send lands in exactly its slot and the headline decision about a proposal has no
+business under the thumb of someone mid-sentence. It returns, in its normal place, the moment
+the session ends. Poke and Delete are untouched either way. Both shells, one markup.
+
+- **The cluster is moved by `order`, never by re-parenting.** It keeps one fixed spot in the
+  DOM and `TicketDetail` only flips `data-position="lead"|"trail"`; `TicketDetail.css` does
+  the moving. Rendering it in two places would unmount and remount `MicButton` mid-utterance,
+  taking its `setTicketContext` registration and its volume-glow rAF loop with it. Pinned in
+  the gate as a CSS string (`TicketDetail.voice-actions-layout.test.ts`) since jsdom does no
+  layout.
+- **`TicketDetail` still knows nothing about the voice store**, and that is what shapes the
+  seam. `TicketDetailVoiceActions` (a `useVoice()` consumer, like `TicketDetailTranscript`)
+  reports `onActiveChange(boolean)` up to `PrimaryScreenView` / `DesktopScreenView`, which
+  hold it in `useState` and hand it back as the `voiceActive` prop. It is a **boolean on
+  purpose**: it fires twice an utterance rather than once a word, so neither screen
+  re-renders on transcript churn. Wire it in **both** shells — the state is per-shell and
+  forgetting one is the obvious way to ship this half-done.
+- **A session is live when the mic is listening OR there are words on screen**, not just the
+  latter: an end-of-turn final pauses the mic while the utterance sits armed in the grace
+  window, and the footer must not snap back to Accept underneath a transcript the user is
+  still deciding about. Send is rendered-but-`disabled` before there is anything to send, so
+  × and the mic don't shuffle sideways when the first partial lands.
+- **The sheet's × is not the dock's ×.** The dock's discards the transcript and deliberately
+  leaves the mic listening (`cancel` alone). The sheet's is the way *out* — `cancel()` **and**
+  `pause()` — because that is what returns the footer to Accept, and a sheet has no keyboard
+  toggle or second controls row to escape through. Don't "unify" them by changing `cancel`.
+- **`MicButton` is the orb and nothing else now.** Its old `sendable` mode (orb gives way to
+  send + clear) is gone: the sheet keeps the orb up while speaking because the glow is the
+  only thing reporting the mic is live. Every placement renders its own send/discard around it.
+- **A view test mocking `useVoice` must rest at `micState: 'paused'`.** That is
+  `initialVoiceState()` — the app never opens listening — and it is now load-bearing rather
+  than cosmetic: a `'listening'` mock puts *every* sheet in that file into the speaking
+  arrangement and Accept vanishes from tests that never mentioned voice.
+  `PrimaryScreenView.test.tsx` had exactly that wrong and only the swap exposed it.
+
 ## Swipe-to-dismiss (feed cards, 08 §3)
 
 - `SwipeToDismiss.tsx` is the reusable swipe-left-to-clear wrapper (pure pointer

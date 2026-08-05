@@ -18,9 +18,9 @@ import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
 import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
+import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
-import { MicButton } from '@/components/MicButton';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { lastWordDetail, streamDetail } from '@/components/feed-format';
@@ -282,6 +282,14 @@ export function PrimaryScreenView({
   // whether we were opened fresh at `/app?ticket=<id>` or handed the tap live by the
   // service worker. The id resolves against the board below like any other open.
   useDeepLinkTicket(setOpenTicketId);
+  // Whether the open sheet has a live voice session in it, reported up from the
+  // sheet's voice cluster (`TicketDetailVoiceActions`). It rearranges the sheet's
+  // footer — the mic crosses to the trailing group to sit beside Send and ×, and
+  // Accept stands down for the duration. Held here rather than read from the voice
+  // store because this screen is not a voice consumer: the cluster hands up a
+  // *boolean*, so this re-renders when the footer's shape changes rather than once
+  // a spoken word.
+  const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
   const openTicket = findTicket(board, openTicketId);
   // The open ticket's bound agent, looked up in the board snapshot's `agents`
   // join (keyed by ticket_id). Its session status gates the Poke button: a
@@ -517,19 +525,25 @@ export function PrimaryScreenView({
           // Only a working ticket whose agent has gone idle offers Poke; while the
           // agent is mid-turn (progress streaming) the button stays hidden.
           agentIdle={openAgentIdle}
-          // The bottom-left mic, now shown on every ticket state — the unified
+          // The sheet's voice cluster, shown on every ticket state — the unified
           // communication surface (08 §5) that replaces the old blocked-only "Talk
           // to unblock" button, so the user can start talking to the brain directly
-          // from any ticket. The same dock orb, tapped to start a voice session
-          // without leaving the sheet. `sendable` makes it transform into a send
-          // button + clear (×) the moment a transcript is on screen, so the user can
-          // commit or reset the utterance without reaching for the dock behind the
-          // sheet. Safe to always pass — it only mounts (and touches the voice store)
-          // when the sheet renders it. `ticketContext` registers this ticket's
-          // title with the voice store so whatever the user sends from the sheet is
-          // prefixed with it, giving the brain the context of what they're
-          // commenting on (08 §5).
-          voiceControl={<MicButton sendable ticketContext={openTicket.title} />}
+          // from any ticket. At rest it is the same dock orb at the footer's
+          // bottom-left, tapped to start a session without leaving the sheet; while
+          // one is live it brings Send and a discard (×) with it across to the
+          // row's trailing end, and reports that up through `onActiveChange` so the
+          // sheet can stand Accept down for the duration. Safe to always pass — it
+          // only mounts (and touches the voice store) when the sheet renders it.
+          // `ticketTitle` registers this ticket with the voice store so whatever the
+          // user sends from the sheet is prefixed with it, giving the brain the
+          // context of what they're commenting on (08 §5).
+          voiceControl={
+            <TicketDetailVoiceActions
+              ticketTitle={openTicket.title}
+              onActiveChange={setTicketVoiceActive}
+            />
+          }
+          voiceActive={ticketVoiceActive}
           // The live transcript for that mic, shown in the sheet's dock above the
           // controls so the user watches their words land without leaving the sheet
           // (08 §5). Self-gating (renders nothing until there is text) and rides the

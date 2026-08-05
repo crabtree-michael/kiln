@@ -531,6 +531,15 @@ describe('TicketDetail — sandbox menu', () => {
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-01T00:00:00Z',
   });
+  const done = makeTicket({
+    id: 't-done',
+    title: 'Shipped work',
+    body: 'body',
+    state: 'done',
+    priority: 1,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-02T00:00:00Z',
+  });
 
   /** The gear itself, inside the open sheet. */
   function gear(): HTMLElement {
@@ -578,6 +587,34 @@ describe('TicketDetail — sandbox menu', () => {
     // layout, so DOM order is what there is to assert; the geometry rides on the
     // CSS assertion in TicketDetail.header-layout.test.ts.
     expect(row?.firstElementChild?.getAttribute('data-role')).toBe('detail-sandbox-menu');
+  });
+
+  // The work is over on a done ticket, so every item behind the gear is spent:
+  // the two overrides have no sandbox to act on, and the save toggle decides what
+  // happens to a sandbox when the ticket finishes — which it already has. The
+  // gear goes with them rather than opening onto a choice that changes nothing.
+  it('is absent on a done ticket, however much is wired', () => {
+    render(
+      <TicketDetail
+        ticket={done}
+        onClose={vi.fn()}
+        onSetKeepSandbox={vi.fn()}
+        onKillSandbox={vi.fn()}
+        onReassignSandbox={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Sandbox options' })).toBeNull();
+  });
+
+  it('leaves the rest of a done ticket’s header alone — the badge still reads Done', () => {
+    render(<TicketDetail ticket={done} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    const status = within(dialog).getByText('Done').closest('[data-role="ticket-detail-status"]');
+    expect(status).not.toBeNull();
+    // The status row survives the gear's departure, with the badge as its only
+    // child — a done ticket's header is otherwise unchanged.
+    const row = status?.closest('[data-role="ticket-detail-status-row"]');
+    expect(row?.children).toHaveLength(1);
   });
 
   describe('save sandbox when done', () => {

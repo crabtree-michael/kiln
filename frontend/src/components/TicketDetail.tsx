@@ -113,11 +113,12 @@ export interface TicketDetailProps {
    * Unlike Accept/Delete/Poke this is a setting rather than an intent, so the
    * caller writes it directly (POST /api/tickets/{id}/sandbox) rather than routing
    * it through the brain, and the sheet stays open after the toggle — the user may
-   * well flip it and keep reading. Offered on every lifecycle state: the choice
-   * matters before the sandbox exists (a proposal the user already knows they want
-   * to keep working in) just as much as while it's running. Omitted → no toggle;
-   * with the two overrides also unwired there is no gear at all, so a read-only
-   * sheet is unchanged. */
+   * well flip it and keep reading. Offered on every lifecycle state but done: the
+   * choice matters before the sandbox exists (a proposal the user already knows
+   * they want to keep working in) just as much as while it's running, but on a
+   * finished ticket the moment it decides has passed. Omitted → no toggle; with
+   * the two overrides also unwired there is no gear at all, so a read-only sheet
+   * is unchanged. */
   onSetKeepSandbox?: ((ticketId: string, keep: boolean) => void) | undefined;
   /** When provided on a ticket that has a sandbox (working|blocked), the gear menu
    * carries **Re-create sandbox** — destroy the workspace this ticket's agent is
@@ -438,10 +439,17 @@ export function TicketDetail({
   const hasSandbox = SANDBOX_CONTROL_STATES.has(ticket.state);
   // The gear appears when any of the three items would — the same shape as every
   // other affordance here, so a read-only sheet is unchanged. It is suppressed
-  // mid-edit: what happens to the workspace is a different kind of decision from
-  // the wording of the ticket, and has no place in the middle of typing.
+  // in two cases:
+  //  • mid-edit: what happens to the workspace is a different kind of decision
+  //    from the wording of the ticket, and has no place in the middle of typing.
+  //  • on a done ticket: the work is over, so every item behind the gear is
+  //    spent — the two overrides have no sandbox to act on (done is not in
+  //    SANDBOX_CONTROL_STATES), and the save toggle decides what happens to a
+  //    sandbox when the ticket finishes, which it already has. A gear whose only
+  //    item can no longer change anything is worse than no gear.
   const showSandboxMenu =
     !editing &&
+    ticket.state !== 'done' &&
     (onSetKeepSandbox !== undefined ||
       (hasSandbox && (onKillSandbox !== undefined || onReassignSandbox !== undefined)));
   // The menu's status line reads the sandbox's own session state, not the

@@ -805,8 +805,9 @@ html:has([data-role='desktop-screen']) body {
    on a window it lands in the middle of the screen and covers the feed and the
    working strip — the ongoing work the ticket was opened to be read against.
    Anchored to the right edge at full height it clears both: the rail, the
-   working strip and the left of the reading column stay visible behind it, so
-   the panel reads as something opened beside the work rather than over it.
+   working strip and the left of the reading column stay in view behind it —
+   dimmed by the scrim below (13 D7b), but still there — so the panel reads as
+   something opened beside the work rather than in place of it.
 
    The sheet is `vaul` (a Radix Dialog) portaled to `document.body`, so it is not
    a descendant of the shell and cannot be reached by scoping — which is why
@@ -853,15 +854,24 @@ body[data-shell='desktop'] [data-role='ticket-detail'][data-surface='primary'] {
   padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
-/* The scrim is dropped to nothing here, and that is the feature (13 D7a): the
-   panel exists so the user can read a ticket WITHOUT losing sight of what is
-   happening, and dimming the feed behind it would take back most of what moving
-   it to the edge just bought. The panel's own hairline and shadow do the
-   separating instead. It still covers the window, so a click anywhere outside
-   closes the panel exactly as it does on the phone — visibility is what changes,
-   not the dismissal. */
+/* The scrim is back, and it is the same one the phone uses (13 D7b, amending
+   D7a). D7a dropped it to `transparent` so the feed behind the panel stayed at
+   full strength — but with nothing dimmed, an open ticket read as one more
+   surface among several rather than as THE thing being attended to, and the
+   panel's hairline alone is too quiet a boundary to carry that on a wide window.
+   So the left of the screen — rail, working strip, feed — takes the dim, and the
+   panel is plainly the lit surface.
+
+   What D7a was protecting is not lost: the work behind is dimmed, not hidden.
+   The panel is a reading measure at one edge rather than a centred sheet, so the
+   whole left of the window is still there to be read against, just held back a
+   register. Nothing about dismissal changes — the backdrop already covered the
+   window, so a click outside closed the panel even while it was invisible.
+
+   `--scrim` rather than a desktop-only value: one token, both themes, and the
+   fade in and out comes free from vaul's overlay animation. */
 body[data-shell='desktop'] [data-role='ticket-detail-backdrop'] {
-  background: transparent;
+  background: var(--scrim);
 }
 
 /* The drag grabber is a touch affordance with nothing to grab at a desk — the

@@ -33,6 +33,18 @@ const (
 	keyText       = "text"
 )
 
+// The usage attribute names, shared by the response bodies the stub returns and
+// the round records the assertions read back — the two must agree, and goconst
+// objects to spelling either out twice.
+const (
+	keyInputTokens     = "input_tokens"
+	keyOutputTokens    = "output_tokens"
+	keyCacheRead       = "cache_read_input_tokens"
+	keyCacheCreation   = "cache_creation_input_tokens"
+	keyCacheCreation5m = "cache_creation_5m_input_tokens"
+	keyCacheCreation1h = "cache_creation_1h_input_tokens"
+)
+
 // asMap and asSlice narrow a decoded-JSON any to the expected shape, failing
 // the test loudly (rather than discarding the assertion's ok) so errcheck's
 // type-assertion rule stays satisfied.
@@ -107,8 +119,16 @@ func message(stopReason string, content ...map[string]any) map[string]any {
 		"content":       content,
 		"stop_reason":   stopReason,
 		"stop_sequence": nil,
-		"usage":         map[string]any{"input_tokens": 1, "output_tokens": 1},
+		"usage":         map[string]any{keyInputTokens: 1, keyOutputTokens: 1},
 	}
+}
+
+// messageWithUsage is message() with the response's usage block replaced, so a
+// test can pin what logRound makes of the token counts the API reports.
+func messageWithUsage(stopReason string, usage map[string]any, content ...map[string]any) map[string]any {
+	msg := message(stopReason, content...)
+	msg["usage"] = usage
+	return msg
 }
 
 func textBlock(text string) map[string]any {
@@ -556,11 +576,81 @@ func TestDoLogsRoundOutputAlongsideUsage(t *testing.T) {
 	}
 	// The usage attributes the record already carried must survive alongside it.
 	for _, key := range []string{
-		"input_tokens", "output_tokens",
-		"cache_read_input_tokens", "cache_creation_input_tokens",
+		keyInputTokens, keyOutputTokens,
+		keyCacheRead, keyCacheCreation,
 	} {
 		if _, present := rec[key]; !present {
 			t.Errorf("round record dropped usage attribute %q: %v", key, rec)
+		}
+	}
+}
+
+// TestDoLogsCacheWriteTTLSplit: a 5m cache write bills at 1.25× the base input
+// rate and a 1h write at 2×, so the aggregate alone leaves a round's cost a
+// range. The record carries the per-TTL counts the API reports, and still
+// carries every usage figure it did before, with the values it was given.
+func TestDoLogsCacheWriteTTLSplit(t *testing.T) {
+	rounds := captureRounds(t)
+	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		messageWithUsage("end_turn", map[string]any{
+			keyInputTokens:   310,
+			keyOutputTokens:  84,
+			keyCacheRead:     4200,
+			keyCacheCreation: 2100,
+			// The nested block is the API's own shape; the flat
+			// cache_creation_* attrs above are what logRound makes of it.
+			"cache_creation": map[string]any{
+				"ephemeral_5m_input_tokens": 600,
+				"ephemeral_1h_input_tokens": 1500,
+			},
+		}, textBlock("nothing to do")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+
+	got := rounds()
+	if len(got) != 1 {
+		t.Fatalf("logged %d round records, want 1", len(got))
+	}
+	// Decoded JSON numbers land as float64.
+	for key, want := range map[string]float64{
+		keyInputTokens:     310,
+		keyOutputTokens:    84,
+		keyCacheRead:       4200,
+		keyCacheCreation:   2100,
+		keyCacheCreation5m: 600,
+		keyCacheCreation1h: 1500,
+	} {
+		if got[0][key] != want {
+			t.Errorf("round %s = %v, want %v", key, got[0][key], want)
+		}
+	}
+}
+
+// TestDoLogsZeroCacheWriteSplitOnAReadOnlyRound: a round that writes no cache
+// still reports both TTL counts, at zero, so a consumer summing them across
+// rounds never has to distinguish "no write" from "attribute missing".
+func TestDoLogsZeroCacheWriteSplitOnAReadOnlyRound(t *testing.T) {
+	rounds := captureRounds(t)
+	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		messageWithUsage("end_turn", map[string]any{
+			keyInputTokens:  12,
+			keyOutputTokens: 7,
+			keyCacheRead:    4200,
+		}, textBlock("nothing to do")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+
+	got := rounds()
+	if len(got) != 1 {
+		t.Fatalf("logged %d round records, want 1", len(got))
+	}
+	for _, key := range []string{keyCacheCreation5m, keyCacheCreation1h} {
+		if got[0][key] != float64(0) {
+			t.Errorf("round %s = %v, want 0", key, got[0][key])
 		}
 	}
 }

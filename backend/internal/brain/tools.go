@@ -258,13 +258,16 @@ var Tools = []ToolDef{
 	{
 		Name: ToolListTickets,
 		Description: "List every ticket on the board with its state, priority and worker — the " +
-			"compact roster, without bodies. Read the board here before deciding; use " +
+			"compact roster, without bodies. Each column says what its tickets accept right now " +
+			"(\"allowed now\"). Read the board here before deciding; use " +
 			"get_ticket for a single ticket's full body. Read-only.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
-		Name:        ToolGetTicket,
-		Description: "Read one ticket in full, including its body, by id. Read-only.",
+		Name: ToolGetTicket,
+		Description: "Read one ticket in full, including its body, by id. The result's " +
+			"\"allowed now\" line lists exactly what its current state accepts — check it rather " +
+			"than attempting a change the state will refuse. Read-only.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
 		}),
@@ -280,7 +283,9 @@ var Tools = []ToolDef{
 			"bash tool (git fetch origin, then git log origin/main). Every shaping ticket is " +
 			"already a proposal card; set approval_requested only to nudge the user's attention " +
 			"to one (mutually exclusive with state). Fields apply before the state change, so " +
-			"one call can revise and queue a ticket.",
+			"one call can revise and queue a ticket. A ticket's state limits which of these it " +
+			"takes — a working or blocked ticket's fields cannot be edited and it cannot be " +
+			"queued — so read its \"allowed now\" line from get_ticket or list_tickets first.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID:      stringSchema("Ticket id."),
 			fieldTitle:         stringSchema("New title, if changing."),
@@ -870,6 +875,53 @@ func (s *Service) doRetractUpdate(ctx context.Context, call ToolCall) (ToolResul
 	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
 }
 
+// allowedPrefix opens the line get_ticket and list_tickets carry to say what a
+// ticket's current state accepts. One wording across both reads, so the model
+// learns to look for it in either.
+const allowedPrefix = "allowed now"
+
+// toolPhrasing maps the board's state-gated operations onto the tool call the
+// model would actually make, written in its own argument vocabulary rather than
+// the board's method names. An operation with no brain tool behind it — the
+// sandbox controls, which are the user's buttons in the ticket sheet, not the
+// orchestrator's — is absent and drops out of the rendered line.
+var toolPhrasing = map[board.Operation]string{
+	board.OpShapeTicket:     "update_ticket title/body/priority",
+	board.OpRequestApproval: "update_ticket approval_requested=true",
+	board.OpMarkReady:       `update_ticket state="ready"`,
+	board.OpSendToAgent:     "send_to_agent",
+	board.OpMarkBlocked:     `update_ticket state="blocked"`,
+	board.OpAcceptToDone:    `update_ticket state="done"`,
+	board.OpArchiveTicket:   "delete_ticket",
+}
+
+// allowedActions renders the calls a ticket in this state accepts right now,
+// from the board's own precondition table (board.State.AllowedOps) — so the
+// model can check before it acts instead of learning the constraint from a
+// failed update_ticket (docs/brain-optimization-2026-08-05.md §2).
+//
+// This is the *preventive* half only. The refusal itself is deliberately
+// untouched: a transition that fails still comes back as the board's
+// ErrInvalidTransition verbatim, with nothing appended, because the idempotency
+// rule (06 §6) reads that error as "already done, never retry" and a hint about
+// what else is available would invite exactly the retry it forbids.
+func allowedActions(state board.State) string {
+	ops := state.AllowedOps()
+	phrasings := make([]string, 0, len(ops))
+	for _, op := range ops {
+		if phrasing, ok := toolPhrasing[op]; ok {
+			phrasings = append(phrasings, phrasing)
+		}
+	}
+	if len(phrasings) == 0 {
+		// Unreachable for the five real states — every one of them accepts at
+		// least delete_ticket — so this is only what an unrecognized state renders
+		// as: claim no affordance rather than a wrong one.
+		return "nothing"
+	}
+	return strings.Join(phrasings, ", ")
+}
+
 // formatRoster renders list_tickets' result — the compact board roster, no
 // bodies (06 §4 amended). Reuses renderBoard (service.go), the same compact
 // per-column layout that was injected before board reads became a tool.
@@ -895,6 +947,7 @@ func formatTicketDetail(t board.Ticket) string {
 	if t.KeepSandbox {
 		b.WriteString(" keep_sandbox=true")
 	}
+	fmt.Fprintf(&b, "\n%s: %s", allowedPrefix, allowedActions(t.State))
 	if t.BlockedReason != nil {
 		fmt.Fprintf(&b, "\nblocked_reason: %s", *t.BlockedReason)
 	}

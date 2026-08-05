@@ -31,6 +31,13 @@ const (
 	workerW1           = "w-1"
 	workerW2           = "w-2"
 	sayHello           = "hello"
+
+	// Tool names and update_ticket argument fragments, as they appear in tool
+	// definitions, the prompt, and the "allowed now" line the board reads carry.
+	toolNameDeleteTicket = "delete_ticket"
+	toolNameSendToAgent  = "send_to_agent"
+	argStateReady        = `state="ready"`
+	argStateDone         = `state="done"`
 )
 
 // --- scripted LLM -----------------------------------------------------

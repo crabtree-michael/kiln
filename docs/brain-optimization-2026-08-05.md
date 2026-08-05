@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-05 · **Service:** `srv-d953nmcvikkc73d8aq60` (`kiln`, prod)
 **Log window:** 2026-08-02T18:15Z → 2026-08-05T11:52Z (~2.77 days, 17.9k log records)
-**Status:** investigation + proposal. Nothing implemented; scoping left for review.
+**Status:** investigation + proposal. Recommendation C (`effort`) has since landed at
+`medium`; A, B, D, and E are still unimplemented and left for review.
 
 > The brain is not a separate Render service — it is `internal/brain` inside the single
 > `kiln` web service. All figures below are reconstructed from the structured `brain: llm
@@ -170,7 +171,7 @@ guessing. This keeps the board's preconditions authoritative — it just stops m
 model discover them by trial. The ~25 idempotency errors stay exactly as they are, because
 06 §6 depends on them.
 
-### C. Set `output_config.effort` explicitly, and sweep it
+### C. Set `output_config.effort` explicitly, and sweep it — **shipped at `medium`**
 
 **Addresses §4.** Add `effort` to `brain.Config`, resolved at the composition root
 alongside `Model` (backend-only, same as the model — not user-configurable). Start at
@@ -180,6 +181,11 @@ Sonnet 4.6 at `high`, so there is real headroom here for a dispatcher.
 **Do this one first.** It is the smallest diff in the list, needs no schema or prompt
 change, and its effect is measurable in a day from the existing `brain: llm round`
 records.
+
+> **Landed 2026-08-05.** `brain.Config.Effort` + `DefaultEffort = medium`, resolved at the
+> composition root from `KILN_BRAIN_EFFORT` (`llm.go`, `cmd/kiln`). The further sweep to
+> `low` is deliberately not taken yet — medium is the accepted setting; the env var makes
+> the sweep a config change when there is a baseline to measure it against.
 
 ### D. Log the cache-write TTL split (prerequisite, not an optimization)
 

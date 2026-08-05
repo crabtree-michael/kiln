@@ -284,6 +284,65 @@ func TestDoUsesModelEnvVarFallback(t *testing.T) {
 	}
 }
 
+// outputConfigEffort reads output_config.effort off a captured request body,
+// failing loudly when the block is missing — an absent effort means the API
+// default (high) is back, which is the regression these tests exist to catch.
+func outputConfigEffort(t *testing.T, stub *anthropicStub) any {
+	t.Helper()
+	oc := asMap(t, "request output_config", stub.lastBody["output_config"])
+	effort, present := oc["effort"]
+	if !present {
+		t.Fatalf("request output_config = %v, want an effort", oc)
+	}
+	return effort
+}
+
+// TestDoDefaultsEffortWhenUnset: with an empty Config.Effort and no env
+// override, effort() falls back to DefaultEffort — so a round never silently
+// runs at the API's "high" default (06 §2).
+func TestDoDefaultsEffortWhenUnset(t *testing.T) {
+	t.Setenv(brain.EffortEnvVar, "")
+	adapter, stub := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		message("end_turn", textBlock("ok")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+	if got := outputConfigEffort(t, stub); got != string(brain.DefaultEffort) {
+		t.Errorf("request output_config.effort = %v, want default %q", got, brain.DefaultEffort)
+	}
+}
+
+// TestDoUsesConfiguredEffort: Config.Effort reaches the wire verbatim.
+func TestDoUsesConfiguredEffort(t *testing.T) {
+	t.Setenv(brain.EffortEnvVar, "")
+	adapter, stub := newAdapterAgainst(t,
+		brain.Config{Model: modelOverride, Effort: brain.EffortLow}, http.StatusOK,
+		message("end_turn", textBlock("ok")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+	if got := outputConfigEffort(t, stub); got != string(brain.EffortLow) {
+		t.Errorf("request output_config.effort = %v, want %q", got, brain.EffortLow)
+	}
+}
+
+// TestDoUsesEffortEnvVarFallback: an empty Config.Effort falls back to the
+// KILN_BRAIN_EFFORT env var before DefaultEffort.
+func TestDoUsesEffortEnvVarFallback(t *testing.T) {
+	t.Setenv(brain.EffortEnvVar, string(brain.EffortHigh))
+	adapter, stub := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		message("end_turn", textBlock("ok")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+	if got := outputConfigEffort(t, stub); got != string(brain.EffortHigh) {
+		t.Errorf("request output_config.effort = %v, want %q", got, brain.EffortHigh)
+	}
+}
+
 // TestDoOmitsSystemWhenEmpty: an empty System must not put a system block on
 // the wire.
 func TestDoOmitsSystemWhenEmpty(t *testing.T) {

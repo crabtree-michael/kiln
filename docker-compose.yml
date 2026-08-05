@@ -33,6 +33,9 @@ services:
       # selector is hidden in the dashboard; override via KILN_BRAIN_MODEL in .env
       # if you need a different model (matches the backend default).
       KILN_BRAIN_MODEL: ${KILN_BRAIN_MODEL:-claude-sonnet-5}
+      # Brain output effort (06 §2). Empty ⇒ the backend's own brain.DefaultEffort
+      # (medium); set KILN_BRAIN_EFFORT in .env to sweep low/high while measuring.
+      KILN_BRAIN_EFFORT: ${KILN_BRAIN_EFFORT:-}
       KILN_LOG_LEVEL: ${KILN_LOG_LEVEL:-info}
       # Agent-runtime provider (05 §9). Default AGENT_MODE=amika hits the real Amika
       # API, so the backend needs the key + provider config from .env; unset vars fall

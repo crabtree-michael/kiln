@@ -359,9 +359,16 @@ All three share the two consequences below. The text edit adds three of its own:
   - **The keyboard/AT route is a separate control**, `[data-role='detail-body-edit-key']`
     ("Edit description"), clipped off-screen until focused (skip-link shape). It is the *only*
     way in without a pointer, so it must stay tabbable — clipped, not `display: none`.
-  - **Two presses inside the body must NOT open the editor**: a click on an `<a>` (following a
+  - **Three presses inside the body must NOT open the editor**: a click that ends a *drag*
+    (the body sits inside the sheet's scroll region, so most fingers on it are scrolling — and
+    a drag at the sheet itself still delivers its click), a click on an `<a>` (following a
     reference isn't a request to rewrite the sentence) and a click that ends a text selection
-    (otherwise copying a ticket is impossible). Both guarded in `editFromBody`.
+    (otherwise copying a ticket is impossible). All three guarded in `editFromBody`.
+  - **The pressed wash answers a press only, never a scroll** — see the emulated-hover gotcha
+    below. `:hover` is gated behind `@media (hover: hover)` so touch can't inherit it, and
+    touch gets `[data-pressed]` instead, set by the component's own pointer handlers a beat
+    (`PRESS_FEEDBACK_DELAY_MS`) after a finger comes to rest and dropped the moment it travels
+    past `TAP_SLOP_PX` (or the browser cancels the pointer, which is how a touch scroll ends).
   - **An empty body renders a placeholder** ("Add a description"), because an editable ticket
     with nothing written would otherwise have nothing to press. Entering the mode focuses the
     *body* textarea with the caret at the end — the body is what the user pressed.
@@ -523,6 +530,29 @@ retracted, so this is unrelated to swipe-dismiss above.
   `MouseEvent` subclass (jsdom carries mouse coords) via
   `vi.stubGlobal('PointerEvent', Stub)` — see `SwipeToDismiss.test.tsx`. Also guard
   `setPointerCapture` with a `typeof … === 'function'` check; jsdom elements lack it.
+
+- **A touch device *emulates* hover, so `:hover` is not a pointer-only rule.** A finger that
+  merely starts a scroll on an element with a `:hover` background paints it on the way past —
+  the element reads as pressed when nothing was pressed (the bug behind the ticket body's
+  wash). Any press/hover feedback on something inside a scroll region belongs behind
+  `@media (hover: hover)`, with touch's half driven from the component instead. Two rules
+  for that half, both learned the hard way: it cannot go on at `pointerdown` (a scroll starts
+  with one too — wait a beat first), and it must come off on `pointercancel`, which is how the
+  browser ends a touch that turned into a scroll. `TicketDetail.tsx`'s
+  `beginPress`/`trackPress`/`abandonPress` is the worked example; jsdom matches no media
+  queries, so the gate can only catch the CSS half as a `?raw` string assertion
+  (`TicketDetail.edit-visibility.test.ts`).
+
+- **Sending pointer events into the vaul sheet hits two jsdom gaps in vaul itself**, which
+  surface as uncaught `TypeError`s that fail the run even when every test passes (vitest exits
+  1 on unhandled errors). The events reach vaul's own drag handlers on `Drawer.Content` above
+  whatever you aimed at — as they do in the browser, where dragging the sheet by its body is a
+  dismiss path — and it then (1) calls `setPointerCapture`, which jsdom does not implement, and
+  (2) reads `style.transform || style.webkitTransform || style.mozTransform`, where jsdom
+  answers the first two with `''` and has no `mozTransform` at all, so the chain lands on
+  `undefined` and vaul calls `.match` on it. Stub all three plus `mozTransform` in the test
+  file — `TicketDetail.edit.test.tsx` does — rather than making the component swallow events
+  to stay testable.
 
 - **The `vaul` proposal sheet (`TicketDetail.tsx`, first approved dep under the amended
   D4).** Three traps, all from it being a Radix Dialog under the hood:

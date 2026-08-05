@@ -51,14 +51,17 @@
 // than two components because everything above — the record, the actions, the
 // direct writes — is the same sheet either way; only the edge it is anchored to
 // differs (see the prop's doc for why the desk's is a different edge).
-// `MouseEvent` is aliased on import: the body's click handler takes React's
-// synthetic event, and the unaliased name would read as the DOM global.
+// `MouseEvent` and `PointerEvent` are aliased on import: the body's click and
+// press handlers take React's synthetic events, and the unaliased names would
+// read as the DOM globals.
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type JSX,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -298,6 +301,24 @@ const SANDBOX_STATUS_LABELS: Record<string, string> = {
  * sandbox switch above uses. */
 const TEXT_OPTIMISTIC_MS = 5000;
 
+/** How far a pointer may travel from where it went down and still be a press on
+ * the body rather than a drag through it. Past this the gesture is a scroll (or
+ * a swipe at the sheet itself): the press wash comes off and the release that
+ * ends it does not open the editor. Matches SwipeToDismiss's engage slop — the
+ * same question, asked of the same fingers. */
+const TAP_SLOP_PX = 8;
+
+/** How long a pointer must rest on the body before the press wash appears.
+ *
+ * The wash cannot go on at pointerdown, because a scroll starts with a
+ * pointerdown too: the browser only knows the finger is scrolling once it has
+ * moved, so a wash painted immediately is a wash that flickers under every
+ * scroll that happens to start on the words. Waiting a beat first is what the
+ * native platforms do (iOS's `delaysContentTouches`, Android's tap timeout) and
+ * it costs a genuine press nothing — a finger that means to press is still
+ * there when the beat is up. */
+const PRESS_FEEDBACK_DELAY_MS = 100;
+
 export function TicketDetail({
   ticket,
   onClose,
@@ -487,6 +508,100 @@ export function TicketDetail({
     node.setSelectionRange(node.value.length, node.value.length);
   }, []);
 
+  // The press on the body, tracked by hand so that scrolling through the ticket
+  // never reads as reaching for the editor. The body is inside the sheet's own
+  // overflow region, so most fingers that land on it are on their way past —
+  // and both halves of the affordance have to tell the difference:
+  //
+  //  • the wash: `pressed` drives [data-pressed], the touch half of the CSS
+  //    (the pointer half is :hover, which is gated behind `hover: hover` there
+  //    precisely so a phone's *emulated* hover can't paint it mid-scroll). It
+  //    goes on a beat after the finger lands and comes straight off the moment
+  //    the gesture turns into a drag.
+  //  • the entry: `draggedRef` remembers that it did, so the click that ends a
+  //    drag is not taken for a tap. A touch scroll usually swallows its click,
+  //    but a drag on the sheet itself (vaul's dismiss) does not.
+  //
+  // Refs, not state, for the gesture itself: nothing on screen depends on where
+  // the finger is, only on the verdict, so a re-render per pointermove would be
+  // pure cost.
+  const [pressed, setPressed] = useState(false);
+  const pressOriginRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draggedRef = useRef(false);
+
+  /** Drop the press: cancel the pending wash (or take it off, if it is already
+   * on) and stop tracking the pointer. Every way a press can end routes through
+   * here — released, dragged away, cancelled by the browser taking the gesture
+   * for a scroll, or the sheet unmounting mid-press. */
+  const endPress = useCallback((): void => {
+    pressOriginRef.current = null;
+    if (pressTimerRef.current !== null) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    setPressed(false);
+  }, []);
+
+  // A press held while the ticket leaves EDITABLE_STATES (or the sheet closes)
+  // would otherwise leave the timer to fire into an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (pressTimerRef.current !== null) {
+        clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /** A pointer lands on the body. Nothing shows yet — the wash is armed for a
+   * beat's time, and only a finger still resting here when it fires gets one.
+   * A secondary mouse button is not a press at all (it opens the context menu),
+   * so it is left alone. */
+  function beginPress(event: ReactPointerEvent<HTMLElement>): void {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    draggedRef.current = false;
+    pressOriginRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    if (pressTimerRef.current !== null) {
+      clearTimeout(pressTimerRef.current);
+    }
+    pressTimerRef.current = setTimeout(() => {
+      pressTimerRef.current = null;
+      setPressed(true);
+    }, PRESS_FEEDBACK_DELAY_MS);
+  }
+
+  /** The pointer moved while down. Under the slop it is the ordinary jitter of
+   * a finger held still; past it the gesture is a drag — a scroll through the
+   * ticket, or a pull at the sheet — and this stops being a press for good. */
+  function trackPress(event: ReactPointerEvent<HTMLElement>): void {
+    const origin = pressOriginRef.current;
+    if (origin?.id !== event.pointerId) {
+      return;
+    }
+    if (
+      Math.abs(event.clientX - origin.x) < TAP_SLOP_PX &&
+      Math.abs(event.clientY - origin.y) < TAP_SLOP_PX
+    ) {
+      return;
+    }
+    draggedRef.current = true;
+    endPress();
+  }
+
+  /** The gesture was taken away — the browser claimed it for a scroll
+   * (pointercancel, which is how a touch scroll ends), or the pointer left the
+   * body still down. Either way it was not a press on these words. */
+  function abandonPress(): void {
+    if (pressOriginRef.current === null) {
+      return;
+    }
+    draggedRef.current = true;
+    endPress();
+  }
+
   // The body as it reads on screen. An editable ticket with nothing written yet
   // gets a prompt in place of the (empty) Markdown: the body is the only way
   // into edit mode now, so there always has to be something there to press. A
@@ -507,14 +622,23 @@ export function TicketDetail({
   }
 
   /** The press on the rendered body — the whole edit affordance now, which is
-   * why it has to leave alone the two presses inside a body that already mean
+   * why it has to leave alone the three presses inside a body that already mean
    * something else:
+   *   • a click that ends a drag is a scroll through the ticket (or a pull at
+   *     the sheet), not a tap on the words it happened to start on.
    *   • a link in the Markdown is still a link. Following a reference is not a
    *     request to rewrite the sentence it sits in.
    *   • selecting words to quote ends in a click on the region, which would
    *     otherwise swap the selection out for a textarea the instant the user
    *     let go — so reading and copying a ticket never drops into edit mode. */
   function editFromBody(event: ReactMouseEvent<HTMLElement>): void {
+    // Read and clear: the verdict belongs to the gesture that just ended, and
+    // leaving it set would make the next click answer for that one instead.
+    const dragged = draggedRef.current;
+    draggedRef.current = false;
+    if (dragged) {
+      return;
+    }
     if (event.target instanceof Element && event.target.closest('a') !== null) {
       return;
     }
@@ -707,7 +831,20 @@ export function TicketDetail({
                     Markdown bare, exactly as before. */}
                 {canEditText ? (
                   <>
-                    <div data-role="detail-body-edit-target" onClick={editFromBody}>
+                    <div
+                      data-role="detail-body-edit-target"
+                      // The press wash, and the guards that keep a scroll from
+                      // wearing it: see beginPress/trackPress above. It is a
+                      // data attribute rather than a class because everything
+                      // else on this sheet is keyed the same way.
+                      data-pressed={pressed ? 'true' : undefined}
+                      onPointerDown={beginPress}
+                      onPointerMove={trackPress}
+                      onPointerUp={endPress}
+                      onPointerCancel={abandonPress}
+                      onPointerLeave={abandonPress}
+                      onClick={editFromBody}
+                    >
                       {renderedBody}
                     </div>
                     {/* The keyboard/assistive route, standing in for the press.

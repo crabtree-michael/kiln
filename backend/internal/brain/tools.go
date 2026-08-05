@@ -145,10 +145,28 @@ type SayInput struct {
 // PostUpdateInput — post_update → NotificationStore.PostNotification(kind,
 // body, ticket?, image_url?) (08 §7). kind is "preview" when ImageURL is set,
 // else "update". A feed card worth a glance, not a play-by-play.
+//
+// Text is an alias for Body, accepted but not advertised in the schema. The
+// sibling say tool takes "text", and the model reaches for that key on ~1 in 5
+// post_update calls — every one of which self-corrected a round later, so the
+// rejection only ever bought a wasted round-trip
+// (docs/brain-optimization-2026-08-05.md §1). Taking both keys lands the update
+// on the first try. "body" stays the one name in the schema, so the two names
+// never compete for the model's attention.
 type PostUpdateInput struct {
 	Body     string  `json:"body"`
+	Text     string  `json:"text,omitempty"`
 	Ticket   *string `json:"ticket,omitempty"`
 	ImageURL *string `json:"image_url,omitempty"`
+}
+
+// resolvedBody is the update's text across both accepted keys. Body wins when
+// both carry text — it is the name the schema asks for.
+func (in PostUpdateInput) resolvedBody() string {
+	if strings.TrimSpace(in.Body) != "" {
+		return in.Body
+	}
+	return in.Text
 }
 
 // ListUpdatesInput — list_updates takes no arguments (06 §4 amended). Returns
@@ -842,18 +860,20 @@ func (s *Service) doPostUpdate(ctx context.Context, call ToolCall) (ToolResult, 
 	if err := json.Unmarshal(call.Input, &in); err != nil {
 		return malformedResult(call.ID, err), true
 	}
-	// body is required, but an omitted/empty/whitespace-only value parses
-	// cleanly to "" and would post a card with a header and timestamp but no
-	// text — the brain gets "ok" and believes it posted, while the user sees an
-	// empty update (08 §7). See requireField.
-	if res, ok := requireField(call.ID, ToolPostUpdate, fieldBody, in.Body); !ok {
+	// The text is required under one key or the other (see PostUpdateInput),
+	// but an omitted/empty/whitespace-only value parses cleanly to "" and would
+	// post a card with a header and timestamp but no text — the brain gets "ok"
+	// and believes it posted, while the user sees an empty update (08 §7). See
+	// requireField.
+	body := in.resolvedBody()
+	if res, ok := requireField(call.ID, ToolPostUpdate, fieldBody, body); !ok {
 		return res, true
 	}
 	kind := notifKindUpdate
 	if in.ImageURL != nil {
 		kind = notifKindPreview
 	}
-	if err := s.notifications.PostNotification(ctx, kind, in.Body, in.Ticket, in.ImageURL); err != nil {
+	if err := s.notifications.PostNotification(ctx, kind, body, in.Ticket, in.ImageURL); err != nil {
 		return errorResult(call.ID, err), false
 	}
 	return ToolResult{ToolCallID: call.ID, Content: "ok"}, false
@@ -962,7 +982,7 @@ func malformedResultMsg(id, reason string) ToolResult {
 
 // requireField guards a required free-text tool argument. An omitted, empty, or
 // whitespace-only value parses cleanly to "" (the model dropped the field, sent
-// blanks, or used the wrong key — e.g. post_update's "body" vs say's "text"), so
+// blanks, or used the wrong key — e.g. edit_update's "body" vs say's "text"), so
 // json.Unmarshal reports no error, yet passing it through is never valid: an
 // empty update or blocker card shows a header with no text, an empty instruction
 // wakes an agent with nothing to do. Treated as malformed (06 §8) so the pass

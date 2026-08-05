@@ -82,6 +82,11 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   (work is in a pull request). The mode comes from the project's `merge_gate_mode` setting
   (`GatePR` etc. in `tools.go`); a refusal is steered back to the agent to actually land the
   work, not surfaced to the user.
+- `post_update` takes its prose under **`body` or `text`** (`resolvedBody()` in `tools.go`),
+  though the schema advertises only `body`. The model borrows say's `text` key on ~1 in 5
+  calls and used to burn a round self-correcting (`docs/brain-optimization-2026-08-05.md` §1).
+  Don't "tidy" the alias away, and don't add `text` to the schema — one advertised name is
+  the point. `edit_update` deliberately has no such alias.
 - The prompt is written to 08's interaction model: the user sees the *feed*, not
   the board — routine board actions already emit mechanical toasts (08 §4), so the
   prompt forbids narrating them with `say`/`post_update`. Keep new prompt prose

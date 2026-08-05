@@ -163,6 +163,13 @@ for a few lines in `tools.go`. Two options, and I'd want your preference before 
 Option 2 treats the cause; option 1 treats the symptom in an afternoon. Either way the
 golden decision tests pin the outcome.
 
+**Shipped: option 1.** `PostUpdateInput` now carries a `text` field that `resolvedBody()`
+falls back to when `body` is blank; the schema still advertises `body` alone, so the two
+names never compete for the model's attention. `TestDispatch_PostUpdate_TextAliasesBody`
+pins either key posting the card, `body` winning when both carry text, and the blank-both
+case still rejected. `edit_update` keeps `body` as its only key — the log window shows no
+wrong-key calls there.
+
 ### B. Return allowed transitions from `get_ticket`
 
 **Fixes the preventable ~57 of §2.** Have `get_ticket` (and the `list_tickets` rows)

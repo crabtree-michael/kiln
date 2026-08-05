@@ -31,6 +31,9 @@ const (
 	workerW1           = "w-1"
 	workerW2           = "w-2"
 	sayHello           = "hello"
+	notifKindUpdate    = "update"
+	notifKindPreview   = "preview"
+	updateBuildIsGreen = "build is green"
 )
 
 // --- scripted LLM -----------------------------------------------------

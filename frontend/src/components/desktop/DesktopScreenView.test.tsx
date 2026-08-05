@@ -123,15 +123,27 @@ function renderShell(overrides: Partial<React.ComponentProps<typeof DesktopScree
 }
 
 describe('DesktopScreenView', () => {
-  it('is two regions and only two — a rail and a feed, no third pane, no board', () => {
+  it('is three regions — rail, in-progress panel, feed — and nothing else', () => {
     const { container } = renderShell();
     expect(container.querySelector('[data-role="desktop-rail"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="desktop-working-panel"]')).not.toBeNull();
     expect(container.querySelector('[data-role="desktop-feed"]')).not.toBeNull();
     // The Kanban board is not revived on desktop (13 D2).
     expect(container.querySelector('[data-role="board"]')).toBeNull();
     expect(container.querySelector('[data-role="board-column"]')).toBeNull();
-    // And there is no inspector/detail pane beside the feed (13 D7).
+    // And the new column is NOT an inspector: it holds no selection and shows no
+    // detail, so ticket detail is still an overlay (13 D7).
     expect(container.querySelector('[data-role="desktop-inspector"]')).toBeNull();
+  });
+
+  it('orders the columns rail → in-progress → feed, left to right', () => {
+    // The grid places by source order, so the DOM order IS the layout. A panel
+    // authored after <main> would render to the right of the feed.
+    const { container } = renderShell();
+    const roles = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-role="desktop-screen"] > [data-role]'),
+    ).map((node) => node.dataset.role);
+    expect(roles).toEqual(['desktop-rail', 'desktop-working-panel', 'desktop-main']);
   });
 
   it('renders the rail from the projects it is given and switches on click', () => {
@@ -247,18 +259,47 @@ describe('DesktopScreenView', () => {
     expect(titles).toEqual(['auth refresh', 'poller']);
   });
 
-  it('working: the strip sits ABOVE the feed scroll region, so it cannot be scrolled away', () => {
+  it('working: the panel is BESIDE the feed, not inside it, so it cannot be scrolled away', () => {
     const { container } = renderShell({
       board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
       thinking: true,
     });
     const strip = container.querySelector('[data-role="desktop-working"]');
     expect(strip).not.toBeNull();
-    // In flow in the main column, and NOT inside the feed's own scroller.
+    // Its own column off the screen root — not in the feed's scroller, and not
+    // in the main column above the feed either.
     expect(
       container.querySelector('[data-role="desktop-feed"] [data-role="desktop-working"]'),
     ).toBeNull();
-    expect(strip?.parentElement).toHaveAttribute('data-role', 'desktop-main');
+    expect(
+      container.querySelector('[data-role="desktop-main"] [data-role="desktop-working"]'),
+    ).toBeNull();
+    expect(strip?.parentElement).toHaveAttribute('data-role', 'desktop-working-panel');
+  });
+
+  it('working: each row carries the SAME status mark the phone uses', () => {
+    // 13 §4 is "the same design language as mobile, not the same design" — and a
+    // status vocabulary is language. The mark is the phone's `status-dot`, from
+    // the phone's rules, so "building" cannot come to mean one thing on a desk
+    // and another in a pocket.
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [
+          workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          workingTicket('t2', 'poller', '2026-08-04T11:50:00Z'),
+        ],
+        agents: [makeAgentStatus('t2', 'errored')],
+      }),
+      thinking: true,
+    });
+    const marks = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-role="desktop-working-ticket"] [data-role="status-dot"]',
+      ),
+    ).map((node) => node.dataset.status);
+    // `building` is the fallback for a ticket whose status join hasn't landed —
+    // it is what the board's Working bucket already asserts.
+    expect(marks).toEqual(['building', 'errored']);
   });
 
   it('working: shows how long each ticket has been at it, and says so in words for AT', () => {
@@ -298,7 +339,10 @@ describe('DesktopScreenView', () => {
 
   it('working: the brain thinking with nothing in Working still shows the indication, bare', () => {
     const { container } = renderShell({ thinking: true });
-    expect(container.querySelector('[data-role="desktop-working-head"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="desktop-working-head"]')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
     expect(container.querySelector('[data-role="desktop-working-list"]')).toBeNull();
   });
 
@@ -309,7 +353,7 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-working"]')).not.toBeNull();
   });
 
-  it('working: no counts and no meters — the strip lists, it does not measure (13 §8)', () => {
+  it('working: no counts and no meters — the panel lists, it does not measure (13 §8)', () => {
     const { container } = renderShell({
       board: makeBoard({
         working: [
@@ -324,9 +368,24 @@ describe('DesktopScreenView', () => {
     expect(strip?.textContent).not.toMatch(/2 (working|tickets)/);
   });
 
-  it('resting: no working indication when nothing is in motion', () => {
+  it('resting: the panel stays put and says nothing is running, rather than vanishing', () => {
+    // The column is permanent on purpose. A panel that appeared and disappeared
+    // with the work would shove the feed sideways every time an agent picked
+    // something up — the loudest possible way to announce a change, on a screen
+    // whose first principle is that change arrives without announcing itself.
     const { container } = renderShell();
-    expect(container.querySelector('[data-role="desktop-working"]')).toBeNull();
+    expect(container.querySelector('[data-role="desktop-working-panel"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="desktop-working-list"]')).toBeNull();
+    expect(screen.getByText('Nothing in progress.')).toBeInTheDocument();
+    // …and nothing about it is live: the mark does not breathe, and there is no
+    // live region re-announcing an absence.
+    expect(container.querySelector('[data-role="desktop-working-dot"]')).toHaveAttribute(
+      'data-active',
+      'false',
+    );
+    expect(container.querySelector('[data-role="desktop-working-head"]')).not.toHaveAttribute(
+      'role',
+    );
   });
 
   it('disconnected: stated permanently and in place — never a modal', () => {

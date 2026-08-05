@@ -258,8 +258,7 @@ const geometry = await page.evaluate(() => {
   const rail = rect('[data-role="desktop-rail"]');
   const feedRegion = rect('[data-role="desktop-feed"]');
   const composer = rect('[data-role="desktop-composer"]');
-  const strip = rect('[data-role="desktop-working"]');
-  const stripHead = rect('[data-role="desktop-working-head"]');
+  const panel = rect('[data-role="desktop-working-panel"]');
   const feedList = rect('[data-role="desktop-feed-list"]');
   const blockerBody = document.querySelector(
     '[data-role="desktop-feed-row"][data-kind="blocker"] [data-role="feed-card-body"]',
@@ -274,21 +273,34 @@ const geometry = await page.evaluate(() => {
     return el ? getComputedStyle(el).backgroundColor : 'missing';
   };
   return {
-    // Two regions, side by side, with the feed starting where the rail ends.
+    // Three columns, side by side: rail, in-progress panel, feed.
     railRight: rail?.right,
+    panelLeft: panel?.left,
+    panelRight: panel?.right,
     feedLeft: feedRegion?.left,
     // The input sits UNDER the feed and never over it.
     composerBelowFeed: composer && feedRegion ? composer.top >= feedRegion.bottom - 1 : null,
-    // The working strip sits ABOVE the feed's scroll region — it holds its own
-    // height rather than scrolling away with the history (13 §8.2).
-    stripAboveFeed: strip && feedRegion ? strip.bottom <= feedRegion.top + 1 : 'missing',
-    // …and in the same reading column as the cards, so the eye travels down one
-    // line rather than between two.
-    stripAlignedWithFeed:
-      stripHead && feedList ? Math.round(stripHead.left - feedList.left) : 'missing',
+    // The in-progress panel is BESIDE the feed's scroll region, not above it and
+    // not inside it — it cannot be scrolled away with the history (13 §8.2).
+    panelBesideFeed:
+      panel && feedRegion ? Math.round(panel.right) <= Math.round(feedRegion.left) : 'missing',
+    // The rule on the panel's feed-facing edge: the separator the whole region
+    // is defined by, and the one thing jsdom cannot see at all.
+    panelDivider: panel
+      ? getComputedStyle(document.querySelector('[data-role="desktop-working-panel"]')).borderRight
+      : 'missing',
+    // The feed still gets a real reading measure with two columns to its left.
+    feedWidth: feedRegion ? Math.round(feedRegion.width) : 'missing',
+    feedListWidth: feedList ? Math.round(feedList.width) : 'missing',
     workingTitles: Array.from(
       document.querySelectorAll('[data-role="desktop-working-title"]'),
     ).map((node) => node.textContent),
+    // The per-ticket marks are the phone's `status-dot`, so a building session
+    // must resolve to the accent and a failed one to danger — the check that the
+    // shared rules actually reach this subtree.
+    workingMarks: Array.from(
+      document.querySelectorAll('[data-role="desktop-working-ticket"] [data-role="status-dot"]'),
+    ).map((node) => [node.dataset.status, getComputedStyle(node).backgroundColor]),
     // A blocker reads in full; an update still clamps.
     blockerClamped: blockerBody ? blockerBody.scrollHeight > blockerBody.clientHeight + 1 : 'missing',
     updateClamped: updateBody ? updateBody.scrollHeight > updateBody.clientHeight + 1 : 'missing',
@@ -312,6 +324,45 @@ const geometry = await page.evaluate(() => {
   };
 });
 console.log('DESKTOP GEOMETRY', JSON.stringify(geometry, null, 2));
+
+// ── The narrow desk (1024px, the shell threshold) ──────────────────────────
+// The tightest window that still gets this layout, and the one the in-progress
+// column made newly risky: two fixed columns of furniture now come off the
+// feed's width before anything is read. So the check is that the feed still has
+// a real measure here, that nothing has been squeezed into overlapping, and that
+// the page has not started scrolling sideways.
+await page.setViewportSize({ width: 1024, height: 900 });
+await page.waitForTimeout(200);
+await page.screenshot({ path: '/tmp/desktop-shell-1024.png' });
+console.log(
+  'AT 1024px',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const panel = rect('[data-role="desktop-working-panel"]');
+      const feed = rect('[data-role="desktop-feed"]');
+      const list = rect('[data-role="desktop-feed-list"]');
+      const title = rect('[data-role="desktop-working-title"]');
+      return {
+        stillDesktop: document.querySelector('[data-role="desktop-screen"]') !== null,
+        panelRight: panel ? Math.round(panel.right) : 'missing',
+        feedWidth: feed ? Math.round(feed.width) : 'missing',
+        // The reading column, once the feed's own gutters are taken out.
+        readingWidth: list ? Math.round(list.width) : 'missing',
+        // A title still has room to say something before it ellipsises.
+        titleWidth: title ? Math.round(title.width) : 'missing',
+        horizontallyScrollable: document.documentElement.scrollWidth > window.innerWidth,
+      };
+    }),
+    null,
+    2,
+  ),
+);
+await page.setViewportSize({ width: 1440, height: 900 });
+await page.waitForTimeout(200);
 
 // ── Both registers (13 D6a) ────────────────────────────────────────────────
 // The desk follows the OS preference, so flipping the emulated preference must
@@ -546,8 +597,8 @@ console.log(
       return {
         shown: line !== null,
         text: document.querySelector('[data-role="desktop-loading-line"]')?.textContent?.trim(),
-        // Above the scroll region, holding its own height — the working strip's
-        // stance, for the same reason.
+        // Above the scroll region, holding its own height — a fact about the
+        // whole project, so never a card in the history.
         aboveFeed: line && feed ? line.bottom <= feed.top + 1 : 'missing',
         // …and in the same column as the cards it is about.
         alignedWithFeed: line && list ? Math.round(line.left - list.left) : 'missing',
@@ -637,6 +688,28 @@ console.log(
   ),
 );
 await page.screenshot({ path: '/tmp/mobile-shell-bell.png' });
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+
+// The shared status mark, from the OTHER side. The desktop in-progress panel
+// renders the phone's `[data-role='status-dot']` so "building" cannot come to
+// mean one colour on a desk and another in a pocket — which only holds if the
+// phone's own ticket dropdown still resolves to the same ink. jsdom cannot see a
+// computed colour at all, so this pair of readings is the only check there is
+// that the rules did not drift when the status moved from the row to the dot.
+await page.click('[data-role="feed-status"]');
+await page.waitForTimeout(400);
+console.log(
+  'MOBILE STATUS MARKS',
+  JSON.stringify(
+    await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-role="header-status-row"]')).map((row) => {
+        const dot = row.querySelector('[data-role="status-dot"]');
+        return dot ? [dot.dataset.status, getComputedStyle(dot).backgroundColor] : 'no dot';
+      }),
+    ),
+  ),
+);
 
 console.log('PAGE ERRORS', errors.length === 0 ? 'none' : errors);
 

@@ -1,4 +1,4 @@
-// Package githubmock is the offline stand-in for the GitHub OAuth/API adapter,
+// Package githubmock is the offline stand-in for the GitHub API adapter,
 // selected by KILN_GITHUB_MODE=mock (keyless e2e design §3, mirroring
 // AGENT_MODE=mock / KILN_VOICE_MODE=mock / KILN_VERIFY_MODE=mock).
 //
@@ -7,10 +7,16 @@
 // dashboard form all run for real — only the calls that would reach github.com
 // are canned. That is what lets the keyless lane exercise the real onboarding
 // form, whose repo picker can no longer be typed into.
+//
+// It stands in for BOTH halves of the real adapter — the OAuth App flow and the
+// GitHub App installation flow it is migrating to (design 2026-08-04) — so the
+// keyless stack keeps booting and onboarding from either side of that move.
 package githubmock
 
 import (
 	"context"
+	"strconv"
+	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/identity/githubapi"
 )
@@ -72,3 +78,64 @@ func (c *Client) ListRepos(context.Context, string) ([]githubapi.Repo, error) {
 //
 //nolint:gosec // G101: a deliberate, inert placeholder — this package IS the offline fake.
 const MockToken = "mock-github-token"
+
+// The GitHub App half (design 2026-08-04 §3), so a keyless stack keeps booting
+// and onboarding through the migration. Same principle as the OAuth half above:
+// fake ONLY the vendor. The installation id, the mint, and the narrowed listing
+// are canned; everything they feed — the callback, the credential store, the
+// picker — runs for real.
+
+const (
+	// MockInstallationID is the installation every keyless user "has". A fixed,
+	// obviously-synthetic value: a keyless run must be able to assert on it, and
+	// it must never collide with a real installation id.
+	MockInstallationID = int64(4242)
+	// MockInstallationToken is the canned mint result. Carries GitHub's `ghs_`
+	// installation-token prefix so anything that reasons about token shape sees
+	// the right thing offline, and is otherwise inert.
+	//
+	//nolint:gosec // G101: a deliberate, inert placeholder — this package IS the offline fake.
+	MockInstallationToken = "ghs_mock-installation-token"
+	// mockTokenTTL matches GitHub's real one-hour installation-token lifetime,
+	// so a caller's refresh-before-expiry logic is exercised against a realistic
+	// window offline rather than against an expiry that never arrives.
+	mockTokenTTL = time.Hour
+)
+
+// InstallURL returns a local, non-navigable placeholder rather than a github.com
+// install page — the keyless lane mints sessions through POST /api/dev/session
+// and never leaves the stack.
+//
+// It carries `installation_id` and `setup_action` because those are exactly what
+// the App-era callback must learn to read (design §3.2): a keyless run that
+// follows this URL exercises the real parameter handling, which is the only part
+// of the install flow Kiln owns.
+func (c *Client) InstallURL(state string) string {
+	return "/auth/github/callback?state=" + state +
+		"&code=mock-code" +
+		"&installation_id=" + strconv.FormatInt(MockInstallationID, 10) +
+		"&setup_action=install"
+}
+
+// MintInstallationToken returns the canned installation credential for any
+// installation id, with a real one-hour expiry so the caller's cache behaves as
+// it will in production.
+//
+// RepositorySelection is "selected" rather than "all" on purpose: the narrowed
+// choice is the state this whole migration exists to support, so it is the one a
+// keyless run should exercise by default.
+func (c *Client) MintInstallationToken(context.Context, int64) (githubapi.InstallationToken, error) {
+	return githubapi.InstallationToken{
+		Token:               MockInstallationToken,
+		ExpiresAt:           time.Now().Add(mockTokenTTL),
+		RepositorySelection: githubapi.RepositorySelectionSelected,
+	}, nil
+}
+
+// ListInstallationRepos returns the same canned listing as ListRepos. The mock
+// does NOT model a narrowed subset: which repos an installation covers is
+// GitHub's state, and inventing an offline difference between the two listings
+// would make the keyless lane assert on fiction rather than on Kiln's behaviour.
+func (c *Client) ListInstallationRepos(context.Context, string, int64) ([]githubapi.Repo, error) {
+	return Repos, nil
+}

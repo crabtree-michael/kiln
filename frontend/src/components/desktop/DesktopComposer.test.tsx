@@ -104,6 +104,36 @@ describe('DesktopComposer', () => {
     );
   });
 
+  it('drops the placeholder as soon as words arrive, before anything has settled', () => {
+    // The interim stretch is the whole risk: the textarea's value is the SETTLED
+    // text only, so while the first utterance is still forming it is empty and its
+    // placeholder would sit on top of the tail words it lies over. It has to go on
+    // the first interim word, not on the first final.
+    mockVoiceValue = stubVoice({ micState: 'listening', tailText: 'add a retry to' });
+    render(<DesktopComposer />);
+
+    expect(input()).toHaveValue('');
+    expect(input()).not.toHaveAttribute('placeholder');
+    expect(screen.queryByPlaceholderText('Talk, or type…')).toBeNull();
+  });
+
+  it('keeps the placeholder at rest, when there is nothing to overlap', () => {
+    render(<DesktopComposer />);
+    expect(input()).toHaveAttribute('placeholder', 'Talk, or type…');
+  });
+
+  it('brings the placeholder back once the field empties out again', () => {
+    // Handing over for editing (or a send that clears the store) puts the field
+    // back to being a plain empty input — the prompt belongs there again.
+    mockVoiceValue = stubVoice({ micState: 'listening', tailText: 'add a retry to' });
+    const { rerender } = render(<DesktopComposer />);
+    expect(input()).not.toHaveAttribute('placeholder');
+
+    mockVoiceValue = stubVoice({ micState: 'paused' });
+    rerender(<DesktopComposer />);
+    expect(input()).toHaveAttribute('placeholder', 'Talk, or type…');
+  });
+
   it('the field IS the transcript — a keystroke rewrites it in the store, not a local draft', () => {
     const editTranscript = vi.fn();
     mockVoiceValue = stubVoice({ editTranscript });

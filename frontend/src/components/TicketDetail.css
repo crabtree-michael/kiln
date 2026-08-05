@@ -188,8 +188,10 @@
 /* The rendered body of an editable ticket IS the edit affordance — there is no
  * pencil. It has to read as pressable without pretending to be a button: the
  * text caret says "these words are a field waiting to be one", and the inset
- * wash on hover confirms it under the pointer. Touch gets no hover, which is
- * why an empty body still shows the placeholder below rather than nothing. */
+ * wash confirms it under a pointer that hovers or a finger that presses (the
+ * two rules below). Touch has no hover to advertise with ahead of the press,
+ * which is why an empty body still shows the placeholder below rather than
+ * nothing. */
 [data-role='detail-body-edit-target'] {
   cursor: text;
   border-radius: var(--radius-sm);
@@ -203,7 +205,27 @@
   transition: background-color var(--duration-fast) ease;
 }
 
-[data-role='detail-body-edit-target']:hover {
+/* The wash, once per input — and each one gated so that only a press wears it,
+ * never a scroll on its way past. This region sits inside the sheet's own
+ * overflow area, so most fingers that touch these words are scrolling them.
+ *
+ * A real pointer gets the wash on hover, behind `hover: hover` so that a touch
+ * device cannot inherit the rule. That gate is the fix for the reported bug and
+ * not a tidy-up: a phone has no hover to give, so it *emulates* one on touch —
+ * the finger that starts a scroll here lands as a hover first and darkens the
+ * body on the way past, which is a press this user never made. */
+@media (hover: hover) {
+  [data-role='detail-body-edit-target']:hover {
+    background: var(--surface-inset);
+  }
+}
+
+/* Touch's own half, set from the component rather than by the browser: the wash
+ * appears a beat after a finger comes to rest here and is dropped the moment
+ * the gesture turns into a drag (PRESS_FEEDBACK_DELAY_MS / TAP_SLOP_PX in
+ * TicketDetail.tsx). Same declaration as hover's — one affordance, answering
+ * whichever input the user has. */
+[data-role='detail-body-edit-target'][data-pressed='true'] {
   background: var(--surface-inset);
 }
 

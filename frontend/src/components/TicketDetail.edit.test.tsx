@@ -9,11 +9,63 @@
 //
 // Like the rest of the sheet's tests, content portals to document.body — query
 // via `screen`/`document`, not the render container.
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
 import type { Ticket } from '@/components/TicketCard';
 import { makeTicket } from '@/test/fixtures';
+
+// jsdom ships no PointerEvent, so testing-library's fireEvent.pointer* would
+// drop the clientX/clientY the press guard reads. Back it with a MouseEvent
+// (which jsdom does carry coordinates for), adding the pointer fields the
+// component touches — the same stub, for the same reason, as
+// SwipeToDismiss.test.tsx.
+class StubPointerEvent extends MouseEvent {
+  readonly pointerId: number;
+  readonly pointerType: string;
+  constructor(type: string, params: PointerEventInit = {}) {
+    super(type, params);
+    this.pointerId = params.pointerId ?? 0;
+    this.pointerType = params.pointerType ?? '';
+  }
+}
+
+beforeAll(() => {
+  vi.stubGlobal('PointerEvent', StubPointerEvent);
+
+  // The sheet is a vaul drawer, so every pointer event these tests send to the
+  // body also reaches vaul's own drag handlers on Drawer.Content above it —
+  // exactly as it does in a browser, where dragging the sheet by its body is
+  // one of the ways it is dismissed. Two things vaul does there are jsdom gaps
+  // rather than behaviour, and both throw past the component under test if left
+  // alone: it captures the pointer, which jsdom does not implement at all, and
+  // it reads the drawer's current transform, which jsdom never computes (the
+  // property is simply absent, and vaul calls .match on it). Filling both in
+  // keeps the press guard exercised through the real event path instead of
+  // forcing the component to swallow the events to stay testable.
+  Element.prototype.setPointerCapture = function setPointerCapture(): void {
+    // jsdom has no pointer capture; nothing here depends on it.
+  };
+  Element.prototype.releasePointerCapture = function releasePointerCapture(): void {
+    // Ditto — the capture it releases was never taken.
+  };
+  Element.prototype.hasPointerCapture = function hasPointerCapture(): boolean {
+    return false;
+  };
+  // Vaul reads `style.transform || style.webkitTransform || style.mozTransform`.
+  // jsdom answers the first two with the empty string — it computes no
+  // transform — and does not implement the vendor-prefixed `mozTransform` at
+  // all, so the chain falls all the way through to `undefined` and vaul calls
+  // .match on it. One missing string is the whole gap.
+  if (!('mozTransform' in CSSStyleDeclaration.prototype)) {
+    Object.defineProperty(CSSStyleDeclaration.prototype, 'mozTransform', {
+      configurable: true,
+      get(): string {
+        return '';
+      },
+    });
+  }
+});
 
 function ticketIn(state: Ticket['state']): Ticket {
   return makeTicket({
@@ -35,13 +87,30 @@ function bodyTarget(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-role="detail-body-edit-target"]');
 }
 
-/** Presses the body and returns the two fields it swapped itself for. */
-function startEditing(): { title: HTMLElement; body: HTMLElement } {
+/** The pressable body, or a failure naming what is missing — for the press
+ * tests, which act on the region itself rather than on the words inside it. */
+function pressableBody(): HTMLElement {
   const target = bodyTarget();
   if (target === null) {
     throw new Error('the body is not pressable — no [data-role="detail-body-edit-target"]');
   }
-  fireEvent.click(target);
+  return target;
+}
+
+/** One pointer sample. Touch by default: a finger is what scrolls a ticket, and
+ * the bug this guards was a finger's. */
+function pointer(clientX: number, clientY: number): PointerEventInit {
+  return { clientX, clientY, pointerId: 1, pointerType: 'touch', button: 0 };
+}
+
+/** Whether the body is currently wearing the pressed wash. */
+function isPressed(): boolean {
+  return pressableBody().dataset.pressed === 'true';
+}
+
+/** Presses the body and returns the two fields it swapped itself for. */
+function startEditing(): { title: HTMLElement; body: HTMLElement } {
+  fireEvent.click(pressableBody());
   return { title: screen.getByLabelText('Title'), body: screen.getByLabelText('Description') };
 }
 
@@ -318,6 +387,186 @@ describe('TicketDetail — direct text edit', () => {
     expect(screen.queryByRole('button', { name: 'Mic' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+  });
+
+  // The body sits inside the sheet's own scroll region, so most fingers that
+  // land on it are on their way past. Neither half of the affordance — the wash
+  // or the editor — may answer that finger. Timings are the component's own
+  // (100ms before the wash, 8px of slop); jsdom does no layout, so the
+  // thresholds are exercised straight off the client coordinates.
+  describe('press versus scroll', () => {
+    function renderEditable(): void {
+      render(<TicketDetail ticket={ticketIn('shaping')} onClose={vi.fn()} onEditText={vi.fn()} />);
+    }
+
+    it('shows nothing the instant a finger lands', () => {
+      vi.useFakeTimers();
+      try {
+        renderEditable();
+
+        fireEvent.pointerDown(pressableBody(), pointer(40, 200));
+
+        // A scroll starts with a pointerdown too, so the wash cannot be painted
+        // on one: it waits to see whether the finger stays.
+        expect(isPressed()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('washes the body once a finger has rested on it', () => {
+      vi.useFakeTimers();
+      try {
+        renderEditable();
+
+        fireEvent.pointerDown(pressableBody(), pointer(40, 200));
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+
+        expect(isPressed()).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // The reported bug: a scroll through the ticket darkening the words it
+    // passes, as though they had been pressed.
+    it('never washes the body when the finger scrolls instead of resting', () => {
+      vi.useFakeTimers();
+      try {
+        renderEditable();
+        const body = pressableBody();
+
+        fireEvent.pointerDown(body, pointer(40, 200));
+        fireEvent.pointerMove(body, pointer(41, 160)); // 40px up: a scroll.
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+
+        expect(isPressed()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('takes the wash off when a rested press turns into a scroll', () => {
+      vi.useFakeTimers();
+      try {
+        renderEditable();
+        const body = pressableBody();
+
+        fireEvent.pointerDown(body, pointer(40, 200));
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+        expect(isPressed()).toBe(true);
+
+        act(() => {
+          fireEvent.pointerMove(body, pointer(43, 240));
+        });
+
+        expect(isPressed()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // How a touch scroll actually ends: the browser claims the gesture and
+    // cancels the pointer rather than delivering a release.
+    it('takes the wash off when the browser claims the gesture', () => {
+      vi.useFakeTimers();
+      try {
+        renderEditable();
+        const body = pressableBody();
+
+        fireEvent.pointerDown(body, pointer(40, 200));
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+
+        act(() => {
+          fireEvent.pointerCancel(body, pointer(40, 200));
+        });
+
+        expect(isPressed()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // A touch scroll usually swallows its click, but a drag at the sheet itself
+    // (vaul's dismiss) does not — so the click that ends a drag is refused on
+    // its own, not merely by never arriving.
+    it('does not enter edit mode when the click ends a drag', () => {
+      renderEditable();
+      const body = pressableBody();
+
+      fireEvent.pointerDown(body, pointer(40, 200));
+      fireEvent.pointerMove(body, pointer(42, 130));
+      fireEvent.pointerUp(body, pointer(42, 130));
+      fireEvent.click(body);
+
+      expect(screen.queryByLabelText('Description')).toBeNull();
+    });
+
+    // The whole point of the guard is that it costs a real tap nothing — a
+    // finger never lands perfectly still, so a couple of px is still a tap.
+    it('enters edit mode on a tap that barely moves', () => {
+      renderEditable();
+      const body = pressableBody();
+
+      fireEvent.pointerDown(body, pointer(40, 200));
+      fireEvent.pointerMove(body, pointer(42, 202));
+      fireEvent.pointerUp(body, pointer(42, 202));
+      fireEvent.click(body);
+
+      expect(screen.getByLabelText('Description')).toHaveValue(
+        'Send the user to /app after sign-in.',
+      );
+    });
+
+    // The verdict belongs to the gesture that produced it: a scroll must not
+    // leave the affordance dead for the tap that follows it.
+    it('still opens on the tap after a scroll', () => {
+      renderEditable();
+      const body = pressableBody();
+
+      fireEvent.pointerDown(body, pointer(40, 200));
+      fireEvent.pointerMove(body, pointer(42, 130));
+      fireEvent.pointerUp(body, pointer(42, 130));
+      fireEvent.click(body);
+      expect(screen.queryByLabelText('Description')).toBeNull();
+
+      fireEvent.pointerDown(body, pointer(40, 200));
+      fireEvent.pointerUp(body, pointer(40, 200));
+      fireEvent.click(body);
+
+      expect(screen.getByLabelText('Description')).toBeInTheDocument();
+    });
+
+    // The release is the moment the editor takes over, so the wash has done its
+    // job — and a press held while the sheet closes must not fire into nothing.
+    it('drops the wash when the finger lifts', () => {
+      vi.useFakeTimers();
+      try {
+        renderEditable();
+        const body = pressableBody();
+
+        fireEvent.pointerDown(body, pointer(40, 200));
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+
+        act(() => {
+          fireEvent.pointerUp(body, pointer(40, 200));
+        });
+
+        expect(isPressed()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('optimistic hold', () => {

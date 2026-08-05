@@ -19,6 +19,27 @@ function ruleBody(selector: string): string {
   return css.slice(open + 1, close);
 }
 
+/** Everything inside an `@media (...)` block, found by its condition and read to
+ * its matching brace — so a test can assert not just that a rule exists but that
+ * it is *gated*, which is the whole point of the hover rule below. */
+function mediaBlock(condition: string): string {
+  const start = css.indexOf(`@media ${condition}`);
+  expect(start, `media query not found: ${condition}`).toBeGreaterThanOrEqual(0);
+  const open = css.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < css.length; i += 1) {
+    if (css[i] === '{') {
+      depth += 1;
+    } else if (css[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return css.slice(open + 1, i);
+      }
+    }
+  }
+  throw new Error(`unterminated media query: ${condition}`);
+}
+
 describe('TicketDetail edit mode', () => {
   it('clips the title out of view while editing, rather than removing it', () => {
     const body = ruleBody("[data-role='ticket-detail-title'][data-editing='true'] {");
@@ -43,6 +64,24 @@ describe('TicketDetail edit mode', () => {
   it('makes the pressable body read as a field-in-waiting', () => {
     expect(ruleBody("[data-role='detail-body-edit-target'] {")).toMatch(/cursor:\s*text/);
     expect(ruleBody("[data-role='detail-body-edit-target']:hover {")).toMatch(/background:/);
+  });
+
+  // A phone has no hover, so it emulates one on touch: an ungated :hover wash is
+  // painted by the finger that merely starts a *scroll* on the body, darkening
+  // the ticket as though it had been pressed. The gate is what keeps the rule
+  // off touch entirely — and jsdom does no layout and no media matching, so
+  // nothing else in the gate can catch its removal.
+  it('keeps the hover wash off devices that only emulate hover', () => {
+    expect(mediaBlock('(hover: hover)')).toContain("[data-role='detail-body-edit-target']:hover");
+  });
+
+  // Touch's replacement for that hover: the component decides when a finger is
+  // pressing rather than scrolling and says so here, so a real tap still lights
+  // the words up.
+  it('washes the body while it is genuinely pressed', () => {
+    expect(ruleBody("[data-role='detail-body-edit-target'][data-pressed='true'] {")).toMatch(
+      /background:/,
+    );
   });
 
   // The keyboard stand-in for that press is off-screen until focused. Clipped,

@@ -3,12 +3,20 @@
 // touch the live stores. `PrimaryScreen` bridges the same stores that feed the
 // mobile view into these props.
 //
-// Two regions, and only two (13 §3): the projects rail on the left, the selected
-// project's feed on the right with the input under it. There is no third pane,
-// no inspector, and no board — ticket detail is an OVERLAY, opened against the
-// window's right edge so the work stays in sight (13 D7/D7a) but taking no width
-// from the feed when it is closed — and raw state still lives at `/debug`
-// (08 §6).
+// Three regions, left to right (13 §3, amended): the projects rail, the
+// in-progress panel, and the selected project's feed with the input under it.
+// The middle column is the one addition to the original two-region shape, and it
+// is deliberately NOT an inspector: it holds no selection, shows no detail, and
+// answers exactly one standing question — what is being worked on right now. It
+// is separated from the feed by a rule rather than by space, because unlike the
+// rail (peripheral furniture, set apart by its recessed surface) it is content
+// about the same project the feed is about, and the line is what says "these are
+// two readings of one thing" instead of "this is more feed".
+//
+// There is still no board and no detail pane — ticket detail is an OVERLAY,
+// opened against the window's right edge so the work stays in sight (13 D7/D7a)
+// but taking no width from any column when it is closed — and raw state still
+// lives at `/debug` (08 §6).
 //
 // The register is 13 §1: present without being loud. Everything here that looks
 // like restraint is load-bearing — the accent appears only on `needs-you`, the
@@ -347,25 +355,39 @@ export function DesktopScreenView({
         </div>
       </aside>
 
-      <main data-role="desktop-main">
-        {/* The working indication (13 §8.2), and what it is working ON. Above
-            the feed's scroll region rather than inside it: it is a property of
-            the project, true for as long as the work runs, so it holds its own
-            height and stays in view while the history is scrolled — the same
-            in-flow call `SystemAlertBand` makes for a persistent condition on
-            mobile. Breathing, slow and low-contrast — see DesktopScreen.css. */}
+      {/* The working indication (13 §8.2), and what it is working ON — its own
+          column, beside the feed rather than above it. A property of the project
+          that stays true for as long as the work runs has no business inside (or
+          on top of) a scrolling history: here it cannot be scrolled away, and it
+          keeps its own reading rhythm instead of borrowing the feed's measure
+          and reading as the first card.
+
+          Scoped to the SELECTED project, like the feed beside it. The rail's
+          per-project working counts come from a slow cross-project poll
+          (`useProjectsStatus`, minutes stale by design) and naming tickets from
+          it would put stale titles on screen next to a live feed; the board
+          store behind this column is the live one.
+
+          The column is always here, empty or not — see WorkingNow for why the
+          geometry holds still. Breathing, slow and low-contrast; the per-ticket
+          marks are the phone's, unchanged. See DesktopScreen.css. */}
+      <div data-role="desktop-working-panel">
         <WorkingNow
           tickets={inProgress}
           active={working}
           onOpenTicket={setOpenTicketId}
           now={now}
         />
+      </div>
+
+      <main data-role="desktop-main">
         {/* The project-switch wait, stated (12 §4.1). Switching used to give no
             sign at all: the rail's selection moved and the feed sat on whatever
             it had — nothing, on a first visit — until a round-trip landed, which
             reads as a window that has stopped working. So it says so, in flow
-            above the feed like the working strip, and for the same reason: it is
-            a fact about the whole project rather than about any one card.
+            above the feed's scroller rather than as a card in it: like the
+            in-progress column beside it, this is a fact about the whole project
+            rather than about any one card.
 
             The register is 13 §1, not a progress bar and not the accent: one
             faint line and the smallest possible turning mark. It is honest about

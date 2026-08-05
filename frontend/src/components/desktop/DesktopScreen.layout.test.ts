@@ -20,11 +20,19 @@ function ruleBody(selector: string): string {
 }
 
 describe('DesktopScreen.css', () => {
-  it('lays the shell out as two columns — the rail beside the feed', () => {
+  it('lays the shell out as three columns — rail, in-progress panel, feed', () => {
     const body = ruleBody("[data-role='desktop-screen'] {");
     expect(body).toMatch(/display:\s*grid/);
-    expect(body).toMatch(/grid-template-columns:\s*\d+px\s+minmax\(0,\s*1fr\)/);
+    // Two fixed columns of furniture, then the feed taking every remaining pixel
+    // (`minmax(0, …)` so a long unbreakable card can never push it wider than
+    // the window and start the page scrolling horizontally).
+    expect(body).toMatch(/grid-template-columns:\s*\d+px\s+\d+px\s+minmax\(0,\s*1fr\)/);
     expect(body).toMatch(/height:\s*100dvh/);
+    // The furniture must not eat the feed: at the 1024px shell threshold the two
+    // fixed columns have to leave a real reading measure behind.
+    const columns = /grid-template-columns:\s*(\d+)px\s+(\d+)px/.exec(body);
+    const fixed = Number(columns?.[1]) + Number(columns?.[2]);
+    expect(DESKTOP_MIN_WIDTH - fixed).toBeGreaterThanOrEqual(500);
   });
 
   it('locks the document so all scrolling happens inside the feed', () => {
@@ -66,9 +74,16 @@ describe('DesktopScreen.css', () => {
     // 13 §4: "If the accent is on screen, it means something. That is the entire
     // contrast budget, and spending it on anything else breaks the one loud thing
     // that is supposed to work." So this file may paint the accent EXACTLY once —
-    // the rail's needs-you dot. Not `working`, not the disconnected band, and not
-    // the send button (a window left open all day must not carry a permanently
-    // lit accent in the corner). Adding a second use is the failure this catches.
+    // the rail's needs-you dot. Not the disconnected band, and not the send
+    // button (a window left open all day must not carry a permanently lit accent
+    // in the corner). Adding a second use is the failure this catches.
+    //
+    // One thing this deliberately does NOT cover: the in-progress panel's
+    // per-ticket status marks, which are the phone's `[data-role='status-dot']`
+    // and carry the accent for `building` from PrimaryScreen.css. That is a
+    // knowing spend, made so the two platforms show the same mark for the same
+    // state rather than two vocabularies for it — and it stays out of this file
+    // precisely because it is the SHARED mark, not a desktop invention.
     const accentRules = css
       .split('}')
       .filter((rule) => rule.includes('var(--accent'))
@@ -104,25 +119,42 @@ describe('DesktopScreen.css', () => {
     const block = breathe.slice(0, breathe.indexOf('}\n}') + 3);
     expect(block).toMatch(/opacity/);
     expect(block).not.toMatch(/width/);
-    const dot = ruleBody("[data-role='desktop-working-dot'] {");
-    expect(dot).toMatch(/animation:\s*kiln-breathe/);
+    // Only the LIVE reading breathes. The panel is permanent now, so a bare
+    // `[data-role='desktop-working-dot']` animation would be a mark looping all
+    // day in a column with nothing in it — manufactured activity (13 §1).
+    expect(ruleBody("[data-role='desktop-working-dot'] {")).not.toMatch(/animation/);
+    const live = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
+    expect(live).toMatch(/animation:\s*kiln-breathe/);
   });
 
-  it('keeps the working strip in the same reading column as the feed', () => {
-    // The strip lists what is being worked on directly above the cards, so a
-    // different measure or a different gutter would read as a second column
-    // rather than as the head of this one.
-    const head = ruleBody("[data-role='desktop-working-head'] {");
-    const list = ruleBody("[data-role='desktop-working-list'] {");
-    expect(head).toMatch(/max-width:\s*720px/);
-    expect(list).toMatch(/max-width:\s*720px/);
-    expect(list).toMatch(/margin:\s*var\(--space-2\) auto 0/);
-    // And it holds its own height rather than scrolling with the feed — the
-    // whole of "not buried in the feed".
+  it('gives the in-progress panel its own column, ruled off from the feed', () => {
+    const body = ruleBody("[data-role='desktop-working-panel'] {");
+    // The separator the panel is defined by: a line on the edge it shares with
+    // the feed, because both are readings of the same project (the rail, which
+    // is furniture, sets itself apart with a recessed surface instead). It has
+    // to be legible ink and not the rail's hairline — a seam you have to look
+    // for reads as the feed's left margin, not as a region boundary.
+    expect(body).toMatch(/border-right:\s*1px solid var\(--border-strong\)/);
+    // It owns its own overflow, so a busy project scrolls the panel rather than
+    // pushing the composer off the bottom of a locked-height window.
+    expect(body).toMatch(/overflow-y:\s*auto/);
+    expect(body).toMatch(/min-height:\s*0/);
+    // And it never grows to fit a long title — a column that widened with its
+    // content would shove the feed sideways every time work started.
+    expect(body).toMatch(/min-width:\s*0/);
+    // The strip inside it holds its own height rather than stretching.
     expect(ruleBody("[data-role='desktop-working'] {")).toMatch(/flex:\s*none/);
   });
 
-  it('the working strip lists, it never measures — no bar, no ticking counter', () => {
+  it('does not restate the feed’s reading measure inside the panel', () => {
+    // The 720px measure belongs to the feed's column. Carrying it over here (as
+    // the old above-the-feed strip did, to line the two up) would now be a
+    // 720px-wide block trying to live in a 248px column.
+    expect(ruleBody("[data-role='desktop-working-head'] {")).not.toMatch(/max-width/);
+    expect(ruleBody("[data-role='desktop-working-list'] {")).not.toMatch(/max-width/);
+  });
+
+  it('the in-progress panel lists, it never measures — no bar, no ticking counter', () => {
     // 13 §8's deliberate absences. A row is a title, a word, and a relative age;
     // anything that fills or counts up converts "present" into "demanding".
     // Comments stripped first: this is about what the region DECLARES, not about
@@ -143,9 +175,10 @@ describe('DesktopScreen.css', () => {
   it('keeps the loading line in the feed’s reading column, and off the accent', () => {
     // It sits directly above the feed and says something about the whole
     // project, so it has to line up with the column it is about — a different
-    // measure or gutter reads as a second column (the working strip's rule).
-    // The accent assertion is covered in full by the budget case above; what
-    // matters here is that a *waiting* state, of all things, never spends it.
+    // measure or gutter reads as a second column, which is now literally what
+    // the region to its left is. The accent assertion is covered in full by the
+    // budget case above; what matters here is that a *waiting* state, of all
+    // things, never spends it.
     const line = ruleBody("[data-role='desktop-loading-line'] {");
     expect(line).toMatch(/max-width:\s*720px/);
     expect(line).toMatch(/margin:\s*0 auto/);

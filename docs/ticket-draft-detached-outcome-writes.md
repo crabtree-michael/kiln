@@ -2,6 +2,11 @@
 
 Drafted 2026-08-05 off `docs/root-cause-2026-08-05-part6.md` §3 step 4 and §8 item 1.
 
+> **Status: implemented in the same change that added this file.** Kept as the written record of
+> what the fix is for and what it deliberately does not cover. The one thing implementation added
+> beyond the draft is in "The change" below: `graph.run` returned on the `srv.Shutdown` error before
+> joining the background loops, so the detached write had no window to land in.
+
 Paste the title/body below into the board; the rest is working detail.
 
 ---
@@ -72,6 +77,25 @@ a status write, so detaching it is a separate decision. The recommendation is to
 same timeout: `MarkDead` already made the entry terminal, so a cancelled dead-letter is silent data
 loss with no replay to catch it. Today it fails during shutdown unconditionally, so detaching is
 strictly better than the status quo — but call it out in review rather than sliding it in.
+
+*Resolved as implemented:* detached, on the same context, with the reasoning recorded in `retire`'s
+doc comment.
+
+**What implementation added.** The worker-side change alone would not have worked in prod.
+`graph.run` (`cmd/kiln/wiring.go`) did:
+
+```go
+if err := srv.Shutdown(shutdownCtx); err != nil {
+    return fmt.Errorf("kiln: http shutdown: %w", err)   // <- always taken in prod
+}
+select {
+case <-loopsStopped:                                    // <- never reached
+...
+```
+
+Every observed prod exit takes that error path (§2's 12/12), so the process returned — and exited —
+without ever joining the background loops. A detached mark write would have been racing process
+exit. The fix holds the drain error, joins the loops, then returns it.
 
 ### Deliberately not in scope
 

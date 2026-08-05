@@ -207,17 +207,23 @@ still has no age bound, and `recordFailure` is still unreachable on that path.
 | Queue visibility timeout (P0 #3) | **Absent** — `least(power(2, attempts)::bigint, 60)` still at `runtime/postgres/store.go:110`, `:127`; the false comment at `:83-85` is still there |
 | Close SSE streams on shutdown (P1 #4) | **Absent** — 12/12 exits are `http shutdown: context deadline exceeded` |
 | Set/read `Turn.ProviderWorker` (P1 #6) | **Absent** |
-| **Detached outcome writes (new, this document)** | **Absent** — [`ticket-draft-detached-outcome-writes.md`](ticket-draft-detached-outcome-writes.md) |
+| **Detached outcome writes (new, this document)** | **LANDED** alongside this document — [`ticket-draft-detached-outcome-writes.md`](ticket-draft-detached-outcome-writes.md) |
 
 ## 8. Recommendation
 
 The ordering has changed, because the lock removed the concurrency that made #2 and #3 urgent.
 
-1. **[`ticket-draft-detached-outcome-writes.md`](ticket-draft-detached-outcome-writes.md)** — mark
-   the outcome on a context detached from shutdown. ~5 lines, no migration, and the idiom is already
-   used twice in-tree (`wiring.go:791`, `leader/leader.go:283`). This is the whole of §3 step 4, and
-   it is the cheapest thing on the list. **All four replays in this window would have retried on a
-   real backoff with a recorded error instead of instantly.**
+1. **[`ticket-draft-detached-outcome-writes.md`](ticket-draft-detached-outcome-writes.md)** —
+   **implemented in the same change as this document.** Mark the outcome on a context detached from
+   shutdown, bounded by `markTimeout`; the idiom was already used twice in-tree (`wiring.go:791`,
+   `leader/leader.go:283`). This is the whole of §3 step 4. **All four replays in this window would
+   have retried on a real backoff with a recorded error instead of instantly.**
+
+   Implementing it surfaced one thing this document's §3 did not: `graph.run` returned on the
+   `srv.Shutdown` error **before** joining the background loops, and in prod that error is never nil
+   (§3 step 2). The detached write had no window to land in. Both halves are in the change —
+   `runtime.Worker.process` detaches the write, and `cmd/kiln` holds the drain error until after the
+   loop join so there is something to land in.
 2. **[`ticket-draft-sse-shutdown.md`](ticket-draft-sse-shutdown.md)** — stops the hard kill that
    starts the chain, and reclaims the ~6 % of brain spend that
    [`brain-optimization-2026-08-05.md`](brain-optimization-2026-08-05.md) §5 attributes to retried

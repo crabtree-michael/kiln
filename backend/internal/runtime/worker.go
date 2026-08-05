@@ -31,6 +31,13 @@ type DeadLetter func(ctx context.Context, e Entry, lastErr error) error
 // costs at most one interval and a restart still finds pending work.
 const pollInterval = time.Second
 
+// markTimeout bounds the outcome write — mark done/retry/dead plus the
+// dead-letter action — which runs on a context detached from cancellation (see
+// process). Detached means shutdown cannot abort it; bounded means it cannot
+// hang the drain. 5s matches leader's unlockTimeout, and the loops are joined
+// in parallel with the HTTP drain, so it is comfortably inside the exit path.
+const markTimeout = 5 * time.Second
+
 // maxInFlightProjects bounds cross-project concurrency (11 §3): at most this
 // many projects have an entry in flight on one queue at any moment. Within a
 // project, entries stay strictly serial in id order — the single-writer-per-
@@ -104,10 +111,11 @@ func (w *Worker) Run(ctx context.Context) error {
 		case <-w.nudge:
 		case <-w.clock.After(pollInterval):
 		case <-ctx.Done():
-			// Drain: let every in-flight pass finish executing and marking. A
-			// pass that fails mid-mark because its ctx is canceled leaves its
-			// row pending with the claim's pushed-out due time — exactly the
-			// crash-between-claim-and-mark shape restart already heals (04 §5).
+			// Drain: let every in-flight pass finish executing and marking.
+			// The handler itself is cancelled with ctx, but its outcome write
+			// is not — process detaches it — so a pass killed by a deploy
+			// records a real failure and a real backoff instead of leaving the
+			// row pending on the claim's 1s due time (see process).
 			for len(busy) > 0 {
 				delete(busy, <-done)
 			}
@@ -162,22 +170,48 @@ func busyProjects(busy map[string]struct{}) []string {
 // process runs one entry's handler, then marks the outcome (04 §3 steps 2–3):
 // success → done; failure with attempts left → retry with backoff; failure at
 // MaxAttempts → dead + the per-kind dead-letter action.
+//
+// The outcome is written on a context DETACHED from ctx, because ctx is what
+// shutdown cancels. Marking on it meant a deploy killed the handler and the
+// mark together: the failure was never recorded, so the row kept the claim's
+// pushed-out due time — 1s for a fresh row, from ClaimNextDue's
+// least(power(2, attempts), 60) on the pre-update count — and the next leader
+// re-claimed it almost immediately. That replayed the whole pass with every
+// side effect the dead one had already committed, which for a brain pass means
+// re-created tickets and a second message to the user, since create_ticket /
+// say / post_update have no idempotency guard. Measured in prod: 4 of 103
+// events over 14 deploys, 3 of them user-visible as a duplicate message
+// (docs/root-cause-2026-08-05-part6.md §3–§4).
+//
+// Detaching does not make replay impossible — a hard kill still leaves the row
+// pending, which is what at-least-once means (04 §3) — but it removes the case
+// where replay was near-certain and instant, and puts a genuinely interrupted
+// entry back on the D8 backoff with its error recorded.
 func (w *Worker) process(ctx context.Context, e Entry) {
 	handleErr := w.safeHandle(ctx, e)
+	markCtx, cancel := markContext(ctx)
+	defer cancel()
 	if handleErr == nil {
-		if err := w.store.MarkDone(ctx, w.queue, e.ID); err != nil {
+		if err := w.store.MarkDone(markCtx, w.queue, e.ID); err != nil {
 			slog.Error("runtime: mark done", "queue", w.queue, "id", e.ID, "err", err)
 		}
 		return
 	}
 	if e.Attempts >= MaxAttempts {
-		w.retire(ctx, e, handleErr)
+		w.retire(markCtx, e, handleErr)
 		return
 	}
 	next := w.clock.Now().Add(backoff(e.Attempts))
-	if err := w.store.MarkRetry(ctx, w.queue, e.ID, handleErr.Error(), next); err != nil {
+	if err := w.store.MarkRetry(markCtx, w.queue, e.ID, handleErr.Error(), next); err != nil {
 		slog.Error("runtime: mark retry", "queue", w.queue, "id", e.ID, "err", err)
 	}
+}
+
+// markContext derives the outcome-write context from ctx: detached from its
+// cancellation (so shutdown cannot tear execute-then-mark in half) but carrying
+// its values (trace/turn ids stay on the log line) and bounded by markTimeout.
+func markContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), markTimeout)
 }
 
 // safeHandle runs the entry's handler with a panic guard: a panic (e.g. a nil
@@ -198,6 +232,12 @@ func (w *Worker) safeHandle(ctx context.Context, e Entry) (err error) {
 // retire dead-letters an exhausted entry (04 §3): mark it dead, then run the
 // per-kind dead-letter action. Both failures are logged, never fatal — the
 // worker keeps draining.
+//
+// ctx must already be the detached mark context (process passes it), which
+// covers the dead-letter action deliberately and not just MarkDead: the entry
+// is terminal once marked dead, so there is no retry left to deliver the
+// notification the user gets instead of the work. Losing it to a shutdown
+// cancel would be silent, and unlike a retry nothing would ever heal it.
 func (w *Worker) retire(ctx context.Context, e Entry, cause error) {
 	if err := w.store.MarkDead(ctx, w.queue, e.ID, cause.Error()); err != nil {
 		slog.Error("runtime: mark dead", "queue", w.queue, "id", e.ID, "err", err)

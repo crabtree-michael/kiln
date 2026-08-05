@@ -110,11 +110,7 @@ function isPressed(): boolean {
 
 /** Presses the body and returns the two fields it swapped itself for. */
 function startEditing(): { title: HTMLElement; body: HTMLElement } {
-  const target = bodyTarget();
-  if (target === null) {
-    throw new Error('the body is not pressable — no [data-role="detail-body-edit-target"]');
-  }
-  fireEvent.click(target);
+  fireEvent.click(pressableBody());
   return { title: screen.getByLabelText('Title'), body: screen.getByLabelText('Description') };
 }
 

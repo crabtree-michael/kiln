@@ -1,7 +1,9 @@
 // MicButton tests (09 §3): the shared mic-orb button is a presentational consumer
 // of the voice store, so `useVoice` is mocked to a fixed value per case —
 // deterministic, no mic/socket I/O. Covers the mic tap (pause while listening /
-// resume otherwise) and the connecting spinner.
+// resume otherwise), the connecting spinner, and the ticket-context registration.
+// The send/discard actions that used to live here behind `sendable` are now the
+// sheet's own cluster — see TicketDetailVoiceActions.test.tsx.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MicButton } from '@/components/MicButton';
@@ -91,53 +93,23 @@ describe('MicButton', () => {
     expect(screen.queryByText('Listening…')).toBeNull();
   });
 
-  it('stays a mic orb when send-aware but no transcript is on screen', () => {
-    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
-    const { container } = render(<MicButton sendable />);
-    expect(container.querySelector('[data-role="dock-mic-orb"]')).not.toBeNull();
-    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
-  });
-
-  it('swaps the orb for send + clear once a transcript is on screen (send-aware)', () => {
-    mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'hello', tailText: '' });
-    const { container } = render(<MicButton sendable />);
-    expect(container.querySelector('[data-role="dock-mic-orb"]')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute('data-role', 'dock-send');
-    expect(screen.getByRole('button', { name: 'Clear' })).toHaveAttribute(
-      'data-role',
-      'dock-cancel',
-    );
-  });
-
-  it('shows send + clear on a still-forming tail alone (send-aware)', () => {
-    mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: 'typing' });
-    render(<MicButton sendable />);
-    expect(screen.getByRole('button', { name: 'Send' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Clear' })).not.toBeNull();
-  });
-
-  it('send commits the shown transcript, clear discards it (send-aware)', () => {
-    const sendNow = vi.fn();
-    const cancel = vi.fn();
-    mockVoiceValue = stubVoice({ settledText: 'hello', sendNow, cancel });
-    render(<MicButton sendable />);
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(sendNow).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(cancel).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores a transcript when not send-aware (the dock owns its own send/cancel)', () => {
-    mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'hello' });
+  // The orb is the whole component on every surface: a transcript on screen never
+  // takes it away, because each placement (the dock's controls row, the desktop
+  // composer, the sheet's TicketDetailVoiceActions) renders its own send/discard
+  // AROUND it. It used to carry a `sendable` mode that swapped the orb out for
+  // those two — gone, since the sheet now keeps the mic visible while speaking.
+  it('stays a mic orb while a transcript is on screen — it renders no send/discard of its own', () => {
+    mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'hello', tailText: 'and' });
     const { container } = render(<MicButton />);
     expect(container.querySelector('[data-role="dock-mic-orb"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
   });
 
   it('registers the ticket context when placed inside a sheet and clears it on unmount', () => {
     const setTicketContext = vi.fn();
     mockVoiceValue = stubVoice({ setTicketContext });
-    const { unmount } = render(<MicButton sendable ticketContext="Ship the redesign" />);
+    const { unmount } = render(<MicButton ticketContext="Ship the redesign" />);
     expect(setTicketContext).toHaveBeenCalledWith('Ship the redesign');
     unmount();
     expect(setTicketContext).toHaveBeenLastCalledWith(null);

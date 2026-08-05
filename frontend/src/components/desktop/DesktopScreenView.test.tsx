@@ -3,10 +3,11 @@
 // made checkable: two regions and only two, the feed scoped to the selected
 // project, the states it has to hold, detail over the feed rather than beside
 // it, and a keyboard path through the column.
-import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { DesktopScreenView } from '@/components/desktop/DesktopScreenView';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
+import type { VoiceStoreValue } from '@/voice/voice-context';
 import {
   makeAgentStatus,
   makeBoard,
@@ -15,39 +16,45 @@ import {
   makeTicket,
 } from '@/test/fixtures';
 
-// The in-sheet mic and its transcript are live voice-store consumers (09). These
-// presentational tests render the shell directly (no `VoiceProvider`), so
-// `useVoice` is mocked to a static resting state — deterministic, and no
-// mic/socket I/O. Same stance as PrimaryScreenView.test.tsx.
+// The in-panel voice cluster and its transcript are live voice-store consumers
+// (09). These presentational tests render the shell directly (no `VoiceProvider`),
+// so `useVoice` is mocked to the real resting state (`paused` — the app never
+// opens listening) — deterministic, and no mic/socket I/O. Mutable so the one case
+// that needs a live mic can supply one; `beforeEach` puts it back at rest. Same
+// stance and same shape as PrimaryScreenView.test.tsx.
+let mockVoiceValue: VoiceStoreValue;
+
+function restingVoice(overrides: Partial<VoiceStoreValue> = {}): VoiceStoreValue {
+  return {
+    micState: 'paused',
+    connecting: false,
+    settledText: '',
+    tailText: '',
+    pause: vi.fn(),
+    resume: vi.fn(),
+    cancel: vi.fn(),
+    sendNow: vi.fn(),
+    countingDown: false,
+    sendImminent: false,
+    delaySend: vi.fn(),
+    getSendCountdown: vi.fn(() => null),
+    editing: false,
+    beginEdit: vi.fn(),
+    editTranscript: vi.fn(),
+    endEdit: vi.fn(),
+    getLevel: vi.fn(() => 0),
+    keyboardMode: false,
+    openKeyboard: vi.fn(),
+    closeKeyboard: vi.fn(),
+    submitText: vi.fn(() => Promise.resolve(true)),
+    setTicketContext: vi.fn(),
+    ...overrides,
+  };
+}
+
 vi.mock('@/voice/voice-context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/voice/voice-context')>();
-  return {
-    ...actual,
-    useVoice: () => ({
-      micState: 'paused' as const,
-      connecting: false,
-      settledText: '',
-      tailText: '',
-      pause: vi.fn(),
-      resume: vi.fn(),
-      cancel: vi.fn(),
-      sendNow: vi.fn(),
-      countingDown: false,
-      sendImminent: false,
-      delaySend: vi.fn(),
-      getSendCountdown: vi.fn(() => null),
-      editing: false,
-      beginEdit: vi.fn(),
-      editTranscript: vi.fn(),
-      endEdit: vi.fn(),
-      getLevel: vi.fn(() => 0),
-      keyboardMode: false,
-      openKeyboard: vi.fn(),
-      closeKeyboard: vi.fn(),
-      submitText: vi.fn(() => Promise.resolve(true)),
-      setTicketContext: vi.fn(),
-    }),
-  };
+  return { ...actual, useVoice: (): VoiceStoreValue => mockVoiceValue };
 });
 
 const NOW = Date.parse('2026-08-04T12:00:00Z');
@@ -123,6 +130,10 @@ function renderShell(overrides: Partial<React.ComponentProps<typeof DesktopScree
 }
 
 describe('DesktopScreenView', () => {
+  beforeEach(() => {
+    mockVoiceValue = restingVoice();
+  });
+
   it('is three regions — rail, in-progress panel, feed — and nothing else', () => {
     const { container } = renderShell();
     expect(container.querySelector('[data-role="desktop-rail"]')).not.toBeNull();
@@ -463,6 +474,51 @@ describe('DesktopScreenView', () => {
     // drag axis — jsdom does no layout, so this is the only thing in the gate
     // that can see the panel is anchored where the CSS expects it.
     expect(dialog.getAttribute('data-vaul-drawer-direction')).toBe('right');
+  });
+
+  // The footer swap reaches the desk on the same wiring as the phone (the sheet
+  // is one component either way) — this pins that this shell passes it too, since
+  // the seam is per-shell state and forgetting one is the obvious way to ship it
+  // half-done.
+  it('swaps the panel’s Accept for the mic’s Send and × while a voice session is live', () => {
+    mockVoiceValue = restingVoice({ micState: 'listening', settledText: 'make it two columns' });
+    const ticket = makeTicket({
+      id: 't1',
+      title: 'auth refresh',
+      body: 'a proposal body',
+      state: 'shaping',
+      priority: 1,
+      createdAt: '2026-08-04T11:00:00Z',
+      updatedAt: '2026-08-04T11:00:00Z',
+    });
+    renderShell({
+      feed: makeFeedSnapshot({
+        cards: [
+          makeFeedCard({
+            kind: 'proposal',
+            id: 'c3',
+            label: 'auth refresh',
+            body: 'a proposal body',
+            createdAt: '2026-08-04T11:30:00Z',
+            ticketId: 't1',
+          }),
+        ],
+      }),
+      board: makeBoard({ shaping: [ticket] }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: auth refresh' }));
+
+    // Scoped to the panel: the feed card behind it keeps its own in-place Accept,
+    // which is a different affordance and stays put.
+    const dialog = screen.getByRole('dialog', { name: 'auth refresh' });
+    expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Send' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+    expect(
+      within(dialog)
+        .getByRole('button', { name: 'Talk' })
+        .closest('[data-role="ticket-detail-voice-actions"]'),
+    ).toHaveAttribute('data-position', 'trail');
   });
 
   it('accepts a proposal in place, without opening it first', () => {

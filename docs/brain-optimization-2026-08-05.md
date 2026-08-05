@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-05 · **Service:** `srv-d953nmcvikkc73d8aq60` (`kiln`, prod)
 **Log window:** 2026-08-02T18:15Z → 2026-08-05T11:52Z (~2.77 days, 17.9k log records)
-**Status:** investigation + proposal. Nothing implemented; scoping left for review.
+**Status:** investigation + proposal. Recommendation C (`effort`) has since landed at
+`medium`; A, B, D, and E are still unimplemented and left for review.
 
 > The brain is not a separate Render service — it is `internal/brain` inside the single
 > `kiln` web service. All figures below are reconstructed from the structured `brain: llm
@@ -162,7 +163,14 @@ for a few lines in `tools.go`. Two options, and I'd want your preference before 
 Option 2 treats the cause; option 1 treats the symptom in an afternoon. Either way the
 golden decision tests pin the outcome.
 
-### B. Return allowed transitions from `get_ticket`
+**Shipped: option 1.** `PostUpdateInput` now carries a `text` field that `resolvedBody()`
+falls back to when `body` is blank; the schema still advertises `body` alone, so the two
+names never compete for the model's attention. `TestDispatch_PostUpdate_TextAliasesBody`
+pins either key posting the card, `body` winning when both carry text, and the blank-both
+case still rejected. `edit_update` keeps `body` as its only key — the log window shows no
+wrong-key calls there.
+
+### B. Return allowed transitions from `get_ticket` — **shipped**
 
 **Fixes the preventable ~57 of §2.** Have `get_ticket` (and the `list_tickets` rows)
 include the transitions the ticket's current state actually permits, so the model stops
@@ -170,7 +178,20 @@ guessing. This keeps the board's preconditions authoritative — it just stops m
 model discover them by trial. The ~25 idempotency errors stay exactly as they are, because
 06 §6 depends on them.
 
-### C. Set `output_config.effort` explicitly, and sweep it
+> **Landed 2026-08-05.** Both reads carry an `allowed now:` line in tool phrasing
+> (`update_ticket state="ready"`, `send_to_agent`, `delete_ticket`); `get_ticket` writes it
+> per ticket, `list_tickets` once per column, since the allowed set is a function of state
+> and a column is one state — so a roster of any size costs five lines. It covers all 57,
+> not just the 13 `MarkReady` ones: a working/blocked ticket's line omits
+> `title/body/priority`, which is where the other 44 came from. The preconditions moved
+> into one table (`board/transitions.go`) that the operations' own guards and
+> `State.AllowedOps()` both read, so the advertised set cannot drift from the guard; the
+> cross-check test runs all 45 state×operation pairs against the real Board API. The
+> refusal itself is untouched — an `ErrInvalidTransition` still comes back verbatim with no
+> allowed-list appended, because 06 §6 reads it as already-done and naming the alternatives
+> there would invite the retry that rule forbids.
+
+### C. Set `output_config.effort` explicitly, and sweep it — **shipped at `medium`**
 
 **Addresses §4.** Add `effort` to `brain.Config`, resolved at the composition root
 alongside `Model` (backend-only, same as the model — not user-configurable). Start at
@@ -180,6 +201,11 @@ Sonnet 4.6 at `high`, so there is real headroom here for a dispatcher.
 **Do this one first.** It is the smallest diff in the list, needs no schema or prompt
 change, and its effect is measurable in a day from the existing `brain: llm round`
 records.
+
+> **Landed 2026-08-05.** `brain.Config.Effort` + `DefaultEffort = medium`, resolved at the
+> composition root from `KILN_BRAIN_EFFORT` (`llm.go`, `cmd/kiln`). The further sweep to
+> `low` is deliberately not taken yet — medium is the accepted setting; the env var makes
+> the sweep a config change when there is a baseline to measure it against.
 
 ### D. Log the cache-write TTL split (prerequisite, not an optimization)
 

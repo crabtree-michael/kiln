@@ -346,8 +346,15 @@ func buildTenantProviders(
 	if model == "" {
 		model = brain.DefaultModel
 	}
+	// Output effort gets the same treatment as the model (06 §2): KILN_BRAIN_EFFORT
+	// (parsed into cfg.BrainEffort) when set, else brain.DefaultEffort — backend-only,
+	// never a per-project/user knob.
+	effort := brain.Effort(cfg.BrainEffort)
+	if effort == "" {
+		effort = brain.DefaultEffort
+	}
 	gateMode := brain.GateMode(rc.Project.MergeGateMode)
-	llm := newBrainLLM(cfg, model, scriptedBrain)
+	llm := newBrainLLM(cfg, model, effort, scriptedBrain)
 
 	brainSvc := brain.NewService(
 		&boardAPIAdapter{svc: boardSvc, projectID: pid},
@@ -359,7 +366,7 @@ func buildTenantProviders(
 		&agentInspectorAdapter{inner: agentSvc, projectID: pid},
 		&repoShellAdapter{inner: repoShell},
 		llm,
-		brain.Config{Model: model, GateMode: gateMode},
+		brain.Config{Model: model, Effort: effort, GateMode: gateMode},
 	)
 
 	return &tenant.Providers{
@@ -372,13 +379,14 @@ func buildTenantProviders(
 	}, nil
 }
 
-// newBrainLLM builds the brain's Anthropic adapter for a project's model. The
+// newBrainLLM builds the brain's Anthropic adapter for a project's model and
+// output effort — both deployment-wide settings, resolved by the caller. The
 // Anthropic key is a deployment-global setting (ANTHROPIC_API_KEY via Config),
 // not per-user config: every project's brain drives the same key rather than
 // rc.AnthropicAPIKey (dormant — kept for a future per-user path). An empty key
 // falls back to the SDK's own env/credential lookup, so the "unconfigured boot"
 // behavior is unchanged.
-func newBrainLLM(cfg Config, model string, scriptedBrain brain.LLM) brain.LLM {
+func newBrainLLM(cfg Config, model string, effort brain.Effort, scriptedBrain brain.LLM) brain.LLM {
 	// KILN_BRAIN_MODE=scripted (design §3.1): every project shares the one
 	// fixture-driven LLM loaded at startup, so the loop runs with no Anthropic
 	// key. It is stateless, so sharing across projects is safe.
@@ -386,9 +394,12 @@ func newBrainLLM(cfg Config, model string, scriptedBrain brain.LLM) brain.LLM {
 		return scriptedBrain
 	}
 	if cfg.AnthropicAPIKey != "" {
-		return brain.NewAdapterWithClient(brain.Config{Model: model}, option.WithAPIKey(cfg.AnthropicAPIKey))
+		return brain.NewAdapterWithClient(
+			brain.Config{Model: model, Effort: effort},
+			option.WithAPIKey(cfg.AnthropicAPIKey),
+		)
 	}
-	return brain.NewAdapter(brain.Config{Model: model})
+	return brain.NewAdapter(brain.Config{Model: model, Effort: effort})
 }
 
 // validateConfig checks the composition-root mode switches once at startup and

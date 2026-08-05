@@ -263,13 +263,13 @@ func TestDispatch_PostUpdate_RoutesToNotificationStore(t *testing.T) {
 	}{
 		{
 			name:     "update (no image)",
-			input:    brain.PostUpdateInput{Body: "build is green", Ticket: &ticket},
-			wantKind: "update",
+			input:    brain.PostUpdateInput{Body: updateBuildIsGreen, Ticket: &ticket},
+			wantKind: notifKindUpdate,
 		},
 		{
 			name:     "preview (image set)",
 			input:    brain.PostUpdateInput{Body: "have a look", Ticket: &ticket, ImageURL: &img},
-			wantKind: "preview",
+			wantKind: notifKindPreview,
 		},
 	}
 
@@ -305,13 +305,80 @@ func TestDispatch_PostUpdate_RoutesToNotificationStore(t *testing.T) {
 	}
 }
 
-// TestDispatch_PostUpdate_EmptyBodyRejected pins that post_update with an empty
-// body is rejected as a malformed call (06 §8) rather than silently posting a
-// bodyless card. "body" is a required field; an empty value — whether the model
-// omitted it, sent whitespace, or put its prose under the wrong key (e.g. "text",
-// which the sibling say tool uses) — must come back as an error ToolResult and
-// must NOT reach NotificationStore.PostNotification. Otherwise the brain is told
-// "ok", believes it posted, and the user sees a header + timestamp with no text.
+// TestDispatch_PostUpdate_TextAliasesBody pins that post_update takes its prose
+// under "text" as well as "body". The schema asks for "body", but the sibling
+// say tool takes "text" and the model reaches for that key often enough that
+// rejecting it only bought a wasted round-trip before it self-corrected
+// (docs/brain-optimization-2026-08-05.md §1). Either key posts the card, "body"
+// wins when both carry text, and a blank "body" falls through to "text" —
+// everything else about the call (kind derivation, ticket, image) is unchanged.
+func TestDispatch_PostUpdate_TextAliasesBody(t *testing.T) {
+	img := "https://example.test/preview.png"
+
+	cases := []struct {
+		name     string
+		input    []byte
+		wantBody string
+		wantKind string
+	}{
+		{
+			name:     "text alone",
+			input:    []byte(`{"text": "build is green", "ticket": "t-7"}`),
+			wantBody: updateBuildIsGreen,
+			wantKind: notifKindUpdate,
+		},
+		{
+			name:     "body wins over text",
+			input:    []byte(`{"body": "build is green", "text": "ignored"}`),
+			wantBody: updateBuildIsGreen,
+			wantKind: notifKindUpdate,
+		},
+		{
+			name:     "blank body falls through to text",
+			input:    []byte(`{"body": "   \n", "text": "build is green"}`),
+			wantBody: updateBuildIsGreen,
+			wantKind: notifKindUpdate,
+		},
+		{
+			name:     "text with an image is still a preview",
+			input:    []byte(`{"text": "have a look", "image_url": "` + img + `"}`),
+			wantBody: "have a look",
+			wantKind: notifKindPreview,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := &fakeNotifications{}
+			svc := newTestServiceN(&fakeBoard{}, &fakeSay{}, fn, &fakeConvo{}, &scriptedLLM{})
+
+			call := brain.ToolCall{ID: "pu-alias", Name: brain.ToolPostUpdate, Input: tc.input}
+			result := svc.Dispatch(context.Background(), call)
+
+			if result.IsError {
+				t.Fatalf("ToolResult.IsError = true, want false (Content: %q)", result.Content)
+			}
+			posts := fn.posted()
+			if len(posts) != 1 {
+				t.Fatalf("PostNotification called %d times, want 1", len(posts))
+			}
+			if posts[0].Body != tc.wantBody {
+				t.Errorf("body = %q, want %q", posts[0].Body, tc.wantBody)
+			}
+			if posts[0].Kind != tc.wantKind {
+				t.Errorf("kind = %q, want %q", posts[0].Kind, tc.wantKind)
+			}
+		})
+	}
+}
+
+// TestDispatch_PostUpdate_EmptyBodyRejected pins that post_update with no text
+// under either accepted key is rejected as a malformed call (06 §8) rather than
+// silently posting a bodyless card. An empty value — omitted, whitespace, or
+// blank under both "body" and its "text" alias — must come back as an error
+// ToolResult and must NOT reach NotificationStore.PostNotification. Otherwise
+// the brain is told "ok", believes it posted, and the user sees a header +
+// timestamp with no text.
 func TestDispatch_PostUpdate_EmptyBodyRejected(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -320,7 +387,7 @@ func TestDispatch_PostUpdate_EmptyBodyRejected(t *testing.T) {
 		{name: "body omitted", input: []byte(`{"ticket": "t-1"}`)},
 		{name: "body empty string", input: []byte(`{"body": ""}`)},
 		{name: "body whitespace only", input: []byte(`{"body": "   \n\t"}`)},
-		{name: "prose under wrong key", input: []byte(`{"text": "build is green"}`)},
+		{name: "text alias empty too", input: []byte(`{"body": "", "text": "  "}`)},
 	}
 
 	for _, tc := range cases {

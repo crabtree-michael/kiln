@@ -278,10 +278,12 @@ describe('TicketDetail', () => {
       render(
         <TicketDetail ticket={proposal} onClose={vi.fn()} onAccept={vi.fn()} voiceControl={mic} />,
       );
-      const lead = within(screen.getByRole('dialog'))
+      const cluster = within(screen.getByRole('dialog'))
         .getByText('mic')
-        .closest('[data-role="ticket-detail-lead-actions"]');
-      expect(lead).not.toBeNull();
+        .closest('[data-role="ticket-detail-voice-actions"]');
+      expect(cluster).not.toBeNull();
+      // At rest it is the row's lead: the auto margin that pins it left.
+      expect(cluster).toHaveAttribute('data-position', 'lead');
       // It shares the footer with the trailing Accept action.
       expect(
         within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }),
@@ -292,16 +294,98 @@ describe('TicketDetail', () => {
       // The mic is no longer shaping-only: it is the one communication surface
       // shared across every ticket state, so a working ticket shows it as well.
       render(<TicketDetail ticket={working} onClose={vi.fn()} voiceControl={mic} />);
-      const lead = within(screen.getByRole('dialog'))
+      const cluster = within(screen.getByRole('dialog'))
         .getByText('mic')
-        .closest('[data-role="ticket-detail-lead-actions"]');
-      expect(lead).not.toBeNull();
+        .closest('[data-role="ticket-detail-voice-actions"]');
+      expect(cluster).not.toBeNull();
     });
 
-    it('renders no lead cluster when the caller wires no voice control (read-only inspection)', () => {
+    it('renders no voice cluster when the caller wires no voice control (read-only inspection)', () => {
       render(<TicketDetail ticket={proposal} onClose={vi.fn()} onAccept={vi.fn()} />);
       expect(within(screen.getByRole('dialog')).queryByText('mic')).toBeNull();
-      expect(document.querySelector('[data-role="ticket-detail-lead-actions"]')).toBeNull();
+      expect(document.querySelector('[data-role="ticket-detail-voice-actions"]')).toBeNull();
+    });
+
+    // A live voice session rearranges the footer: the cluster crosses to the
+    // trailing group (so the mic sits beside the Send and × its own node renders)
+    // and Accept — whose slot Send takes — stands down until the session ends.
+    // TicketDetail is voice-store-agnostic, so the reading arrives as a prop.
+    it('moves the voice cluster to the trailing group and withholds Accept while speaking', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          voiceControl={mic}
+          voiceActive
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      const cluster = within(dialog)
+        .getByText('mic')
+        .closest('[data-role="ticket-detail-voice-actions"]');
+      expect(cluster).toHaveAttribute('data-position', 'trail');
+      expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+    });
+
+    it('brings Accept back in its normal place the moment the session ends', () => {
+      const { rerender } = render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          voiceControl={mic}
+          voiceActive
+        />,
+      );
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+      rerender(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          voiceControl={mic}
+          voiceActive={false}
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: 'Accept' })).toBeInTheDocument();
+      expect(
+        within(dialog).getByText('mic').closest('[data-role="ticket-detail-voice-actions"]'),
+      ).toHaveAttribute('data-position', 'lead');
+    });
+
+    it('leaves Delete and Poke alone while speaking (only Accept stands down)', () => {
+      render(
+        <TicketDetail
+          ticket={makeTicket({
+            id: 't-blocked',
+            title: 'Stuck',
+            body: 'body',
+            state: 'blocked',
+            priority: 2,
+            createdAt: '2026-07-01T00:00:00Z',
+            updatedAt: '2026-07-01T00:00:00Z',
+          })}
+          onClose={vi.fn()}
+          onDelete={vi.fn()}
+          onPoke={vi.fn()}
+          voiceControl={mic}
+          voiceActive
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Poke' })).toBeInTheDocument();
+    });
+
+    it('ignores voiceActive when no voice control is wired (a read-only sheet keeps Accept)', () => {
+      render(
+        <TicketDetail ticket={proposal} onClose={vi.fn()} onAccept={vi.fn()} voiceActive />, // no mic
+      );
+      expect(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }),
+      ).toBeInTheDocument();
     });
 
     // The live transcript slot. TicketDetail is voice-store-agnostic, so a plain

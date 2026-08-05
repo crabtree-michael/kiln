@@ -24,6 +24,34 @@ const DefaultModel = "claude-sonnet-5"
 // directly as a fallback so it is usable standalone.
 const ModelEnvVar = "KILN_BRAIN_MODEL"
 
+// Effort is one round's output-effort level — Anthropic's
+// output_config.effort, which governs how much deliberation and how many
+// tokens the model spends before answering. Declared here rather than taken
+// from the SDK so Config stays free of provider types, like the rest of this
+// module's ports.
+type Effort string
+
+const (
+	EffortLow    Effort = "low"
+	EffortMedium Effort = "medium"
+	EffortHigh   Effort = "high"
+	EffortXHigh  Effort = "xhigh"
+	EffortMax    Effort = "max"
+)
+
+// DefaultEffort is the default output effort (06 §2). The API's own default is
+// "high", which is the wrong shape for this caller: the brain is a tool-calling
+// dispatcher with thinking explicitly disabled (see Do), so it spends the extra
+// deliberation budget on every round of every pass without a decision that
+// needs it. Medium buys that cost and latency back. Override via
+// KILN_BRAIN_EFFORT.
+const DefaultEffort = EffortMedium
+
+// EffortEnvVar overrides DefaultEffort when set (06 §2). Same treatment as
+// ModelEnvVar: normally parsed into Config.Effort at the composition root, with
+// the Adapter also consulting it directly so it is usable standalone.
+const EffortEnvVar = "KILN_BRAIN_EFFORT"
+
 // maxOutputTokens caps one round's generation. The brain emits short tool
 // calls and status text, not long prose, so a small ceiling is plenty and
 // keeps latency down (06 §5's cost/latency envelope).
@@ -52,6 +80,9 @@ const (
 // declares the defaults and the shape; the wiring lives in backend/cmd/kiln.
 type Config struct {
 	Model string
+	// Effort is the per-round output-effort level (06 §2); empty means
+	// DefaultEffort. Backend-only, exactly like Model — not a per-project knob.
+	Effort Effort
 	// GateMode selects the done gate (06 §7); empty means GateMain.
 	GateMode GateMode
 }
@@ -203,6 +234,11 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 		// brain a lean, low-latency dispatcher; a no-op on models that don't think
 		// by default (e.g. Haiku). Revisit if the eval set (§9) wants deliberation.
 		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
+		// Effort is set explicitly rather than left to the API's "high" default
+		// (06 §2): with thinking off, a dispatcher round is a tool selection, not
+		// a deliberation, so the default's budget was being paid on every round of
+		// every pass. See DefaultEffort.
+		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(a.effort())},
 	}
 	if req.System != "" {
 		params.System = []anthropic.TextBlockParam{{
@@ -285,6 +321,20 @@ func (a *Adapter) model() string {
 		return env
 	}
 	return DefaultModel
+}
+
+// effort resolves the output-effort level (06 §2): Config.Effort, else the
+// KILN_BRAIN_EFFORT env var, else DefaultEffort. An unrecognized value is
+// passed through rather than corrected — the API rejects it loudly, which is
+// easier to diagnose than a silent downgrade of an intended setting.
+func (a *Adapter) effort() Effort {
+	if a.Config.Effort != "" {
+		return a.Config.Effort
+	}
+	if env := os.Getenv(EffortEnvVar); env != "" {
+		return Effort(env)
+	}
+	return DefaultEffort
 }
 
 // toSDKMessages maps this module's conversation onto the SDK's message params.

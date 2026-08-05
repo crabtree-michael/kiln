@@ -15,6 +15,7 @@ import {
 } from '@/test/fixtures';
 import { acceptTicket } from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
+import type { VoiceStoreValue } from '@/voice/voice-context';
 
 /**
  * jsdom performs no layout, so a card body's `scrollHeight`/`clientHeight` are
@@ -33,40 +34,52 @@ vi.mock('@/transport/transport', async (importOriginal) => {
   return { ...actual, acceptTicket: vi.fn() };
 });
 
-// The dock and the in-sheet mic (`MicButton`) are live voice-store consumers
-// (09). These presentational tests render `PrimaryScreenView` directly (no
-// `VoiceProvider`), so `useVoice` is mocked to a static resting state —
-// deterministic, and no mic/socket I/O. The dock's own state rendering is covered
-// by Dock.test.tsx / Dock.snapshot.test.tsx.
+// The dock and the sheet's voice cluster (`TicketDetailVoiceActions`) are live
+// voice-store consumers (09). These presentational tests render
+// `PrimaryScreenView` directly (no `VoiceProvider`), so `useVoice` is mocked to a
+// static resting state — deterministic, and no mic/socket I/O. The dock's own
+// state rendering is covered by Dock.test.tsx / Dock.snapshot.test.tsx.
+//
+// `paused` is the REAL resting state (`initialVoiceState` — the app never opens
+// listening), and it matters here rather than being a detail: a listening mic is
+// a live voice session, which moves the sheet's mic to the trailing group and
+// stands Accept down. Mocking it as `listening` would put every sheet in this file
+// into the speaking arrangement. The value is a mutable module-level binding (the
+// MicButton.test.tsx pattern) so the one case that needs a live mic can supply
+// one; `beforeEach` puts it back at rest for everything else.
+let mockVoiceValue: VoiceStoreValue;
+
+function restingVoice(overrides: Partial<VoiceStoreValue> = {}): VoiceStoreValue {
+  return {
+    micState: 'paused',
+    connecting: false,
+    settledText: '',
+    tailText: '',
+    pause: vi.fn(),
+    resume: vi.fn(),
+    cancel: vi.fn(),
+    sendNow: vi.fn(),
+    countingDown: false,
+    sendImminent: false,
+    delaySend: vi.fn(),
+    getSendCountdown: vi.fn(() => null),
+    editing: false,
+    beginEdit: vi.fn(),
+    editTranscript: vi.fn(),
+    endEdit: vi.fn(),
+    getLevel: vi.fn(() => 0),
+    keyboardMode: false,
+    openKeyboard: vi.fn(),
+    closeKeyboard: vi.fn(),
+    submitText: vi.fn(() => Promise.resolve(true)),
+    setTicketContext: vi.fn(),
+    ...overrides,
+  };
+}
+
 vi.mock('@/voice/voice-context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/voice/voice-context')>();
-  return {
-    ...actual,
-    useVoice: () => ({
-      micState: 'listening' as const,
-      connecting: false,
-      settledText: '',
-      tailText: '',
-      pause: vi.fn(),
-      resume: vi.fn(),
-      cancel: vi.fn(),
-      sendNow: vi.fn(),
-      countingDown: false,
-      sendImminent: false,
-      delaySend: vi.fn(),
-      getSendCountdown: vi.fn(() => null),
-      editing: false,
-      beginEdit: vi.fn(),
-      editTranscript: vi.fn(),
-      endEdit: vi.fn(),
-      getLevel: vi.fn(() => 0),
-      keyboardMode: false,
-      openKeyboard: vi.fn(),
-      closeKeyboard: vi.fn(),
-      submitText: vi.fn(() => Promise.resolve(true)),
-      setTicketContext: vi.fn(),
-    }),
-  };
+  return { ...actual, useVoice: (): VoiceStoreValue => mockVoiceValue };
 });
 
 const NOW = new Date('2026-07-04T10:00:00Z').getTime();
@@ -134,6 +147,7 @@ function renderView(feed: ViewProps['feed'], extra: Partial<ViewProps> = {}) {
 describe('PrimaryScreenView', () => {
   beforeEach(() => {
     vi.mocked(acceptTicket).mockReset();
+    mockVoiceValue = restingVoice();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -608,6 +622,60 @@ describe('PrimaryScreenView', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept' }));
     expect(onAccept).toHaveBeenCalledWith('t-login');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // The footer swap, wired end to end: the sheet's voice cluster reads the live
+  // mic, reports it up here, and this screen hands it back as `voiceActive`. The
+  // two halves are unit-tested next door (TicketDetailVoiceActions reports,
+  // TicketDetail rearranges) — this is the seam between them, which is exactly
+  // where forgetting to pass the prop on one shell would hide.
+  it('swaps Accept for the mic’s Send and × while a voice session is live in the sheet', () => {
+    mockVoiceValue = restingVoice({ micState: 'listening', settledText: 'make it two columns' });
+    const ticket = makeTicket({
+      id: 't-login',
+      title: 'Login Redesign',
+      body: 'Rework the login screen.',
+      state: 'shaping',
+      priority: 2,
+      createdAt: minutesAgo(5),
+      updatedAt: minutesAgo(1),
+    });
+    render(
+      <PrimaryScreenView
+        feed={makeFeedSnapshot({
+          summary: { stream_count: 1 },
+          cards: [
+            makeFeedCard({
+              kind: 'proposal',
+              id: 'proposal:t-login',
+              label: 'Login Redesign',
+              body: 'Rework the login screen.',
+              ticketId: 't-login',
+              createdAt: minutesAgo(1),
+            }),
+          ],
+        })}
+        board={makeBoard({ shaping: [ticket] })}
+        connectionState="connected"
+        thinking={false}
+        toasts={[]}
+        onDismiss={noop}
+        onAccept={vi.fn()}
+        now={NOW}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open ticket: Login Redesign' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Login Redesign' });
+    // Accept has stood down and the trailing slot is Send's...
+    expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Send' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+    // ...and the mic went with them, out of the footer's bottom-left.
+    const cluster = within(dialog)
+      .getByRole('button', { name: 'Talk' })
+      .closest('[data-role="ticket-detail-voice-actions"]');
+    expect(cluster).toHaveAttribute('data-position', 'trail');
   });
 
   // The per-ticket sandbox option reaches the sheet from the composing screen and,

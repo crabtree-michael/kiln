@@ -115,7 +115,7 @@ func TestUpdateTicket_PartialFailureReportsAppliedSteps(t *testing.T) {
 // list_updates routes to FeedReader.ListUpdates and surfaces the card ids.
 func TestDispatch_ListUpdates_RoutesToFeedReader(t *testing.T) {
 	ff := &fakeFeed{updates: []brain.Update{
-		{ID: 7, Kind: "update", Body: "shipped the parser"},
+		{ID: 7, Kind: notifKindUpdate, Body: "shipped the parser"},
 	}}
 	svc := newTestServiceF(&fakeBoard{}, &fakeSay{}, ff, &fakeConvo{}, &scriptedLLM{})
 
@@ -153,7 +153,7 @@ func TestDispatch_EditUpdate_RoutesToNotificationStore(t *testing.T) {
 		t.Fatalf("EditNotification calls = %d, want 1", len(edits))
 	}
 	e := edits[0]
-	if e.ID != 9 || e.Kind != "preview" || e.Body != "amended text" || e.ImageURL == nil || *e.ImageURL != img {
+	if e.ID != 9 || e.Kind != notifKindPreview || e.Body != "amended text" || e.ImageURL == nil || *e.ImageURL != img {
 		t.Errorf("edit = %+v, want id=9 kind=preview body='amended text' image=%q", e, img)
 	}
 }

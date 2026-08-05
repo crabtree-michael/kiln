@@ -186,6 +186,27 @@ export interface TicketDetailProps {
    * primary screen (under a `VoiceProvider`) wires it — a sheet opened without one
    * keeps the mic omitted (read-only inspection). */
   voiceControl?: ReactNode;
+  /** Whether a voice session is live on this ticket right now — the mic is up, or
+   * there are spoken words waiting to be sent. It rearranges the footer, and only
+   * the footer:
+   *
+   *   • the voice cluster (`voiceControl`) crosses from the bottom-LEFT to the
+   *     trailing group, so the mic sits beside the Send and × that act on what it
+   *     is hearing rather than across the row from them; and
+   *   • **Accept is withheld** for the duration. Its slot is the one Send takes,
+   *     and the primary decision about a proposal has no business under the thumb
+   *     of someone mid-sentence. It returns, in its normal place, the moment the
+   *     session ends (sent, discarded, or the mic stopped).
+   *
+   * Delete and Poke are untouched — they are quiet icon secondaries either way.
+   *
+   * It is a plain boolean, passed in, for the same reason `voiceControl` and
+   * `transcript` are nodes: this component stays free of the voice store. The
+   * caller gets it from `TicketDetailVoiceActions`'s `onActiveChange`, which
+   * reports a *reading* rather than a transcript — so the screen above re-renders
+   * when the footer's shape changes, not once a word. Defaults false, so a
+   * read-only sheet (and every caller that wires no voice) is unchanged. */
+  voiceActive?: boolean;
   /** The live voice transcript, rendered in the sheet's dock directly above the
    * action buttons — the on-screen feedback for `voiceControl`, so it rides the
    * same gate (shown whenever the mic is wired, i.e. any state on the primary
@@ -333,6 +354,7 @@ export function TicketDetail({
   onEditText,
   agentIdle = false,
   voiceControl,
+  voiceActive = false,
   transcript,
   surface = 'debug',
   placement = 'bottom',
@@ -342,11 +364,14 @@ export function TicketDetail({
   //  • every state     → the mic (when wired): the unified communication surface
   //                      (08 §5) — the user can start talking to the brain from any
   //                      ticket. Replaces the old blocked-only "Talk to unblock"
-  //                      button so all ticket types share one interface.
-  //  • shaping         → Accept (when wired): the proposal click-through (08 §5) —
-  //                      accepting is what moves a shaped proposal into the pull,
-  //                      so it only makes sense here. Every later state has already
-  //                      been accepted, so the button is gone.
+  //                      button so all ticket types share one interface. While a
+  //                      voice session is live it brings Send and × with it to the
+  //                      row's trailing end (`voiceActive`).
+  //  • shaping         → Accept (when wired, and no voice session live): the
+  //                      proposal click-through (08 §5) — accepting is what moves a
+  //                      shaped proposal into the pull, so it only makes sense here.
+  //                      Every later state has already been accepted, so the button
+  //                      is gone.
   //  • working|blocked → Poke (when wired): a manual nudge to continue for a
   //                      stalled agent, routed through the brain (never a direct
   //                      agent command, D5). On a working ticket it only shows once
@@ -422,14 +447,19 @@ export function TicketDetail({
   // TypeScript narrows it to defined (a derived boolean wouldn't narrow, and the
   // lint gate rejects the optional chain the alternative would need).
   const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
+  // A live voice session on this ticket — only meaningful when a mic is actually
+  // wired, so a caller can't put the footer into the speaking arrangement with
+  // nothing to speak into. While it holds, the voice cluster moves to the
+  // trailing group and Accept stands down (see the prop's doc).
+  const inVoiceMode = voiceControl !== undefined && voiceActive;
   const canAccept = isShaping && onAccept !== undefined;
-  // The bottom-left lead cluster holds the sheet's secondary affordances — the
-  // voice mic and the Delete button — wired only on the primary screen (a
-  // read-only sheet leaves both undefined). They sit left of the trailing
-  // Accept/Poke — the bottom-left pair 08 §5 calls for. The mic now shows on every
-  // ticket state (the unified communication surface — start talking from any
-  // ticket), so it is gated only on being wired; Delete shows in any
-  // DELETABLE_STATES state (shaping or blocked).
+  // The voice cluster — the mic and, while it is live, its Send and × — wired only
+  // on the primary screen (a read-only sheet leaves it undefined). At rest it is
+  // the bottom-left half of the pair 08 §5 calls for, opposite the trailing
+  // Accept/Poke; while a session is live it crosses over to join them
+  // (`inVoiceMode` above). It shows on every ticket state (the unified
+  // communication surface — start talking from any ticket), so it is gated only on
+  // being wired; Delete shows in any DELETABLE_STATES state (shaping or blocked).
   const showVoice = voiceControl !== undefined;
   const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
   // Whether the sheet is in edit mode, and whether it can be entered at all —
@@ -878,10 +908,15 @@ export function TicketDetail({
                           routed through the brain (delete_ticket, D5). A
                           destructive secondary sitting left of Accept.
                • Accept → the proposal click-through (08 §5), shaping-only (every
-                          later state has already been accepted).
-              The lead cluster (mic + Delete) and Poke sit first (left); the state's
-              primary action (Accept) stays rightmost, where flex-end makes it the
-              most prominent. The quiet affordances here read as icons only — the mic
+                          later state has already been accepted) — and only while
+                          no voice session is live: mid-utterance its slot belongs
+                          to Send (`voiceActive`).
+              The voice cluster sits first (left) at rest and Poke/Delete after it;
+              the state's primary action (Accept) stays rightmost, where flex-end
+              makes it the most prominent. While the mic is up the cluster crosses
+              to the end of the row and takes that slot instead, so the trailing
+              group reads Send, ×, mic from the right edge inward. The quiet
+              affordances here read as icons only — the mic
               glyph, the 👉 for Poke, the trash for Delete — with no text label around
               them; Accept alone carries a word, so the one headline decision is the
               only thing spelled out. Each button narrows on its callback directly
@@ -925,11 +960,24 @@ export function TicketDetail({
                 </div>
               ) : (
                 <div data-role="ticket-detail-actions">
-                  {/* Bottom-left cluster: the mic. `margin-right: auto` on it pushes
-                  the trailing state actions (Delete/Accept/Poke) to the right;
-                  absent (a sheet without voice) the row is byte-identical to the
-                  old flex-end footer. */}
-                  {showVoice && <div data-role="ticket-detail-lead-actions">{voiceControl}</div>}
+                  {/* The voice cluster, in whichever of its two homes this moment
+                  calls for — one element in one place in the DOM, moved by CSS
+                  (`data-position`) rather than by being re-parented, so the mic
+                  inside it is never unmounted and remounted mid-utterance.
+                  `lead` is the resting reading: `margin-right: auto` pins it to
+                  the row's left edge and pushes the state actions
+                  (Poke/Delete/Accept) to the right. `trail` drops that margin and
+                  orders it LAST, so the row reads (right to left) Send, ×, mic —
+                  Send in the slot Accept has just vacated. Absent (a sheet without
+                  voice) the row is byte-identical to the old flex-end footer. */}
+                  {showVoice && (
+                    <div
+                      data-role="ticket-detail-voice-actions"
+                      data-position={inVoiceMode ? 'trail' : 'lead'}
+                    >
+                      {voiceControl}
+                    </div>
+                  )}
                   {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
                     <button
                       type="button"
@@ -988,7 +1036,12 @@ export function TicketDetail({
                       </svg>
                     </button>
                   )}
-                  {isShaping && onAccept !== undefined && (
+                  {/* Accept — withheld for the length of a voice session: the
+                  trailing slot is Send's while the user is speaking, and the
+                  headline decision about the proposal should not be sitting under
+                  the thumb that is about to reach for it. It comes straight back
+                  when the session ends. */}
+                  {!inVoiceMode && isShaping && onAccept !== undefined && (
                     <button
                       type="button"
                       data-role="detail-accept"

@@ -408,14 +408,23 @@ export function DesktopScreenView({
           role="region"
           aria-label="Feed"
           data-role="desktop-feed"
+          // The empty feed lays out differently from a list of cards: the
+          // resting state is CENTRED in the region and "Show earlier" is pushed
+          // to its foot, just above the input. Stated as an attribute rather
+          // than as a rule on the rest block itself because the control is a
+          // sibling of that block, outside the branch below — see the CSS.
+          data-empty={cards.length === 0 ? 'true' : undefined}
           tabIndex={0}
           onKeyDown={onFeedKeyDown}
         >
           {cards.length === 0 ? (
             // The resting state is the real state (13 §1): composed, not empty,
-            // and not apologised for. One honest line, no illustration, no
+            // and not apologised for. The bell mark over one honest line, no
             // "nothing here yet!" — this is the state the design is optimised
-            // for, so it should look like the app at rest.
+            // for, so it should look like the app at rest. It is the same mark,
+            // in the same reading, as the phone's all-clear state: the two
+            // shells are one app, and the resting view is where that matters
+            // most, since it is what a window left open all day shows.
             //
             // Withheld while `loading`, because it is a STATEMENT: "All quiet"
             // asserts we asked and there was nothing, and mid-fetch we haven't
@@ -425,6 +434,7 @@ export function DesktopScreenView({
             // loading line above stands in until the answer is actually known.
             !loading && (
               <div data-role="desktop-rest">
+                <img data-role="desktop-rest-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
                 <p data-role="desktop-rest-line">All quiet.</p>
                 <p data-role="desktop-rest-detail">{streamDetail(summary)}</p>
                 {lastWord !== null && <p data-role="desktop-rest-subtext">{lastWord}</p>}

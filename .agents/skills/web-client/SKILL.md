@@ -489,6 +489,17 @@ retracted, so this is unrelated to swipe-dismiss above.
   the last card leaves the "all clear" / "All quiet." resting state — the one place the
   user most needs the way back — so keep it out of the `isEmpty` ternary, and out of the
   desktop `<ol>` (which isn't rendered at all when there are no cards).
+- **In the empty state it is pinned to the FOOT of the feed region, directly above the
+  input**, in both shells and by the same mechanism: the resting block takes the region's
+  free height (mobile `[data-role='feed-empty']` is `flex: 1`; desktop `desktop-rest` is
+  `flex: 1 0 auto` inside a `[data-empty='true']` column) and the control, being its next
+  sibling, is carried down with it. Desktop also drops the feed's `--space-10` bottom pad
+  when empty — that pad is reading air for scrolling the LAST CARD clear of the composer,
+  and with no cards it only holds the control away from the input it belongs above. The
+  desktop `[data-empty='true'] … feed-show-earlier` rule states `margin-top: auto` in
+  LONGHAND (the shorthand would drop the horizontal `auto` that keeps it on the cards'
+  720px measure); it only bites in the one empty state with no resting block — mid
+  project-switch, when "All quiet." is deliberately withheld.
 
 ## Potential gotchas
 
@@ -629,6 +640,15 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   saying it mid-fetch teaches the user not to believe the line the screen most needs believed.
   The mobile shell keeps its own affordances (pull-to-refresh, the header's tickets spinner)
   and does not render this line, but it gets the cache for free.
+- **The desktop resting state is the phone's, at desk size: the bell mark over centred
+  text.** `desktop-rest` leads with `/kiln-mark.svg` at 72px (`desktop-rest-mark`; the phone's
+  `feed-empty-mark` is the same asset at 64px) and is the ONE block on this screen that is
+  centre-aligned — everything else is a ragged-left column of cards to be scanned, while this
+  is a single composed statement with nothing to line up with. It is also the only accent on
+  screen besides the rail's `needs-you` dot, and it gets there without touching the CSS accent
+  budget (the red is baked into the asset, not a `var(--accent)` rule) — so
+  `DesktopScreen.layout.test.ts`'s "exactly one accent rule" case still holds. If a future
+  ticket wants the resting view quieter, retint the mark, don't add a second accent rule.
 - **Deliberately NOT ported to the desk** (all four are spec calls, not omissions): swipe /
   per-card dismiss and the bulk clear (13 §6 + open Q3 — the brain curates, 08 D1),
   pull-to-refresh (a touch gesture), and the header's ticket dropdown (board mechanism,
@@ -733,4 +753,8 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   that render but lay out wrong. Run it after any change to `DesktopScreen.css`. It also
   holds the board/feed reads open (`apiDelayMs`) across one project switch, which is the only
   way to observe the loading line's real geometry and to prove the previous project's cards
-  are still under it rather than the window having gone blank again.
+  are still under it rather than the window having gone blank again. It also swaps the `/feed`
+  stub to an empty snapshot (`feedBody = emptyFeed`) for a resting-state pass — the mark and
+  the lines on the region's axis, and "Show earlier" at the foot rather than under the text.
+  **Prettier it from `/frontend`, never at the file:** `/tests` has no prettier config, so
+  running the formatter on this path reformats the whole file to defaults (double quotes).

@@ -724,11 +724,25 @@ html:has([data-role='desktop-screen']) body {
 /* Containing block for the activity row, which PrimaryScreen.css positions
    absolutely at `bottom: 100%` — so Kiln's replies and its action toasts float
    just above the input line, the same low-key register they have on mobile
-   (13 §7). */
+   (13 §7).
+
+   The top padding is the MIC'S GLOW ROOM, and it is load-bearing rather than
+   taste. The listening mic radiates a breathing box-shadow ring that reaches
+   about 20px past the button's edge (`kiln-mic-glow`: an 11px spread inside a
+   28px-blurred outer stop, PrimaryScreen.css), and the activity row is anchored
+   to this region's TOP edge — so with the composer flush against that edge the
+   glow spilled straight under the toast band, whose opaque `--surface-page` fill
+   (and z-index 6) cut it off along a hard horizontal line whenever a toast was
+   up. The phone never showed this because the dock's own padding already stands
+   the mic off its top edge; the desk had no equivalent. Reserving the reach here
+   — on the containing block, so the band simply sits that much higher — fixes it
+   without restating the shared `bottom: calc(100% + …)` anchoring formula, which
+   is what keeps the hub clear of the dock on mobile (see the layering principle
+   in the web-client skill). If the glow's reach ever grows, grow this with it. */
 [data-role='desktop-composer-region'] {
   position: relative;
   flex: none;
-  padding: 0 var(--space-8) var(--space-6);
+  padding: var(--space-6) var(--space-8) var(--space-6);
 }
 
 /* The mic and the field, side by side (13 §7, D5a). The composer itself carries

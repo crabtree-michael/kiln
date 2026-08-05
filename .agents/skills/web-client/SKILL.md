@@ -758,3 +758,20 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   the lines on the region's axis, and "Show earlier" at the foot rather than under the text.
   **Prettier it from `/frontend`, never at the file:** `/tests` has no prettier config, so
   running the formatter on this path reformats the whole file to defaults (double quotes).
+  The same goes for every other hand-run script on this path, `toast-mic-glow-repro.mjs`
+  included.
+- **A glow is geometry too — an opaque band anchored to a region's edge will cut it.** The
+  listening mic radiates a box-shadow ring ~20px past the button's edge (`kiln-mic-glow`),
+  and the activity row is anchored to the composer region's *top* edge carrying an opaque
+  `--surface-page` fill at z-index 6. The desktop composer sat flush against that edge, so
+  every toast sliced the ring off along a hard horizontal line — invisible to the CSS-string
+  assertions and to every DOM test, because a box-shadow occupies no layout box. The phone
+  was fine only by accident: the dock's own padding already stands the mic off its top edge.
+  Fix is clearance on the containing block (`[data-role='desktop-composer-region']`'s top
+  padding), never a z-index that lifts the mic *over* the band — that just moves the collision
+  and paints the halo across the pills. **When you anchor anything to the edge of a region
+  holding the mic, budget the glow's reach, not the button's box.**
+  `tests/toast-mic-glow-repro.mjs` is the hand-run check (same harness and stance as the
+  smoke script): it drives a real `say` + `toast` over the stubbed stream, forces the
+  listening reading, parks the pulse at its widest frame, and prints how much of the glow the
+  band covers in both themes and on the phone.

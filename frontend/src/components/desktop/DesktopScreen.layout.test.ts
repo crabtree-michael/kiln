@@ -5,9 +5,17 @@
 // pass.
 import { describe, it, expect } from 'vitest';
 import cssRaw from './DesktopScreen.css?raw';
+import tokensRaw from '@/styles/tokens.css?raw';
 import { DESKTOP_MIN_WIDTH } from '@/components/desktop/use-desktop-layout';
 
 const css: string = cssRaw;
+const tokens: string = tokensRaw;
+
+/** How far the listening mic's glow reaches past the button's edge, in px: the
+ * outer stop of `kiln-mic-glow` (PrimaryScreen.css) is a 5px spread under a 28px
+ * blur at full `--mic-level`, and a blur fades over roughly half its radius. The
+ * composer region reserves at least this much above itself. */
+const MIC_GLOW_REACH_PX = 20;
 
 /** Isolates a rule's declaration block by its selector, so an assertion is about
  * that rule rather than about the file containing the string somewhere. */
@@ -375,6 +383,24 @@ describe('DesktopScreen.css', () => {
     // And it is never shrunk: the previous typing-first line sized the orb down
     // to a peer of the send button, which is exactly how it read.
     expect(css).not.toMatch(/\[data-role='desktop-composer'\] \[data-role='dock-mic'\]/);
+  });
+
+  it('reserves the mic glow room above the composer, so a toast cannot clip it', () => {
+    // The listening mic radiates a breathing box-shadow ring reaching ~20px past
+    // the button's edge (`kiln-mic-glow`, PrimaryScreen.css), and the activity
+    // row is anchored to this region's TOP edge with an opaque `--surface-page`
+    // band and z-index 6. With the composer flush against that edge the band cut
+    // the glow off along a hard horizontal line whenever a toast was up. The
+    // phone never showed it (the dock's own padding stands the mic off its top
+    // edge); the desk has to reserve the reach itself. jsdom does no layout, so
+    // this string is the only thing in the gate that can catch the `0` coming
+    // back.
+    const body = ruleBody("[data-role='desktop-composer-region'] {");
+    expect(body).toMatch(/position:\s*relative/);
+    const padding = /padding:\s*var\(--(space-\d+)\)/.exec(body);
+    expect(padding, 'the composer region must declare a top padding').not.toBeNull();
+    const scale = new RegExp(`--${padding?.[1] ?? ''}:\\s*(\\d+)px`).exec(tokens);
+    expect(Number(scale?.[1])).toBeGreaterThanOrEqual(MIC_GLOW_REACH_PX);
   });
 
   it('makes the field itself the painted surface, and the field alone', () => {

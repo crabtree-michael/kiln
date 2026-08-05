@@ -170,13 +170,26 @@ pins either key posting the card, `body` winning when both carry text, and the b
 case still rejected. `edit_update` keeps `body` as its only key — the log window shows no
 wrong-key calls there.
 
-### B. Return allowed transitions from `get_ticket`
+### B. Return allowed transitions from `get_ticket` — **shipped**
 
 **Fixes the preventable ~57 of §2.** Have `get_ticket` (and the `list_tickets` rows)
 include the transitions the ticket's current state actually permits, so the model stops
 guessing. This keeps the board's preconditions authoritative — it just stops making the
 model discover them by trial. The ~25 idempotency errors stay exactly as they are, because
 06 §6 depends on them.
+
+> **Landed 2026-08-05.** Both reads carry an `allowed now:` line in tool phrasing
+> (`update_ticket state="ready"`, `send_to_agent`, `delete_ticket`); `get_ticket` writes it
+> per ticket, `list_tickets` once per column, since the allowed set is a function of state
+> and a column is one state — so a roster of any size costs five lines. It covers all 57,
+> not just the 13 `MarkReady` ones: a working/blocked ticket's line omits
+> `title/body/priority`, which is where the other 44 came from. The preconditions moved
+> into one table (`board/transitions.go`) that the operations' own guards and
+> `State.AllowedOps()` both read, so the advertised set cannot drift from the guard; the
+> cross-check test runs all 45 state×operation pairs against the real Board API. The
+> refusal itself is untouched — an `ErrInvalidTransition` still comes back verbatim with no
+> allowed-list appended, because 06 §6 reads it as already-done and naming the alternatives
+> there would invite the retry that rule forbids.
 
 ### C. Set `output_config.effort` explicitly, and sweep it — **shipped at `medium`**
 

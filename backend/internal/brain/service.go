@@ -258,16 +258,24 @@ func renderContext(input PassInput) string {
 // stable, model-friendly layout of every ticket.
 func renderBoard(b *strings.Builder, snap board.Snapshot) {
 	fmt.Fprintf(b, "workers: %d free / %d total\n", snap.WorkerFree, snap.WorkerTotal)
-	renderColumn(b, "Shaping", snap.Shaping)
-	renderColumn(b, "Ready", snap.Ready)
-	renderColumn(b, "Blocked", snap.Blocked)
-	renderColumn(b, "Working", snap.Working)
-	renderColumn(b, "Done", snap.Done)
+	renderColumn(b, "Shaping", board.StateShaping, snap.Shaping)
+	renderColumn(b, "Ready", board.StateReady, snap.Ready)
+	renderColumn(b, "Blocked", board.StateBlocked, snap.Blocked)
+	renderColumn(b, "Working", board.StateWorking, snap.Working)
+	renderColumn(b, "Done", board.StateDone, snap.Done)
 }
 
-// renderColumn writes one board column's tickets, one per line.
-func renderColumn(b *strings.Builder, label string, tickets []board.Ticket) {
+// renderColumn writes one board column's tickets, one per line, under a header
+// naming what that column's state accepts (allowedActions). The allowed set is
+// a function of state alone, and a column *is* one state, so it is written once
+// for the column rather than repeated on every row — the roster tells the model
+// what it can do to these tickets at no per-ticket cost. An empty column has
+// nothing to act on, so it stays a bare header.
+func renderColumn(b *strings.Builder, label string, state board.State, tickets []board.Ticket) {
 	fmt.Fprintf(b, "## %s (%d)\n", label, len(tickets))
+	if len(tickets) > 0 {
+		fmt.Fprintf(b, "%s on these: %s\n", allowedPrefix, allowedActions(state))
+	}
 	for _, t := range tickets {
 		fmt.Fprintf(b, "- [%s] %q (state=%s, priority=%d)", t.ID, t.Title, t.State, t.Priority)
 		if t.BlockedReason != nil {

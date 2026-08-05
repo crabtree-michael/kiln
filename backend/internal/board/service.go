@@ -79,8 +79,8 @@ func (s *Service) CreateTicket(ctx context.Context, projectID, title, body strin
 // Precondition: state ∈ {shaping, ready}.
 func (s *Service) ShapeTicket(ctx context.Context, projectID string, id TicketID, patch ShapePatch) (Ticket, error) {
 	return s.mutate(ctx, projectID, "shape_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if t.State != StateShaping && t.State != StateReady {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ShapeTicket"}
+		if err := guardState(OpShapeTicket, t.State); err != nil {
+			return Ticket{}, err
 		}
 		if patch.Title != nil {
 			t.Title = *patch.Title
@@ -115,8 +115,8 @@ func (s *Service) ShapeTicket(ctx context.Context, projectID string, id TicketID
 // Precondition: state = shaping. Emits feed.updated (a proposal card appears).
 func (s *Service) RequestApproval(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, projectID, "request_approval", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if t.State != StateShaping {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "RequestApproval"}
+		if err := guardState(OpRequestApproval, t.State); err != nil {
+			return Ticket{}, err
 		}
 		t.ApprovalRequested = true
 		updated, err := tx.UpdateTicket(ctx, projectID, *t)
@@ -139,8 +139,8 @@ func (s *Service) RequestApproval(ctx context.Context, projectID string, id Tick
 // "queued" activity toast (08 §B).
 func (s *Service) MarkReady(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, projectID, "mark_ready", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if t.State != StateShaping {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkReady"}
+		if err := guardState(OpMarkReady, t.State); err != nil {
+			return Ticket{}, err
 		}
 		now := time.Now().UTC()
 		t.State = StateReady
@@ -176,8 +176,8 @@ func (s *Service) MarkReady(ctx context.Context, projectID string, id TicketID) 
 // Precondition: state ∈ {working, blocked}. Emits agent.send.
 func (s *Service) SendToAgent(ctx context.Context, projectID string, id TicketID, instruction string) (Ticket, error) {
 	return s.mutate(ctx, projectID, "send_to_agent", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if !t.State.Active() || t.WorkerID == nil {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "SendToAgent"}
+		if err := guardBoundWorker(OpSendToAgent, t); err != nil {
+			return Ticket{}, err
 		}
 		// A resume out of Blocked is a user-visible nudge (08 §5); a working →
 		// working new turn is not (the blocker card was the only feed surface).
@@ -221,8 +221,8 @@ func (s *Service) SendToAgent(ctx context.Context, projectID string, id TicketID
 // Precondition: state = working. Emits notify.send.
 func (s *Service) MarkBlocked(ctx context.Context, projectID string, id TicketID, reason string) (Ticket, error) {
 	return s.mutate(ctx, projectID, "mark_blocked", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if t.State != StateWorking {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "MarkBlocked"}
+		if err := guardState(OpMarkBlocked, t.State); err != nil {
+			return Ticket{}, err
 		}
 		r := reason
 		t.State = StateBlocked
@@ -286,8 +286,8 @@ func (s *Service) AcceptToDone(
 	ctx context.Context, projectID string, id TicketID, link CompletionLink, doneCommit string,
 ) (Ticket, error) {
 	return s.mutate(ctx, projectID, "accept_to_done", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if !t.State.Active() || t.WorkerID == nil {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "AcceptToDone"}
+		if err := guardBoundWorker(OpAcceptToDone, t); err != nil {
+			return Ticket{}, err
 		}
 		if doneCommit != "" {
 			if err := recordDoneCommit(ctx, tx, projectID, id, doneCommit, t); err != nil {
@@ -395,8 +395,8 @@ func (s *Service) SetKeepSandbox(
 // runaway agent, ReassignSandbox restarts the ticket somewhere clean.
 func (s *Service) KillSandbox(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, projectID, "kill_sandbox", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if !t.State.Active() || t.WorkerID == nil {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "KillSandbox"}
+		if err := guardBoundWorker(OpKillSandbox, t); err != nil {
+			return Ticket{}, err
 		}
 		// No field of the ticket changes — this operates on the sandbox behind
 		// the slot, not the board record — so the locked row is already the
@@ -436,8 +436,8 @@ func (s *Service) KillSandbox(ctx context.Context, projectID string, id TicketID
 // one taken, so free capacity is unchanged and no waiting ticket became pullable.
 func (s *Service) ReassignSandbox(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, projectID, "reassign_sandbox", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if !t.State.Active() || t.WorkerID == nil {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ReassignSandbox"}
+		if err := guardBoundWorker(OpReassignSandbox, t); err != nil {
+			return Ticket{}, err
 		}
 		fresh, ok, err := tx.FreeWorker(ctx, projectID)
 		if err != nil {
@@ -624,8 +624,8 @@ func buildSeedTicket(ctx context.Context, tx Tx, projectID string, spec SeedSpec
 // blocked ticket is archived.
 func (s *Service) ArchiveTicket(ctx context.Context, projectID string, id TicketID) (Ticket, error) {
 	return s.mutate(ctx, projectID, "archive_ticket", id, func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
-		if t.State == StateWorking {
-			return Ticket{}, &ErrInvalidTransition{From: t.State, Attempted: "ArchiveTicket"}
+		if err := guardState(OpArchiveTicket, t.State); err != nil {
+			return Ticket{}, err
 		}
 		var emissions []Emission
 		// Blocked: free the worker the ticket holds before it leaves the board.

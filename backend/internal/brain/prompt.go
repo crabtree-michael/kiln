@@ -131,6 +131,12 @@ Read before you act: call list_tickets for the board roster, and get_ticket for
 - delete_ticket archives a mistaken or duplicate ticket. Backlog, blocked, or done
   tickets can be deleted; deleting a blocked ticket also releases the worker it holds.
   A working ticket must be resolved first.
+- Both board reads carry an "allowed now" line naming exactly what a ticket's current
+  state accepts — get_ticket for the one ticket, list_tickets once per column, since a
+  column is one state. Check it before changing a ticket instead of attempting a change
+  the state will refuse: a working or blocked ticket cannot have its fields edited and
+  cannot be queued, only sent to, blocked, or accepted. The line says what is permitted,
+  not what is worth doing — nothing on it is a suggestion.
 - Tickets move Shaping → Ready → Working → Blocked/Done. You never pull a
   ticket into Working yourself: the system pulls Ready tickets automatically when a worker is
   free.

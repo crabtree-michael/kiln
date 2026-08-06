@@ -78,7 +78,14 @@ const boards = {
   // kiln: a blocker and a proposal → needs-you.
   p1: {
     shaping: [ticket('t9', 'Rate-limit the webhook retry', 'shaping')],
-    ready: [],
+    // Two ready tickets, in the pull order the server sends them in — the panel
+    // must not re-sort them, and with every worker busy (worker_free: 0) this is
+    // exactly the state the backlog section exists for: work that is queued and
+    // would otherwise be invisible at a desk.
+    ready: [
+      ticket('t10', 'Backfill the search index', 'ready'),
+      ticket('t11', 'Drop the legacy webhook route', 'ready'),
+    ],
     blocked: [ticket('t1', 'auth refresh', 'blocked')],
     // Two tickets being worked, and one of them with a dead session behind it:
     // the working strip must name both and say plainly that the second is not
@@ -329,6 +336,32 @@ const geometry = await page.evaluate(() => {
     workingMarks: Array.from(
       document.querySelectorAll('[data-role="desktop-working-ticket"] [data-role="status-dot"]'),
     ).map((node) => [node.dataset.status, getComputedStyle(node).backgroundColor]),
+    // The panel's second section: what is queued behind the running work. Ready
+    // first, in the server's pull order, then the shaping proposals.
+    backlogTitles: Array.from(document.querySelectorAll('[data-role="desktop-backlog-title"]')).map(
+      (node) => node.textContent,
+    ),
+    // It sits UNDER the working list in the same column — one panel, two
+    // sections, set apart by air rather than by a second rule.
+    backlogBelowWorking: (() => {
+      const working = rect('[data-role="desktop-working"]');
+      const backlog = rect('[data-role="desktop-backlog"]');
+      if (!working || !backlog) {
+        return 'missing';
+      }
+      return {
+        below: Math.round(backlog.top) >= Math.round(working.bottom),
+        gap: Math.round(backlog.top - working.bottom),
+        sameColumn: Math.round(backlog.left) === Math.round(working.left),
+        borders: getComputedStyle(document.querySelector('[data-role="desktop-backlog"]'))
+          .borderTop,
+      };
+    })(),
+    // A backlog row has no session behind it, so its mark takes the flat faint
+    // default — visibly quieter than a working row's ember, and never the accent.
+    backlogMarks: Array.from(
+      document.querySelectorAll('[data-role="desktop-backlog-ticket"] [data-role="status-dot"]'),
+    ).map((node) => [node.dataset.state, getComputedStyle(node).backgroundColor]),
     // A blocker reads in full; an update still clamps.
     blockerClamped: blockerBody
       ? blockerBody.scrollHeight > blockerBody.clientHeight + 1

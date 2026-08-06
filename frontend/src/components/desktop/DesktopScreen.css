@@ -580,12 +580,78 @@ html:has([data-role='desktop-screen']) body {
   gap: 2px;
 }
 
-/* Two lines in a narrow column, the phone's ticket row exactly: the status mark
+/* -------------------------------------------------- backlog, same column
+
+   The second section of the same panel: what is queued but not started — the
+   ready pull queue, then the proposals still being shaped. It shares the column
+   because it answers the other half of one question ("what is happening, and
+   what is next"), and it shares the row treatment below because a ticket should
+   not change appearance on its way from one section to the other.
+
+   What it does NOT share is liveness. There is no dot beside its head and
+   nothing in this section animates: a mark that could breathe would have
+   nothing to report here, and the difference between "running" and "waiting" is
+   the entire reason the two sections are separate rather than one merged list.
+   That, plus the gap below, is what keeps them from reading as one run of
+   rows. */
+[data-role='desktop-backlog'] {
+  flex: none;
+  min-width: 0;
+  /* Enough air to read as a second section rather than a continuation of the
+     list above — a divider between them would be a second rule in a column
+     whose whole boundary story is the single one on its right edge (13 §4). */
+  margin-top: var(--space-6);
+}
+
+/* The head is a label and stays one: the working head's type, without its
+   colour variables (nothing here has a lifecycle state to borrow) and without
+   its mark. It rests in the same faint ink the working head falls back to when
+   there is nothing listed under it, which is the correct permanent reading for
+   a section that is never live. */
+[data-role='desktop-backlog-head'] {
+  color: var(--text-faint);
+  font: var(--type-caption);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+/* The resting reading, matching the working section's word for word in weight:
+   an empty backlog is a good state, not a region waiting to be dealt with. */
+[data-role='desktop-backlog-empty'] {
+  margin: var(--space-3) 0 0;
+  color: var(--text-faint);
+  font: var(--type-small);
+}
+
+/* Stated separately from the working list rather than grouped with it: the
+   assertions in DesktopScreen.layout.test.ts pin that rule by its exact
+   selector (it is where "the feed's reading measure never leaks into this
+   column" is checked), and a comma-joined selector would take that pin with
+   it. The declarations are the same on purpose — see the shared row rules
+   below, which ARE grouped. */
+[data-role='desktop-backlog-list'] {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* -------------------------------------------------- one row, both sections
+
+   Grouped rather than copied: a ticket that gets pulled off the backlog moves
+   from the lower list to the upper one, and the only thing about it that should
+   change is its mark and its word. Two rule sets agreeing today is how that
+   stops being true the first time either is tuned.
+
+   Two lines in a narrow column, the phone's ticket row exactly: the status mark
    and the title on the first, the secondary detail tucked under it on the
    second. A single line would spend the column's width on an age nobody is
    reading and truncate the title, which is the one thing the panel exists to
    show. */
-[data-role='desktop-working-ticket'] {
+[data-role='desktop-working-ticket'],
+[data-role='desktop-backlog-ticket'] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -614,7 +680,8 @@ html:has([data-role='desktop-screen']) body {
 
 /* Hover reveals; it never acts (13 §9). Pointing at a row lifts it a shade, the
    same amount a rail row lifts — opening still takes a click. */
-[data-role='desktop-working-ticket']:hover {
+[data-role='desktop-working-ticket']:hover,
+[data-role='desktop-backlog-ticket']:hover {
   background: var(--surface-subtle);
   color: var(--text-body);
 }
@@ -622,13 +689,15 @@ html:has([data-role='desktop-screen']) body {
 /* Focus is visible and uses the existing ring token, not a new invention
    (13 §9) — and it lands on the same rows hover does, so the keyboard path
    through the panel is the pointer's path. */
-[data-role='desktop-working-ticket']:focus-visible {
+[data-role='desktop-working-ticket']:focus-visible,
+[data-role='desktop-backlog-ticket']:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
   color: var(--text-body);
 }
 
-[data-role='desktop-working-title'] {
+[data-role='desktop-working-title'],
+[data-role='desktop-backlog-title'] {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -637,7 +706,8 @@ html:has([data-role='desktop-screen']) body {
 
 /* The second line, under the title rather than beside it — it starts in the
    title's column, not the mark's, so the two lines read as one block. */
-[data-role='desktop-working-meta'] {
+[data-role='desktop-working-meta'],
+[data-role='desktop-backlog-meta'] {
   grid-column: 2;
   display: flex;
   align-items: baseline;
@@ -645,11 +715,13 @@ html:has([data-role='desktop-screen']) body {
   min-width: 0;
 }
 
-/* The word only present when the session behind the ticket is NOT plainly
-   building — stopped, failing, starting up. It is stated in the same neutral ink
-   as everything else here: a wedged sandbox is a fact, not an alarm, and the
+/* The word only present when the ticket is NOT the section's expected case —
+   a session that is stopped, failing or starting up in the working list; a
+   proposal still awaiting acceptance in the backlog. It is stated in the same
+   neutral ink either way: a wedged sandbox is a fact, not an alarm, and the
    accent belongs to things that want a decision (13 §4). */
-[data-role='desktop-working-note'] {
+[data-role='desktop-working-note'],
+[data-role='desktop-backlog-note'] {
   flex: none;
   color: var(--text-muted);
   font: var(--type-caption);
@@ -658,7 +730,8 @@ html:has([data-role='desktop-screen']) body {
 /* Time in status. Faint at rest and firm under the pointer, exactly as a feed
    card's timestamp behaves — secondary detail stays off the screen until asked
    for (13 §6). */
-[data-role='desktop-working-age'] {
+[data-role='desktop-working-age'],
+[data-role='desktop-backlog-age'] {
   flex: none;
   color: var(--text-faint);
   font: var(--type-caption);
@@ -668,7 +741,9 @@ html:has([data-role='desktop-screen']) body {
 }
 
 [data-role='desktop-working-ticket']:hover [data-role='desktop-working-age'],
-[data-role='desktop-working-ticket']:focus-within [data-role='desktop-working-age'] {
+[data-role='desktop-working-ticket']:focus-within [data-role='desktop-working-age'],
+[data-role='desktop-backlog-ticket']:hover [data-role='desktop-backlog-age'],
+[data-role='desktop-backlog-ticket']:focus-within [data-role='desktop-backlog-age'] {
   opacity: 1;
 }
 

@@ -32,7 +32,7 @@ export async function mintSession(
     throw new Error(
       `dev session mint failed: POST ${base}/api/dev/session -> ${res.status()} — ` +
         `is the stack up with KILN_DEV_ENDPOINTS=1 and identity configured ` +
-        `(GITHUB_OAUTH_CLIENT_ID, KILN_SECRETS_KEY)?`,
+        `(KILN_GITHUB_APP_*, KILN_SECRETS_KEY)?`,
     );
   }
 }

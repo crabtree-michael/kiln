@@ -25,6 +25,11 @@ const minTokenLen = 40
 // care about its value, only that fakeGitHub echoes it back to FetchUser.
 const testGHToken = "gh-access-token"
 
+// repoCheckName is the fixed name of Verify's repo check (11 §4). It is the
+// check that probes GitHub reachability — unrelated to any OAuth scope, which
+// is a vocabulary the GitHub App migration retired.
+const repoCheckName = "repo"
+
 var baseTime = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // fakeClock is a manually-advanced clock for sliding-session tests.
@@ -53,12 +58,11 @@ func TestCompleteConnectAllowlisted(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token: "gh-token",
-		scope: scopeRepo,
 		user:  githubapi.GitHubUser{ID: 42, Login: "Crabtree-Michael", Name: "Michael Crabtree"},
 	}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{testAllowedLogin})
+	svc := newTestService(t, store, gh, []string{testAllowedLogin})
 
-	u, err := svc.CompleteConnect(context.Background(), "code-1")
+	u, err := svc.CompleteConnect(context.Background(), "code-1", connectInstallation)
 	if err != nil {
 		t.Fatalf("CompleteConnect: %v", err)
 	}
@@ -72,7 +76,7 @@ func TestCompleteConnectAllowlisted(t *testing.T) {
 		t.Fatalf("FetchUser got token %q, want gh-token", gh.gotToken)
 	}
 
-	u2, err := svc.CompleteConnect(context.Background(), "code-2")
+	u2, err := svc.CompleteConnect(context.Background(), "code-2", connectInstallation)
 	if err != nil {
 		t.Fatalf("CompleteConnect second: %v", err)
 	}
@@ -83,10 +87,10 @@ func TestCompleteConnectAllowlisted(t *testing.T) {
 
 func TestCompleteConnectNotAllowlisted(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: testGHToken, scope: scopeRepo, user: githubapi.GitHubUser{ID: 7, Login: "nobody"}}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{"someone-else"})
+	gh := &fakeGitHub{token: testGHToken, user: githubapi.GitHubUser{ID: 7, Login: "nobody"}}
+	svc := newTestService(t, store, gh, []string{"someone-else"})
 
-	_, err := svc.CompleteConnect(context.Background(), "code")
+	_, err := svc.CompleteConnect(context.Background(), "code", connectInstallation)
 	if !errors.Is(err, identity.ErrNotAllowed) {
 		t.Fatalf("err = %v, want ErrNotAllowed", err)
 	}
@@ -97,10 +101,10 @@ func TestCompleteConnectNotAllowlisted(t *testing.T) {
 
 func TestCompleteConnectEmptyAllowlist(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: testGHToken, scope: scopeRepo, user: githubapi.GitHubUser{ID: 7, Login: "anybody"}}
-	svc := identity.NewService(store, mustCipher(t), gh, nil)
+	gh := &fakeGitHub{token: testGHToken, user: githubapi.GitHubUser{ID: 7, Login: "anybody"}}
+	svc := newTestService(t, store, gh, nil)
 
-	_, err := svc.CompleteConnect(context.Background(), "code")
+	_, err := svc.CompleteConnect(context.Background(), "code", connectInstallation)
 	if !errors.Is(err, identity.ErrNotAllowed) {
 		t.Fatalf("err = %v, want ErrNotAllowed", err)
 	}
@@ -108,17 +112,17 @@ func TestCompleteConnectEmptyAllowlist(t *testing.T) {
 
 func TestAllowlistCheckedOnEveryLogin(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: testGHToken, scope: scopeRepo, user: githubapi.GitHubUser{ID: 9, Login: "temp-user"}}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{"temp-user"})
+	gh := &fakeGitHub{token: testGHToken, user: githubapi.GitHubUser{ID: 9, Login: "temp-user"}}
+	svc := newTestService(t, store, gh, []string{"temp-user"})
 
-	if _, err := svc.CompleteConnect(context.Background(), "code-1"); err != nil {
+	if _, err := svc.CompleteConnect(context.Background(), "code-1", connectInstallation); err != nil {
 		t.Fatalf("first login: %v", err)
 	}
 
 	// Rebuild the service with the login removed from the allowlist — the
 	// allowlist must be re-checked on every login, not just at signup.
-	svc2 := identity.NewService(store, mustCipher(t), gh, []string{})
-	_, err := svc2.CompleteConnect(context.Background(), "code-2")
+	svc2 := newTestService(t, store, gh, []string{})
+	_, err := svc2.CompleteConnect(context.Background(), "code-2", connectInstallation)
 	if !errors.Is(err, identity.ErrNotAllowed) {
 		t.Fatalf("err = %v, want ErrNotAllowed", err)
 	}
@@ -126,7 +130,7 @@ func TestAllowlistCheckedOnEveryLogin(t *testing.T) {
 
 func TestSessionRoundTrip(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
 	identity.SetClockForTest(svc, clock.now)
 
@@ -167,7 +171,7 @@ func TestSessionRoundTrip(t *testing.T) {
 
 func TestResolveSessionExpired(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
 	identity.SetClockForTest(svc, clock.now)
 
@@ -193,7 +197,7 @@ func TestResolveSessionExpired(t *testing.T) {
 
 func TestResolveSessionSlides(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
 	identity.SetClockForTest(svc, clock.now)
 
@@ -234,7 +238,7 @@ func TestResolveSessionSlides(t *testing.T) {
 // tell the difference.
 func TestResolveSessionFreshDoesNotRenew(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	clock := newFakeClock(baseTime)
 	identity.SetClockForTest(svc, clock.now)
 
@@ -266,7 +270,7 @@ func TestResolveSessionFreshDoesNotRenew(t *testing.T) {
 
 func TestResolveSessionUnknownOrEmpty(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 
 	for _, token := range []string{"", "nope"} {
 		if _, _, err := svc.ResolveSession(context.Background(), token); !errors.Is(err, identity.ErrNoSession) {
@@ -277,7 +281,7 @@ func TestResolveSessionUnknownOrEmpty(t *testing.T) {
 
 func TestLogout(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 
 	u, err := store.UpsertUser(context.Background(), identity.User{GitHubID: 4, GitHubLogin: "u4"})
 	if err != nil {
@@ -302,7 +306,7 @@ func TestLogout(t *testing.T) {
 
 func TestDevSignInBypassesAllowlist(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil) // nil allowlist would reject a real login
+	svc := newTestService(t, store, &fakeGitHub{}, nil) // nil allowlist would reject a real login
 
 	u, err := svc.DevSignIn(context.Background(), "E2E-User")
 	if err != nil {
@@ -347,7 +351,7 @@ func mustDevSignIn(t *testing.T, svc *identity.Service, login string) identity.U
 
 func TestMeEmpty(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "fresh-user")
 
 	me, err := svc.Me(context.Background(), u.ID)
@@ -374,7 +378,7 @@ func TestMeEmpty(t *testing.T) {
 
 func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "settings-user")
 
 	err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
@@ -413,7 +417,7 @@ func TestUpdateSettingsWriteAndStatus(t *testing.T) {
 
 func TestUpdateSettingsPartialMerge(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "partial-user")
 
 	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
@@ -441,7 +445,7 @@ func TestUpdateSettingsPartialMerge(t *testing.T) {
 
 func TestUpdateSettingsOverwrite(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "overwrite-user")
 
 	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{
@@ -466,7 +470,7 @@ func TestUpdateSettingsOverwrite(t *testing.T) {
 
 func TestUpsertProjectCreatesThenUpdates(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "project-user")
 
 	created, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
@@ -515,7 +519,7 @@ const (
 
 func TestVerifySkipsUnconfigured(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	svc.SetVerifier(&fakeVerifier{})
 	u := mustDevSignIn(t, svc, "verify-fresh-user")
 
@@ -527,7 +531,7 @@ func TestVerifySkipsUnconfigured(t *testing.T) {
 		{Name: "anthropic", Status: wantSkippedStatus, Message: wantSkipped},
 		{Name: "amika", Status: wantSkippedStatus, Message: wantSkipped},
 		{Name: "devin", Status: wantSkippedStatus, Message: wantSkipped},
-		{Name: scopeRepo, Status: wantSkippedStatus, Message: wantSkipped},
+		{Name: repoCheckName, Status: wantSkippedStatus, Message: wantSkipped},
 	}
 	if len(checks) != len(want) {
 		t.Fatalf("checks = %+v, want %d entries", checks, len(want))
@@ -541,7 +545,7 @@ func TestVerifySkipsUnconfigured(t *testing.T) {
 
 func TestVerifyRunsConfigured(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	verifier := &fakeVerifier{}
 	svc.SetVerifier(verifier)
 	u := mustDevSignIn(t, svc, "verify-configured-user")
@@ -577,7 +581,7 @@ func TestVerifyRunsConfigured(t *testing.T) {
 	if checks[2].Name != "devin" || checks[2].Status != "ok" {
 		t.Fatalf("devin check = %+v, want {Name:devin Status:ok}", checks[2])
 	}
-	if checks[3].Name != scopeRepo || checks[3].Status != "ok" {
+	if checks[3].Name != repoCheckName || checks[3].Status != "ok" {
 		t.Fatalf("repo check = %+v, want {Name:repo Status:ok}", checks[3])
 	}
 
@@ -594,7 +598,7 @@ func TestVerifyRunsConfigured(t *testing.T) {
 
 func TestUpsertProjectValidates(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "invalid-project-user")
 
 	cases := []identity.ProjectUpdate{
@@ -614,7 +618,7 @@ func TestUpsertProjectValidates(t *testing.T) {
 // mode defaults to "main" (the prior behavior), and "pr" round-trips.
 func TestUpsertProjectMergeGateMode(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "gate-mode-user")
 
 	created, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
@@ -654,7 +658,7 @@ const (
 // carry forward on an empty-value re-upsert, and clear on an empty list.
 func TestUpsertProjectAmikaSecretsRoundTrip(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "secrets-user")
 
 	p, err := svc.UpsertProject(context.Background(), u.ID, identity.ProjectUpdate{
@@ -756,7 +760,7 @@ func TestUpsertProjectAmikaSecretsRoundTrip(t *testing.T) {
 // duplicate env-var names, a brand-new secret with no value, or over the cap.
 func TestUpsertProjectAmikaSecretsValidates(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "bad-secrets-user")
 
 	tooMany := make([]identity.AmikaSecretInput, 51)
@@ -779,21 +783,21 @@ func TestUpsertProjectAmikaSecretsValidates(t *testing.T) {
 
 // ---- GitHub connection / repo picker --------------------------------------
 
-// Signing in IS connecting (11 §2, amended 2026-08-03): there is one grant, it
-// always carries `repo`, and completing it leaves a usable repo credential
-// behind. This is the regression test for the split it replaced — a scopeless
-// sign-in that produced a signed-in user the repo picker couldn't serve, and a
-// second route the UI had to remember to send them to.
+// Signing in IS connecting (11 §2, amended 2026-08-03 and by the GitHub App
+// migration): there is one flow, it ends on GitHub's repository chooser, and
+// completing it leaves a usable repo credential behind. This is the regression
+// test for the split it replaced — a scopeless sign-in that produced a signed-in
+// user the repo picker couldn't serve, and a second route the UI had to
+// remember to send them to.
 func TestSignInGrantsRepoAccess(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token: "gho_fresh",
-		scope: scopeRepo,
 		user:  githubapi.GitHubUser{ID: 42, Login: testAllowedLogin},
 	}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{testAllowedLogin})
+	svc := newTestService(t, store, gh, []string{testAllowedLogin})
 
-	u, err := svc.CompleteConnect(context.Background(), "code-1")
+	u, err := svc.CompleteConnect(context.Background(), "code-1", connectInstallation)
 	if err != nil {
 		t.Fatalf("CompleteConnect: %v", err)
 	}
@@ -814,20 +818,20 @@ func TestSignInGrantsRepoAccess(t *testing.T) {
 	}
 }
 
-// Re-running the grant re-authorizes: the newer token replaces the stored one,
-// which is how "Switch account" changes the connected account or regains a
+// Re-running the flow re-authorizes: the newer user token replaces the stored
+// one, which is how "Switch account" changes the connected account or regains a
 // revoked grant.
 func TestCompleteConnectRefreshesStoredToken(t *testing.T) {
 	store := newFakeStore()
-	gh := &fakeGitHub{token: "gho_old", scope: scopeRepo, user: githubapi.GitHubUser{ID: 42, Login: "u"}}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{"u"})
+	gh := &fakeGitHub{token: "gho_old", user: githubapi.GitHubUser{ID: 42, Login: "u"}}
+	svc := newTestService(t, store, gh, []string{"u"})
 
-	u, err := svc.CompleteConnect(context.Background(), "code-1")
+	u, err := svc.CompleteConnect(context.Background(), "code-1", connectInstallation)
 	if err != nil {
 		t.Fatalf("first CompleteConnect: %v", err)
 	}
 	gh.token = "gho_new"
-	if _, err := svc.CompleteConnect(context.Background(), "code-2"); err != nil {
+	if _, err := svc.CompleteConnect(context.Background(), "code-2", connectInstallation); err != nil {
 		t.Fatalf("second CompleteConnect: %v", err)
 	}
 
@@ -843,15 +847,14 @@ func TestListGitHubReposMapsRepos(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token: testGHToken,
-		scope: scopeRepo,
 		user:  githubapi.GitHubUser{ID: 42, Login: "u"},
-		repos: []githubapi.Repo{
+		installationRepos: []githubapi.Repo{
 			{FullName: "acme/api", HTMLURL: "https://github.com/acme/api", Private: true},
 			{FullName: "u/blog", HTMLURL: "https://github.com/u/blog"},
 		},
 	}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{"u"})
-	u, err := svc.CompleteConnect(context.Background(), "code")
+	svc := newTestService(t, store, gh, []string{"u"})
+	u, err := svc.CompleteConnect(context.Background(), "code", connectInstallation)
 	if err != nil {
 		t.Fatalf("CompleteConnect: %v", err)
 	}
@@ -879,7 +882,7 @@ func TestListGitHubReposMapsRepos(t *testing.T) {
 // the dashboard turns that into the "Connect GitHub account" prompt.
 func TestListGitHubReposWithoutCredential(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "someone")
 
 	_, err := svc.ListGitHubRepos(context.Background(), u.ID)
@@ -894,12 +897,11 @@ func TestListGitHubReposRejectedTokenIsNotConnected(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token:    testGHToken,
-		scope:    scopeRepo,
 		user:     githubapi.GitHubUser{ID: 42, Login: "u"},
 		reposErr: githubapi.ErrUnauthorized,
 	}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{"u"})
-	u, err := svc.CompleteConnect(context.Background(), "code")
+	svc := newTestService(t, store, gh, []string{"u"})
+	u, err := svc.CompleteConnect(context.Background(), "code", connectInstallation)
 	if err != nil {
 		t.Fatalf("CompleteConnect: %v", err)
 	}
@@ -916,12 +918,11 @@ func TestListGitHubReposTransportErrorPropagates(t *testing.T) {
 	store := newFakeStore()
 	gh := &fakeGitHub{
 		token:    testGHToken,
-		scope:    scopeRepo,
 		user:     githubapi.GitHubUser{ID: 42, Login: "u"},
 		reposErr: githubapi.ErrListRepos,
 	}
-	svc := identity.NewService(store, mustCipher(t), gh, []string{"u"})
-	u, err := svc.CompleteConnect(context.Background(), "code")
+	svc := newTestService(t, store, gh, []string{"u"})
+	u, err := svc.CompleteConnect(context.Background(), "code", connectInstallation)
 	if err != nil {
 		t.Fatalf("CompleteConnect: %v", err)
 	}
@@ -935,16 +936,23 @@ func TestListGitHubReposTransportErrorPropagates(t *testing.T) {
 	}
 }
 
-// The keyless seam: with a dev credential configured, a dev-minted session is
-// "connected" for the repo picker exactly as a real login would be.
-func TestDevSignInStoresConfiguredGitHubToken(t *testing.T) {
+// The keyless seam: with a dev connection configured, a dev-minted session is
+// "connected" for the repo picker exactly as a real login would be — and
+// through the same installation-scoped path, so the keyless lane exercises the
+// App credential model rather than the raw-token fallback beside it.
+func TestDevSignInStoresConfiguredGitHubConnection(t *testing.T) {
+	const devInstallation = int64(4242)
 	store := newFakeStore()
-	gh := &fakeGitHub{repos: []githubapi.Repo{{FullName: "keyless/demo"}}}
-	svc := identity.NewService(store, mustCipher(t), gh, nil)
-	svc.SetDevGitHubToken("mock-github-token")
+	gh := &fakeGitHub{installationRepos: []githubapi.Repo{{FullName: "keyless/demo"}}}
+	svc := newTestService(t, store, gh, nil)
+	svc.SetDevGitHubConnection(devInstallation, "mock-github-token")
 
 	u := mustDevSignIn(t, svc, "keyless-user")
 
+	if got := settingsOf(t, svc, u.ID).GitHub.Status; got != identity.GitHubConnected {
+		t.Errorf("status = %q, want %q — the dev connection carries an installation",
+			got, identity.GitHubConnected)
+	}
 	repos, err := svc.ListGitHubRepos(context.Background(), u.ID)
 	if err != nil {
 		t.Fatalf("ListGitHubRepos: %v", err)
@@ -952,8 +960,11 @@ func TestDevSignInStoresConfiguredGitHubToken(t *testing.T) {
 	if len(repos) != 1 || repos[0].FullName != "keyless/demo" {
 		t.Errorf("repos = %+v, want the mock listing", repos)
 	}
+	if gh.gotInstallationReposID != devInstallation {
+		t.Errorf("listed installation %d, want the dev %d", gh.gotInstallationReposID, devInstallation)
+	}
 	if gh.gotReposToken != "mock-github-token" {
-		t.Errorf("ListRepos got token %q, want the configured dev token", gh.gotReposToken)
+		t.Errorf("listed with token %q, want the configured dev token", gh.gotReposToken)
 	}
 }
 
@@ -963,8 +974,8 @@ func TestDevSignInStoresConfiguredGitHubToken(t *testing.T) {
 // share one dev login). Signing in again must be side-effect-free.
 func TestDevSignInWritesTheDevTokenOnlyOnce(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
-	svc.SetDevGitHubToken("mock-github-token")
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
+	svc.SetDevGitHubConnection(4242, "mock-github-token")
 	var invalidated int
 	svc.SetInvalidator(func(string) { invalidated++ })
 
@@ -990,7 +1001,7 @@ func TestDevSignInWritesTheDevTokenOnlyOnce(t *testing.T) {
 // otherwise be clobbered by a synthetic one.
 func TestDevSignInLeavesGitHubTokenAloneByDefault(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 
 	u := mustDevSignIn(t, svc, "someone")
 	if err := svc.UpdateSettings(context.Background(), u.ID, identity.SettingsUpdate{

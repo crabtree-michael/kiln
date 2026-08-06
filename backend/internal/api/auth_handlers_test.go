@@ -34,6 +34,11 @@ const (
 	// testSessionToken is the session token fakeAuth mints on a successful
 	// callback.
 	testSessionToken = "sess-tok-1"
+
+	// testConnectPath is THE connect route — the single entry point every
+	// GitHub affordance leads to, and where a callback with nobody signed in
+	// gets sent back to.
+	testConnectPath = "/auth/github/connect"
 )
 
 // newAuthTestServer builds a bare server with EnableIdentity turned on over
@@ -105,7 +110,7 @@ func TestAuthLoginPathRedirectsToConnect(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/auth/github/connect" {
+	if loc := resp.Header.Get("Location"); loc != testConnectPath {
 		t.Errorf("Location = %q, want /auth/github/connect", loc)
 	}
 	// It only forwards — the state is minted by the route it forwards to, so a
@@ -269,7 +274,7 @@ func TestIdentityRoutesAbsentWhenDisabled(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	for _, path := range []string{"/auth/github/connect", "/auth/github/login"} {
+	for _, path := range []string{testConnectPath, "/auth/github/login"} {
 		resp := doAuthRequest(t, http.MethodGet, ts.URL+path)
 		defer closeBody(t, resp)
 

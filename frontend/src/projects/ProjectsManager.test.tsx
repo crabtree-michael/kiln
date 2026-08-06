@@ -50,7 +50,12 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       amika_api_key: { set: false, tail: '' },
       devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: false, tail: '' },
-      github_connection: { status: 'disconnected', login: '', scopes: [] },
+      github_connection: {
+        status: 'disconnected',
+        login: '',
+        installation_id: 0,
+        configure_url: '',
+      },
       amika_claude_cred_id: '',
     },
     ...overrides,

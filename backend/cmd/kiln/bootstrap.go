@@ -81,7 +81,7 @@ func bootstrap(ctx context.Context, db *sql.DB, idSvc *identity.Service, in boot
 	if idSvc == nil {
 		if in.GitHubUser != "" {
 			log.Warn("bootstrap: KILN_BOOTSTRAP_GITHUB_USER set but identity is not mounted "+
-				"(need GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, KILN_SECRETS_KEY); "+
+				"(need all of "+strings.Join(identityEnvVars, ", ")+"); "+
 				"skipping user/config/adoption, running NOT NULL finalizer only",
 				"github_user", in.GitHubUser)
 		}

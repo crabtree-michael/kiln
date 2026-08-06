@@ -38,22 +38,34 @@ type UserConfig struct {
 	// (multi-provider design §8), falling back to the deployment DEVIN_API_KEY
 	// env when unset so existing opt-in deployments are unchanged.
 	DevinKeyEnc []byte
-	// GitHubTokenEnc is the repo credential: the token the brain's clone/fetch,
-	// the `gh` PR gate, and the sandbox's clone/push all authenticate with.
-	// Granted by the repo-scoped Connect flow (CompleteConnect) since the
-	// integrations redesign; before that, typed into the dashboard's manual
-	// token field. Both write THIS column, so a pre-redesign token carries
-	// forward untouched and keeps working.
+	// GitHubInstallationID names the GitHub App installation this user granted
+	// (0 = none). It is an IDENTIFIER, NOT A SECRET — it says which installation
+	// to mint against, and possession of it authorizes nothing without the App's
+	// private key. That is the whole shape of the App migration: the long-lived
+	// secret this column replaced is gone, and what is left in its place is safe
+	// to store in the clear, log, and put on the wire.
+	GitHubInstallationID int64
+	// GitHubInstallationRevokedAt records the moment a mint against
+	// GitHubInstallationID came back 401/403/404 — the App was uninstalled,
+	// suspended, or its access withdrawn. Nil (the common case) means "no
+	// evidence of trouble"; set means the card reads needs_reconnect and offers
+	// the install flow again. Recorded rather than re-derived so GET /api/me
+	// stays a pure DB read: asking GitHub on every page load would turn a
+	// dashboard render into a network round trip.
+	GitHubInstallationRevokedAt *time.Time
+	// GitHubTokenEnc is the USER access token from the App's user-authorization
+	// half — the credential that answers "which of this installation's repos can
+	// THIS person see" for the repo picker. It is not the repo credential: git
+	// and `gh` authenticate with an installation token minted on demand
+	// (InstallationTokens), never with this.
+	//
+	// It doubles as the carry-forward slot for a credential Kiln did not mint —
+	// a hand-typed PAT through PUT /api/settings, or the bootstrap GITHUB_AUTH_TOKEN
+	// — which is why a user with no installation but a stored token still reads
+	// as connected-with-unknown-provenance rather than disconnected.
 	GitHubTokenEnc []byte
-	// GitHubTokenScopes is the scope list GitHub reports for GitHubTokenEnc,
-	// comma-separated as GitHub returns it. EMPTY MEANS UNKNOWN, not "none":
-	// a token carried over from the manual field was never accompanied by a
-	// scope record, and TokenScopes backfills it on the next verify. Only a
-	// KNOWN list missing `repo` marks the connection as needing a reconnect —
-	// unknown is never treated as broken.
-	GitHubTokenScopes string
 	// GitHubConnectedLogin is the GitHub account GitHubTokenEnc belongs to,
-	// recorded at connect time. Empty for a carried-over manual token (nobody
+	// recorded at connect time. Empty for a hand-typed/bootstrap token (nobody
 	// recorded whose it was), which is why the card falls back to the session's
 	// own login rather than claiming an account it cannot vouch for.
 	GitHubConnectedLogin string
@@ -154,24 +166,28 @@ type MeSettings struct {
 	AmikaClaudeCredID string
 }
 
-// The four states of a user's GitHub repo credential. They exist because
-// "a token is stored" and "that token can actually reach the repo" are
-// different questions, and the redesign's Connect button has to say which.
+// The four states of a user's GitHub repo credential. They exist because "a
+// credential is on file" and "that credential can actually reach the repo" are
+// different questions, and the Integrations card's Connect button has to say
+// which. Under the GitHub App the discriminator is the INSTALLATION, not a
+// scope string: an installation is a live grant GitHub can withdraw, so its
+// presence and its health are the two facts worth recording.
 const (
-	// GitHubDisconnected: no repo credential at all.
+	// GitHubDisconnected: no installation and no stored credential at all.
 	GitHubDisconnected = "disconnected"
-	// GitHubUnknownScopes: a credential is stored but its scopes were never
-	// recorded — a token carried over from the old manual field, or one whose
-	// scope probe hasn't run yet. Treated as WORKING (it may well be a valid
-	// PAT, including a fine-grained one), never as broken; a verify run
-	// resolves it to connected or needs-reconnect.
+	// GitHubUnknownScopes: a credential is stored but no installation is —
+	// a hand-typed PAT, or the deployment's bootstrap GITHUB_AUTH_TOKEN.
+	// Treated as WORKING (it was configured deliberately, and a fine-grained
+	// PAT is a perfectly good repo credential), never as broken; it simply is
+	// not something Kiln granted itself and so cannot vouch for.
 	GitHubUnknownScopes = "unknown"
-	// GitHubNeedsReconnect: a credential is stored and GitHub told us its
-	// scopes do NOT include `repo` — it cannot clone a private repo or push.
-	// This is the "don't leave it silently broken" state: the card prompts a
-	// re-auth through the Connect flow instead of failing at runtime.
+	// GitHubNeedsReconnect: an installation is recorded and GitHub rejected a
+	// mint against it — uninstalled, suspended, or access withdrawn. This is
+	// the "don't leave it silently broken" state: the card prompts a re-install
+	// through the same connect flow instead of failing at the next agent turn.
 	GitHubNeedsReconnect = "needs_reconnect"
-	// GitHubConnected: a credential is stored and carries `repo`.
+	// GitHubConnected: an installation is recorded and nothing has reported it
+	// dead.
 	GitHubConnected = "connected"
 )
 
@@ -179,10 +195,18 @@ const (
 type GitHubConnection struct {
 	Status string
 	// Login is the account the credential belongs to; empty when unrecorded
-	// (a carried-over manual token).
+	// (a hand-typed or bootstrap token).
 	Login string
-	// Scopes is the recorded scope list, empty when unknown.
-	Scopes []string
+	// InstallationID names the GitHub App installation backing this connection,
+	// 0 when there is none. Safe on the wire — it identifies, it does not
+	// authorize (see UserConfig.GitHubInstallationID).
+	InstallationID int64
+	// ConfigureURL is GitHub's own installation-settings page, where the user
+	// changes WHICH repositories Kiln may touch. Kiln links out rather than
+	// reimplementing that screen — GitHub owns the repository chooser, and it is
+	// the only place the choice can actually be made. Empty when there is no
+	// installation to configure.
+	ConfigureURL string
 }
 
 // ProjectView is one project plus its fingerprint-only secret statuses

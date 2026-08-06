@@ -279,17 +279,22 @@ type BetaRegistrar interface {
 // no adapter — mirroring how BoardReader etc. are satisfied directly by
 // their domain services.
 type Authenticator interface {
-	// ConnectURL/CompleteConnect are the ONE GitHub grant (11 §2, amended
-	// 2026-08-03): it always asks for `repo`, and the token it yields is stored
-	// as the caller's repo credential as a side effect of signing them in. The
-	// scopeless LoginURL/CompleteLogin pair that used to sit beside them is
-	// gone — one flow, one entry point, no way to pick the wrong one.
+	// ConnectURL/CompleteConnect are the ONE GitHub flow (11 §2, amended
+	// 2026-08-03 and by the GitHub App migration): it ends on GitHub's
+	// repository chooser, and the installation it yields becomes the caller's
+	// repo credential as a side effect of signing them in. The scopeless
+	// LoginURL/CompleteLogin pair that used to sit beside them is gone — one
+	// flow, one entry point, no way to pick the wrong one.
 	//
-	// CompleteConnect returns a populated user WITH ErrRepoScopeNotGranted when
-	// GitHub authenticated the account but withheld `repo`, so the caller can
-	// sign them in and refuse only the credential.
+	// CompleteConnect returns a populated user WITH ErrInstallationRequired when
+	// GitHub authenticated the account but installed nothing, so the caller can
+	// sign them in and refuse only the repository half.
 	ConnectURL(state string) string
-	CompleteConnect(ctx context.Context, code string) (identity.User, error)
+	CompleteConnect(ctx context.Context, code string, installationID int64) (identity.User, error)
+	// AttachInstallation records an installation for an already signed-in user —
+	// the callback shape GitHub produces when somebody installs Kiln from its
+	// own Apps page and so arrives with an installation and no code.
+	AttachInstallation(ctx context.Context, userID string, installationID int64) error
 	CreateSession(ctx context.Context, userID string) (string, time.Time, error)
 	// ResolveSession returns the session's current expiry alongside the user
 	// (the renewed one when the sliding window fired, else the existing one)

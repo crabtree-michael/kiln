@@ -137,13 +137,28 @@ func (v *Verifier) VerifyDevin(ctx context.Context, apiKey string) identity.Chec
 // VerifyRepo runs `git ls-remote` against repoURL (optionally authenticated
 // via AuthedCloneURL) as a network+auth reachability probe. Its failure
 // message is always the static string below plus the process exit code —
-// never the command's stdout/stderr or the URL itself, since token is
+// never the command's stdout/stderr or the URL itself, since the token is
 // embedded in the URL and git error output can echo it back.
-func (v *Verifier) VerifyRepo(ctx context.Context, repoURL, token string) identity.CheckResult {
+//
+// The credential is resolved HERE, not passed in: under a GitHub App it is
+// minted per use and lives about an hour. That also makes this probe the place
+// a dead installation is discovered — the mint's failure is what the user is
+// asking about when they press Verify, so it is reported as the repo check
+// failing rather than swallowed.
+func (v *Verifier) VerifyRepo(ctx context.Context, repoURL string, token identity.TokenSource) identity.CheckResult {
 	ctx, cancel := context.WithTimeout(ctx, repoTimeout)
 	defer cancel()
 
-	authed := AuthedCloneURL(repoURL, token)
+	resolved, err := token(ctx)
+	if err != nil {
+		// Never echo err: it can carry the installation's own error body. The
+		// static message names the class of failure, which is all the user can
+		// act on ("reconnect"), and the card's own status says the rest.
+		return identity.CheckResult{
+			Name: nameRepo, Status: statusFailed, Message: "github credential unavailable",
+		}
+	}
+	authed := AuthedCloneURL(repoURL, resolved)
 	//nolint:gosec // repoURL/token come from the caller's own stored identity config, not attacker input
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", authed, "HEAD")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")

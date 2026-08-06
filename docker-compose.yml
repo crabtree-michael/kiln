@@ -69,12 +69,20 @@ services:
       # Dev/e2e only: mount POST /api/dev/tickets so a test can seed a ticket without
       # the brain. v1 is local-only (02 §1); default on for this stack, never prod.
       KILN_DEV_ENDPOINTS: ${KILN_DEV_ENDPOINTS:-1}
-      # Multi-user phase 1 (spec 11 §2, §7): dashboard GitHub sign-in. All
-      # optional locally — unset ⇒ GET /api/me 404s, so /dashboard shows the
-      # sign-in view with an error notice above the link (the failed initial
-      # load), not a bare "Continue with GitHub" as if simply signed out.
-      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
-      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      # Multi-user phase 1 (spec 11 §2, §7): dashboard GitHub sign-in, through a
+      # GitHub App since 2026-08-06. All optional locally — unset ⇒ GET /api/me
+      # 404s, so /dashboard shows the sign-in view with an error notice above the
+      # link (the failed initial load), not a bare "Continue with GitHub" as if
+      # simply signed out. Set SOME but not all and identity stays unmounted with
+      # a warning naming what is missing: a half-configured App would serve a
+      # working-looking connect route whose callback always fails.
+      KILN_GITHUB_APP_ID: ${KILN_GITHUB_APP_ID:-}
+      KILN_GITHUB_APP_SLUG: ${KILN_GITHUB_APP_SLUG:-}
+      # BASE64-encoded PEM, not the PEM itself: a multi-line secret does not
+      # survive an env var intact (see .env.example for how to encode it).
+      KILN_GITHUB_APP_PRIVATE_KEY: ${KILN_GITHUB_APP_PRIVATE_KEY:-}
+      KILN_GITHUB_APP_CLIENT_ID: ${KILN_GITHUB_APP_CLIENT_ID:-}
+      KILN_GITHUB_APP_CLIENT_SECRET: ${KILN_GITHUB_APP_CLIENT_SECRET:-}
       KILN_ALLOWED_GITHUB_USERS: ${KILN_ALLOWED_GITHUB_USERS:-}
       KILN_SECRETS_KEY: ${KILN_SECRETS_KEY:-}
       # Phase 2 (spec 11 §3): GitHub login the boot-time adoption seeds the owner

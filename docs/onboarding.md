@@ -31,8 +31,9 @@ in one pass:
 | A **provider API key** | Runs your agents — an **Amika** key or a **Devin** key, depending on which you pick during setup | Your Amika or Devin console |
 
 You do **not** need a repository URL or a GitHub personal access token. Signing in
-with GitHub is what grants Kiln access to your repos — you'll pick the repo from a
-list of your own during setup, private ones included.
+with GitHub is what grants Kiln access to your repos: you install it on your
+account, choose there which repositories it may use, and then pick the one to work
+in from that list during setup — private ones included.
 
 Keep these in reach — you'll paste the keys during setup, and Kiln verifies each
 one live before you rely on it.
@@ -51,9 +52,20 @@ single centered card:
 ![Sign-in screen with the Kiln wordmark and a "Continue with GitHub" button](images/onboarding/01-sign-in.png)
 *Figure 1 — The sign-in screen (`/dashboard` when signed out). Capture: the centered card with the "Continue with GitHub" affordance.*
 
-Click **Continue with GitHub**. The browser leaves the app, you authorize with
-GitHub, and you're returned to the dashboard. (If your account isn't on the
-allowlist, sign-in won't complete — contact whoever runs your Kiln instance.)
+Click **Continue with GitHub**. The browser leaves the app and GitHub asks you to
+install Kiln — on your personal account or on an organisation you administer. That
+screen is where you choose **which repositories** Kiln may use: all of them, or
+just the ones you pick. Complete it and you're returned to the dashboard.
+
+Two things worth knowing:
+
+- If your account isn't on the allowlist, sign-in won't complete — contact whoever
+  runs your Kiln instance.
+- If the repository belongs to an organisation, an owner of that organisation may
+  need to approve the installation before Kiln can see it.
+
+You can change the repository selection later from GitHub, under **Settings →
+Applications → Kiln → Configure**, or by running this sign-in again.
 
 ### Step 2 — Follow the setup flow
 

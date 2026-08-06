@@ -7,13 +7,25 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/githubapi"
 )
+
+// newTestService builds a Service over the fakes, wiring the installation-token
+// cache to the SAME fake GitHub the service talks to. That is not incidental:
+// the cache and the service are two consumers of one adapter in production too,
+// and a test that gave them different doubles could not observe a mint being
+// recorded against the user it belongs to.
+func newTestService(t *testing.T, store identity.Store, gh *fakeGitHub, allowed []string) *identity.Service {
+	t.Helper()
+	return identity.NewService(store, mustCipher(t), gh, identity.NewInstallationTokens(gh), allowed)
+}
 
 // fakeStore is an in-memory identity.Store.
 type fakeStore struct {
@@ -176,6 +188,26 @@ func (s *fakeStore) UpsertUserConfig(_ context.Context, cfg identity.UserConfig)
 	return nil
 }
 
+// MarkInstallationRevoked stamps every config row on an installation, mirroring
+// the postgres UPDATE's idempotence: a row already marked keeps its original
+// timestamp, so a retry loop can't rewrite the moment the grant actually died.
+func (s *fakeStore) MarkInstallationRevoked(_ context.Context, installationID int64, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if installationID == 0 {
+		return nil
+	}
+	for userID, cfg := range s.configs {
+		if cfg.GitHubInstallationID != installationID || cfg.GitHubInstallationRevokedAt != nil {
+			continue
+		}
+		stamped := at
+		cfg.GitHubInstallationRevokedAt = &stamped
+		s.configs[userID] = cfg
+	}
+	return nil
+}
+
 // GetProjectByOwner returns the owner's first live project (oldest by
 // CreatedAt), or ErrNotFound when they own none live (12 §6.4).
 func (s *fakeStore) GetProjectByOwner(_ context.Context, ownerUserID string) (identity.Project, error) {
@@ -308,49 +340,56 @@ func (s *fakeStore) userCount() int {
 	return len(s.users)
 }
 
-// fakeGitHub is an in-memory identity.GitHub double: it always returns user
-// and token unless exchangeErr/fetchErr is set, and records the code/token it
-// was last called with so tests can assert wiring.
+// fakeGitHub is an in-memory identity.GitHub + identity.Minter double: it
+// always returns user, token, and a minted installation credential unless the
+// matching *Err is set, and records the arguments it was last called with so
+// tests can assert wiring.
 type fakeGitHub struct {
 	mu    sync.Mutex
 	token string
-	// scope is what ExchangeCode reports GitHub granted. "repo" is the grant
-	// Kiln always asks for; anything narrower (including empty) is GitHub or
-	// the user having withheld it.
-	scope       string
-	user        githubapi.GitHubUser
-	repos       []githubapi.Repo
-	exchangeErr error
-	fetchErr    error
-	reposErr    error
-	// probedScopes is what TokenScopes reports for an ALREADY-STORED token —
-	// the carried-over manual token's classification path. probeErr makes the
-	// probe fail, which must leave the stored classification untouched.
-	probedScopes string
-	probeErr     error
+	user  githubapi.GitHubUser
+	// repos is what ListRepos returns; installationRepos is what
+	// ListInstallationRepos returns. They are deliberately separate so a test can
+	// prove the picker reads the NARROWED listing once an installation exists.
+	repos             []githubapi.Repo
+	installationRepos []githubapi.Repo
+	exchangeErr       error
+	fetchErr          error
+	reposErr          error
 
-	gotCode        string
-	gotToken       string
-	gotReposToken  string
-	gotProbedToken string
+	// minted is what MintInstallationToken returns; mintErr overrides it.
+	// mintCalls counts the round trips, which is how the cache's
+	// refresh-before-expiry and singleflight behaviour is observed.
+	minted    githubapi.InstallationToken
+	mintErr   error
+	mintCalls int
+
+	gotCode                  string
+	gotToken                 string
+	gotReposToken            string
+	gotInstallationReposID   int64
+	gotMintedInstallationIDs []int64
 }
 
-func (g *fakeGitHub) AuthorizeURL(state, scope string) string {
-	u := "https://github.example/login/oauth/authorize?state=" + state
-	if scope != "" {
-		u += "&scope=" + scope
+func (g *fakeGitHub) InstallURL(state string) string {
+	return "https://github.example/apps/kiln/installations/new?state=" + state
+}
+
+func (g *fakeGitHub) ConfigureURL(installationID int64) string {
+	if installationID == 0 {
+		return ""
 	}
-	return u
+	return "https://github.example/settings/installations/" + strconv.FormatInt(installationID, 10)
 }
 
-func (g *fakeGitHub) ExchangeCode(_ context.Context, code string) (string, string, error) {
+func (g *fakeGitHub) ExchangeCode(_ context.Context, code string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.gotCode = code
 	if g.exchangeErr != nil {
-		return "", "", g.exchangeErr
+		return "", g.exchangeErr
 	}
-	return g.token, g.scope, nil
+	return g.token, nil
 }
 
 func (g *fakeGitHub) FetchUser(_ context.Context, accessToken string) (githubapi.GitHubUser, error) {
@@ -373,17 +412,43 @@ func (g *fakeGitHub) ListRepos(_ context.Context, accessToken string) ([]githuba
 	return g.repos, nil
 }
 
-func (g *fakeGitHub) TokenScopes(_ context.Context, accessToken string) (string, error) {
+func (g *fakeGitHub) ListInstallationRepos(
+	_ context.Context, accessToken string, installationID int64,
+) ([]githubapi.Repo, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.gotProbedToken = accessToken
-	if g.probeErr != nil {
-		return "", g.probeErr
+	g.gotReposToken = accessToken
+	g.gotInstallationReposID = installationID
+	if g.reposErr != nil {
+		return nil, g.reposErr
 	}
-	return g.probedScopes, nil
+	return g.installationRepos, nil
 }
 
-var _ identity.GitHub = (*fakeGitHub)(nil)
+func (g *fakeGitHub) MintInstallationToken(
+	_ context.Context, installationID int64,
+) (githubapi.InstallationToken, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mintCalls++
+	g.gotMintedInstallationIDs = append(g.gotMintedInstallationIDs, installationID)
+	if g.mintErr != nil {
+		return githubapi.InstallationToken{}, g.mintErr
+	}
+	return g.minted, nil
+}
+
+// mintCallCount reports how many mints reached the adapter, for cache tests.
+func (g *fakeGitHub) mintCallCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.mintCalls
+}
+
+var (
+	_ identity.GitHub = (*fakeGitHub)(nil)
+	_ identity.Minter = (*fakeGitHub)(nil)
+)
 
 // fakeVerifier is an in-memory identity.Verifier double: it always reports
 // "ok" and records the exact arguments each method was called with, so
@@ -397,6 +462,7 @@ type fakeVerifier struct {
 	gotDevinKey     string
 	gotRepoURL      string
 	gotRepoToken    string
+	gotRepoTokenErr error
 }
 
 func (v *fakeVerifier) VerifyAnthropic(_ context.Context, apiKey string) identity.CheckResult {
@@ -420,11 +486,19 @@ func (v *fakeVerifier) VerifyDevin(_ context.Context, apiKey string) identity.Ch
 	return identity.CheckResult{Status: "ok"}
 }
 
-func (v *fakeVerifier) VerifyRepo(_ context.Context, repoURL, token string) identity.CheckResult {
+// VerifyRepo resolves the token source the way the real verifier does, so tests
+// can still assert on the credential that reached the probe — and so a service
+// that hands over a source which fails to resolve is visible as an empty one
+// rather than as a silently uncalled function.
+func (v *fakeVerifier) VerifyRepo(
+	ctx context.Context, repoURL string, token identity.TokenSource,
+) identity.CheckResult {
+	resolved, err := token(ctx)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.gotRepoURL = repoURL
-	v.gotRepoToken = token
+	v.gotRepoToken = resolved
+	v.gotRepoTokenErr = err
 	return identity.CheckResult{Status: "ok"}
 }
 

@@ -354,7 +354,7 @@ describe('transport', () => {
         amika_api_key: { set: false, tail: '' },
         devin_api_key: { set: false, tail: '' },
         github_auth_token: { set: true, tail: 'abcd' },
-        github_connection: { status: 'unknown', login: '', scopes: [] },
+        github_connection: { status: 'unknown', login: '', installation_id: 0, configure_url: '' },
         amika_claude_cred_id: '',
       },
     };
@@ -393,6 +393,49 @@ describe('transport', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       await expect(fetchMe()).rejects.toThrow('unexpected response shape');
+    });
+
+    // The GitHub connection swapped `scopes` for the installation fields when
+    // login moved to a GitHub App. A server still sending the old shape is a
+    // deploy skew, and the guard has to catch it here rather than let a
+    // half-built connection reach the components that render it.
+    it('rejects the pre-GitHub-App connection shape', async () => {
+      // Built as plain JSON rather than by mutating a `Me`: the whole point is a
+      // payload the current types cannot describe, so there is nothing to cast.
+      const stale = {
+        ...makeMe(),
+        settings: {
+          ...makeMe().settings,
+          github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
+        },
+      };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(stale))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchMe()).rejects.toThrow('unexpected response shape');
+    });
+
+    it('accepts a connection carrying an installation and its configure link', async () => {
+      const me = makeMe();
+      me.settings.github_connection = {
+        status: 'connected',
+        login: 'octocat',
+        installation_id: 4242,
+        configure_url: 'https://github.com/settings/installations/4242',
+      };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(me))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await fetchMe();
+
+      expect(result?.settings.github_connection.installation_id).toBe(4242);
+      expect(result?.settings.github_connection.configure_url).toBe(
+        'https://github.com/settings/installations/4242',
+      );
     });
   });
 

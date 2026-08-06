@@ -158,12 +158,21 @@ affordances. It is **not** in `integrations-config.ts` with the other shared cre
 facts, on purpose: the landing page and the app's session gate link to it too, and they must
 not pull the dashboard's provider tables into their bundle to do it.
 
-The authorize URL always requests the `repo` scope and `CompleteConnect` keeps the resulting
-token as the user's GitHub credential (the same slot a hand-entered PAT uses), so signing in
-already authorizes repo access. This replaced a split — a scopeless `/auth/github/login`
-beside the repo-scoped connect — that shipped a settings card pointed at the wrong one.
-**Never add a second OAuth app, flow, callback, or path constant for repo access.**
-(`/auth/github/login` still 302s here for old bookmarks; nothing in the client links to it.)
+The route redirects to a **GitHub App install page** (as of 2026-08-06), where GitHub renders
+the "All repositories / Only select repositories" chooser, and `CompleteConnect` records the
+resulting installation as the user's GitHub credential — so signing in already authorizes repo
+access, to exactly the repos they picked. This replaced a split — a scopeless
+`/auth/github/login` beside a repo-scoped connect — that shipped a settings card pointed at
+the wrong one. **Never add a second GitHub app, flow, callback, or path constant for repo
+access.** (`/auth/github/login` still 302s here for old bookmarks; nothing in the client
+links to it.)
+
+`MeSettings.github_connection` carries `installation_id` and `configure_url` (GitHub's own
+installation-settings page) instead of the `scopes` array it had under the OAuth App. Nothing
+renders `configure_url` yet — the "Configure on GitHub" affordance belongs on the connect
+step, which the App migration deliberately left untouched — but it is on the wire and ready.
+`status: 'unknown'` now means "a credential is stored with no installation behind it" (a
+hand-typed PAT or the bootstrap token), not "scopes unrecorded".
 
 `ProjectFields` has **no free-text repo URL field**. The repo is picked from the connected
 GitHub account (`RepoField` in `ConfigFields.tsx`, fed by `useGitHubRepos` →

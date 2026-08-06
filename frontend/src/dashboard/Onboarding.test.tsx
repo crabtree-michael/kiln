@@ -87,7 +87,12 @@ function meWithAmikaKey(): Me {
       amika_api_key: { set: true, tail: 'mika' },
       devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: false, tail: '' },
-      github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
+      github_connection: {
+        status: 'connected',
+        login: 'octocat',
+        installation_id: 4242,
+        configure_url: 'https://github.com/settings/installations/4242',
+      },
       amika_claude_cred_id: '',
     },
   });
@@ -106,7 +111,12 @@ function makeMe(overrides: Partial<Me> = {}): Me {
       amika_api_key: { set: false, tail: '' },
       devin_api_key: { set: false, tail: '' },
       github_auth_token: { set: false, tail: '' },
-      github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
+      github_connection: {
+        status: 'connected',
+        login: 'octocat',
+        installation_id: 4242,
+        configure_url: 'https://github.com/settings/installations/4242',
+      },
       amika_claude_cred_id: '',
     },
     providers: PROVIDERS,
@@ -344,7 +354,12 @@ describe('Onboarding — the guided setup flow', () => {
         amika_api_key: { set: true, tail: 'mika' },
         devin_api_key: { set: false, tail: '' },
         github_auth_token: { set: false, tail: '' },
-        github_connection: { status: 'connected', login: 'octocat', scopes: ['repo'] },
+        github_connection: {
+          status: 'connected',
+          login: 'octocat',
+          installation_id: 4242,
+          configure_url: 'https://github.com/settings/installations/4242',
+        },
         amika_claude_cred_id: '',
       },
     });

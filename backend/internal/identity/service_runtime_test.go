@@ -29,7 +29,7 @@ func mustUpsertProject(t *testing.T, svc *identity.Service, userID string) ident
 
 func TestRuntimeConfigDecryptsRoundTrip(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "runtime-user")
 
 	const (
@@ -64,8 +64,14 @@ func TestRuntimeConfigDecryptsRoundTrip(t *testing.T) {
 	if rc.AmikaAPIKey != amika {
 		t.Fatalf("AmikaAPIKey = %q, want decrypted %q", rc.AmikaAPIKey, amika)
 	}
-	if rc.GitHubAuthToken != ghToken {
-		t.Fatalf("GitHubAuthToken = %q, want decrypted %q", rc.GitHubAuthToken, ghToken)
+	// The GitHub credential is a source, not a value: with no installation
+	// behind it, resolving it yields the decrypted stored token verbatim.
+	resolved, err := rc.GitHubToken(context.Background())
+	if err != nil {
+		t.Fatalf("resolve GitHubToken: %v", err)
+	}
+	if resolved != ghToken {
+		t.Fatalf("GitHubToken = %q, want decrypted %q", resolved, ghToken)
 	}
 	if rc.AmikaClaudeCredID != credID {
 		t.Fatalf("AmikaClaudeCredID = %q, want %q", rc.AmikaClaudeCredID, credID)
@@ -74,7 +80,7 @@ func TestRuntimeConfigDecryptsRoundTrip(t *testing.T) {
 
 func TestRuntimeConfigUnsetColumnsAreEmpty(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "runtime-empty-user")
 	proj := mustUpsertProject(t, svc, u.ID) // no UpdateSettings: config all-unset
 
@@ -82,8 +88,16 @@ func TestRuntimeConfigUnsetColumnsAreEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeConfig: %v", err)
 	}
-	if rc.AnthropicAPIKey != "" || rc.AmikaAPIKey != "" || rc.GitHubAuthToken != "" || rc.AmikaClaudeCredID != "" {
+	if rc.AnthropicAPIKey != "" || rc.AmikaAPIKey != "" || rc.AmikaClaudeCredID != "" {
 		t.Fatalf("unset credentials must decrypt to empty, got %+v", rc)
+	}
+	// An unset GitHub credential resolves to "" rather than erroring: not being
+	// connected is an ordinary state, and the caller renders a prompt for it.
+	switch resolved, rerr := rc.GitHubToken(context.Background()); {
+	case rerr != nil:
+		t.Fatalf("resolve GitHubToken: %v", rerr)
+	case resolved != "":
+		t.Fatalf("GitHubToken = %q, want empty", resolved)
 	}
 	if rc.OwnerUserID != u.ID {
 		t.Fatalf("OwnerUserID = %q, want %q", rc.OwnerUserID, u.ID)
@@ -92,7 +106,7 @@ func TestRuntimeConfigUnsetColumnsAreEmpty(t *testing.T) {
 
 func TestRuntimeConfigUnknownProject(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 
 	if _, err := svc.RuntimeConfig(context.Background(), "no-such-project"); !errors.Is(err, identity.ErrNotFound) {
 		t.Fatalf("RuntimeConfig(unknown) err = %v, want ErrNotFound", err)
@@ -101,7 +115,7 @@ func TestRuntimeConfigUnknownProject(t *testing.T) {
 
 func TestSetInvalidatorFiresOnUpsertProject(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "invalidate-project-user")
 
 	var fired []string
@@ -115,7 +129,7 @@ func TestSetInvalidatorFiresOnUpsertProject(t *testing.T) {
 
 func TestSetInvalidatorFiresOnUpdateSettings(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "invalidate-settings-user")
 	proj := mustUpsertProject(t, svc, u.ID)
 
@@ -134,7 +148,7 @@ func TestSetInvalidatorFiresOnUpdateSettings(t *testing.T) {
 
 func TestUpdateSettingsNoProjectDoesNotInvalidate(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "no-project-user") // never onboarded
 
 	var fired []string
@@ -152,7 +166,7 @@ func TestUpdateSettingsNoProjectDoesNotInvalidate(t *testing.T) {
 
 func TestEnsureUserIdempotent(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 
 	first, err := svc.EnsureUser(context.Background(), "Ensure-User")
 	if err != nil {
@@ -179,7 +193,7 @@ func TestEnsureUserIdempotent(t *testing.T) {
 
 func TestListProjectIDs(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 
 	u1 := mustDevSignIn(t, svc, "list-user-1")
 	u2 := mustDevSignIn(t, svc, "list-user-2")
@@ -201,7 +215,7 @@ func TestListProjectIDs(t *testing.T) {
 
 func TestProjectForWrapsGetProjectByOwner(t *testing.T) {
 	store := newFakeStore()
-	svc := identity.NewService(store, mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, store, &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "projectfor-user")
 
 	if _, err := svc.ProjectFor(context.Background(), u.ID); !errors.Is(err, identity.ErrNotFound) {

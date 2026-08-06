@@ -59,11 +59,17 @@ export const CHECK_NAME_FOR_CREDENTIAL: Record<CredentialName, VerifyCheck['name
 // page and the app's session gate too; those must not pull the dashboard's
 // credential machinery into their bundle to link to it. Import it from there.
 
-/** What connecting actually authorizes, stated wherever we ask for it so the
- * `repo` grant on GitHub's consent screen is expected rather than alarming. */
+/** What connecting actually authorizes, stated wherever we ask for it so
+ * GitHub's install screen is expected rather than alarming.
+ *
+ * It names the CHOICE, because under the GitHub App that screen's first
+ * question is which repositories Kiln may touch — "all of them" is now one
+ * answer among others rather than the only one. Promising blanket access here
+ * would misdescribe the very screen this note introduces. */
 export const GITHUB_ACCESS_NOTE =
-  'Connecting grants Kiln read and write access to your repositories — it needs ' +
-  'that to clone your repo, read it, and push the branches your agents produce.';
+  'On the next screen you choose which repositories Kiln may use — all of them, ' +
+  'or just the ones you pick. It gets read and write access to those, which is ' +
+  'what it needs to clone them, read them, and push the branches your agents produce.';
 
 export interface ApiKeyProvider {
   /** The settings field this writes, and the key its indicator reads. */

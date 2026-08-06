@@ -1,16 +1,21 @@
 // Package githubapi is the GitHub HTTP adapter — the one place GitHub's own
-// vocabulary is legal (11 §2). It has two halves:
+// vocabulary is legal (11 §2). It has two halves, both belonging to ONE GitHub
+// App:
 //
-//   - OAuth App (this file): the three-legged web application flow — build the
-//     authorize URL, exchange the callback code for an access token, fetch the
-//     authenticated user's profile, and list the repos that token can reach.
-//   - GitHub App (app.go): the installation flow the repo-selection migration
-//     moves to — build the install URL, sign an app JWT, mint short-lived
-//     installation tokens, and list one installation's repos.
+//   - user authorization (this file): exchange the callback code for a USER
+//     access token, fetch the authenticated user's profile, and list repos as
+//     that user. This is the same three-legged web flow the OAuth App used —
+//     a GitHub App's user-authorization half speaks the identical endpoint —
+//     which is why converting the login flow (design 2026-08-04) needed no new
+//     token exchange, only a different client id, a different redirect target,
+//     and the installation that comes back with it.
+//   - installation (app.go): build the install URL, sign an app JWT, mint the
+//     short-lived installation tokens git and `gh` authenticate with, and list
+//     one installation's repos.
 //
-// Both halves are live during the migration (design 2026-08-04 §6): an
-// installation is used when one exists, and the stored OAuth token is the
-// fallback until every user has moved.
+// The user token answers "who is this and what can they see"; the installation
+// token is the repo credential. Keeping them apart is the point: the first is
+// stored, the second is minted per hour and never is.
 //
 // ClientSecret and the App private key never leave the backend (02 §2) — the
 // secret is only ever sent, over HTTPS, as part of the token exchange request
@@ -64,22 +69,24 @@ var ErrFetchUser = errors.New("githubapi: fetch user")
 var ErrListRepos = errors.New("githubapi: list repos")
 
 // ErrUnauthorized reports that GitHub rejected the access token itself — it was
-// revoked, or it predates the repo scope (a token minted before Kiln asked for
-// it can read /user but not /user/repos). Callers treat it as "not connected"
-// and send the user back through sign-in to re-authorize, rather than as a
-// transport failure. Wraps ErrListRepos so either sentinel matches.
+// revoked, expired, or never had the reach the call needs. Callers treat it as
+// "not connected" and send the user back through sign-in to re-authorize,
+// rather than as a transport failure. Wraps ErrListRepos so either sentinel
+// matches.
 var ErrUnauthorized = fmt.Errorf("%w: token rejected", ErrListRepos)
 
-// Config configures a Client. ClientID/ClientSecret are the app's OAuth
-// credentials (the secret never leaves the backend). OAuthBaseURL and
-// APIBaseURL default to GitHub's public hosts; overridable for tests.
+// Config configures a Client. ClientID/ClientSecret are the App's own OAuth
+// credentials, for the user-authorization half (the secret never leaves the
+// backend). OAuthBaseURL and APIBaseURL default to GitHub's public hosts;
+// overridable for tests.
 //
-// AppID/AppSlug/AppPrivateKey are the GitHub App half (app.go, design
-// 2026-08-04 §5). They are OPTIONAL on purpose: during the OAuth-App → GitHub-App
-// migration a deployment may be configured for either, and a client built
-// without them still serves every OAuth call — only the mint refuses, with
-// ErrNoAppCredentials. Enforcing that a deployment configures one or the other
-// is the composition root's boot gate, not this adapter's.
+// AppID/AppSlug/AppPrivateKey are the installation half (app.go, design
+// 2026-08-04 §5). A client built without them still serves every user-token
+// call; only the mint refuses, with ErrNoAppCredentials. That is a deliberate
+// shape rather than an invitation to run half-configured: enforcing the full
+// set is the composition root's boot gate, and this adapter answering an error
+// instead of panicking is what keeps a misconfigured deploy serving 500s on one
+// route rather than refusing to boot at all.
 type Config struct {
 	ClientID     string
 	ClientSecret string
@@ -95,8 +102,8 @@ type Config struct {
 	AppPrivateKey *rsa.PrivateKey
 }
 
-// Client is the GitHub adapter — OAuth App flow (this file) and GitHub App
-// installation flow (app.go).
+// Client is the GitHub adapter — the App's user-authorization flow (this file)
+// and its installation flow (app.go).
 type Client struct {
 	clientID     string
 	clientSecret string
@@ -135,31 +142,19 @@ func New(cfg Config, hc *http.Client) *Client {
 	}
 }
 
-// ScopeRepo is GitHub's full read/write repository scope — what an access
-// token needs to clone a private repo, push to it, and read/write its pull
-// requests. It is what the dashboard's "Connect GitHub" grant requests; plain
-// sign-in requests nothing (see AuthorizeURL).
-const ScopeRepo = "repo"
-
-// AuthorizeURL builds the GitHub authorize-redirect URL for the given OAuth
-// state nonce and scope. An EMPTY scope sends no `scope` param at all, which
-// is the plain sign-in grant: default public identity only (11 §2 D2 — signing
-// in never asks for repo access). A non-empty scope (ScopeRepo) is the
-// dashboard's "Connect GitHub" grant, whose token is stored as the user's repo
-// credential and backs the settings repo picker.
+// ConfigureURL is GitHub's own settings page for one installation — where the
+// user changes WHICH repositories Kiln may touch (design §3.5). The dashboard
+// links out to it rather than reimplementing a screen only GitHub can render,
+// and only GitHub can honour.
 //
-// No redirect_uri is sent in either case: GitHub uses the OAuth app's single
-// registered callback URL, which is why both grants share one callback route
-// and neither needs a second registration.
-func (c *Client) AuthorizeURL(state, scope string) string {
-	q := url.Values{
-		"client_id": {c.clientID},
-		"state":     {state},
+// One URL shape covers both personal and organisation installations: GitHub
+// redirects an org installation to its org-scoped page, so the caller does not
+// have to know which kind it is holding.
+func (c *Client) ConfigureURL(installationID int64) string {
+	if installationID == 0 {
+		return ""
 	}
-	if scope != "" {
-		q.Set("scope", scope)
-	}
-	return fmt.Sprintf("%s/login/oauth/authorize?%s", c.oauthBaseURL, q.Encode())
+	return c.oauthBaseURL + "/settings/installations/" + strconv.FormatInt(installationID, 10)
 }
 
 // exchangeRequest is the POST /login/oauth/access_token body.
@@ -171,34 +166,35 @@ type exchangeRequest struct {
 
 // exchangeResponse is GitHub's token-exchange response body. GitHub returns
 // HTTP 200 even for OAuth errors, signaled instead by a populated Error
-// field — both that case and a non-2xx HTTP status must be handled. Scope is
-// the comma-separated list GitHub actually granted, which can be NARROWER than
-// what the authorize URL asked for (the user may decline an org, or the OAuth
-// app may not be approved there) — so it is the granted scope, never the
-// requested one, that decides whether the token is a usable repo credential.
+// field — both that case and a non-2xx HTTP status must be handled.
+//
+// `scope` is deliberately not decoded. A GitHub App's user token carries no
+// scopes: what Kiln may do is the App's registered permissions, and what it may
+// touch is the installation's repository selection. Reading a scope string here
+// would be reading a field that is empty by construction and inviting a decision
+// to be made on it.
 type exchangeResponse struct {
 	AccessToken      string `json:"access_token"`
-	Scope            string `json:"scope"`
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
 }
 
-// ExchangeCode exchanges an OAuth callback code for an access token, returning
-// the token and the scope string GitHub granted it (see exchangeResponse). A
-// plain sign-in grant returns an empty scope; that is a real answer ("no
-// scopes"), not an unknown one.
-func (c *Client) ExchangeCode(ctx context.Context, code string) (string, string, error) {
+// ExchangeCode exchanges a callback code for the USER access token — the
+// credential that answers `GET /user` (who signed in) and lists the caller's own
+// view of an installation's repositories. It is NOT the repo credential; git and
+// `gh` use a minted installation token (app.go).
+func (c *Client) ExchangeCode(ctx context.Context, code string) (string, error) {
 	var body exchangeResponse
 	if err := c.doExchange(ctx, code, &body); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if body.Error != "" {
-		return "", "", fmt.Errorf("githubapi: exchange: %w: %s (%s)", ErrExchange, body.Error, body.ErrorDescription)
+		return "", fmt.Errorf("githubapi: exchange: %w: %s (%s)", ErrExchange, body.Error, body.ErrorDescription)
 	}
 	if body.AccessToken == "" {
-		return "", "", fmt.Errorf("githubapi: exchange: %w: empty access token in response", ErrExchange)
+		return "", fmt.Errorf("githubapi: exchange: %w: empty access token in response", ErrExchange)
 	}
-	return body.AccessToken, body.Scope, nil
+	return body.AccessToken, nil
 }
 
 // GitHubUser is the subset of GitHub's `/user` response Kiln cares about.
@@ -212,11 +208,11 @@ type GitHubUser struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
-// FetchUser fetches the authenticated user's profile using an access token
+// FetchUser fetches the authenticated user's profile using a user access token
 // obtained from ExchangeCode.
 func (c *Client) FetchUser(ctx context.Context, accessToken string) (GitHubUser, error) {
 	var user GitHubUser
-	if _, err := c.doFetchUser(ctx, accessToken, &user); err != nil {
+	if err := c.doFetchUser(ctx, accessToken, &user); err != nil {
 		return GitHubUser{}, err
 	}
 	return user, nil
@@ -232,13 +228,17 @@ type Repo struct {
 }
 
 // ListRepos returns the repos the access token can reach — owned, collaborated
-// on, and org-member repos, private ones included (that is what the repo scope
-// buys). Results come back sorted by full name, the order the picker shows them
-// in, and are capped at reposPerPage×maxRepoPages.
+// on, and org-member repos, private ones included. Results come back sorted by
+// full name, the order the picker shows them in, and are capped at
+// reposPerPage×maxRepoPages.
 //
-// A token GitHub rejects (revoked, or minted before Kiln requested the repo
-// scope) yields ErrUnauthorized so the caller can prompt a re-authorize instead
-// of reporting an outage.
+// Under the GitHub App this is the FALLBACK listing, for a credential that has
+// no installation to narrow it: a hand-typed PAT, or the deployment's bootstrap
+// token. The App path uses ListInstallationRepos, which shows only what the user
+// picked — that narrowing is the whole point, and this function cannot do it.
+//
+// A token GitHub rejects yields ErrUnauthorized so the caller can prompt a
+// re-authorize instead of reporting an outage.
 func (c *Client) ListRepos(ctx context.Context, accessToken string) ([]Repo, error) {
 	repos := make([]Repo, 0, reposPerPage)
 	for page := 1; page <= maxRepoPages; page++ {
@@ -254,34 +254,6 @@ func (c *Client) ListRepos(ctx context.Context, accessToken string) ([]Repo, err
 		}
 	}
 	return repos, nil
-}
-
-// scopesHeader is the response header GitHub stamps on every authenticated API
-// response, listing the scopes the presented token actually carries. Spelled in
-// Go's canonical MIME form (http.Header canonicalizes on both set and get, so
-// this matches GitHub's "X-OAuth-Scopes" on the wire).
-const scopesHeader = "X-Oauth-Scopes"
-
-// TokenScopes reports the scopes an EXISTING access token carries, by making
-// the cheapest authenticated call there is (`GET /user`) and reading GitHub's
-// X-OAuth-Scopes response header.
-//
-// This is how a credential Kiln did not mint — a personal access token typed
-// into the old manual field, carried forward by the integrations redesign —
-// gets classified without asking the user to re-enter anything. An error means
-// "could not determine" (network, or the token is revoked/invalid); it never
-// means "no scopes", so callers must not downgrade a stored credential on it.
-//
-// Fine-grained PATs report no scopes here (they carry resource permissions
-// instead), so they read as unknown rather than insufficient — deliberately,
-// since a working fine-grained token must not be declared broken.
-func (c *Client) TokenScopes(ctx context.Context, accessToken string) (string, error) {
-	var user GitHubUser
-	header, err := c.doFetchUser(ctx, accessToken, &user)
-	if err != nil {
-		return "", err
-	}
-	return header.Get(scopesHeader), nil
 }
 
 // doListRepos issues GET /user/repos for one page and decodes the 200 body into
@@ -383,25 +355,21 @@ func (c *Client) doExchange(ctx context.Context, code string, out *exchangeRespo
 	return nil
 }
 
-// doFetchUser issues GET /user, decodes the 200 body into out, and returns the
-// response headers (TokenScopes reads X-OAuth-Scopes off them; FetchUser
-// ignores them). The lone named error return lets the deferred body-close
-// surface its error without a blank assignment (errcheck check-blank), the
-// same shape as doExchange.
-func (c *Client) doFetchUser(
-	ctx context.Context, accessToken string, out *GitHubUser,
-) (_ http.Header, err error) {
+// doFetchUser issues GET /user and decodes the 200 body into out. The lone
+// named error return lets the deferred body-close surface its error without a
+// blank assignment (errcheck check-blank), the same shape as doExchange.
+func (c *Client) doFetchUser(ctx context.Context, accessToken string, out *GitHubUser) (err error) {
 	u := c.apiBaseURL + "/user"
 	req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if rerr != nil {
-		return nil, fmt.Errorf("githubapi: build fetch-user request: %w", rerr)
+		return fmt.Errorf("githubapi: build fetch-user request: %w", rerr)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, derr := c.http.Do(req)
 	if derr != nil {
-		return nil, fmt.Errorf("githubapi: fetch user: %w: %w", ErrFetchUser, derr)
+		return fmt.Errorf("githubapi: fetch user: %w: %w", ErrFetchUser, derr)
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil && err == nil {
@@ -412,13 +380,13 @@ func (c *Client) doFetchUser(
 	if resp.StatusCode != http.StatusOK {
 		errBody, rerr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 		if rerr != nil {
-			return nil, fmt.Errorf("githubapi: fetch user: %w: http %d", ErrFetchUser, resp.StatusCode)
+			return fmt.Errorf("githubapi: fetch user: %w: http %d", ErrFetchUser, resp.StatusCode)
 		}
-		return nil, fmt.Errorf("githubapi: fetch user: %w: http %d: %s", ErrFetchUser, resp.StatusCode, string(errBody))
+		return fmt.Errorf("githubapi: fetch user: %w: http %d: %s", ErrFetchUser, resp.StatusCode, string(errBody))
 	}
 
 	if jerr := json.NewDecoder(resp.Body).Decode(out); jerr != nil {
-		return nil, fmt.Errorf("githubapi: decode user response: %w", jerr)
+		return fmt.Errorf("githubapi: decode user response: %w", jerr)
 	}
-	return resp.Header, nil
+	return nil
 }

@@ -82,10 +82,11 @@ func newTenServer(t *testing.T) *tenServer {
 	if err != nil {
 		t.Fatalf("identity cipher: %v", err)
 	}
-	// gh is nil and allowedLogins empty: the isolation tests reach identity only
-	// through DevSignIn/EnsureUser/UpsertProject/ProjectFor/CreateSession/
-	// ResolveSession, none of which touch the GitHub client or the allowlist.
-	idSvc := identity.NewService(identitypg.New(db), cipher, nil, nil)
+	// gh, the mint cache, and allowedLogins are all nil/empty: the isolation
+	// tests reach identity only through DevSignIn/EnsureUser/UpsertProject/
+	// ProjectFor/CreateSession/ResolveSession, none of which touch the GitHub
+	// client, mint an installation credential, or consult the allowlist.
+	idSvc := identity.NewService(identitypg.New(db), cipher, nil, nil, nil)
 
 	boardSvc := board.NewService(boardpg.New(db))
 	rtStore := runtimepg.New(db)

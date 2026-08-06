@@ -549,8 +549,8 @@ function isGitHubConnection(value: unknown): value is MeSettings['github_connect
     isRecord(value) &&
     typeof value.status === 'string' &&
     typeof value.login === 'string' &&
-    Array.isArray(value.scopes) &&
-    value.scopes.every((scope) => typeof scope === 'string')
+    typeof value.installation_id === 'number' &&
+    typeof value.configure_url === 'string'
   );
 }
 

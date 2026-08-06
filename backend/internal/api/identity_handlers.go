@@ -319,17 +319,15 @@ func meToWire(me identity.Me) wire.Me {
 }
 
 // gitHubConnectionToWire maps the derived repo-credential state onto the wire.
-// Scopes is forced non-nil so the JSON is always an array, never null — the
-// client reads it as a list without a null guard.
+// InstallationId is an identifier, not a secret (it authorizes nothing without
+// the App private key), so it crosses the boundary as itself rather than as a
+// fingerprint — the client needs it to tell one reconnect from another.
 func gitHubConnectionToWire(c identity.GitHubConnection) wire.GitHubConnection {
-	scopes := c.Scopes
-	if scopes == nil {
-		scopes = []string{}
-	}
 	return wire.GitHubConnection{
-		Status: wire.GitHubConnectionStatus(c.Status),
-		Login:  c.Login,
-		Scopes: scopes,
+		Status:         wire.GitHubConnectionStatus(c.Status),
+		Login:          c.Login,
+		InstallationId: c.InstallationID,
+		ConfigureUrl:   c.ConfigureURL,
 	}
 }
 

@@ -126,7 +126,10 @@ func newBootstrapIdentity(t *testing.T, db *sql.DB) *identity.Service {
 	if err != nil {
 		t.Fatalf("new cipher: %v", err)
 	}
-	return identity.NewService(identitypg.New(db), cipher, nil, nil)
+	// gh and tokens are nil: bootstrap reaches identity only through
+	// EnsureUser/UpdateSettings/UpsertProject, none of which touch GitHub or
+	// mint an installation credential.
+	return identity.NewService(identitypg.New(db), cipher, nil, nil, nil)
 }
 
 func TestBootstrapAdoptsAndFinalizes(t *testing.T) {

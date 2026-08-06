@@ -8,9 +8,9 @@
 // are canned. That is what lets the keyless lane exercise the real onboarding
 // form, whose repo picker can no longer be typed into.
 //
-// It stands in for BOTH halves of the real adapter — the OAuth App flow and the
-// GitHub App installation flow it is migrating to (design 2026-08-04) — so the
-// keyless stack keeps booting and onboarding from either side of that move.
+// It stands in for both halves of the real adapter — the GitHub App's
+// user-authorization flow and its installation flow (design 2026-08-04) — so a
+// keyless stack onboards through the same code path production does.
 package githubmock
 
 import (
@@ -36,28 +36,20 @@ type Client struct{}
 // New builds the mock client.
 func New() *Client { return &Client{} }
 
-// AuthorizeURL returns a local, non-navigable placeholder: the keyless lane
-// mints sessions through POST /api/dev/session, never the OAuth dance, so this
-// exists only to satisfy the port. The scope rides in the query so a keyless
-// run can still tell the sign-in grant from the connect grant.
-func (c *Client) AuthorizeURL(state, scope string) string {
-	u := "/auth/github/callback?state=" + state + "&code=mock-code"
-	if scope != "" {
-		u += "&scope=" + scope
+// ExchangeCode returns a canned USER access token, so the offline flow lands a
+// credential exactly where the real one does.
+func (c *Client) ExchangeCode(context.Context, string) (string, error) {
+	return MockToken, nil
+}
+
+// ConfigureURL returns a local, non-navigable stand-in for GitHub's
+// installation-settings page: the link must render (the Integrations card shows
+// it beside Connected) but must never send a keyless run to github.com.
+func (c *Client) ConfigureURL(installationID int64) string {
+	if installationID == 0 {
+		return ""
 	}
-	return u
-}
-
-// ExchangeCode returns a canned access token and reports it as repo-scoped, so
-// the offline connect grant lands a credential exactly as the real one does.
-func (c *Client) ExchangeCode(context.Context, string) (string, string, error) {
-	return MockToken, githubapi.ScopeRepo, nil
-}
-
-// TokenScopes reports the canned credential as repo-scoped, so a keyless run
-// classifies as connected rather than sitting in the unknown-scopes state.
-func (c *Client) TokenScopes(context.Context, string) (string, error) {
-	return githubapi.ScopeRepo, nil
+	return "/mock/github/installations/" + strconv.FormatInt(installationID, 10)
 }
 
 // FetchUser returns a canned profile without any network call.

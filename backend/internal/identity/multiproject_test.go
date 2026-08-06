@@ -30,7 +30,7 @@ func mustCreateProject(t *testing.T, svc *identity.Service, userID, name string)
 // projects (12 §2), each with a distinct id, and Me returns them oldest-first
 // (12 §3.1) — the replacement for the old singular project?.
 func TestCreateProjectDistinctAndMeCollection(t *testing.T) {
-	svc := identity.NewService(newFakeStore(), mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
 	u := mustDevSignIn(t, svc, "many-user")
 
 	p1 := mustCreateProject(t, svc, u.ID, "first")
@@ -56,7 +56,7 @@ func TestCreateProjectDistinctAndMeCollection(t *testing.T) {
 // resolves their project, a non-owner gets ErrNotFound (never confirming its
 // existence), and an unknown id is indistinguishable from a foreign one.
 func TestProjectByIDAuthorizesOwner(t *testing.T) {
-	svc := identity.NewService(newFakeStore(), mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
 	owner := mustDevSignIn(t, svc, "owner")
 	foreign := mustDevSignIn(t, svc, "foreign")
 	p := mustCreateProject(t, svc, owner.ID, "owned")
@@ -76,7 +76,7 @@ func TestProjectByIDAuthorizesOwner(t *testing.T) {
 // TestUpdateProjectForeignRejected asserts a non-owner cannot update another
 // user's project (12 §3.2): ErrNotFound, and the project is unchanged.
 func TestUpdateProjectForeignRejected(t *testing.T) {
-	svc := identity.NewService(newFakeStore(), mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
 	owner := mustDevSignIn(t, svc, "owner")
 	foreign := mustDevSignIn(t, svc, "foreign")
 	p := mustCreateProject(t, svc, owner.ID, "owned")
@@ -96,7 +96,7 @@ func TestUpdateProjectForeignRejected(t *testing.T) {
 // after SoftDeleteProject the project vanishes from Me and ProjectByID, and a
 // foreign delete is refused.
 func TestSoftDeleteProjectRemovesFromReads(t *testing.T) {
-	svc := identity.NewService(newFakeStore(), mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
 	owner := mustDevSignIn(t, svc, "owner")
 	foreign := mustDevSignIn(t, svc, "foreign")
 	p := mustCreateProject(t, svc, owner.ID, "owned")
@@ -123,7 +123,7 @@ func TestSoftDeleteProjectRemovesFromReads(t *testing.T) {
 // repo check runs against the named project's repo url, and a foreign project is
 // ErrNotFound. The credential checks stay per-user.
 func TestVerifyProjectUsesTargetRepo(t *testing.T) {
-	svc := identity.NewService(newFakeStore(), mustCipher(t), &fakeGitHub{}, nil)
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
 	verifier := &fakeVerifier{}
 	svc.SetVerifier(verifier)
 	owner := mustDevSignIn(t, svc, "owner")

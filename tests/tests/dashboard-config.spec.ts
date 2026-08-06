@@ -3,7 +3,7 @@ import { mintSession } from '../session';
 
 // Phase 1 dashboard flow (spec 11 §8): dev session → onboard → config sticks.
 // Needs the compose stack up with KILN_DEV_ENDPOINTS=1 and identity env set
-// (GITHUB_OAUTH_CLIENT_ID, KILN_SECRETS_KEY) — both default in local .env.
+// (the KILN_GITHUB_APP_* set, KILN_SECRETS_KEY) — all default in local .env.
 test('dashboard onboarding stores config and reflects status', async ({ page }) => {
   // page.request shares the browser context's cookie jar, so the minted
   // session cookie authenticates subsequent page navigation. A THROWAWAY login

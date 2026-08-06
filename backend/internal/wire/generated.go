@@ -528,17 +528,20 @@ type FeedSummary struct {
 
 // GitHubConnection The user's GitHub repo credential, as the Integrations card renders it. `github_auth_token` above says only whether SOMETHING is stored; this says whether it can actually reach the repo, which is what the card's Connect / Reconnect state turns on.
 type GitHubConnection struct {
-	// Login The GitHub account the credential belongs to; empty when unrecorded (a carried-over manual token).
+	// ConfigureUrl GitHub's own installation-settings page, where the user changes WHICH repositories Kiln may touch. Empty when there is no installation. The client links out to it rather than reimplementing a chooser only GitHub can honour.
+	ConfigureUrl string `json:"configure_url"`
+
+	// InstallationId The GitHub App installation backing this connection, 0 when there is none. Safe to expose: it identifies an installation, it does not authorize anything — minting against it needs the App private key, which never leaves the backend.
+	InstallationId int64 `json:"installation_id"`
+
+	// Login The GitHub account the credential belongs to; empty when unrecorded (a hand-typed or bootstrap token).
 	Login string `json:"login"`
 
-	// Scopes Recorded scopes; empty when unknown.
-	Scopes []string `json:"scopes"`
-
-	// Status `disconnected` — nothing stored. `connected` — stored with the `repo` scope. `unknown` — stored, scopes never recorded: a token carried over from the removed manual token field, treated as working (it is never downgraded merely by this refactor) until a verify run classifies it. `needs_reconnect` — stored, and GitHub reported a scope list WITHOUT `repo`, so it cannot clone a private repo or push; the card prompts a re-auth rather than failing later.
+	// Status `disconnected` — nothing at all. `connected` — a GitHub App installation is recorded and nothing has reported it dead. `unknown` — a credential is stored with no installation behind it: a hand-typed PAT or the deployment's bootstrap token, treated as working (it was configured deliberately) but not something Kiln granted itself. `needs_reconnect` — an installation is recorded and GitHub rejected it (uninstalled, suspended, or access withdrawn), so the card prompts a re-install rather than failing at the next agent turn.
 	Status GitHubConnectionStatus `json:"status"`
 }
 
-// GitHubConnectionStatus `disconnected` — nothing stored. `connected` — stored with the `repo` scope. `unknown` — stored, scopes never recorded: a token carried over from the removed manual token field, treated as working (it is never downgraded merely by this refactor) until a verify run classifies it. `needs_reconnect` — stored, and GitHub reported a scope list WITHOUT `repo`, so it cannot clone a private repo or push; the card prompts a re-auth rather than failing later.
+// GitHubConnectionStatus `disconnected` — nothing at all. `connected` — a GitHub App installation is recorded and nothing has reported it dead. `unknown` — a credential is stored with no installation behind it: a hand-typed PAT or the deployment's bootstrap token, treated as working (it was configured deliberately) but not something Kiln granted itself. `needs_reconnect` — an installation is recorded and GitHub rejected it (uninstalled, suspended, or access withdrawn), so the card prompts a re-install rather than failing at the next agent turn.
 type GitHubConnectionStatus string
 
 // GitHubRepo One repository the caller's connected GitHub account can reach. `full_name` is the `owner/name` label the picker lists and filters on; `url` is the https web URL, which is exactly what the project stores as its `repo_url`, so selecting a repo is a straight assignment.

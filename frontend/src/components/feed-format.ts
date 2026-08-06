@@ -81,6 +81,13 @@ export interface TicketStatus {
   label: string;
   /** The session state where a worker is bound, else the lifecycle state. */
   status: TicketRowStatus;
+  /** The ticket's OWN lifecycle state, carried alongside the session status
+   * because the two answer different questions and the row shows both: the
+   * status picks the mark's texture, the state picks its colour — the same
+   * colour the detail sheet's badge wears, so a row cannot say one thing about a
+   * ticket that opening it then contradicts (see the shared status mark in
+   * PrimaryScreen.css). */
+  state: Ticket['state'];
   /** The blocker reason for a blocked ticket, when one is set. */
   reason: string | null;
   /** ISO time the ticket entered its current status (`state_changed_at`) — the
@@ -153,6 +160,7 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       id: ticket.id,
       label: ticket.title,
       status: ticketRowStatus(ticket, byTicket),
+      state: ticket.state,
       reason: ticket.blocked_reason ?? null,
       statusSince: ticket.state_changed_at,
     }));

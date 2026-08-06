@@ -161,6 +161,24 @@ describe('HeaderStatusMenu', () => {
     expect(rows[2]).toHaveAttribute('data-status', 'idle');
   });
 
+  it('marks each row with the ticket’s own state, so the row and its sheet agree', () => {
+    // The mark's colour comes from `data-state` (the TICKET) and its texture
+    // from `data-status` (the session) — see the shared status mark in
+    // PrimaryScreen.css, and status-mark.test.ts for the tokens. Without the
+    // state on the dot a working ticket took the accent from `building` and read
+    // as blocked, contradicting the detail sheet the row opens.
+    render(<HeaderStatusMenu summary={summary} board={board} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    const dots = screen
+      .getAllByRole('listitem')
+      .map((row) => row.querySelector<HTMLElement>('[data-role="status-dot"]'));
+    expect(dots.map((dot) => dot?.dataset.state)).toEqual(['working', 'working', 'blocked']);
+    // Both attributes ride on the dot itself, so any list can render the whole
+    // vocabulary without restating a rule.
+    expect(dots.map((dot) => dot?.dataset.status)).toEqual(['building', 'building', 'idle']);
+  });
+
   it('renders a compact time-in-status age subtext on every ticket row', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
     fireEvent.click(screen.getByRole('button'));

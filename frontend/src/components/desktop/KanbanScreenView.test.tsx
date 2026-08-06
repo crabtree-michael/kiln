@@ -220,6 +220,13 @@ describe('KanbanScreenView', () => {
       'building',
       'idle',
     ]);
+    // …and each mark is coloured by the card's own column, not by that session:
+    // the working card wears the ember its detail sheet wears, and only the
+    // blocked one reaches for fire (status-mark.test.ts pins the tokens).
+    expect(Array.from(dots).map((dot) => dot.getAttribute('data-state'))).toEqual([
+      'working',
+      'blocked',
+    ]);
   });
 
   it('reports a stopped session rather than the column it sits in', () => {

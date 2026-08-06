@@ -152,10 +152,13 @@ describe('DesktopScreen.css', () => {
     //
     // One thing this deliberately does NOT cover: the in-progress panel's
     // per-ticket status marks, which are the phone's `[data-role='status-dot']`
-    // and carry the accent for `building` from PrimaryScreen.css. That is a
-    // knowing spend, made so the two platforms show the same mark for the same
-    // state rather than two vocabularies for it — and it stays out of this file
-    // precisely because it is the SHARED mark, not a desktop invention.
+    // from PrimaryScreen.css and stay out of this file precisely because they
+    // are the SHARED mark, not a desktop invention. They used to carry the
+    // accent for `building` — a knowing spend that turned out to be the wrong
+    // one (13 §8.2 gives the working strip "no accent", and the detail sheet
+    // calls the same ticket ember), so the shared mark now wears the ticket's
+    // own ink and nothing in this panel lights the accent at all. The two
+    // stylesheets are pinned to each other in status-mark.test.ts.
     const accentRules = css
       .split('}')
       .filter((rule) => rule.includes('var(--accent'))

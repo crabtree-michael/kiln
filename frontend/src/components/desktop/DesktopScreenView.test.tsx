@@ -339,6 +339,32 @@ describe('DesktopScreenView', () => {
     expect(marks).toEqual(['building', 'errored']);
   });
 
+  it('working: each row’s mark is coloured by the TICKET, not by its session', () => {
+    // Same rule as the head above, applied one level down: every row here is a
+    // ticket in Working, so every mark says `working` and takes the ember the
+    // detail sheet's IN PROGRESS badge wears (tokens pinned in
+    // status-mark.test.ts). The session is still stated — it textures the mark
+    // and writes the row's word — but it no longer picks the colour, which is
+    // what used to put a fire mark beside a perfectly healthy ticket.
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [
+          workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          workingTicket('t2', 'poller', '2026-08-04T11:50:00Z'),
+        ],
+        agents: [makeAgentStatus('t2', 'stopped')],
+      }),
+      thinking: true,
+    });
+    const marks = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-role="desktop-working-ticket"] [data-role="status-dot"]',
+      ),
+    );
+    expect(marks.map((mark) => mark.dataset.state)).toEqual(['working', 'working']);
+    expect(marks.map((mark) => mark.dataset.status)).toEqual(['building', 'stopped']);
+  });
+
   it('working: the head takes the listed tickets’ own state, not a bound session’s', () => {
     // Every row under the head is a ticket in Working, so the head says
     // `working` — the same value the detail sheet's badge is keyed on — and the

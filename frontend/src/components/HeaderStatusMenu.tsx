@@ -140,12 +140,20 @@ export function HeaderStatusMenu({
                   data-interactive={select !== undefined ? 'true' : undefined}
                   {...interactiveProps}
                 >
-                  {/* The shared status mark (PrimaryScreen.css). `data-status`
-                      rides on the dot rather than being inherited from the row,
+                  {/* The shared status mark (PrimaryScreen.css). Both attributes
+                      ride on the dot rather than being inherited from the row,
                       so the desktop in-progress panel — whose rows are buttons
                       with a different layout — renders the identical vocabulary
-                      from the identical rules. */}
-                  <span data-role="status-dot" data-status={ticket.status} aria-hidden="true" />
+                      from the identical rules. `data-state` is the ticket's own
+                      lifecycle state and picks the colour (the sheet's colour);
+                      `data-status` is the session behind it and picks the
+                      texture. */}
+                  <span
+                    data-role="status-dot"
+                    data-state={ticket.state}
+                    data-status={ticket.status}
+                    aria-hidden="true"
+                  />
                   <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
                   <span data-role="header-status-age">{relativeAge(ticket.statusSince)}</span>
                   {ticket.reason !== null && (

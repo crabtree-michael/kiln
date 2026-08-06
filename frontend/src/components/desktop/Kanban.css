@@ -18,10 +18,11 @@
    The accent budget: this file spends it exactly once, on BLOCKED. That is not
    a second budget alongside DesktopScreen.css's `needs-you` — it is the same
    rule applied to the same meaning. A blocked ticket IS the board's "a person is
-   needed for a decision", and it is the only thing here that qualifies. The
-   building mark's accent comes from PrimaryScreen.css's shared
+   needed for a decision", and it is the only thing here that qualifies. A card's
+   session mark takes its colour from PrimaryScreen.css's shared
    `[data-role='status-dot']` vocabulary, which this file deliberately does not
-   restate. */
+   restate — and which spends fire on the same meaning, never on a healthy
+   working ticket. */
 
 /* ------------------------------------------------------------------- shell */
 

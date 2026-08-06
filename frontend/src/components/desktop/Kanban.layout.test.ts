@@ -79,9 +79,10 @@ describe('Kanban.css', () => {
 
   it('spends the whole accent budget on blocked, and on nothing else', () => {
     // 13 §4: the accent means "a person is needed for a decision". On this board
-    // that is a blocked ticket and nothing else. The building mark's accent comes
-    // from PrimaryScreen.css's shared status-dot vocabulary, which this file
-    // deliberately does not restate.
+    // that is a blocked ticket and nothing else. A card's session mark takes its
+    // colour from PrimaryScreen.css's shared status-dot vocabulary, which this
+    // file deliberately does not restate — and which now agrees: fire there is
+    // blocked (or a failed session), never a healthy working ticket.
     const accentRules = css
       .split('}')
       .filter((rule) => rule.includes('var(--accent'))

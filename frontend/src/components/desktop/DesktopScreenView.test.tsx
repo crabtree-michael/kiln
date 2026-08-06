@@ -339,6 +339,36 @@ describe('DesktopScreenView', () => {
     expect(marks).toEqual(['building', 'errored']);
   });
 
+  it('working: the head takes the listed tickets’ own state, not a bound session’s', () => {
+    // Every row under the head is a ticket in Working, so the head says
+    // `working` — the same value the detail sheet's badge is keyed on — and the
+    // two agree on colour by construction (the tokens are pinned in
+    // DesktopScreen.layout.test.ts). A failing session behind the top row is a
+    // fact about that row, stated there; it must not repaint the head.
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [
+          workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          workingTicket('t2', 'poller', '2026-08-04T11:50:00Z'),
+        ],
+        agents: [makeAgentStatus('t1', 'errored')],
+      }),
+      thinking: true,
+    });
+    const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
+    expect(head).toHaveAttribute('data-state', 'working');
+    expect(head).not.toHaveAttribute('data-status');
+  });
+
+  it('working: the brain thinking with nothing listed leaves the head uncoloured', () => {
+    // No ticket, nothing to take a colour from — the head still breathes, but in
+    // the neutral resting ink rather than claiming a state on nobody's behalf.
+    const { container } = renderShell({ thinking: true });
+    const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
+    expect(head).toHaveAttribute('data-active', 'true');
+    expect(head).not.toHaveAttribute('data-state');
+  });
+
   it('working: shows how long each ticket has been at it, and says so in words for AT', () => {
     renderShell({
       board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
@@ -376,11 +406,37 @@ describe('DesktopScreenView', () => {
 
   it('working: the brain thinking with nothing in Working still shows the indication, bare', () => {
     const { container } = renderShell({ thinking: true });
-    expect(container.querySelector('[data-role="desktop-working-head"]')).toHaveAttribute(
-      'data-active',
-      'true',
-    );
+    const head = container.querySelector('[data-role="desktop-working-head"]');
+    expect(head).toHaveAttribute('data-active', 'true');
     expect(container.querySelector('[data-role="desktop-working-list"]')).toBeNull();
+    // Bare means uncoloured: a pass over an empty Working bucket has no ticket
+    // to take a reading from, so the head keeps its neutral ink rather than
+    // claiming a state nothing on screen is in.
+    expect(head).not.toHaveAttribute('data-state');
+  });
+
+  it('working: the head is coloured by the tickets under it, not fixed grey', () => {
+    // The head is a heading for the list, so it wears what the list wears — the
+    // ticket's own IN PROGRESS reading, the same one the detail sheet's badge
+    // shows. Left grey it read as a second status contradicting the rows below.
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [
+          workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          workingTicket('t2', 'poller', '2026-08-04T11:50:00Z'),
+        ],
+        // The colour is the TICKET's lifecycle state, not the bound session's:
+        // a wedged sandbox is said per row, by that row's own mark and note, and
+        // letting it repaint the head would make the heading disagree with the
+        // detail view of every ticket listed under it.
+        agents: [makeAgentStatus('t1', 'errored')],
+      }),
+      thinking: true,
+    });
+    expect(container.querySelector('[data-role="desktop-working-head"]')).toHaveAttribute(
+      'data-state',
+      'working',
+    );
   });
 
   it('working: a board naming a working ticket lights the strip even before the summary agrees', () => {

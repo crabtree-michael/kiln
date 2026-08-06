@@ -6,10 +6,14 @@
 import { describe, it, expect } from 'vitest';
 import cssRaw from './DesktopScreen.css?raw';
 import tokensRaw from '@/styles/tokens.css?raw';
+import detailCssRaw from '@/components/TicketDetail.css?raw';
 import { DESKTOP_MIN_WIDTH } from '@/components/desktop/use-desktop-layout';
 
 const css: string = cssRaw;
 const tokens: string = tokensRaw;
+/** The detail sheet's own stylesheet, read here so the in-progress head can be
+ * pinned to the colour the TICKET wears rather than to a copy of it. */
+const detailCss: string = detailCssRaw;
 
 /** How far the listening mic's glow reaches past the button's edge, in px: the
  * outer stop of `kiln-mic-glow` (PrimaryScreen.css) is a 5px spread under a 28px
@@ -25,6 +29,25 @@ function ruleBody(selector: string): string {
   const open = css.indexOf('{', start);
   const close = css.indexOf('}', open);
   return css.slice(open + 1, close);
+}
+
+/** The same, against the detail sheet's stylesheet. */
+function detailRuleBody(selector: string): string {
+  const start = detailCss.indexOf(selector);
+  expect(start, `selector not found: ${selector}`).toBeGreaterThanOrEqual(0);
+  const open = detailCss.indexOf('{', start);
+  const close = detailCss.indexOf('}', open);
+  return detailCss.slice(open + 1, close);
+}
+
+/** The token a declaration paints with — `background: var(--warn)` → `--warn`.
+ * Comparing token NAMES rather than literal colours is the point: the two
+ * surfaces have to reach for the same entry in the palette, not merely land on
+ * the same hex today. */
+function tokenOf(body: string, property: string): string {
+  const match = new RegExp(`${property}:[^;]*var\\((--[\\w-]+)`).exec(body);
+  expect(match, `no token for ${property} in: ${body}`).not.toBeNull();
+  return match?.[1] ?? '';
 }
 
 describe('DesktopScreen.css', () => {
@@ -174,6 +197,47 @@ describe('DesktopScreen.css', () => {
     expect(ruleBody("[data-role='desktop-working-dot'] {")).not.toMatch(/animation/);
     const live = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
     expect(live).toMatch(/animation:\s*kiln-breathe/);
+  });
+
+  it('gives the in-progress head the colour the TICKET wears, not one of its own', () => {
+    // The bug this pins down: the panel head and the detail sheet were picking
+    // their in-progress colour independently, so the mark beside "working now"
+    // could read one hue while opening any of the tickets listed under it showed
+    // another. The ticket's own reading is the source of truth, so the tokens
+    // are read out of TicketDetail.css here rather than written down a second
+    // time — if the badge is retuned, this fails until the head follows.
+    const badge = detailRuleBody("[data-role='ticket-detail-status'][data-state='working'] {");
+    const badgeDot = detailRuleBody(
+      "[data-role='ticket-detail-status'][data-state='working'] [data-role='ticket-detail-status-dot'] {",
+    );
+    const head = ruleBody("[data-role='desktop-working-head'][data-state='working'] {");
+    // The word, then the mark's fill, then its halo.
+    expect(head).toMatch(new RegExp(`--working-ink:\\s*var\\(${tokenOf(badge, 'color')}\\)`));
+    expect(head).toMatch(
+      new RegExp(`--working-mark:\\s*var\\(${tokenOf(badgeDot, 'background')}\\)`),
+    );
+    expect(head).toMatch(
+      new RegExp(`--working-mark-soft:\\s*var\\(${tokenOf(badgeDot, 'box-shadow')}\\)`),
+    );
+    // And the head is keyed on the ticket's lifecycle state alone. The bound
+    // session's status (`building`/`starting`/`errored`) is a different axis,
+    // spoken per row by the shared status mark; letting it reach the head is
+    // exactly how the head came to contradict the tickets under it.
+    expect(css).not.toMatch(/desktop-working-head'\]\[data-status=/);
+    // With nothing listed there is no ticket to take a colour from, so both the
+    // word and the mark fall back to the neutral resting reading.
+    expect(ruleBody("[data-role='desktop-working-head'] {")).toMatch(
+      /color:\s*var\(--working-ink,\s*var\(--text-faint\)\)/,
+    );
+    expect(ruleBody("[data-role='desktop-working-dot'] {")).toMatch(
+      /background:\s*var\(--working-mark,\s*var\(--text-faint\)\)/,
+    );
+    // The live reading too — the brain can be mid-pass with an empty Working
+    // bucket, and that dot breathes in the old muted grey rather than borrowing
+    // a colour from tickets that aren't there.
+    expect(ruleBody("[data-role='desktop-working-dot'][data-active='true'] {")).toMatch(
+      /background:\s*var\(--working-mark,\s*var\(--text-muted\)\)/,
+    );
   });
 
   it('gives the in-progress panel its own column, ruled off from the feed', () => {

@@ -660,17 +660,44 @@ retracted, so this is unrelated to swipe-dismiss above.
   the last card leaves the "all clear" / "All quiet." resting state — the one place the
   user most needs the way back — so keep it out of the `isEmpty` ternary, and out of the
   desktop `<ol>` (which isn't rendered at all when there are no cards).
-- **In the empty state it is pinned to the FOOT of the feed region, directly above the
-  input**, in both shells and by the same mechanism: the resting block takes the region's
-  free height (mobile `[data-role='feed-empty']` is `flex: 1`; desktop `desktop-rest` is
-  `flex: 1 0 auto` inside a `[data-empty='true']` column) and the control, being its next
-  sibling, is carried down with it. Desktop also drops the feed's `--space-10` bottom pad
-  when empty — that pad is reading air for scrolling the LAST CARD clear of the composer,
-  and with no cards it only holds the control away from the input it belongs above. The
-  desktop `[data-empty='true'] … feed-show-earlier` rule states `margin-top: auto` in
-  LONGHAND (the shorthand would drop the horizontal `auto` that keeps it on the cards'
-  720px measure); it only bites in the one empty state with no resting block — mid
-  project-switch, when "All quiet." is deliberately withheld.
+- **It is pinned to the FOOT of the feed region, directly above the input, in EVERY
+  state** — both shells, one mechanism, no matter the card count or the scroll offset.
+  This used to hold only when the feed was empty (the resting block is `flex: 1` /
+  `flex: 1 0 auto` and incidentally carried its next sibling down), and with any cards at
+  all the control simply ended the backlog: mid-region on a short feed, off the bottom of
+  a long one. Two declarations on the unscoped rule in `PrimaryScreen.css` do it, and
+  BOTH are needed — `margin-top: auto` for cards that fall short of the scrollport, and
+  `position: sticky` for cards that overflow it. The desktop rule restates only
+  `margin: auto auto 0` (three values, so the horizontal `auto` that holds it to the
+  cards' 720px measure survives) and deliberately restates neither `position` nor
+  `bottom`.
+- **The sticky offset is `0`, and adding the overlay vars to it is the trap.** A sticky
+  box is clamped to its containing block, whose bottom edge is the feed's CONTENT box —
+  which the region's `padding-bottom` already holds clear of the transcript and the toast
+  band. Naming `--dock-overlay-height` / `--feed-bottom-inset` here applies that clearance
+  a second time: a sliver of card stranded under the control at rest, and — far worse —
+  the control floating a whole transcript's height off the dock mid-utterance. If the
+  reserve needs changing, change the padding. (This is the one place the "anchor to the
+  dynamic height of the layers below you" principle is satisfied *indirectly*.)
+- **The control needs an opaque fill AND an opaque skirt below it** (`background` +
+  `box-shadow: 0 var(--space-10) 0 var(--surface-page)`). Cards scroll under it now, and
+  the reserve beneath it is still scrollable area they pass through — without the skirt
+  the control ends the feed with a line of the next card stranded under it. It needs no
+  measuring: the feed's own `overflow-y: auto` clips it to the region's bottom edge.
+- **`[data-role='desktop-feed']` is a flex column in every state and has NO bottom pad.**
+  Both were previously gated on a `data-empty` attribute, which is gone — nothing read it
+  once the anchoring stopped being conditional. Its old `--space-10` bottom pad was
+  reading air for the last card; that moved to `[data-role='desktop-feed-list']`'s
+  `padding-bottom`, where it neither pushes the pinned control off the foot nor vanishes
+  on a feed with nothing earlier to show. A bottom pad on the region would only sit
+  *under* the control and show cards through it.
+- **jsdom sees none of this.** The CSS half is pinned as `?raw` strings
+  (`PrimaryScreen.show-earlier.test.ts`, `DesktopScreen.layout.test.ts`) and the DOM half
+  — the control being the LAST child of `[data-role='backlog']` / the feed region, which
+  is the containing block the anchoring hangs off — in the two view tests. The only thing
+  that can see it actually resolve is `tests/desktop-shell-smoke.mjs`, which now measures
+  the control at both viewports, with and without cards, and on a deliberately short
+  window so the feed really overflows.
 
 ## Potential gotchas
 

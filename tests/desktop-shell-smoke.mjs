@@ -315,9 +315,9 @@ const geometry = await page.evaluate(() => {
     // The feed still gets a real reading measure with two columns to its left.
     feedWidth: feedRegion ? Math.round(feedRegion.width) : 'missing',
     feedListWidth: feedList ? Math.round(feedList.width) : 'missing',
-    workingTitles: Array.from(
-      document.querySelectorAll('[data-role="desktop-working-title"]'),
-    ).map((node) => node.textContent),
+    workingTitles: Array.from(document.querySelectorAll('[data-role="desktop-working-title"]')).map(
+      (node) => node.textContent,
+    ),
     // The per-ticket marks are the phone's `status-dot`, so a building session
     // must resolve to the accent and a failed one to danger — the check that the
     // shared rules actually reach this subtree.
@@ -325,7 +325,9 @@ const geometry = await page.evaluate(() => {
       document.querySelectorAll('[data-role="desktop-working-ticket"] [data-role="status-dot"]'),
     ).map((node) => [node.dataset.status, getComputedStyle(node).backgroundColor]),
     // A blocker reads in full; an update still clamps.
-    blockerClamped: blockerBody ? blockerBody.scrollHeight > blockerBody.clientHeight + 1 : 'missing',
+    blockerClamped: blockerBody
+      ? blockerBody.scrollHeight > blockerBody.clientHeight + 1
+      : 'missing',
     updateClamped: updateBody ? updateBody.scrollHeight > updateBody.clientHeight + 1 : 'missing',
     // Warm near-black — because the OS asked for dark, and via the ONE theme
     // mechanism: `data-theme` on <html> (13 D6a). `bodyTheme` must stay
@@ -347,6 +349,79 @@ const geometry = await page.evaluate(() => {
   };
 });
 console.log('DESKTOP GEOMETRY', JSON.stringify(geometry, null, 2));
+
+// ── "Show earlier" is at the foot with CARDS in the feed, not just empty ──────
+// The empty-feed pass near the end of this script has always covered the resting
+// reading. This is the other one, and the one that was wrong: the control simply
+// ended the card list, so it sat wherever the list happened to stop — mid-region
+// on a short feed, and off the bottom entirely on a long one. Nothing in the
+// gate can see that (jsdom does no layout, and a CSS string can state the rules
+// but not that they resolve to a pinned control). Measured in both scroll
+// positions, because "regardless of scroll state" is half the claim.
+//
+// Run at two window heights on purpose. The tall one leaves the cards short of
+// the region, which exercises the auto-margin half; the short one forces the
+// feed to overflow, which is the only way to exercise the sticky half — and the
+// reading that was worst before, since a control at the end of a scrolling
+// column is not merely low, it is off the screen.
+const readShowEarlier = async () =>
+  JSON.stringify(
+    await page.evaluate(async () => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const region = document.querySelector('[data-role="desktop-feed"]');
+      const read = () => {
+        const button = rect('[data-role="feed-show-earlier"]');
+        const composer = rect('[data-role="desktop-composer-region"]');
+        const regionBox = region.getBoundingClientRect();
+        const rows = document.querySelectorAll('[data-role="desktop-feed-row"]');
+        const last = rows.length ? rows[rows.length - 1].getBoundingClientRect() : null;
+        return {
+          // Inside the region's visible box — i.e. reachable without scrolling
+          // for it, which is the whole complaint.
+          onScreen: button.top >= regionBox.top - 1 && button.bottom <= regionBox.bottom + 1,
+          // Sitting on the region's floor rather than under the last card.
+          gapToRegionFloor: Math.round(regionBox.bottom - button.bottom),
+          gapToComposer: Math.round(composer.top - button.bottom),
+          aboveComposer: button.bottom <= composer.top + 1,
+          // And never covering the last card at rest.
+          clearOfLastCard: last ? Math.round(button.top - last.bottom) : 'no rows',
+          // The two numbers the anchoring is built out of, read back rather than
+          // assumed: the sticky offset has to match the region's own bottom pad
+          // or the control creeps as the end of the feed comes into view.
+          stickyBottom: getComputedStyle(document.querySelector('[data-role="feed-show-earlier"]'))
+            .bottom,
+          regionPadBottom: getComputedStyle(region).paddingBottom,
+        };
+      };
+      region.scrollTop = 0;
+      await new Promise((r) => requestAnimationFrame(r));
+      const atTop = read();
+      region.scrollTop = region.scrollHeight;
+      await new Promise((r) => requestAnimationFrame(r));
+      const atBottom = read();
+      return {
+        scrollable: region.scrollHeight > region.clientHeight + 1,
+        atTop,
+        atBottom,
+        // The pinned position and the natural one are matched offsets, so the
+        // control must not travel as the end of the feed comes into view.
+        driftPx: Math.abs(atTop.gapToComposer - atBottom.gapToComposer),
+      };
+    }),
+    null,
+    2,
+  );
+
+console.log('SHOW EARLIER — CARDS, TALL WINDOW', await readShowEarlier());
+await page.setViewportSize({ width: 1440, height: 520 });
+await page.waitForTimeout(200);
+await page.screenshot({ path: '/tmp/desktop-shell-show-earlier-scrolling.png' });
+console.log('SHOW EARLIER — CARDS, SCROLLING FEED', await readShowEarlier());
+await page.setViewportSize({ width: 1440, height: 900 });
+await page.waitForTimeout(200);
 
 // ── The narrow desk (1024px, the shell threshold) ──────────────────────────
 // The tightest window that still gets this layout, and the one the in-progress
@@ -783,6 +858,75 @@ console.log(
     ),
   ),
 );
+
+// ── The phone's half of the same anchoring ───────────────────────────────────
+// "Show earlier" is styled by the UNSCOPED rules in PrimaryScreen.css, which the
+// desktop shell then layers over — so the two shells share the mechanism and can
+// still resolve differently, and the phone is the shell that actually has the
+// dock, the transcript and the toast band stacked below the feed. Reload so the
+// populated feed is the one on screen (the swap above only changed what the stub
+// would answer with next), then read the control against the DOCK rather than a
+// composer: on a phone the thing it has to sit above is the microphone.
+await page.reload();
+await page.waitForSelector('[data-role="feed-show-earlier"]', { timeout: 10_000 });
+await page.waitForTimeout(600);
+await page.screenshot({ path: '/tmp/mobile-shell-show-earlier.png' });
+const readMobileShowEarlier = async () =>
+  JSON.stringify(
+    await page.evaluate(async () => {
+      const feedRegion = document.querySelector('[data-role="feed"]');
+      const read = () => {
+        const button = document.querySelector('[data-role="feed-show-earlier"]');
+        const dock = document.querySelector('[data-role="dock-region"]');
+        const backlog = document.querySelector('[data-role="backlog"]');
+        if (!button || !dock || !backlog) return 'missing';
+        const b = button.getBoundingClientRect();
+        const d = dock.getBoundingClientRect();
+        const region = feedRegion.getBoundingClientRect();
+        return {
+          onScreen: b.top >= region.top - 1 && b.bottom <= region.bottom + 1,
+          aboveDock: b.bottom <= d.top + 1,
+          gapToDock: Math.round(d.top - b.bottom),
+          // The control spans the cards' own measure, not the region's padding.
+          sameWidthAsCards:
+            Math.round(b.width) === Math.round(backlog.getBoundingClientRect().width),
+          // Opaque, because cards pass underneath it now.
+          fill: getComputedStyle(button).backgroundColor,
+          stickyBottom: getComputedStyle(button).bottom,
+          feedPadBottom: getComputedStyle(feedRegion).paddingBottom,
+          overlayVar: getComputedStyle(
+            document.querySelector('[data-role="primary-screen"]'),
+          ).getPropertyValue('--dock-overlay-height'),
+          bandVar: getComputedStyle(
+            document.querySelector('[data-role="primary-screen"]'),
+          ).getPropertyValue('--feed-bottom-inset'),
+        };
+      };
+      feedRegion.scrollTop = 0;
+      await new Promise((r) => requestAnimationFrame(r));
+      const atTop = read();
+      feedRegion.scrollTop = feedRegion.scrollHeight;
+      await new Promise((r) => requestAnimationFrame(r));
+      const atBottom = read();
+      return {
+        scrollable: feedRegion.scrollHeight > feedRegion.clientHeight + 1,
+        atTop,
+        atBottom,
+        driftPx: Math.abs(atTop.gapToDock - atBottom.gapToDock),
+      };
+    }),
+    null,
+    2,
+  );
+
+console.log('MOBILE SHOW EARLIER — TALL PHONE', await readMobileShowEarlier());
+// And on a short one, where the backlog actually overflows — the reading the
+// control used to fail outright, since the end of a scrolling column is off the
+// screen rather than merely low on it.
+await page.setViewportSize({ width: 480, height: 520 });
+await page.waitForTimeout(400);
+await page.screenshot({ path: '/tmp/mobile-shell-show-earlier-scrolling.png' });
+console.log('MOBILE SHOW EARLIER — SCROLLING FEED', await readMobileShowEarlier());
 
 console.log('PAGE ERRORS', errors.length === 0 ? 'none' : errors);
 

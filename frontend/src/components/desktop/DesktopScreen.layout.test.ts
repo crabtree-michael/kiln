@@ -126,12 +126,58 @@ describe('DesktopScreen.css', () => {
     expect(body).toMatch(/display:\s*block/);
   });
 
+  it('anchors "Show earlier" to the foot of the feed whatever is above it', () => {
+    // The regression this pins: the control was carried above the input only in
+    // the empty state, and sat at the end of the scrolled content the moment
+    // there were cards. jsdom does no layout, so this string is the only thing
+    // in the gate that can tell "at the foot of the region" from "wherever the
+    // list happened to stop".
+    const control = ruleBody("[data-role='desktop-screen'] [data-role='feed-show-earlier'] {");
+    // Half one: free space below the cards goes ABOVE the control, so a short
+    // feed still puts it at the foot. Three-value shorthand — the horizontal
+    // `auto` that centres it on the cards' measure has to survive.
+    expect(control).toMatch(/margin:\s*auto\s+auto\s+0/);
+    // Half two — `position: sticky` and its `bottom: 0` — comes from the phone's
+    // unscoped rule and must NOT be restated here: zero is what pins the control
+    // flush to the region's floor, and any number stated here would re-open a
+    // strip with the next card showing under it. Comments stripped first, since
+    // the rule explains that in prose right where it would otherwise declare it.
+    expect(control.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/bottom:/);
+
+    const region = ruleBody("[data-role='desktop-feed'] {");
+    // `position: sticky` comes from the phone's unscoped base rule; the column
+    // is what gives the auto margin something to absorb, and it is now stated
+    // unconditionally rather than under an empty-state selector.
+    expect(region).toMatch(/display:\s*flex/);
+    expect(region).toMatch(/flex-direction:\s*column/);
+    // And no bottom pad, because a pinned control is clamped to the region's
+    // content box: any pad here sits UNDER it, showing a strip of the next card
+    // beneath the thing that is meant to end the feed.
+    expect(region).toMatch(/padding:\s*var\(--space-8\)\s+var\(--space-8\)\s+0/);
+    // The state flag that used to gate all of this is gone, and with it the one
+    // arrangement that only held when the feed was resting. Comments are
+    // stripped first — the rules' own history is written up there, and matching
+    // prose would make this assertion impossible to explain in place.
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/\[data-empty/);
+  });
+
+  it('keeps the reading air on the list, so it does not depend on the control', () => {
+    // It used to be the feed region's `--space-10` bottom pad, which stood the
+    // last card clear of the composer — and which the empty state had to
+    // override, because with no cards it only held the control away from the
+    // input. Moved onto the list it does the same job without pushing the
+    // control off the foot, and without vanishing on a feed that has nothing
+    // earlier to offer.
+    const list = ruleBody("[data-role='desktop-feed-list'] {");
+    expect(list).toMatch(/padding-bottom:\s*var\(--space-6\)/);
+  });
+
   it('centres the resting state and carries "Show earlier" to the foot of it', () => {
     // The empty feed is not a short list, it is one composed state with the way
     // back beneath it. jsdom does no layout, so this string is the only thing in
     // the gate that can tell the intended arrangement from the control simply
     // rendering directly under the text with the window blank below it.
-    const region = ruleBody("[data-role='desktop-feed'][data-empty='true'] {");
+    const region = ruleBody("[data-role='desktop-feed'] {");
     expect(region).toMatch(/display:\s*flex/);
     expect(region).toMatch(/flex-direction:\s*column/);
 
@@ -143,16 +189,12 @@ describe('DesktopScreen.css', () => {
     expect(rest).toMatch(/align-items:\s*center/);
     expect(rest).toMatch(/text-align:\s*center/);
 
-    // The fallback for the one empty state with no resting block in it: mid
-    // project-switch, "All quiet." is withheld and nothing else would hold the
-    // control down.
-    const control = ruleBody(
-      "[data-role='desktop-feed'][data-empty='true'] [data-role='feed-show-earlier'] {",
-    );
-    expect(control).toMatch(/margin-top:\s*auto/);
-    // Longhand only — the shorthand would drop the horizontal `auto` that keeps
-    // the control on the same centred measure as the cards.
-    expect(control).not.toMatch(/(^|;)\s*margin\s*:/);
+    // The resting block growing into the free height is now belt-and-braces
+    // rather than the mechanism: the control's own `margin-top: auto` holds it
+    // down even in the one empty state with no resting block in it — mid
+    // project-switch, when "All quiet." is deliberately withheld.
+    const control = ruleBody("[data-role='desktop-screen'] [data-role='feed-show-earlier'] {");
+    expect(control).toMatch(/margin:\s*auto\s+auto\s+0/);
   });
 
   it('gives the resting state a large mark, sized in the sheet rather than on the tag', () => {

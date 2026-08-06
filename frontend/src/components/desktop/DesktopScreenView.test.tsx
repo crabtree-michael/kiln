@@ -199,15 +199,34 @@ describe('DesktopScreenView', () => {
     expect(mark?.compareDocumentPosition(line ?? mark)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('resting: nothing but the resting state is marked empty — a feed with cards is not', () => {
-    // The attribute is what switches the region to the centred, foot-anchored
-    // layout, so a populated feed carrying it would centre the card column and
-    // strand "Show earlier" at the bottom of the window.
+  it('the region says nothing about being empty — the foot anchoring is unconditional', () => {
+    // It used to carry `data-empty`, and that attribute was the whole bug: only
+    // the empty reading of the region put "Show earlier" above the input, so a
+    // feed with cards in it left the control wherever the list happened to end.
+    // The stylesheet now anchors it in both, and nothing reads the attribute —
+    // so a state flag here would be a hook with no consumer, free to drift back
+    // into meaning something.
     const empty = renderShell({ feed: makeFeedSnapshot({ cards: [] }) });
-    expect(feedRegion(empty.container)).toHaveAttribute('data-empty', 'true');
+    expect(feedRegion(empty.container)).not.toHaveAttribute('data-empty');
     empty.unmount();
     const full = renderShell();
     expect(feedRegion(full.container)).not.toHaveAttribute('data-empty');
+  });
+
+  it('keeps the control last in the region when the feed HAS cards (08 D2‴)', () => {
+    // The empty-feed counterpart of this lives further down. Both matter, and
+    // this is the one that regressed: the control is the last thing in the feed
+    // region whatever is above it, so the next thing under it is the input. The
+    // CSS pins it to that edge; this pins the order that makes the pinning mean
+    // what it says.
+    const { container } = renderShell({ hasEarlier: true, onShowEarlier: vi.fn() });
+    const region = feedRegion(container);
+    expect(region.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
+    // And it is a SIBLING of the card list, not the last row inside it — which
+    // is what lets it outlive a feed whose cards have all collapsed away.
+    expect(
+      container.querySelector('[data-role="desktop-feed-list"] [data-role="feed-show-earlier"]'),
+    ).toBeNull();
   });
 
   it('resting: the last word is subtext under the count, not bulleted onto it', () => {

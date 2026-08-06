@@ -357,12 +357,6 @@ export function DesktopScreenView({
           role="region"
           aria-label="Feed"
           data-role="desktop-feed"
-          // The empty feed lays out differently from a list of cards: the
-          // resting state is CENTRED in the region and "Show earlier" is pushed
-          // to its foot, just above the input. Stated as an attribute rather
-          // than as a rule on the rest block itself because the control is a
-          // sibling of that block, outside the branch below — see the CSS.
-          data-empty={cards.length === 0 ? 'true' : undefined}
           tabIndex={0}
           onKeyDown={onFeedKeyDown}
         >
@@ -423,7 +417,14 @@ export function DesktopScreenView({
               a feed whose cards have all collapsed away renders the resting
               state, and that is precisely where the way back has to stay. One
               control, one label — the desk collapses seen cards exactly like the
-              phone does, so it gets exactly the same affordance (08 D2‴). */}
+              phone does, so it gets exactly the same affordance (08 D2‴).
+
+              Its placement is the phone's too, by the same two declarations
+              (`margin-top: auto` + `position: sticky`, DesktopScreen.css over
+              PrimaryScreen.css): the foot of the feed region in every state. The
+              region used to say which state it was in — a `data-empty` attribute
+              — because only the empty one put the control above the input; with
+              the anchoring unconditional there was nothing left reading it. */}
           {hasEarlier && onShowEarlier !== undefined && (
             <button
               type="button"

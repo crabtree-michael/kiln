@@ -320,44 +320,34 @@ html:has([data-role='desktop-screen']) body {
   min-height: 0;
 }
 
+/* A column in EVERY state, not only the empty one. It used to become a flex
+   column only under `[data-empty='true']`, which is what made "Show earlier"
+   land above the input when the feed was resting and halfway up the region — or
+   off the bottom of it — as soon as there were cards. The resting block still
+   takes the free height and centres itself in it; with cards, the same free
+   space is what carries the control to the foot (see its rule below). */
 [data-role='desktop-feed'] {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   /* "Arrivals land in place" — the single most important behavioural detail in
      the document (13 §6). A card is inserted at the TOP of the column, which
      without anchoring shoves everything the user is reading downward. Scroll
      anchoring pins the visual position of what is on screen, so the new card
      lands above the viewport and the read line does not move. */
   overflow-anchor: auto;
-  /* The generous bottom pad is reading air, not decoration: it lets the last row
-     be scrolled clear of the composer's top edge instead of ending flush against
-     it. */
-  padding: var(--space-8) var(--space-8) var(--space-10);
-}
-
-/* With no cards, the region is not a list any more — it is one composed state
-   with a way back at its foot. A column lets the resting block take the free
-   height (and centre itself in it) while "Show earlier" is carried to the
-   bottom, landing directly above the input rather than floating under the text
-   with the rest of the window blank beneath it.
-   The bottom pad also comes off: `--space-10` is reading air for scrolling the
-   LAST CARD clear of the composer's top edge, and with no cards it only holds
-   the control away from the input it is supposed to sit above. */
-[data-role='desktop-feed'][data-empty='true'] {
-  display: flex;
-  flex-direction: column;
-  padding-bottom: var(--space-4);
-}
-
-/* `margin-top: auto` only bites when the resting block is absent — during the
-   project-switch fetch, when "All quiet." is deliberately withheld (see the
-   view) and the region would otherwise leave the control stranded at the top.
-   With the block present it grows into the space instead and this resolves to
-   zero. Longhand, so the horizontal `auto` centring from the rule above
-   survives. */
-[data-role='desktop-feed'][data-empty='true'] [data-role='feed-show-earlier'] {
-  margin-top: auto;
+  /* No bottom pad at all, which is a change of job rather than a tightening.
+     It used to be reading air (`--space-10`) standing the last card clear of the
+     composer, and the empty state had to override it because with no cards it
+     only held the control away from the input. That air moved to the list
+     (below). What is left here would do just one thing: sit BENEATH the pinned
+     control, where — a scroll container's content running the full height of its
+     scrollport — it would show a strip of the next card under a control that is
+     supposed to end the feed. The composer region's own top padding is what
+     gives the control air below it. */
+  padding: var(--space-8) var(--space-8) 0;
 }
 
 /* The feed region is the keyboard's entry point into the column (13 §9), so it
@@ -379,6 +369,13 @@ html:has([data-role='desktop-screen']) body {
   max-width: 720px;
   margin: 0 auto;
   padding: 0;
+  /* Reading air, moved here off the region's bottom pad: it stands the last card
+     clear of whatever the region ends with — the pinned control, or the composer
+     when there is no control — instead of ending flush against it. On the list
+     rather than on the region because it must not push the control up off the
+     foot, and because it should not disappear on the feeds that have nothing
+     earlier to show. */
+  padding-bottom: var(--space-6);
 }
 
 /* "Show earlier" (08 D2‴) sits BELOW the list rather than inside it, because it
@@ -392,7 +389,17 @@ html:has([data-role='desktop-screen']) body {
      are centred. */
   display: block;
   max-width: 720px;
-  margin: var(--space-4) auto var(--space-2);
+  /* Top `auto` is half of the anchoring, and it has to be restated here only
+     because this rule would otherwise override the phone's margin wholesale: it
+     carries the control to the foot whenever the cards leave free space above
+     it. Three values, so the horizontal `auto` that holds it to the cards' own
+     measure survives. Bottom is 0 — the region has no bottom pad for it to clear
+     and the composer's own top padding is what gives it air below. */
+  margin: auto auto 0;
+  /* The other half — `position: sticky` and its `bottom: 0` — is inherited from
+     the phone's unscoped rule and must NOT be restated. Zero is what pins the
+     control flush to the region's floor, and any number here would re-open a
+     strip with the next card showing under it. */
 }
 
 [data-role='desktop-feed-row'] {

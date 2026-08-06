@@ -1467,9 +1467,57 @@ button[data-role='feed-card-head']:focus-visible {
 /* The one foot-of-feed affordance (08 D2‴). It reveals the already-seen cards
    the feed collapsed and then pages older history from the server, under a
    single label — so there is one look here, not a family of them: quiet,
-   full-width, and subordinate to the cards above it. */
+   full-width, and subordinate to the cards above it.
+
+   "Foot of the feed" is now the same place in EVERY state, which it was not
+   before: the control simply ended the backlog in normal flow, so it landed
+   above the dock only when the feed was empty — where `[data-role='feed-empty']`
+   is `flex: 1` and happened to push it there. With any cards at all it sat at
+   the end of the scrolled content, out of sight until the user scrolled to the
+   bottom, which is the one thing a control for reaching further back should
+   never ask for. Two declarations, together, make the placement unconditional:
+
+     - `margin-top: auto` puts it at the foot when the cards do NOT fill the
+       scrollport. `[data-role='backlog']` is a flex column that always spans the
+       scrollport (`flex: 1` inside the always-at-least-full-height feed-scroll),
+       so the free space is there to absorb. It resolves to 0 once the cards
+       overflow, and then the last card's own 15px bottom padding is the gap.
+     - `position: sticky` keeps it there once they DO overflow, pinned to the
+       foot at every scroll offset while staying in flow — so at the very bottom
+       it settles into its natural slot and no card is ever trapped under it.
+
+   The offset is `0`, and it has to be — even though this is now one of the
+   bottom-anchored layers that the top of this file says must ride the LIVE
+   height of the transcript and the toast band. It does ride them, just not from
+   here. A sticky box is clamped to its containing block, and this one's
+   (`[data-role='backlog']`) bottom edge is the feed's CONTENT box, which the
+   region's `padding-bottom` above already holds clear of both overlays. The
+   clearance is therefore applied once, by that padding, and the control comes to
+   rest exactly on top of it. Naming the same two vars here would apply it
+   TWICE: at rest that strands a sliver of the next card under the control, and
+   mid-utterance — when the transcript is tall — it floats the control a
+   transcript's height above the dock with the feed showing through the gap. If
+   the reserve ever needs changing, change that padding; this stays 0.
+
+   The fill is opaque for the reason the toast band's is — cards scroll UNDER it
+   now, and `--surface-page` is the tone they would scroll under anyway, so it
+   reads as the feed's own bottom, not a floating panel. The `box-shadow` is that
+   same fill continued BELOW the control, and it is what makes it read as the end
+   of the feed rather than as something floating in it. `bottom: 0` pins the
+   control to the feed's content box, but the reserve underneath it is still
+   scrollable area — cards pass through it — so without the skirt a line of the
+   next card sits stranded between the control and the dock. It needs no
+   measuring: the feed's own `overflow-y: auto` clips it to the region's bottom
+   edge, so it covers exactly the reserve and never a pixel of the dock. Its one
+   requirement is being at least as tall as the part of that reserve nothing else
+   paints (the 8px base plus an empty toast band ≈ 20px) — the transcript and a
+   filled band are opaque and cover their own share. */
 [data-role='feed-show-earlier'] {
-  margin: 14px 0 4px;
+  position: sticky;
+  bottom: 0;
+  box-shadow: 0 var(--space-10) 0 var(--surface-page);
+  z-index: 1;
+  margin: auto 0 0;
   width: 100%;
   font-family: inherit;
   font-size: 11px;
@@ -1477,7 +1525,7 @@ button[data-role='feed-card-head']:focus-visible {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
-  background: transparent;
+  background: var(--surface-page);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 11px 0;

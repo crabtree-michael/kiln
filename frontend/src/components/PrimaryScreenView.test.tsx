@@ -322,6 +322,34 @@ describe('PrimaryScreenView', () => {
     expect(screen.getByRole('button', { name: 'Show earlier' })).toBeInTheDocument();
   });
 
+  it('leaves the control last in the backlog whether or not there are cards', () => {
+    // The DOM half of "always at the foot of the feed, above the dock". The
+    // anchoring itself is CSS (PrimaryScreen.show-earlier.test.ts) and it hangs
+    // off this order plus this parent: the control has to be the last child of
+    // the backlog — the flex column that spans the scrollport and is the sticky
+    // element's containing block. Moving it out to sit beside the dock, or down
+    // into the card list, breaks the anchoring in a way no DOM assertion
+    // elsewhere would notice.
+    const withCards = renderView(
+      makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }),
+      { hasEarlier: true, onShowEarlier: noop },
+    );
+    const backlog = withCards.container.querySelector('[data-role="backlog"]');
+    expect(backlog?.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
+    // It follows the cards rather than being one of them.
+    expect(
+      backlog?.querySelector('[data-role="backlog-slot"] [data-role="feed-show-earlier"]'),
+    ).toBeNull();
+    withCards.unmount();
+
+    const resting = renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
+      hasEarlier: true,
+      onShowEarlier: noop,
+    });
+    const restingBacklog = resting.container.querySelector('[data-role="backlog"]');
+    expect(restingBacklog?.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
+  });
+
   it('renders the preview image on a preview card (4c)', () => {
     const preview = makeFeedCard({
       kind: 'preview',

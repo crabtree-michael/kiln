@@ -479,7 +479,17 @@ export function PrimaryScreenView({
                 about to do. Deliberately OUTSIDE the empty/non-empty branch:
                 collapsing the last card leaves the feed rendering "All clear",
                 and that is exactly the state where the user most needs a way
-                back to what was just there. */}
+                back to what was just there.
+
+                Last in the backlog, and it stays the foot of the FEED REGION
+                from here — not merely the end of the scrolled content, which is
+                all this position used to buy. The stylesheet does that half with
+                one `margin-top: auto` (cards short of the scrollport) and one
+                `position: sticky` (cards past it), so the control is above the
+                dock at every card count and every scroll offset. Nothing about
+                the markup encodes the placement, so don't move this out of the
+                backlog to "fix" it — that would take the sticky element out of
+                the containing block the anchoring depends on. */}
             {hasEarlier && onShowEarlier !== undefined && (
               <button
                 type="button"

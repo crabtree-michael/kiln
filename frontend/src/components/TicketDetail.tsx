@@ -103,9 +103,13 @@ export interface TicketDetailProps {
    * mechanical poke. Tapping it expresses the user's "continue" intent for this
    * ticket; the caller routes that through the brain (which decides to
    * send_to_agent(id, "continue")) — the client never commands an agent directly
-   * (D5). On a *working* ticket the nudge only makes sense once the agent has gone
-   * quiet, so it's further gated on `agentIdle` (below); on a *blocked* ticket the
-   * work is stalled by definition, so Poke shows whenever wired. Omitted → no Poke
+   * (D5). It shows on **both** states whenever wired: a blocked ticket is stalled
+   * by definition, and an in-progress one is the case the user most often wants to
+   * nudge — an agent that looks busy can still be waiting on a word, and the
+   * session status the sheet can see (`building` vs `idle`) is too coarse to tell
+   * those apart. It used to be gated on an `agentIdle` reading for working tickets,
+   * which hid the button at exactly the moment it was wanted. Poking a live agent
+   * costs nothing — the brain decides what to do with the intent. Omitted → no Poke
    * affordance (read-only inspection). */
   onPoke?: ((ticketId: string) => void) | undefined;
   /** When provided, the gear menu carries the per-ticket **sandbox option** —
@@ -149,8 +153,9 @@ export interface TicketDetailProps {
    * offer it and let the server be the judge). */
   canReassign?: boolean;
   /** The live session status of this ticket's sandbox, from the board snapshot's
-   * `agents` join — the same lookup that feeds `agentIdle`, shown as the gear
-   * menu's first line. It is what makes Re-create a considered action rather than
+   * `agents` join, shown as the gear menu's first line. It is the sheet's one
+   * reading of the session behind the ticket — nothing else keys off it, Poke
+   * included. It is what makes Re-create a considered action rather than
    * a blind one: an `errored` or `stopped` sandbox is the case the control exists
    * for, and a `building` one warns that a turn is being cut short. Omitted → the
    * line says the sandbox isn't reporting, which is itself a signal. */
@@ -168,13 +173,6 @@ export interface TicketDetailProps {
    * the result. Omitted → the body is inert text, so a read-only sheet is
    * unchanged. */
   onEditText?: ((ticketId: string, patch: TicketTextEdit) => void) | undefined;
-  /** The live session status of this ticket's bound agent, from the board
-   * snapshot's `agents` join (`AgentStatus.status === 'idle'`). A *working* ticket
-   * only offers Poke when this is true — the agent is alive but between turns and
-   * waiting for input. While it's mid-turn (`building`, progress streaming) Poke is
-   * hidden, so the user isn't invited to nudge an agent that's already moving.
-   * Defaults false (unknown / no bound agent → treat as not-idle, so no Poke). */
-  agentIdle?: boolean;
   /** The mic control rendered at the footer's bottom-left on *every* ticket state
    * — the unified communication surface (08 §5). It replaces the old blocked-only
    * "Talk to unblock" button so all ticket types share one interface: the user can
@@ -205,8 +203,8 @@ export interface TicketDetailProps {
    *     session ends.
    *
    * Poke is untouched, and so is Delete on a *blocked* ticket: there, speaking is
-   * how the user unblocks the work rather than reshaping a proposal, and the two
-   * are quiet icon secondaries either way.
+   * how the user unblocks the work rather than reshaping a proposal, and neither
+   * is a decision Send could be mistaken for.
    *
    * It is a plain boolean, passed in, for the same reason `voiceControl` and
    * `transcript` are nodes: this component stays free of the voice store. The
@@ -360,7 +358,6 @@ export function TicketDetail({
   canReassign = true,
   sandboxStatus,
   onEditText,
-  agentIdle = false,
   voiceControl,
   voiceActive = false,
   transcript,
@@ -382,9 +379,10 @@ export function TicketDetail({
   //                      is gone.
   //  • working|blocked → Poke (when wired): a manual nudge to continue for a
   //                      stalled agent, routed through the brain (never a direct
-  //                      agent command, D5). On a working ticket it only shows once
-  //                      the agent is idle (`agentIdle`) — never mid-turn; on a
-  //                      blocked ticket it always shows.
+  //                      agent command, D5). It shows on both states whenever
+  //                      wired — an in-progress ticket is the one the user most
+  //                      often wants to nudge, and "the agent looks busy" is not
+  //                      the same as "the agent needs nothing".
   //  • done            → no action but the mic; the header badge already says "Done".
   // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
@@ -454,7 +452,7 @@ export function TicketDetail({
   // renders at all — each button below re-checks its own callback directly so
   // TypeScript narrows it to defined (a derived boolean wouldn't narrow, and the
   // lint gate rejects the optional chain the alternative would need).
-  const canPoke = onPoke !== undefined && (isBlocked || (isWorking && agentIdle));
+  const canPoke = onPoke !== undefined && (isBlocked || isWorking);
   // A live voice session on this ticket — only meaningful when a mic is actually
   // wired, so a caller can't put the footer into the speaking arrangement with
   // nothing to speak into. While it holds, the voice cluster moves to the
@@ -916,9 +914,9 @@ export function TicketDetail({
                           start talking to the brain from any ticket. Lives in the
                           bottom-left lead cluster; replaces the old blocked-only
                           "Talk to unblock" button.
-               • Poke   → working|blocked: nudge a stalled agent to continue. Only
-                          expresses intent — the caller routes it through the brain
-                          (D5), never a direct agent command.
+               • Poke   → working|blocked, whenever wired: nudge an agent to
+                          continue. Only expresses intent — the caller routes it
+                          through the brain (D5), never a direct agent command.
                • Delete → shaping|blocked: discard a ticket that's no longer wanted,
                           routed through the brain (delete_ticket, D5). A
                           destructive secondary sitting left of Accept — withheld
@@ -998,7 +996,7 @@ export function TicketDetail({
                       {voiceControl}
                     </div>
                   )}
-                  {(isBlocked || (isWorking && agentIdle)) && onPoke !== undefined && (
+                  {(isBlocked || isWorking) && onPoke !== undefined && (
                     <button
                       type="button"
                       data-role="detail-poke"
@@ -1010,7 +1008,10 @@ export function TicketDetail({
                       {/* Icon-only, matching Delete: the 👉 is the whole visible
                       signal for a poke (mirroring the feed's poke card, 08 §3),
                       with no text label around it. The glyph is aria-hidden and the
-                      button's accessible name comes from aria-label="Poke". */}
+                      button's accessible name comes from aria-label="Poke". It sits
+                      on the same disc as the mic, the trash and the check — see the
+                      CSS; the 👉 is a colour glyph of its own, so unlike those it
+                      carries no `color` to tell it apart. */}
                       <span data-role="detail-poke-emoji" aria-hidden="true">
                         👉
                       </span>

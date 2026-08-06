@@ -525,9 +525,9 @@ describe('TicketDetail', () => {
       expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
     });
 
-    it('offers Poke on a working ticket with an idle agent, and fires it with the id', () => {
+    it('offers Poke on a working ticket, and fires it with the id', () => {
       const onPoke = vi.fn();
-      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} agentIdle />);
+      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={onPoke} />);
 
       const poke = within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke' });
       // Icon-only: the 👉 is the poke's whole visible signal (matching the feed poke
@@ -538,11 +538,22 @@ describe('TicketDetail', () => {
       expect(onPoke).toHaveBeenCalledWith('t-42');
     });
 
-    it('hides Poke on a working ticket while the agent is mid-turn (not idle)', () => {
-      // agentIdle defaults false — the agent is `building`, streaming progress, so
-      // there is nothing to nudge and the button must not appear.
-      render(<TicketDetail ticket={working} onClose={vi.fn()} onPoke={vi.fn()} />);
-      expect(screen.queryByRole('button', { name: 'Poke' })).toBeNull();
+    it('keeps Poke on a working ticket whose agent is mid-turn', () => {
+      // The old `agentIdle` gate hid the button while the session read `building`,
+      // which is most of an in-progress ticket's life — and "the agent looks busy"
+      // is not the same as "the agent needs nothing". A streaming session is now
+      // just as pokeable; the brain decides what to do with the intent.
+      render(
+        <TicketDetail
+          ticket={working}
+          onClose={vi.fn()}
+          onPoke={vi.fn()}
+          sandboxStatus="building"
+        />,
+      );
+      expect(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Poke' }),
+      ).toBeInTheDocument();
     });
 
     it('offers Poke on a blocked ticket and fires it with the id', () => {

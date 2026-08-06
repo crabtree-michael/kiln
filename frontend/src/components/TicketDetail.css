@@ -789,14 +789,16 @@
   transform: translateY(1px);
 }
 
-/* Accept and Delete wear the MICROPHONE's treatment rather than each having its
- * own: the footer is a row of peer glyph buttons — the same disc, the same card
+/* Accept, Delete and Poke wear the MICROPHONE's treatment rather than each having
+ * its own: the footer is a row of peer glyph buttons — the same disc, the same card
  * fill inside a strong outline, the same raised shadow that collapses under the
- * thumb — so the three read as one control language instead of a pill, a small
+ * thumb — so the four read as one control language instead of a pill, a small
  * outlined circle and an orb. Accept gave up its word for a check to get here
- * (the name lives on as its aria-label); what is left to tell the two apart is
+ * (the name lives on as its aria-label); what is left to tell them apart is
  * the GLYPH's colour — the check in accent (still the headline decision), the
- * trash in danger, the mic's own bars muted.
+ * trash in danger, the mic's own bars muted, and Poke's 👉 which brings its own
+ * colour as an emoji (so it states a font-size below instead, sized to the 22px
+ * the two stroked glyphs are drawn at).
  *
  * The numbers mirror `[data-role='dock-mic']` in PrimaryScreen.css, which is
  * where the mic is dressed (unscoped, so it renders identically wherever it is
@@ -809,7 +811,8 @@
  * asked for. `-webkit-tap-highlight-color` is off for the same reason it is on
  * the mic — the collapsing shadow is the press affordance, not a grey box. */
 [data-role='detail-accept'],
-[data-role='detail-delete'] {
+[data-role='detail-delete'],
+[data-role='detail-poke'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -833,35 +836,23 @@
 }
 
 [data-role='detail-accept']:active,
-[data-role='detail-delete']:active {
+[data-role='detail-delete']:active,
+[data-role='detail-poke']:active {
   transform: translateY(3px);
   box-shadow: var(--shadow-card);
 }
 
-/* Poke action — a secondary nudge for a stalled agent, shown alongside the mic
- * (and, on a shaping ticket, Accept). An icon-only circular button (just the 👉,
- * no text label — mirroring Delete) in the neutral outline, quieter than the
- * raised discs beside it, so it reads as the softer, optional prod it is, not a
- * headline decision. It was deliberately left OUT of the mic-matching treatment
- * above, which the ticket scoped to Accept and Delete. */
+/* Poke action — a nudge to continue for an agent that has gone quiet or is
+ * blocked, shown alongside the mic (and Delete). It used to be a 2.1rem outlined
+ * circle standing beside three 54px discs, which read as a different kind of
+ * control rather than a quieter one; it now shares the disc above, and its
+ * emoji is the only thing that tells it apart. The 👉 carries its own colour, so
+ * all this rule states is the size to draw it at — the same 22px the trash and
+ * the check are drawn at, so the four glyphs sit on one optical line. */
 [data-role='detail-poke'] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.1rem;
-  height: 2.1rem;
   font-family: inherit;
-  font-size: 0.9rem;
-  color: var(--text-body);
-  background: transparent;
-  border: 1.5px solid var(--border-default);
-  border-radius: 50%;
-  padding: 0;
-  cursor: pointer;
-}
-
-[data-role='detail-poke']:active {
-  transform: translateY(1px);
+  font-size: 22px;
+  line-height: 1;
 }
 
 /* Delete action — discard a ticket that's no longer wanted, shown left of Accept
@@ -981,30 +972,11 @@
   font-size: 15px;
 }
 
-/* Accept and Delete carry NO primary-surface skin: they are dressed once, above,
- * in the mic's treatment — and the mic itself is styled by unscoped rules in
+/* Accept, Delete and Poke carry NO primary-surface skin: they are dressed once,
+ * above, in the mic's treatment — and the mic itself is styled by unscoped rules in
  * PrimaryScreen.css, so it looks the same on both surfaces too. Re-skinning them
- * here (as Accept's accent pill and Delete's 40px danger circle used to be) is
- * exactly how the footer would drift back apart on the one surface that matters.
- *
- * Poke keeps its quiet outlined register on the primary surface — a card-
- * colored ghost pill that recedes behind the accent Accept beside it, and warms
- * to the accent on hover to show it's live. */
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke'] {
-  font-size: 13px;
-  color: var(--text-body);
-  background: var(--surface-card);
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  padding: 9px 16px;
-  box-shadow: none;
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke']:hover {
-  border-color: var(--accent-soft);
-  color: var(--accent);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke']:active {
-  transform: translateY(1px);
-}
+ * here (as Accept's accent pill, Delete's 40px danger circle and Poke's 13px ghost
+ * pill used to be) is exactly how the footer would drift back apart on the one
+ * surface that matters. Poke's pill also brought a `:hover` with it, which a touch
+ * device paints for a finger that was only scrolling past — the disc's press is the
+ * whole feedback now, as it is for the other three. */

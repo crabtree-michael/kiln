@@ -149,6 +149,8 @@ export function KanbanScreenView({
   const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
 
   const openTicket = findTicket(board, openTicketId);
+  // The open ticket's bound session, for the sheet's gear menu status line only —
+  // Poke is no longer gated on it reading `idle` (see TicketDetail's onPoke).
   const openAgentStatus =
     openTicket === null
       ? undefined
@@ -299,7 +301,6 @@ export function KanbanScreenView({
           ticket={openTicket}
           surface="primary"
           placement="right"
-          agentIdle={openAgentStatus === 'idle'}
           voiceControl={
             <TicketDetailVoiceActions
               ticketTitle={openTicket.title}

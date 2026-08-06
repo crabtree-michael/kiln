@@ -223,11 +223,12 @@ export function DesktopScreenView({
   // end and Accept stands down while the user is speaking.
   const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
   const openTicket = findTicket(board, openTicketId);
+  // The open ticket's bound session, for the panel's gear menu status line only —
+  // Poke is no longer gated on it reading `idle` (see TicketDetail's onPoke).
   const openAgentStatus =
     openTicket === null
       ? undefined
       : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
-  const openAgentIdle = openAgentStatus === 'idle';
 
   const feedRef = useRef<HTMLElement>(null);
 
@@ -473,7 +474,6 @@ export function DesktopScreenView({
           ticket={openTicket}
           surface="primary"
           placement="right"
-          agentIdle={openAgentIdle}
           voiceControl={
             <TicketDetailVoiceActions
               ticketTitle={openTicket.title}

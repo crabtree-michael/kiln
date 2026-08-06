@@ -485,7 +485,11 @@ the cluster crosses to the trailing end** and brings Send and a discard × with 
 reads Send, ×, mic inward from the right edge — and **Accept stands down for the duration**,
 because Send lands in exactly its slot and the headline decision about a proposal has no
 business under the thumb of someone mid-sentence. It returns, in its normal place, the moment
-the session ends. Poke and Delete are untouched either way. Both shells, one markup.
+the session ends — and **a proposal's Delete stands down with it**, because talking to a
+proposal is how it gets reshaped, not how it gets binned, and the destructive half of the pair
+is the last thing that should be the one control the moment surfaces. Poke is untouched, and so
+is a *blocked* ticket's Delete: speaking there is about unblocking the work rather than
+reshaping a proposal. Both shells, one markup.
 
 - **The cluster is moved by `order`, never by re-parenting.** It keeps one fixed spot in the
   DOM and `TicketDetail` only flips `data-position="lead"|"trail"`; `TicketDetail.css` does
@@ -517,6 +521,35 @@ the session ends. Poke and Delete are untouched either way. Both shells, one mar
   than cosmetic: a `'listening'` mock puts *every* sheet in that file into the speaking
   arrangement and Accept vanishes from tests that never mentioned voice.
   `PrimaryScreenView.test.tsx` had exactly that wrong and only the swap exposed it.
+
+### Every footer glyph is the mic's disc, Poke included
+
+`[data-role='detail-accept']`, `[data-role='detail-delete']` and `[data-role='detail-poke']`
+share ONE rule in `TicketDetail.css`, whose numbers are copied from `[data-role='dock-mic']`
+in `PrimaryScreen.css`: 54px, round, card fill inside a strong outline, raised shadow that
+collapses under the thumb. What distinguishes them is the glyph alone — the check in accent,
+the trash in danger, the mic's bars muted, and Poke's 👉 which brings its own colour (so its
+own rule states nothing but the 22px the two stroked glyphs are drawn at). None of the three
+carries a `:hover` or a `[data-surface='primary']` skin, and both absences are asserted:
+a touch device emulates hover, and a primary-surface override at higher specificity is exactly
+how the row drifts apart on the one surface the app renders. Poke was the last holdout — a
+2.1rem outlined circle beside three 54px discs, plus a `13px` ghost-pill skin with a `:hover`
+— and it read as a different *kind* of control rather than a quieter one.
+`TicketDetail.action-icons.test.ts` holds all of it in step by reading both stylesheets as
+strings (jsdom does no layout, and the mic is dressed in the *other* file). If the mic is
+restyled, that test fails, and the fix is to restyle these with it.
+
+### Poke is offered on every working ticket, idle session or not
+
+Poke shows on **working|blocked whenever `onPoke` is wired** — there is no `agentIdle` prop
+any more. It used to be gated on the board snapshot's `agents[].status === 'idle'`, which hid
+the button for most of an in-progress ticket's life: `building` is the normal reading while an
+agent is mid-turn, and that is precisely when a user watching it go the wrong way reaches for
+the nudge. The session status is too coarse to mean "needs nothing" — and poking costs nothing
+either way, since the client only posts an intent and the brain decides whether to
+`send_to_agent`. `openAgentStatus` still exists in all three views that mount the sheet
+(`PrimaryScreenView`, `DesktopScreenView`, `KanbanScreenView`), but now feeds only the gear
+menu's `sandboxStatus` line. Don't reintroduce a liveness gate here.
 
 ## Swipe-to-dismiss (feed cards, 08 §3)
 

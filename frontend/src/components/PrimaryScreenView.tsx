@@ -292,15 +292,13 @@ export function PrimaryScreenView({
   const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
   const openTicket = findTicket(board, openTicketId);
   // The open ticket's bound agent, looked up in the board snapshot's `agents`
-  // join (keyed by ticket_id). Its session status gates the Poke button: a
-  // *working* ticket only offers "👉 Poke" once the agent is `idle`
-  // (alive, between turns, waiting) — never while a turn is streaming
-  // (`building`), so the user isn't invited to nudge an agent already moving.
+  // join (keyed by ticket_id). It reaches the sheet as the gear menu's status
+  // line and nothing else — Poke used to be gated on it reading `idle`, which hid
+  // the button on exactly the in-progress tickets the user wanted to nudge.
   const openAgentStatus =
     openTicket === null
       ? undefined
       : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
-  const openAgentIdle = openAgentStatus === 'idle';
   // Pull-to-refresh: the feed section is the scroll container, so the gesture
   // reads its scrollTop off this ref. Only wired when `onRefreshFeed` is provided
   // (the composing screen passes it; presentational tests omit it, leaving the
@@ -522,9 +520,6 @@ export function PrimaryScreenView({
         <TicketDetail
           ticket={openTicket}
           surface="primary"
-          // Only a working ticket whose agent has gone idle offers Poke; while the
-          // agent is mid-turn (progress streaming) the button stays hidden.
-          agentIdle={openAgentIdle}
           // The sheet's voice cluster, shown on every ticket state — the unified
           // communication surface (08 §5) that replaces the old blocked-only "Talk
           // to unblock" button, so the user can start talking to the brain directly

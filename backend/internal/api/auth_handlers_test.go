@@ -96,12 +96,26 @@ func cookieNamed(resp *http.Response, name string) *http.Cookie {
 	return nil
 }
 
+// lastCookieNamed returns the LAST Set-Cookie of a name — the one the browser
+// ends up holding when a response writes the same name twice. The install hop
+// does exactly that: the callback clears the spent state cookie before any
+// branch runs, then writes a fresh one for the trip to GitHub.
+func lastCookieNamed(resp *http.Response, name string) *http.Cookie {
+	var last *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == name {
+			last = c
+		}
+	}
+	return last
+}
+
 // The old scopeless sign-in URL is now a plain redirect into the single grant
 // (11 §2, amended 2026-08-03). It survives only for bookmarks and in-flight
 // browsers, so all that matters is that it lands on the one flow rather than
 // 404ing someone mid-sign-in.
 func TestAuthLoginPathRedirectsToConnect(t *testing.T) {
-	ts := newAuthTestServer(&fakeAuth{connectURL: "https://github.com/login/oauth/authorize"})
+	ts := newAuthTestServer(&fakeAuth{connectURL: testAuthorizeURL})
 	defer ts.Close()
 
 	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/login")

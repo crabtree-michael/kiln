@@ -26,6 +26,36 @@ const (
 	testRepoURL    = "https://github.com/acme/api"
 )
 
+// The sign-in redirect. It has to be the AUTHORIZE endpoint, carrying the App's
+// client id and the state nonce: this is the one URL GitHub answers with a code
+// no matter how many times a given account has been through it, which is the
+// whole reason sign-in stopped starting at the install page.
+func TestAuthorizeURL(t *testing.T) {
+	c := githubapi.New(githubapi.Config{
+		ClientID:     testClientID,
+		OAuthBaseURL: testGitHubHost,
+	}, nil)
+
+	got := c.AuthorizeURL(testState)
+
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse AuthorizeURL result: %v", err)
+	}
+	if u.Path != "/login/oauth/authorize" {
+		t.Errorf("path = %q, want /login/oauth/authorize", u.Path)
+	}
+	if u.Query().Get("client_id") != testClientID {
+		t.Errorf("client_id = %q, want %q", u.Query().Get("client_id"), testClientID)
+	}
+	if u.Query().Get("state") != testState {
+		t.Errorf("state = %q, want %q", u.Query().Get("state"), testState)
+	}
+	if !strings.HasPrefix(got, testGitHubHost+"/") {
+		t.Errorf("AuthorizeURL = %q, want prefix %s/", got, testGitHubHost)
+	}
+}
+
 func TestExchangeCodeSuccess(t *testing.T) {
 	var gotMethod, gotPath, gotAccept string
 	var gotBody struct {

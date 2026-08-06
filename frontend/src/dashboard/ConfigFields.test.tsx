@@ -456,9 +456,12 @@ describe('ProjectFields — repo picker', () => {
       />,
     );
 
+    // The setup variant, not the plain route. A connected user has authorized
+    // already, so the plain one would complete instantly and silently — they
+    // would click "Switch account" and watch nothing happen.
     expect(screen.getByRole('link', { name: 'Switch GitHub account' })).toHaveAttribute(
       'href',
-      '/auth/github/connect',
+      '/auth/github/connect?setup=1',
     );
   });
 

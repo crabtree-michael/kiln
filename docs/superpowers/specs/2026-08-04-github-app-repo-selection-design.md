@@ -72,7 +72,18 @@ This is what lets the migration keep Kiln's existing identity model intact. With
 
 ### 3.2 Route shape — one flow stays one flow
 
-`GET /auth/github/connect` keeps its name and its "there is exactly one flow" invariant (`11` §2). Only its redirect target changes:
+> **Amended 2026-08-06 (post-ship).** The redirect target below is wrong, and the rest of
+> this section is right. `installations/new` completes for an account exactly once: from the
+> second visit on GitHub answers it with that installation's *configure* page and never calls
+> the callback, so every returning sign-in — a second device, a second visit, anyone signing
+> in again — stopped dead on github.com. `/auth/github/connect` now redirects to
+> `https://github.com/login/oauth/authorize?client_id=…&state=<nonce>`, which returns a
+> `code` every time (silently, for a user who has authorized before). The install page is
+> the flow's **second leg**: the callback resolves the installation from
+> `GET /user/installations` and redirects there — once, bounded by a marker cookie — only for
+> an account that genuinely has none. `?setup=1` on the same route asks for the install page
+> deliberately, which is what a connected user changing accounts or repositories wants. See
+> `11` §2.
 
 ```
 https://github.com/apps/<KILN_GITHUB_APP_SLUG>/installations/new?state=<nonce>

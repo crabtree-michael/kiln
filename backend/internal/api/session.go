@@ -27,6 +27,13 @@ const sessionCookie = "kiln_session"
 // state token (11 §2); cleared on every /auth/github/callback exit path.
 const stateCookie = "kiln_oauth_state"
 
+// installPromptCookie marks that the callback has already sent this browser to
+// GitHub's install screen once (11 §2, amended 2026-08-06). It is what bounds
+// the second leg of the flow to a single hop: a user who declines the install
+// comes back with no installation again, and without this marker the callback
+// would send them straight back to the screen they just refused.
+const installPromptCookie = "kiln_gh_install"
+
 // randomTokenBytes is the CSPRNG entropy behind a minted OAuth state token,
 // before base64url encoding.
 const randomTokenBytes = 32

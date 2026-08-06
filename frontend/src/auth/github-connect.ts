@@ -1,18 +1,33 @@
-/** The one GitHub flow (11 §2, amended 2026-08-03 and 2026-08-06).
+/** The one GitHub flow (11 §2, amended 2026-08-03, 2026-08-06 and again the
+ * same day).
  *
  * Every affordance that reaches GitHub — the landing page's "Sign in", the
- * session gate, the projects screen, the dashboard's Connect and Switch account
- * cards — sends the browser here. There used to be two routes: a scopeless
- * `/auth/github/login` for identity and a repo-scoped one for repo access. They
- * looked interchangeable and weren't, which is how a settings card ended up
- * pointed at the sign-in route and quietly never granted repo access. One
- * constant, one route, nothing left to pick wrong.
+ * session gate, the projects screen, the dashboard's Connect card — sends the
+ * browser here. There used to be two routes: a scopeless `/auth/github/login`
+ * for identity and a repo-scoped one for repo access. They looked
+ * interchangeable and weren't, which is how a settings card ended up pointed at
+ * the sign-in route and quietly never granted repo access. One constant, one
+ * route, nothing left to pick wrong.
  *
- * The backend redirects it to the GitHub App's install page, where GitHub asks
- * which repositories Kiln may use. That is a server-side detail — the client's
- * job is only to leave the SPA correctly — but it is why this link now ends on a
- * chooser rather than a plain consent screen.
+ * The backend redirects it to GitHub's authorize screen, and from there — for an
+ * account that has not installed Kiln — on to the repository chooser. That
+ * second hop is the server's business, not the client's, but it is why signing
+ * in sometimes ends on a chooser and sometimes goes straight through.
  *
- * It is a backend route the SPA does not own, so every navigation to it must be
- * a real full-page load — a plain `<a href>`, NEVER a router `Link`. */
+ * They are backend routes the SPA does not own, so every navigation to either
+ * must be a real full-page load — a plain `<a href>`, NEVER a router `Link`. */
 export const GITHUB_CONNECT_PATH = '/auth/github/connect';
+
+/** The same route, asking for GitHub's repository chooser explicitly — where a
+ * user picks which repositories Kiln may reach, and which account it sits on.
+ *
+ * It exists for the CONNECTED user, who is the one case the plain route cannot
+ * serve: they have already authorized, so signing in again is instant and
+ * invisible, and the screen they actually wanted never appears. Sending them
+ * here lands them on GitHub's configure page — a dead end as a sign-in target,
+ * and exactly the destination when changing repositories is the point.
+ *
+ * Getting the two mixed up is harmless in both directions, which is the whole
+ * reason a second constant is tolerable after the `/login` history above: this
+ * one asks for a screen, not for a different set of permissions. */
+export const GITHUB_SETUP_PATH = `${GITHUB_CONNECT_PATH}?setup=1`;

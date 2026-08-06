@@ -364,15 +364,40 @@ type fakeGitHub struct {
 	mintErr   error
 	mintCalls int
 
+	// installations is what ListUserInstallations returns — the listing a
+	// returning sign-in resolves its installation from, since the callback names
+	// one only on the trip that created it. installationsErr makes that listing
+	// fail, which is a distinct case from an empty one: unreachable is not the
+	// same as uninstalled.
+	installations    []githubapi.Installation
+	installationsErr error
+
 	gotCode                  string
 	gotToken                 string
 	gotReposToken            string
+	gotInstallationsToken    string
 	gotInstallationReposID   int64
 	gotMintedInstallationIDs []int64
 }
 
+func (g *fakeGitHub) AuthorizeURL(state string) string {
+	return "https://github.example/login/oauth/authorize?client_id=kiln&state=" + state
+}
+
 func (g *fakeGitHub) InstallURL(state string) string {
 	return "https://github.example/apps/kiln/installations/new?state=" + state
+}
+
+func (g *fakeGitHub) ListUserInstallations(
+	_ context.Context, accessToken string,
+) ([]githubapi.Installation, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gotInstallationsToken = accessToken
+	if g.installationsErr != nil {
+		return nil, g.installationsErr
+	}
+	return g.installations, nil
 }
 
 func (g *fakeGitHub) ConfigureURL(installationID int64) string {

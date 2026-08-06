@@ -157,6 +157,31 @@ func (c *Client) ConfigureURL(installationID int64) string {
 	return c.oauthBaseURL + "/settings/installations/" + strconv.FormatInt(installationID, 10)
 }
 
+// AuthorizeURL builds the redirect that SIGNS A USER IN: GitHub's ordinary
+// user-authorization screen for this App (design §3.2, amended 2026-08-06).
+//
+// It exists because InstallURL cannot do this job twice. `installations/new`
+// only completes for an account that has NOT installed the App: once it has,
+// GitHub answers that URL with the installation's own configure page and never
+// calls the callback, so a returning user — the same person on a second device,
+// or anyone signing in again after their first visit — was left stranded on
+// GitHub with no way back into Kiln. The authorize endpoint has no such state:
+// it redirects to the callback with a `code` every time, silently for a user who
+// has already authorized, so signing in stays one click for the returning case
+// this replaced.
+//
+// What it does NOT yield is an installation. A first-time user authorizes here
+// and arrives carrying nothing to clone with, which is why the caller resolves
+// the installation separately (ListUserInstallations) and sends anyone still
+// without one on to InstallURL.
+//
+// No `redirect_uri`: the App's registered callback URL is the one destination,
+// and passing the parameter would only add a second place for it to be wrong.
+func (c *Client) AuthorizeURL(state string) string {
+	q := url.Values{"client_id": {c.clientID}, "state": {state}}
+	return c.oauthBaseURL + "/login/oauth/authorize?" + q.Encode()
+}
+
 // exchangeRequest is the POST /login/oauth/access_token body.
 type exchangeRequest struct {
 	ClientID     string `json:"client_id"`

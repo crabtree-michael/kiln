@@ -114,13 +114,25 @@ export function WorkingNow({ tickets, active, onOpenTicket, now }: WorkingNowPro
                   }}
                 >
                   {/* The SAME mark the phone's ticket list uses, from the same
-                      unscoped rules in PrimaryScreen.css — accent and pulsing
-                      while a session builds, amber while it starts, hollow when
-                      it has stopped, red when it has failed. Reusing the element
-                      rather than restating the palette here is what keeps
-                      "in progress" looking identical on both platforms; a second
-                      set of colours would drift the moment either is tuned. */}
-                  <span data-role="status-dot" data-status={ticket.status} aria-hidden="true" />
+                      unscoped rules in PrimaryScreen.css — the ticket's ember
+                      while it is worked (breathing while a session builds, flat
+                      while it is idle, hollow once it has stopped), fire only
+                      when the session has failed. Reusing the element rather
+                      than restating the palette here is what keeps "in progress"
+                      looking identical on both platforms; a second set of
+                      colours would drift the moment either is tuned.
+
+                      `data-state` is literal because every row in this panel is
+                      a ticket in Working — the same value the head above takes,
+                      and the same one the detail sheet's badge is keyed on, so
+                      head, row, and sheet cannot disagree about a ticket the
+                      user can see all three readings of. */}
+                  <span
+                    data-role="status-dot"
+                    data-state="working"
+                    data-status={ticket.status}
+                    aria-hidden="true"
+                  />
                   <span data-role="desktop-working-title">{ticket.title}</span>
                   <span data-role="desktop-working-meta">
                     {note !== '' && <span data-role="desktop-working-note">{note}</span>}

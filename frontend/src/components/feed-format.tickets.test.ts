@@ -50,6 +50,10 @@ describe('ticketStatuses', () => {
     const tickets = ticketStatuses(board);
     expect(tickets[0]).toMatchObject({ id: 't1', status: 'building', reason: null });
     expect(tickets[1]).toMatchObject({ id: 'b1', status: 'idle', reason: 'which gateway?' });
+    // The lifecycle state rides along beside the session status: the row's mark
+    // takes its colour from this (the detail sheet's colour) and its texture
+    // from the status, so the two readings of one ticket cannot disagree.
+    expect(tickets.map((ticket) => ticket.state)).toEqual(['working', 'blocked']);
   });
 
   it('lists working tickets before blocked ones', () => {

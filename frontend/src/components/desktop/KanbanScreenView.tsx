@@ -255,15 +255,18 @@ export function KanbanScreenView({
                           <span data-role="kanban-card-meta">
                             {/* The SAME mark the phone's ticket list and the
                                 desktop working strip use, from the same unscoped
-                                rules in PrimaryScreen.css — accent and pulsing
-                                while a session builds, amber while it starts,
-                                hollow when it has stopped, red when it failed.
-                                Only tickets with a worker bound to them have
-                                one; a Ready ticket showing a session mark would
-                                be inventing a session. */}
+                                rules in PrimaryScreen.css — the ticket's own ink
+                                (ember while it is worked, fire while it is
+                                blocked), textured by the session: breathing
+                                while it builds, flat while idle, hollow once
+                                stopped, fire when it has failed. Only tickets
+                                with a worker bound to them have one; a Ready
+                                ticket showing a session mark would be inventing
+                                a session. */}
                             {card.status !== null && (
                               <span
                                 data-role="status-dot"
+                                data-state={card.ticket.state}
                                 data-status={card.status}
                                 aria-hidden="true"
                               />

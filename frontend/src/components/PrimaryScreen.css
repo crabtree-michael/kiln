@@ -761,45 +761,104 @@
    (13: the same design language as mobile, not a second one), and its rows are
    buttons with a different internal layout — so the status moved onto the DOT
    itself and these rules were made unscoped. Anything that renders
-   `[data-role='status-dot'][data-status]` now gets the whole vocabulary for
-   free, which is the point: a second set of colours would drift the moment
-   either surface was tuned.
+   `[data-role='status-dot']` now gets the whole vocabulary for free, which is
+   the point: a second set of colours would drift the moment either surface was
+   tuned.
 
-   Default (idle, and any status without a rule below): a flat, faint fill. */
+   TWO attributes, two jobs (amended 2026-08-06). `data-state` is the TICKET's
+   own lifecycle state and sets the HUE; `data-status` is the session bound to it
+   and sets only the TEXTURE — whether the mark breathes, carries a halo, or is
+   hollow. The split is what stops a list row and the detail sheet from
+   contradicting each other about the same ticket: the inks below are exactly the
+   tokens `[data-role='ticket-detail-status']` wears (TicketDetail.css), so a
+   ticket reads the same opening it as it did in the list.
+
+   `building` used to paint the ACCENT here, on the reasoning that a pulsing fire
+   ring is "what in progress looks like everywhere in this app". It wasn't: the
+   sheet's IN PROGRESS badge is ember, so every list put a fire mark beside a
+   ticket whose own sheet then called it amber — and a perfectly healthy working
+   ticket wore the one colour reserved for the state that needs a person
+   (13 §4, and 13 §8.2's "no accent" for the working strip by name). Ember here,
+   fire only where the sheet spends it too.
+
+   Default (no ticket state, and the states the sheet gives no badge either —
+   shaping and ready): a flat, faint fill. */
 [data-role='status-dot'] {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--text-faint);
+  /* The ink is named rather than restated per rule so a TEXTURE rule can reach
+     it — a hollow mark is drawn in the ticket's own colour, not in a second
+     grey — and so the pulse below can breathe in whatever hue it lands on. */
+  --dot-ink: var(--text-faint);
+  --dot-ring: transparent;
+  --dot-ring-far: transparent;
+  background: var(--dot-ink);
+  box-shadow: 0 0 0 3px var(--dot-ring);
 }
 
-/* building — an agent is mid-turn. The one status that moves: a soft accent
-   ring breathing in and out, which is what "in progress" looks like everywhere
-   in this app. */
+/* working — ember, the exact tokens the sheet's IN PROGRESS badge wears. Every
+   session a working ticket can be behind (building, starting, idle, stopped)
+   reads in this one ink; WHICH of them it is, is the texture's job below and the
+   row's own word beside it. */
+[data-role='status-dot'][data-state='working'] {
+  --dot-ink: var(--warn);
+  --dot-ring: var(--warn-soft);
+}
+
+/* blocked — fire, and the sanctioned spend of it: a blocked ticket IS "a person
+   is needed for a decision" (13 §4). The sheet says exactly this in exactly this
+   token; a list row that stayed neutral here was the quietest mark on screen for
+   the loudest state on the board. */
+[data-role='status-dot'][data-state='blocked'] {
+  --dot-ink: var(--danger);
+  --dot-ring: var(--danger-soft);
+}
+
+/* done — glaze/all-clear, matching the sheet's DONE badge. Reached only in the
+   window where a finished ticket still has a worker bound to it, which is
+   exactly when a mark that said anything else would be wrong. */
+[data-role='status-dot'][data-state='done'] {
+  --dot-ink: var(--calm);
+}
+
+/* building — an agent is mid-turn. The one status that MOVES, and the only thing
+   separating it from a starting session: the same ink, with the ring breathing
+   in and out. Nothing else pulses, so the actively-worked ticket is the one that
+   draws the eye. */
 [data-role='status-dot'][data-status='building'] {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
   animation: kiln-status-pulse var(--pulse-duration) ease-in-out infinite;
 }
 
-/* starting — session provisioning: warn amber, static (only `building` pulses,
-   so the actively-working stream is the one that draws the eye). */
-[data-role='status-dot'][data-status='starting'] {
-  background: var(--warn);
-  box-shadow: 0 0 0 3px var(--warn-soft);
+/* idle, on a ticket that is supposed to be moving — the halo goes, the ink
+   stays. It is the quietest thing this mark can say without changing colour:
+   nothing is happening this second, the ticket is still in progress. Scoped to
+   `working` on purpose: an idle session behind a BLOCKED ticket is the expected
+   case (the agent asked and is waiting), and dimming it there would take the
+   halo off the one state that needs it most. */
+[data-role='status-dot'][data-state='working'][data-status='idle'] {
+  --dot-ring: transparent;
 }
 
-/* stopped — session auto-stopped/not running: a hollow, dimmed dot, distinct
-   from idle's flat faint fill so a dead session reads as deliberately off. */
+/* stopped — session auto-stopped/not running: hollow rather than filled, so a
+   dead session reads as deliberately off. Drawn in the ticket's own ink: the
+   session has stopped, the ticket has not changed state. */
 [data-role='status-dot'][data-status='stopped'] {
   background: var(--surface-card);
-  box-shadow: inset 0 0 0 1.5px var(--text-faint);
+  box-shadow: inset 0 0 0 1.5px var(--dot-ink);
 }
 
-/* errored — terminal session failure: solid red, no pulse. */
+/* errored — terminal session failure: solid fire, no pulse. The ONE place the
+   mark departs from the ticket's own hue, deliberately. A failed session is not
+   a lifecycle state — the ticket is still in Working and its sheet still says IN
+   PROGRESS — but it does need a person, which is what fire means here and on the
+   rail, and in the phone's ticket dropdown this dot is the only thing that
+   reports it (those rows carry no status word, unlike the working strip's and
+   the board's). Losing it to match the badge would trade a real signal for a
+   consistency the badge itself cannot offer. */
 [data-role='status-dot'][data-status='errored'] {
-  background: var(--danger);
-  box-shadow: 0 0 0 3px var(--danger-soft);
+  --dot-ink: var(--danger);
+  --dot-ring: var(--danger-soft);
 }
 
 [data-role='header-status-label'] {
@@ -856,13 +915,18 @@
   animation: kiln-spin 0.7s linear infinite;
 }
 
+/* The breathing ring, in whatever hue the element it lands on has named. The
+   status mark sets `--dot-ring` from the TICKET's state (see above), so a
+   working ticket breathes ember and nothing has to restate the palette here;
+   the accent fallbacks are for `feed-empty-pulse`, which names no ink and is
+   the app's own liveness mark rather than any one ticket's. */
 @keyframes kiln-status-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    box-shadow: 0 0 0 3px var(--dot-ring, var(--accent-soft));
   }
   50% {
-    box-shadow: 0 0 0 4px var(--accent-faint);
+    box-shadow: 0 0 0 4px var(--dot-ring-far, var(--accent-faint));
   }
 }
 

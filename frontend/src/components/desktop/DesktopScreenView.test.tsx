@@ -866,11 +866,17 @@ describe('DesktopScreenView', () => {
     expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Send' })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Discard' })).toBeInTheDocument();
-    expect(
-      within(dialog)
-        .getByRole('button', { name: 'Talk' })
-        .closest('[data-role="ticket-detail-voice-actions"]'),
-    ).toHaveAttribute('data-position', 'trail');
+    // The mic holds its place through the swap here too — the state per shell is
+    // separate, and this is the half that would be missed if only one were wired.
+    const cluster = within(dialog)
+      .getByRole('button', { name: 'Talk' })
+      .closest('[data-role="ticket-detail-voice-actions"]');
+    expect(cluster).not.toBeNull();
+    expect(cluster?.previousElementSibling).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Send' }).parentElement).toHaveAttribute(
+      'data-role',
+      'ticket-detail-voice-send',
+    );
   });
 
   it('accepts a proposal in place, without opening it first', () => {

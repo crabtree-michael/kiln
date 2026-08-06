@@ -485,27 +485,43 @@ sheet's **status row** (directly under the title's left edge, ahead of the
   `aria-hidden`. Consequence for tests: a closed menu's items are *absent* from role queries,
   so every test opens the gear first.
 
-### The sheet's footer has TWO arrangements, and speaking picks the second
+### The sheet's footer swaps its RIGHT-HAND controls; nothing on the row ever moves
 
-At rest the footer is left-group / right-group: the voice cluster
-(`[data-role='ticket-detail-voice-actions']`) at the bottom-left, the state actions
-(Poke, Delete, and Accept last) at the right. **While a voice session is live on the ticket
-the cluster crosses to the trailing end** and brings Send and a discard × with it, so the row
-reads Send, ×, mic inward from the right edge — and **Accept stands down for the duration**,
-because Send lands in exactly its slot and the headline decision about a proposal has no
-business under the thumb of someone mid-sentence. It returns, in its normal place, the moment
-the session ends — and **a proposal's Delete stands down with it**, because talking to a
-proposal is how it gets reshaped, not how it gets binned, and the destructive half of the pair
-is the last thing that should be the one control the moment surfaces. Poke is untouched, and so
-is a *blocked* ticket's Delete: speaking there is about unblocking the work rather than
-reshaping a proposal. Both shells, one markup.
+The footer is left-group / right-group in both readings: the voice cluster
+(`[data-role='ticket-detail-voice-actions']`) at the bottom-left, the trailing slot at the
+right. What changes when a voice session goes live is only **who holds the trailing slot** —
+the state actions (Poke, Delete, Accept) withdraw *as a group* and the cluster's own Send and
+× take their place. **The mic does not move, at all, ever.** Both shells, one markup.
 
-- **The cluster is moved by `order`, never by re-parenting.** It keeps one fixed spot in the
-  DOM and `TicketDetail` only flips `data-position="lead"|"trail"`; `TicketDetail.css` does
-  the moving. Rendering it in two places would unmount and remount `MicButton` mid-utterance,
-  taking its `setTicketContext` registration and its volume-glow rAF loop with it. Pinned in
-  the gate as a CSS string (`TicketDetail.voice-actions-layout.test.ts`) since jsdom does no
-  layout.
+- **This is the fix for the original arrangement, so don't reintroduce it.** The cluster used
+  to *travel* to the trailing end on `data-position="lead"|"trail"`, which meant the mic slid
+  out from under the finger that had just tapped it and shoved Poke aside to make room. A
+  control that jumps when you activate it is the whole bug; "elements stay put" is the rule
+  that replaced it.
+- **The cluster spans the row and distributes its own children** — `flex: 1` +
+  `justify-content: space-between`. That one rule does all of it: the mic is the first child,
+  so it sits at the row's left edge in *every* reading; with the mic alone inside,
+  `space-between` degenerates to flex-start and the cluster's growth is what pushes the state
+  actions right (exactly what the old `margin-right: auto` did). No `order`, no margin flip,
+  no position attribute — if any of those come back, the mic has started travelling again.
+  Measured in Chromium when it landed: 0.00px of mic movement, and Send's right edge on
+  Accept's to the pixel.
+- **Send and × are ONE box** (`[data-role='ticket-detail-voice-send']`), rendered by
+  `TicketDetailVoiceActions` as the cluster's second child. Grouping is load-bearing:
+  `space-between` over three loose children would strand the × in the middle of the row.
+- **All three state actions share one gate, and that is deliberate.** The trailing slot is one
+  slot — leaving any of them up would just mean Send and × arriving *beside* them and shoving
+  them along, which is the shuffling this exists to remove. So a *blocked* ticket's Poke and
+  Delete now stand down too (they used to be exempt). Each also earns it alone: Accept's slot
+  is Send's, Delete is a destructive control appearing the instant someone opens their mouth,
+  and Poke offers to nudge an agent while the user composes the message that would say it
+  better.
+- **`MicButton` is never re-parented and never re-ordered**, which is what keeps it from being
+  unmounted and remounted mid-utterance (that would take its `setTicketContext` registration
+  and its volume-glow rAF loop with it). It is rendered unconditionally as the cluster's first
+  child. Pinned in the gate as a CSS string (`TicketDetail.voice-actions-layout.test.ts`)
+  since jsdom does no layout, plus a DOM assertion that the cluster element is *identical*
+  across the flip.
 - **`TicketDetail` still knows nothing about the voice store**, and that is what shapes the
   seam. `TicketDetailVoiceActions` (a `useVoice()` consumer, like `TicketDetailTranscript`)
   reports `onActiveChange(boolean)` up to `PrimaryScreenView` / `DesktopScreenView`, which
@@ -517,7 +533,7 @@ reshaping a proposal. Both shells, one markup.
   latter: an end-of-turn final pauses the mic while the utterance sits armed in the grace
   window, and the footer must not snap back to Accept underneath a transcript the user is
   still deciding about. Send is rendered-but-`disabled` before there is anything to send, so
-  × and the mic don't shuffle sideways when the first partial lands.
+  the × beside it doesn't shuffle sideways when the first partial lands.
 - **The sheet's × is not the dock's ×.** The dock's discards the transcript and deliberately
   leaves the mic listening (`cancel` alone). The sheet's is the way *out* — `cancel()` **and**
   `pause()` — because that is what returns the footer to Accept, and a sheet has no keyboard

@@ -1,8 +1,15 @@
-// The footer's two arrangements are CSS, and jsdom does no layout — so the DOM
-// tests next door can only see that `data-position` flips, never that the flip
-// actually moves the cluster. This is the only thing in the gate that can catch
-// the geometry regressing: same `?raw` technique as
-// TicketDetail.header-layout.test.ts / TicketDetail.safe-area.test.ts.
+// The footer's arrangement is CSS, and jsdom does no layout — so the DOM tests
+// next door can only see WHICH controls render, never where they end up. This is
+// the only thing in the gate that can catch the geometry regressing: same `?raw`
+// technique as TicketDetail.header-layout.test.ts / TicketDetail.safe-area.test.ts.
+//
+// What it is protecting is one property: **the mic does not move when a voice
+// session starts.** The cluster spans the row and distributes its own children,
+// so the mic sits at the row's left edge in both readings and the send group
+// lands on the right edge, in the slot the state actions vacate. The failure this
+// replaced moved the whole cluster across the row instead, dragging the mic out
+// from under the finger that had just tapped it and shoving Poke/Accept aside to
+// make room.
 import cssRaw from './TicketDetail.css?raw';
 
 const css: string = cssRaw;
@@ -16,34 +23,40 @@ function ruleBody(selector: string): string {
 }
 
 describe('TicketDetail voice cluster layout', () => {
-  it('pins the resting cluster to the row’s left edge', () => {
-    // `margin-right: auto` is the whole of the left-group / right-group reading:
-    // it is what shoves Accept and Poke over to the trailing end.
-    expect(ruleBody("[data-role='ticket-detail-voice-actions'] {")).toMatch(/margin-right:\s*auto/);
+  it('spans the row and distributes its own contents', () => {
+    // Both halves are what hold the mic still. `flex: 1` makes the cluster the
+    // full width of the free space, so its first child (the mic) is at the row's
+    // left edge — and `space-between` is what puts the send group at the other
+    // end rather than bunched up beside the mic. With the mic alone inside,
+    // `space-between` is simply flex-start, which is also what pushes the state
+    // actions to the right at rest.
+    const body = ruleBody("[data-role='ticket-detail-voice-actions'] {");
+    expect(body).toMatch(/flex:\s*1/);
+    expect(body).toMatch(/justify-content:\s*space-between/);
   });
 
-  it('sends the speaking cluster to the end of the row instead', () => {
-    // Both halves matter. Dropping the auto margin is what stops it holding the
-    // left edge; `order` is what carries it past Poke and Delete to the trailing
-    // end, so the row reads Send, ×, mic inward from the right — Send landing in
-    // the slot Accept has just vacated.
-    const body = ruleBody("[data-role='ticket-detail-voice-actions'][data-position='trail'] {");
-    expect(body).toMatch(/margin-right:\s*0/);
-    expect(body).toMatch(/order:\s*1/);
+  it('never moves the cluster — no order, no margin flip, no position switch', () => {
+    // The old arrangement carried the cluster across the row with `order` and an
+    // auto margin it dropped mid-utterance. Any of the three coming back means the
+    // mic has started travelling again.
+    const body = ruleBody("[data-role='ticket-detail-voice-actions'] {");
+    expect(body).not.toMatch(/order:/);
+    expect(body).not.toMatch(/margin-right:\s*auto/);
+    expect(css).not.toContain("[data-role='ticket-detail-voice-actions'][data-position=");
   });
 
-  it('moves it by ORDER, never by re-parenting', () => {
-    // The cluster keeps one fixed spot in the DOM in both readings, because
-    // re-parenting it would unmount and remount the mic inside it mid-utterance —
-    // taking its ticket-context registration and its volume-glow loop with it.
-    // The rule below is the one that does the moving; if it ever disappears, the
-    // component has almost certainly started rendering the cluster in two places.
-    expect(css).toContain("[data-role='ticket-detail-voice-actions'][data-position='trail']");
+  it('keeps Send and × as one grouped box', () => {
+    // `space-between` over three loose children would strand the × in the middle
+    // of the row; the group is what makes the pair arrive and leave together, in
+    // the slot the state actions hand over.
+    const body = ruleBody("[data-role='ticket-detail-voice-send'] {");
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/gap:/);
   });
 
-  it('leaves no rule behind for the old lead-only cluster', () => {
-    // It was renamed when it stopped always being the lead; a stale rule would
-    // silently keep styling nothing.
+  it('leaves no rule behind for the old travelling cluster', () => {
+    // Both earlier names for it. A stale rule would silently keep styling nothing.
     expect(css).not.toContain('ticket-detail-lead-actions');
+    expect(css).not.toContain("data-position='trail'");
   });
 });

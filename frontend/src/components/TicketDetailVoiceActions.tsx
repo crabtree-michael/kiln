@@ -2,25 +2,26 @@
 // plus — for as long as a voice session is live — the Send and discard (×)
 // actions beside it.
 //
-// Two things about it are the whole point, and both are about the *right* of the
-// footer rather than the left:
+// Two things about it are the whole point:
 //
+//  • **The mic does not move. Ever.** It is the footer's bottom-left control at
+//    rest and it is the footer's bottom-left control mid-utterance — same slot,
+//    same pixels. It is also the one control the user has just touched, and a
+//    button that slides out from under the finger that activated it is exactly
+//    the jank this arrangement exists to avoid. (The orb has to stay on screen
+//    while speaking regardless: its glow is driven from real input level, so it
+//    is the only thing reporting that the mic is live and how loud the room is.)
 //  • **While the mic is up, the sheet's trailing slot belongs to the utterance,
-//    not to the ticket.** At rest the cluster is a lone mic at the footer's
-//    bottom-left and Accept sits opposite it in the primary slot; the moment a
-//    voice session starts, the whole cluster shifts across to join Send and ×
-//    on the right and Accept withdraws (`TicketDetail`'s `voiceActive`). The
-//    user is mid-sentence: what they need under their thumb is "send this" and
-//    "drop this", and an accent-filled Accept sitting where Send is about to be
-//    is a mis-tap waiting to happen.
-//  • **The mic goes WITH them.** The orb is the expression indicator — it is what
-//    reports that the mic is live and how loud the room is (its glow is driven
-//    from real input level) — so it has to stay on screen while speaking, beside
-//    the two actions that act on what it is hearing, not stranded across the
-//    footer from them.
+//    not to the ticket.** At rest that slot holds the ticket's management
+//    actions — Poke, Delete, Accept. The moment a voice session starts they
+//    withdraw as a group (`TicketDetail`'s `voiceActive`) and Send and × take
+//    the slot in place. The user is mid-sentence: what they need under their
+//    thumb is "send this" and "drop this", and an accent-filled Accept sitting
+//    where Send is about to be is a mis-tap waiting to happen.
 //
-// Reading the trailing group right-to-left: Send (the primary, in the slot Accept
-// vacated), then ×, then the mic.
+// So the swap is a swap and not a reflow — one group of controls hands the right
+// of the row to another, and nothing on the row changes position. Reading the
+// speaking footer left to right: the mic, a gap, then × and Send.
 //
 // The × here is NOT the dock's ×. The dock's discards the un-committed transcript
 // and deliberately leaves the mic alone (the user is still talking, they just want
@@ -107,9 +108,18 @@ export function TicketDetailVoiceActions({
 
   return (
     <>
+      {/* First child of the cluster, and the cluster spans the row — which is what
+          holds the mic at the left edge in both readings. It is rendered
+          unconditionally and never re-parented, so it is never unmounted
+          mid-utterance (that would take its ticket-context registration and its
+          volume-glow loop with it). */}
       <MicButton ticketContext={ticketTitle} />
       {active && (
-        <>
+        // Send and × as one box: the cluster distributes its children with
+        // `space-between`, so a loose × would be stranded mid-row instead of
+        // arriving beside Send. As the cluster's last child the group lands on the
+        // row's right edge — the slot the state actions have just vacated.
+        <div data-role="ticket-detail-voice-send">
           {/* Reuse the dock's `dock-cancel`/`dock-send` selectors so
               PrimaryScreen.css skins this pair exactly like the dock's own — the
               sheet borrows one visual language for the mic and its two actions
@@ -123,9 +133,8 @@ export function TicketDetailVoiceActions({
             data-role="dock-send"
             aria-label="Send"
             // Live the moment there are words, dead before then: the button holds
-            // its place through the whole session (so × and the mic never shuffle
-            // sideways as the first partial lands) but can't post an empty
-            // utterance.
+            // its place through the whole session (so × never shuffles sideways as
+            // the first partial lands) but can't post an empty utterance.
             disabled={!hasTranscript}
             onClick={sendNow}
           >
@@ -133,7 +142,7 @@ export function TicketDetailVoiceActions({
               <path d="M12 4l-8 8h5v8h6v-8h5z" fill="currentColor" />
             </svg>
           </button>
-        </>
+        </div>
       )}
     </>
   );

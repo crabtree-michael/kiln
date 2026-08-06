@@ -185,26 +185,28 @@ export interface TicketDetailProps {
    * keeps the mic omitted (read-only inspection). */
   voiceControl?: ReactNode;
   /** Whether a voice session is live on this ticket right now — the mic is up, or
-   * there are spoken words waiting to be sent. It rearranges the footer, and only
-   * the footer:
+   * there are spoken words waiting to be sent. It changes exactly one thing about
+   * the footer: **the state actions — Poke, Delete and Accept — stand down as a
+   * group for the duration**, handing the row's trailing slot to the Send and ×
+   * that `voiceControl` renders in their place. They all return, in their normal
+   * places, the moment the session ends (sent, discarded, or the mic stopped).
    *
-   *   • the voice cluster (`voiceControl`) crosses from the bottom-LEFT to the
-   *     trailing group, so the mic sits beside the Send and × that act on what it
-   *     is hearing rather than across the row from them; and
-   *   • **Accept is withheld** for the duration. Its slot is the one Send takes,
-   *     and the primary decision about a proposal has no business under the thumb
-   *     of someone mid-sentence. It returns, in its normal place, the moment the
-   *     session ends (sent, discarded, or the mic stopped); and
-   *   • **Delete is withheld too, on a proposal.** Talking to a proposal is how it
-   *     gets reshaped, so the whole accept-or-discard pair stands down while the
-   *     user is still saying what they want — a trash can appearing the instant
-   *     someone starts speaking is the wrong offer, and a destructive one, right
-   *     next to the thumb reaching for Send. It comes back with Accept when the
-   *     session ends.
+   * All three, not a chosen few, and that is the point rather than a
+   * simplification. The right of the row is one slot: leaving any of them up
+   * would mean Send and × arriving *beside* them and shoving them sideways, which
+   * is the shuffling this arrangement exists to remove. Withdrawing the group
+   * makes it a swap — one set of controls out, another in, nothing moving.
    *
-   * Poke is untouched, and so is Delete on a *blocked* ticket: there, speaking is
-   * how the user unblocks the work rather than reshaping a proposal, and neither
-   * is a decision Send could be mistaken for.
+   * Each of the three also earns it on its own reading. Accept's slot is the one
+   * Send takes, and the primary decision about a proposal has no business under
+   * the thumb of someone mid-sentence. Delete is a destructive control appearing
+   * the instant someone opens their mouth, next to the thumb reaching for Send.
+   * Poke is a nudge to an agent — an odd thing to offer while the user is busy
+   * composing the very message that would say it better.
+   *
+   * The mic itself does NOT move: it holds the footer's bottom-left slot in both
+   * readings (see `TicketDetail.css`'s cluster rule), so this flag never
+   * repositions anything, it only withdraws and restores.
    *
    * It is a plain boolean, passed in, for the same reason `voiceControl` and
    * `transcript` are nodes: this component stays free of the voice store. The
@@ -369,14 +371,15 @@ export function TicketDetail({
   //  • every state     → the mic (when wired): the unified communication surface
   //                      (08 §5) — the user can start talking to the brain from any
   //                      ticket. Replaces the old blocked-only "Talk to unblock"
-  //                      button so all ticket types share one interface. While a
-  //                      voice session is live it brings Send and × with it to the
-  //                      row's trailing end (`voiceActive`).
-  //  • shaping         → Accept (when wired, and no voice session live): the
-  //                      proposal click-through (08 §5) — accepting is what moves a
-  //                      shaped proposal into the pull, so it only makes sense here.
-  //                      Every later state has already been accepted, so the button
-  //                      is gone.
+  //                      button so all ticket types share one interface. It holds
+  //                      the row's bottom-left slot in every reading and never
+  //                      moves; while a voice session is live it grows Send and ×
+  //                      into the trailing slot the state actions vacate
+  //                      (`voiceActive`).
+  //  • shaping         → Accept (when wired): the proposal click-through (08 §5) —
+  //                      accepting is what moves a shaped proposal into the pull,
+  //                      so it only makes sense here. Every later state has already
+  //                      been accepted, so the button is gone.
   //  • working|blocked → Poke (when wired): a manual nudge to continue for a
   //                      stalled agent, routed through the brain (never a direct
   //                      agent command, D5). It shows on both states whenever
@@ -384,6 +387,9 @@ export function TicketDetail({
   //                      often wants to nudge, and "the agent looks busy" is not
   //                      the same as "the agent needs nothing".
   //  • done            → no action but the mic; the header badge already says "Done".
+  // All three state actions are withheld together while a voice session is live
+  // (`voiceActive`), which is what lets Send and × take their slot without
+  // anything sliding.
   // The footer branches below narrow on the callbacks directly (not derived
   // booleans) so TypeScript knows they're defined inside the handler — no
   // optional chain, which the lint gate rejects (mirrors FeedCardItem).
@@ -455,26 +461,20 @@ export function TicketDetail({
   const canPoke = onPoke !== undefined && (isBlocked || isWorking);
   // A live voice session on this ticket — only meaningful when a mic is actually
   // wired, so a caller can't put the footer into the speaking arrangement with
-  // nothing to speak into. While it holds, the voice cluster moves to the
-  // trailing group and, on a proposal, Accept and Delete both stand down (see the
-  // prop's doc).
+  // nothing to speak into. While it holds, the three state actions below withdraw
+  // as a group and the row's trailing slot becomes Send and × (see the prop's
+  // doc). The mic does not move for it.
   const inVoiceMode = voiceControl !== undefined && voiceActive;
   const canAccept = isShaping && onAccept !== undefined;
   // The voice cluster — the mic and, while it is live, its Send and × — wired only
-  // on the primary screen (a read-only sheet leaves it undefined). At rest it is
-  // the bottom-left half of the pair 08 §5 calls for, opposite the trailing
-  // Accept/Poke; while a session is live it crosses over to join them
-  // (`inVoiceMode` above). It shows on every ticket state (the unified
-  // communication surface — start talking from any ticket), so it is gated only on
-  // being wired.
+  // on the primary screen (a read-only sheet leaves it undefined). It spans the
+  // row: the mic holds its left edge in every reading, and the send group takes
+  // the right edge once the state actions have stood down. It shows on every
+  // ticket state (the unified communication surface — start talking from any
+  // ticket), so it is gated only on being wired.
   const showVoice = voiceControl !== undefined;
-  // Delete shows in any DELETABLE_STATES state, except on a proposal with a voice
-  // session live: there it stands down alongside Accept (see `voiceActive`), since
-  // speaking to a proposal is how it gets reshaped, not discarded. A blocked
-  // ticket keeps its Delete — speaking there is about unblocking the work, and the
-  // pair-stands-down reading doesn't apply.
-  const canDelete =
-    DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && !(isShaping && inVoiceMode);
+  // Delete shows in any DELETABLE_STATES state with the callback wired.
+  const canDelete = DELETABLE_STATES.has(ticket.state) && onDelete !== undefined;
   // Whether the sheet is in edit mode, and whether it can be entered at all —
   // a backlog ticket whose text the board will still accept, with the write
   // wired. A derived boolean is safe here, unlike the footer's callbacks: what
@@ -911,29 +911,25 @@ export function TicketDetail({
               ticket's lifecycle state and which callbacks the caller wired, so a
               nonsensical action can't be shown:
                • Mic    → every state: the unified communication surface (08 §5) —
-                          start talking to the brain from any ticket. Lives in the
-                          bottom-left lead cluster; replaces the old blocked-only
-                          "Talk to unblock" button.
+                          start talking to the brain from any ticket. Holds the
+                          row's bottom-left slot, at rest and mid-utterance alike;
+                          replaces the old blocked-only "Talk to unblock" button.
                • Poke   → working|blocked, whenever wired: nudge an agent to
                           continue. Only expresses intent — the caller routes it
                           through the brain (D5), never a direct agent command.
                • Delete → shaping|blocked: discard a ticket that's no longer wanted,
                           routed through the brain (delete_ticket, D5). A
-                          destructive secondary sitting left of Accept — withheld
-                          on a proposal for the length of a voice session, the same
-                          as Accept beside it (`voiceActive`), since speaking to a
-                          proposal is how it gets reshaped rather than binned.
+                          destructive secondary sitting left of Accept.
                • Accept → the proposal click-through (08 §5), shaping-only (every
-                          later state has already been accepted) — and only while
-                          no voice session is live: mid-utterance its slot belongs
-                          to Send (`voiceActive`).
-              The voice cluster sits first (left) at rest and Poke/Delete after it;
-              the state's primary action (Accept) stays rightmost, where flex-end
-              makes it the most prominent. While the mic is up the cluster crosses
-              to the end of the row and takes that slot instead, so the trailing
-              group reads Send, ×, mic from the right edge inward. Every affordance
-              here reads as a glyph only — the mic, the 👉 for Poke, the trash for
-              Delete, the check for Accept — with no text label around any of them;
+                          later state has already been accepted).
+              The last three are the *state actions* and share one gate: they are
+              withheld together for the length of a voice session (`voiceActive`),
+              handing the row's trailing slot to the mic's own Send and ×. That is
+              the footer's one rearrangement, and it is a swap rather than a
+              reflow — the mic stays where it is and the group that leaves is the
+              group that comes back. Every affordance here reads as a glyph only —
+              the mic, the 👉 for Poke, the trash for Delete, the check for
+              Accept — with no text label around any of them;
               Accept used to carry the word, and now carries it as an aria-label
               instead, so the footer is one row of icons in one treatment (the
               mic's — see the CSS) rather than a pill among glyphs. Each button
@@ -978,128 +974,121 @@ export function TicketDetail({
                 </div>
               ) : (
                 <div data-role="ticket-detail-actions">
-                  {/* The voice cluster, in whichever of its two homes this moment
-                  calls for — one element in one place in the DOM, moved by CSS
-                  (`data-position`) rather than by being re-parented, so the mic
-                  inside it is never unmounted and remounted mid-utterance.
-                  `lead` is the resting reading: `margin-right: auto` pins it to
-                  the row's left edge and pushes the state actions
-                  (Poke/Delete/Accept) to the right. `trail` drops that margin and
-                  orders it LAST, so the row reads (right to left) Send, ×, mic —
-                  Send in the slot Accept has just vacated. Absent (a sheet without
-                  voice) the row is byte-identical to the old flex-end footer. */}
-                  {showVoice && (
-                    <div
-                      data-role="ticket-detail-voice-actions"
-                      data-position={inVoiceMode ? 'trail' : 'lead'}
-                    >
-                      {voiceControl}
-                    </div>
-                  )}
-                  {(isBlocked || isWorking) && onPoke !== undefined && (
-                    <button
-                      type="button"
-                      data-role="detail-poke"
-                      aria-label="Poke"
-                      onClick={() => {
-                        onPoke(ticket.id);
-                      }}
-                    >
-                      {/* Icon-only, matching Delete: the 👉 is the whole visible
-                      signal for a poke (mirroring the feed's poke card, 08 §3),
-                      with no text label around it. The glyph is aria-hidden and the
-                      button's accessible name comes from aria-label="Poke". It sits
-                      on the same disc as the mic, the trash and the check — see the
-                      CSS; the 👉 is a colour glyph of its own, so unlike those it
-                      carries no `color` to tell it apart. */}
-                      <span data-role="detail-poke-emoji" aria-hidden="true">
-                        👉
-                      </span>
-                    </button>
-                  )}
-                  {/* Delete shows for a DELETABLE_STATES ticket with onDelete wired,
-                  as an icon-only circular button to the left of Accept — but not on
-                  a proposal while a voice session is live, where it stands down with
-                  Accept: talking to a proposal reshapes it, and offering to throw it
-                  away the moment the user opens their mouth is the wrong (and
-                  destructive) half of the pair to leave under the thumb. A blocked
-                  ticket's Delete is untouched. Inline the state + callback check
-                  (not the derived canDelete) so TypeScript narrows onDelete to
-                  defined inside onClick — mirroring the Poke/Accept buttons. The
-                  trash glyph is aria-hidden, so the button's accessible name comes
-                  from aria-label="Delete". */}
-                  {!(isShaping && inVoiceMode) &&
-                    DELETABLE_STATES.has(ticket.state) &&
-                    onDelete !== undefined && (
-                      <button
-                        type="button"
-                        data-role="detail-delete"
-                        aria-label="Delete"
-                        onClick={() => {
-                          // A blocked delete discards in-progress work and releases a
-                          // worker, with no un-archive — so confirm it (D4). A shaping
-                          // proposal is cheap and re-proposable: delete it immediately,
-                          // no confirm.
-                          if (
-                            ticket.state === 'blocked' &&
-                            !window.confirm(DELETE_BLOCKED_CONFIRM)
-                          ) {
-                            return;
-                          }
-                          onDelete(ticket.id);
-                        }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="22"
-                          height="22"
-                          aria-hidden="true"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                  {/* The voice cluster: one element, one place in the DOM, and no
+                  attribute switching it between arrangements — it spans the row
+                  and lets its own contents do the distributing (see the CSS). The
+                  mic is its first child and therefore holds the row's left edge in
+                  every reading, which is the point: it never moves, so it can
+                  never jump out from under the finger that just activated it. Its
+                  growth is also what pushes the state actions below to the right,
+                  so absent (a sheet without voice) the row is byte-identical to
+                  the old flex-end footer. */}
+                  {showVoice && <div data-role="ticket-detail-voice-actions">{voiceControl}</div>}
+                  {/* The state actions. All three ride `!inVoiceMode` so they
+                  withdraw as one group while the user is speaking, leaving the
+                  trailing slot free for the cluster's own Send and × — a swap in
+                  place, with nothing sliding over to make room. */}
+                  {!inVoiceMode && (
+                    <>
+                      {(isBlocked || isWorking) && onPoke !== undefined && (
+                        <button
+                          type="button"
+                          data-role="detail-poke"
+                          aria-label="Poke"
+                          onClick={() => {
+                            onPoke(ticket.id);
+                          }}
                         >
-                          <path d="M4 7h16" />
-                          <path d="M10 11v6M14 11v6" />
-                          <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
-                          <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
-                        </svg>
-                      </button>
-                    )}
-                  {/* Accept — withheld for the length of a voice session: the
-                  trailing slot is Send's while the user is speaking, and the
-                  headline decision about the proposal should not be sitting under
-                  the thumb that is about to reach for it. It comes straight back
-                  when the session ends. */}
-                  {!inVoiceMode && isShaping && onAccept !== undefined && (
-                    <button
-                      type="button"
-                      data-role="detail-accept"
-                      aria-label="Accept"
-                      onClick={() => {
-                        onAccept(ticket.id);
-                      }}
-                    >
-                      {/* A check in the same stroked idiom as the trash beside it,
-                      on the same disc as the mic (see the CSS). The glyph is
+                          {/* Icon-only, matching Delete: the 👉 is the whole visible
+                          signal for a poke (mirroring the feed's poke card, 08 §3),
+                          with no text label around it. The glyph is aria-hidden and
+                          the button's accessible name comes from aria-label="Poke".
+                          It sits on the same disc as the mic, the trash and the
+                          check — see the CSS; the 👉 is a colour glyph of its own,
+                          so unlike those it carries no `color` to tell it apart. */}
+                          <span data-role="detail-poke-emoji" aria-hidden="true">
+                            👉
+                          </span>
+                        </button>
+                      )}
+                      {/* Delete shows for a DELETABLE_STATES ticket with onDelete
+                      wired, as an icon-only circular button to the left of Accept.
+                      Inline the state + callback check (not the derived canDelete)
+                      so TypeScript narrows onDelete to defined inside onClick —
+                      mirroring the Poke/Accept buttons. The trash glyph is
                       aria-hidden, so the button's accessible name comes from
-                      aria-label="Accept" — the word is gone from the screen but
-                      not from the accessibility tree. */}
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="22"
-                        height="22"
-                        aria-hidden="true"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M20 6.5L9.5 17.5 4 12" />
-                      </svg>
-                    </button>
+                      aria-label="Delete". */}
+                      {DELETABLE_STATES.has(ticket.state) && onDelete !== undefined && (
+                        <button
+                          type="button"
+                          data-role="detail-delete"
+                          aria-label="Delete"
+                          onClick={() => {
+                            // A blocked delete discards in-progress work and releases a
+                            // worker, with no un-archive — so confirm it (D4). A shaping
+                            // proposal is cheap and re-proposable: delete it immediately,
+                            // no confirm.
+                            if (
+                              ticket.state === 'blocked' &&
+                              !window.confirm(DELETE_BLOCKED_CONFIRM)
+                            ) {
+                              return;
+                            }
+                            onDelete(ticket.id);
+                          }}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="22"
+                            height="22"
+                            aria-hidden="true"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M4 7h16" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+                            <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                          </svg>
+                        </button>
+                      )}
+                      {/* Accept — the row's rightmost control, where flex-end makes
+                      it the most prominent. It is also the slot Send takes over for
+                      the length of a voice session, which is why the group above
+                      stands down as a whole rather than shuffling along. */}
+                      {isShaping && onAccept !== undefined && (
+                        <button
+                          type="button"
+                          data-role="detail-accept"
+                          aria-label="Accept"
+                          onClick={() => {
+                            onAccept(ticket.id);
+                          }}
+                        >
+                          {/* A check in the same stroked idiom as the trash beside
+                          it, on the same disc as the mic (see the CSS). The glyph
+                          is aria-hidden, so the button's accessible name comes from
+                          aria-label="Accept" — the word is gone from the screen but
+                          not from the accessibility tree. */}
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="22"
+                            height="22"
+                            aria-hidden="true"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M20 6.5L9.5 17.5 4 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               )}

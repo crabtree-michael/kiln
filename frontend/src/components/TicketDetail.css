@@ -716,32 +716,39 @@
   gap: 0.5rem;
 }
 
-/* The voice cluster — the mic, plus the Send and × that appear beside it while a
- * session is live. It rides here on every ticket state (the unified communication
- * surface, 08 §5) and has TWO homes on this one row, chosen by `data-position`
- * rather than by moving the element: re-parenting it would unmount and remount the
- * mic mid-utterance, dropping its ticket-context registration and its volume-glow
- * loop with it.
+/* The voice cluster — the mic, plus the Send and × that appear while a session is
+ * live. It rides here on every ticket state (the unified communication surface,
+ * 08 §5), and the ONE thing it must never do is move: the mic is the control the
+ * user just touched, and a button that jumps out from under the finger that
+ * activated it is the whole of the jank this rule exists to prevent.
  *
- * `lead` is the resting reading: `margin-right: auto` pins the cluster to the
- * row's left edge and shoves the trailing state action (Accept/Poke) to the right,
- * so the footer reads as left-group / right-group. Absent (a read-only sheet with
- * no mic) the row is exactly the old flex-end footer, unchanged. */
+ * So the cluster spans the row (`flex: 1`) and distributes its own contents
+ * instead of travelling: the mic is its first child and therefore sits at the
+ * row's left edge in EVERY reading, at rest and mid-utterance alike. With the mic
+ * alone inside, `space-between` is simply flex-start and the cluster's growth is
+ * what shoves the state actions (Poke/Delete/Accept) to the right — the resting
+ * left-group / right-group footer, laid out exactly as the old `margin-right:
+ * auto` laid it out.
+ *
+ * The send group below is the second child, so it lands hard against the
+ * cluster's right edge — which, with the state actions withdrawn for the length
+ * of the session, is the row's right edge. That is the swap: the right-hand slot
+ * changes hands, nothing slides. */
 [data-role='ticket-detail-voice-actions'] {
-  margin-right: auto;
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
 }
 
-/* `trail` is the speaking reading: the cluster gives up the auto margin and is
- * ordered LAST, after Poke and Delete, so the row's right edge reads (inward)
- * Send, ×, mic — Send in the slot Accept vacates for the duration. `order` is
- * what does the moving, so the DOM keeps one stable position for the cluster and
- * the mic inside it survives the switch. */
-[data-role='ticket-detail-voice-actions'][data-position='trail'] {
-  margin-right: 0;
-  order: 1;
+/* Send and × as ONE box, not two loose children — `space-between` over three
+ * items would strand the × in the middle of the row. Grouping them also means the
+ * pair arrives and leaves as a unit, in the slot the state actions vacate. */
+[data-role='ticket-detail-voice-send'] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* Save — the edit mode's affirmative, in the same accent pill as Accept: it is

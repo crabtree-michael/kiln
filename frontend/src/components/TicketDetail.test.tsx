@@ -305,8 +305,6 @@ describe('TicketDetail', () => {
         .getByText('mic')
         .closest('[data-role="ticket-detail-voice-actions"]');
       expect(cluster).not.toBeNull();
-      // At rest it is the row's lead: the auto margin that pins it left.
-      expect(cluster).toHaveAttribute('data-position', 'lead');
       // It shares the footer with the trailing Accept action.
       expect(
         within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }),
@@ -329,12 +327,25 @@ describe('TicketDetail', () => {
       expect(document.querySelector('[data-role="ticket-detail-voice-actions"]')).toBeNull();
     });
 
-    // A live voice session rearranges the footer: the cluster crosses to the
-    // trailing group (so the mic sits beside the Send and × its own node renders)
-    // and Accept — whose slot Send takes — stands down until the session ends.
-    // TicketDetail is voice-store-agnostic, so the reading arrives as a prop.
-    it('moves the voice cluster to the trailing group and withholds Accept while speaking', () => {
-      render(
+    // A live voice session withdraws the state actions and hands their slot to
+    // the Send and × the voice node renders — but it does NOT move the mic, which
+    // keeps its one place in the DOM (and, per the CSS test next door, its one
+    // place on screen) throughout. TicketDetail is voice-store-agnostic, so the
+    // reading arrives as a prop.
+    it('withholds Accept while speaking, and leaves the mic exactly where it was', () => {
+      const { rerender } = render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          voiceControl={mic}
+          voiceActive={false}
+        />,
+      );
+      const clusterAtRest = within(screen.getByRole('dialog'))
+        .getByText('mic')
+        .closest('[data-role="ticket-detail-voice-actions"]');
+      rerender(
         <TicketDetail
           ticket={proposal}
           onClose={vi.fn()}
@@ -344,11 +355,16 @@ describe('TicketDetail', () => {
         />,
       );
       const dialog = screen.getByRole('dialog');
-      const cluster = within(dialog)
+      expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+      // The very same element, still the actions row's first child: the cluster is
+      // never re-parented and never re-ordered, so the mic inside it survives the
+      // switch rather than being unmounted and remounted mid-utterance.
+      const clusterSpeaking = within(dialog)
         .getByText('mic')
         .closest('[data-role="ticket-detail-voice-actions"]');
-      expect(cluster).toHaveAttribute('data-position', 'trail');
-      expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
+      expect(clusterSpeaking).toBe(clusterAtRest);
+      expect(clusterSpeaking?.parentElement).toHaveAttribute('data-role', 'ticket-detail-actions');
+      expect(clusterSpeaking?.previousElementSibling).toBeNull();
     });
 
     // Delete is the other half of the proposal's accept-or-discard pair, so it
@@ -436,23 +452,27 @@ describe('TicketDetail', () => {
       expect(within(dialog).getByRole('button', { name: 'Accept' })).toBeInTheDocument();
       expect(
         within(dialog).getByText('mic').closest('[data-role="ticket-detail-voice-actions"]'),
-      ).toHaveAttribute('data-position', 'lead');
+      ).not.toBeNull();
     });
 
-    // A blocked ticket is not a proposal: speaking there is how the user unblocks
-    // the work, so neither of its secondaries moves.
-    it('leaves a blocked ticket’s Delete and Poke alone while speaking', () => {
-      render(
+    // The state actions are one group with one gate: the row's trailing slot goes
+    // to Send and × as a unit, so leaving any of them up would just mean the pair
+    // arriving beside them and shoving them along — the shuffling the whole
+    // arrangement exists to remove. A blocked ticket's Poke and Delete are no
+    // exception.
+    it('withholds a blocked ticket’s Delete and Poke while speaking', () => {
+      const blockedTicket = makeTicket({
+        id: 't-blocked',
+        title: 'Stuck',
+        body: 'body',
+        state: 'blocked',
+        priority: 2,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-01T00:00:00Z',
+      });
+      const { rerender } = render(
         <TicketDetail
-          ticket={makeTicket({
-            id: 't-blocked',
-            title: 'Stuck',
-            body: 'body',
-            state: 'blocked',
-            priority: 2,
-            createdAt: '2026-07-01T00:00:00Z',
-            updatedAt: '2026-07-01T00:00:00Z',
-          })}
+          ticket={blockedTicket}
           onClose={vi.fn()}
           onDelete={vi.fn()}
           onPoke={vi.fn()}
@@ -461,8 +481,50 @@ describe('TicketDetail', () => {
         />,
       );
       const dialog = screen.getByRole('dialog');
+      expect(within(dialog).queryByRole('button', { name: 'Delete' })).toBeNull();
+      expect(within(dialog).queryByRole('button', { name: 'Poke' })).toBeNull();
+      // …and both come straight back when the session ends.
+      rerender(
+        <TicketDetail
+          ticket={blockedTicket}
+          onClose={vi.fn()}
+          onDelete={vi.fn()}
+          onPoke={vi.fn()}
+          voiceControl={mic}
+          voiceActive={false}
+        />,
+      );
       expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
       expect(within(dialog).getByRole('button', { name: 'Poke' })).toBeInTheDocument();
+    });
+
+    // The mic's own controls land where the state actions were, not beside the
+    // mic: the send group is the cluster's last child, and the CSS test next door
+    // is what pins that to the row's right edge.
+    it('renders Send and × as one group inside the cluster, after the mic', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          voiceControl={
+            <>
+              <button data-role="mock-mic">mic</button>
+              <div data-role="ticket-detail-voice-send">
+                <button>Send</button>
+              </div>
+            </>
+          }
+          voiceActive
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      const cluster = within(dialog)
+        .getByText('mic')
+        .closest('[data-role="ticket-detail-voice-actions"]');
+      const sendGroup = cluster?.querySelector('[data-role="ticket-detail-voice-send"]');
+      expect(sendGroup).not.toBeNull();
+      expect(cluster?.lastElementChild).toBe(sendGroup);
     });
 
     it('ignores voiceActive when no voice control is wired (a read-only sheet keeps Accept)', () => {

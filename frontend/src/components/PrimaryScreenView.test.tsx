@@ -699,11 +699,18 @@ describe('PrimaryScreenView', () => {
     expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Send' })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Discard' })).toBeInTheDocument();
-    // ...and the mic went with them, out of the footer's bottom-left.
+    // ...while the mic stayed exactly where it was: still the actions row's first
+    // child, with the send group beside it inside the same cluster. Nothing on the
+    // row changed position — the trailing controls were swapped, not shuffled.
     const cluster = within(dialog)
       .getByRole('button', { name: 'Talk' })
       .closest('[data-role="ticket-detail-voice-actions"]');
-    expect(cluster).toHaveAttribute('data-position', 'trail');
+    expect(cluster).not.toBeNull();
+    expect(cluster?.previousElementSibling).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Send' }).parentElement).toHaveAttribute(
+      'data-role',
+      'ticket-detail-voice-send',
+    );
   });
 
   // The per-ticket sandbox option reaches the sheet from the composing screen and,

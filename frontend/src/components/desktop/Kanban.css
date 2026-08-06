@@ -1,0 +1,211 @@
+/* The `/kanban` board view — the THIRD layer of the desktop stylesheet stack.
+   `KanbanScreenView` imports PrimaryScreen.css, then DesktopScreen.css, then
+   this, in that order, and each one only states what the layer below cannot.
+
+   That is why this file is short. The board view's root wears
+   `data-role='desktop-screen'` exactly as the feed shell's does, so it inherits
+   the whole shell for free: the viewport lock, the grid, the box model, the
+   visually-hidden helper, and — the one that would have been easy to miss — the
+   notification bell's re-anchoring, which has to open up-and-right from the
+   rail's foot on any desktop shell. `data-view='kanban'` is the single thing
+   that differs, and everything below keys off it or off the board's own roles.
+
+   The rules that govern the layers below govern this one too, and both are
+   asserted in Kanban.layout.test.ts: every colour is a semantic token (no hex,
+   no rgb — a literal would fork the palette instead of re-pointing it), and no
+   rule names a theme, because the desktop shell follows the OS (13 D6a).
+
+   The accent budget: this file spends it exactly once, on BLOCKED. That is not
+   a second budget alongside DesktopScreen.css's `needs-you` — it is the same
+   rule applied to the same meaning. A blocked ticket IS the board's "a person is
+   needed for a decision", and it is the only thing here that qualifies. The
+   building mark's accent comes from PrimaryScreen.css's shared
+   `[data-role='status-dot']` vocabulary, which this file deliberately does not
+   restate. */
+
+/* ------------------------------------------------------------------- shell */
+
+/* Two regions, not three: the rail, then the board. The feed shell's middle
+   column (the in-progress panel) has no place here — it answers "what is being
+   worked on right now", which on this screen is a column you can read. */
+[data-role='desktop-screen'][data-view='kanban'] {
+  grid-template-columns: 236px minmax(0, 1fr);
+}
+
+[data-role='kanban-main'] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The loading line is the feed shell's, reused verbatim in the markup — but
+   there it is centred on the feed's 720px reading measure, which on a
+   five-column board would park it in the middle of the third column with
+   nothing to explain it. Re-anchored to the board's own left edge, where the
+   first column starts. */
+[data-view='kanban'] [data-role='desktop-loading-line'] {
+  max-width: none;
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------- board */
+
+[data-role='kanban-board'] {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* Equal columns that never get narrower than a readable ticket title. Below
+     that they stop shrinking and the board scrolls sideways instead — the
+     standard kanban answer, and the honest one: five columns squeezed to
+     illegibility would show everything and say nothing. At the widths this
+     shell exists at (>=1024px, rail 236px) all five fit from about 1130px on. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(196px, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8) var(--space-8);
+  overflow-x: auto;
+}
+
+/* Each column scrolls on its own, so a deep Done column can never push the
+   other four's headings off the screen — on a board the headings are the map. */
+[data-role='kanban-column'] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+[data-role='kanban-column-head'] {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-3);
+}
+
+[data-role='kanban-column-label'] {
+  margin: 0;
+  font: var(--type-caption);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The count sits in the faintest ink there is and is never tinted — a
+   measurement, not an alarm. Tabular figures so a column ticking 9 -> 10 does
+   not nudge the heading sideways. */
+[data-role='kanban-column-count'] {
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+[data-role='kanban-column-list'] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Left/right padding is the focus ring's room: the cards are buttons, and a
+     ring drawn flush against a scroll container's edge is clipped. */
+  padding: 2px var(--space-1) var(--space-6);
+}
+
+/* An empty column keeps its heading and says nothing else — one dash in the
+   faintest ink. No "nothing here yet" copy: on a board an empty column is a
+   normal reading of a healthy project, not a state to apologise for. */
+[data-role='kanban-column-empty'] {
+  margin: 0;
+  padding: 0 var(--space-2);
+  color: var(--text-faint);
+  font: var(--type-small);
+}
+
+/* -------------------------------------------------------------------- card */
+
+[data-role='kanban-card'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font: var(--type-small);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-settle);
+}
+
+/* Hover reveals; it never acts (13 §9). It firms the BORDER rather than
+   changing the fill, deliberately: `--surface-raised` lifts clearly above
+   `--surface-card` in the dark palette and is three hex points off it in the
+   light one, so a fill-based hover would simply vanish in daylight. The border
+   tokens carry the same intent in both registers. */
+[data-role='kanban-card']:hover {
+  border-color: var(--border-strong);
+}
+
+[data-role='kanban-card-title'] {
+  /* Two lines, then ellipsis: a title long enough to need a third is telling
+     you to open the ticket. The full text is one click away in the sheet. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  color: var(--text-body);
+  font: var(--type-small);
+  font-weight: 550;
+}
+
+/* The blocked reason — the one piece of body text any card carries, because it
+   is a question waiting on a person and making someone open the ticket to
+   discover there IS a question defeats the board. */
+[data-role='kanban-card-reason'] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}
+
+[data-role='kanban-card-meta'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-faint);
+  font: var(--type-caption);
+}
+
+[data-role='kanban-card-note'] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The age is pushed to the trailing edge so every card in a column reports its
+   time in the same place, readable as a column of its own down the board. */
+[data-role='kanban-card-age'] {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* THE one place this file paints the accent (13 §4). A blocked ticket is the
+   board's "a person is needed for a decision" — the same meaning the rail's
+   `needs-you` dot carries, said in the medium a board has: the card's leading
+   edge. A tinted edge rather than a filled card, because the card still has to
+   be read, and because a wash would put the loudest colour on the screen behind
+   the longest text on it. Nothing else in this file may claim the accent. */
+[data-role='kanban-card'][data-state='blocked'] {
+  border-left: 2px solid var(--accent);
+}

@@ -247,6 +247,15 @@ describe('onboarding flow layout', () => {
     expect(body).toMatch(/display:\s*block/);
   });
 
+  it('lets the card’s prose run its full width instead of a second measure', () => {
+    // The card is already the narrow column (720px, asserted above), so a `ch`
+    // cap on the text inside it wraps the copy well short of the box's right
+    // edge — most visible on step 1, whose card holds nothing but prose and a
+    // button. jsdom does no layout, so only the CSS can be asserted.
+    expect(ruleBody("[data-role='onboarding-blurb'] {")).not.toMatch(/max-width/);
+    expect(ruleBody("[data-role='github-connect'] p {")).not.toMatch(/max-width/);
+  });
+
   it('keeps the rail readable on a phone by dropping the passed steps’ labels', () => {
     const body = mediaRuleBody(
       'max-width: 600px',

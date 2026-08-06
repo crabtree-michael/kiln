@@ -211,11 +211,14 @@ html:has([data-role='settings']) {
   color: var(--accent);
 }
 
+/* No `ch` cap on the measure: the card IS the measure. A 52ch cap wrapped every
+   step's one-line blurb at ~390px inside a 672px card, which reads as text
+   stopping short of the box for no reason rather than as a deliberate column —
+   the card is already the narrow column, so capping inside it caps twice. */
 [data-role='onboarding-blurb'] {
   margin: 0;
   font: var(--type-small);
   color: var(--text-muted);
-  max-width: 52ch;
 }
 
 [data-role='onboarding-fields'] {
@@ -233,11 +236,16 @@ html:has([data-role='settings']) {
   align-items: flex-start;
 }
 
+/* Same rule as the blurb above, and this is the step it was most visible on:
+   step 1 has no fields to fill the card, so a 56ch cap left the access note
+   wrapping three lines up the left half of an otherwise empty card. `align-items:
+   flex-start` still shrink-wraps the short readings ("Checking your GitHub
+   connection…", the connected chip); it is only the prose that now runs the
+   card's full width. */
 [data-role='github-connect'] p {
   margin: 0;
   font: var(--type-small);
   color: var(--text-secondary);
-  max-width: 56ch;
 }
 
 /* The connected reading is the step's "you're done here" signal, so it reads

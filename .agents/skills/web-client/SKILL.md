@@ -828,10 +828,12 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   are still under it rather than the window having gone blank again. It also swaps the `/feed`
   stub to an empty snapshot (`feedBody = emptyFeed`) for a resting-state pass — the mark and
   the lines on the region's axis, and "Show earlier" at the foot rather than under the text.
-  **Prettier it from `/frontend`, never at the file:** `/tests` has no prettier config, so
-  running the formatter on this path reformats the whole file to defaults (double quotes).
-  The same goes for every other hand-run script on this path, `toast-mic-glow-repro.mjs`
-  included.
+  **Prettier it with the frontend's config STATED EXPLICITLY** — `cd frontend && pnpm exec
+  prettier --config .prettierrc.json --write ../tests/<script>.mjs`. `/tests` has no prettier
+  config, and prettier resolves config from the FILE's directory rather than the cwd, so
+  merely *running* it from `/frontend` is not enough: the plain invocation reformats the whole
+  file to defaults (double quotes). The same goes for every other hand-run script on this
+  path, `toast-mic-glow-repro.mjs` and `kanban-smoke.mjs` included.
 - **A glow is geometry too — an opaque band anchored to a region's edge will cut it.** The
   listening mic radiates a box-shadow ring ~20px past the button's edge (`kiln-mic-glow`),
   and the activity row is anchored to the composer region's *top* edge carrying an opaque
@@ -847,3 +849,56 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   smoke script): it drives a real `say` + `toast` over the stubbed stream, forces the
   listening reading, parks the pulse at its widest frame, and prints how much of the glow the
   band covers in both themes and on the phone.
+
+## `/kanban` — the second desktop shell (board view)
+
+`/app` and `/kanban` are two views of one board store, behind the same `SessionProvider` +
+`SessionGate` + `CurrentProjectProvider`. `/app` answers "what should I look at now" (the
+brain's curated feed, 08 D1); `/kanban` answers "where does everything stand", which the feed
+structurally cannot — a ticket can sit in Ready for a day without earning a card. Anchor:
+`components/KanbanScreen.tsx` (seam) → `desktop/KanbanScreenView.tsx` + `desktop/Kanban.css` +
+the pure `desktop/kanban-board.ts`.
+
+- **The rail is shared as a COMPONENT, not copied.** `desktop/DesktopRail.tsx` was extracted
+  from `DesktopScreenView` for this and is mounted by both. The brief was "identical to the
+  desktop app's sidebar", and a second `<aside>` agrees on the day it is written and drifts on
+  the first change to either screen. Its markup is unchanged from when it was inlined, so the
+  existing DOM tests, the CSS, and `desktop-shell-smoke.mjs` all still find it.
+- **The kanban root wears `data-role='desktop-screen'` with `data-view='kanban'`**, rather than
+  a role of its own. That is what makes it the same shell: the `html:has(...)` viewport lock,
+  the `*` box model, the visually-hidden helper and — easiest to miss — the notification bell's
+  re-anchoring (it opens up-and-right from ANY desktop shell's rail foot) all apply for free.
+  `Kanban.css` then overrides exactly one shell declaration, `grid-template-columns`, to two
+  columns. A second root role would have meant restating four rules that must never disagree.
+- **`useDesktopShellFlag()` (in `use-desktop-layout.ts`) publishes `<body data-shell="desktop">`**
+  and is called by BOTH desktop shells. It used to be an effect inlined in `DesktopScreenView`.
+  It is nothing to do with theming — it is how the ticket sheet, which portals to
+  `document.body`, learns it is a right-edge panel and not a full-bleed phone sheet. A second
+  shell that forgot it would open its panel as a bottom sheet across a 1440px window, and
+  nothing in the DOM gate could see that.
+- **Columns are the five states, in pipeline order** (Shaping, Ready, Working, Blocked, Done) —
+  deliberately NOT the mobile board's three zones (backlog / developing / done), which
+  compress five states for a phone's width. **Ticket order inside a column is the server's,
+  untouched**: `ready` arrives in exact pull order (03 §5), so re-sorting it locally would
+  destroy the one column whose order carries information.
+- **No drag-and-drop, and that is 07 D5 rather than an unfinished feature.** Every transition
+  belongs to the brain; a draggable column would be a second, contradicting source of truth
+  about the same states. Cards open the SAME `TicketDetail` the feed opens, `placement="right"`,
+  with the same actions wired the same way. Don't grow a detail pane of its own.
+- **A card's status mark comes from `board.agents`, not from its column** (same rule as the
+  working strip), and is `null` — no mark at all — for a ticket with no worker bound. A Ready
+  ticket painting a session dot would be inventing a session.
+- **The accent budget is spent once here too, on BLOCKED** (a 2px left edge). That is not a
+  second budget beside `DesktopScreen.css`'s `needs-you`; it is the same rule — "a person is
+  needed for a decision" — applied to the one thing on this board that qualifies. Asserted in
+  `Kanban.layout.test.ts`, along with no-hex/no-rgb, no theme selector, and no animation.
+- **The count in a column head is the one number this shell allows itself.** 13 §8 rules out
+  badges in the *resting* screen, whose premise is that there is nothing to manage; a board's
+  premise is the opposite, and a column's depth is the fact it exists to report. Faintest ink,
+  never tinted, tabular figures.
+- **`tests/kanban-smoke.mjs` is the only thing that can see this layout** — hand-run, same
+  harness and stance as `desktop-shell-smoke.mjs`. Run it after any change to `Kanban.css`
+  (`cd frontend && pnpm build`, then `cd ../tests && node kanban-smoke.mjs`). It measures the
+  five columns on one row, that a deep column scrolls on its own while the other four headings
+  hold still, that both clamps bite, that the accent is on ONE edge and not four, and that the
+  detail panel lands at the right edge — none of which jsdom or a CSS-string assertion can see.

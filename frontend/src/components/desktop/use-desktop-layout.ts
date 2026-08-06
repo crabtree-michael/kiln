@@ -60,3 +60,41 @@ export function useIsDesktop(): boolean {
 
   return isDesktop;
 }
+
+/**
+ * Publishes `data-shell="desktop"` on `<body>` for as long as a desktop shell is
+ * mounted, restoring whatever was there before on unmount.
+ *
+ * This is NOT about theming — the desktop shell pins no theme and follows the OS
+ * like every other route (13 D6a). It exists because the ticket-detail sheet
+ * portals to `document.body`, landing OUTSIDE the shell's subtree where no
+ * descendant selector can reach it — and it still has to stop being a full-bleed
+ * phone sheet at a desk (13 D7/D7a: it opens beside the work, it is not the
+ * window). The edge it slides in from is a prop (`placement="right"`); the
+ * geometry that goes with it is CSS, and this attribute is what lets that CSS
+ * find the portaled panel.
+ *
+ * A `min-width` media query would work and is deliberately not used: the shell is
+ * chosen in JS (`useIsDesktop`), so a breakpoint restated in CSS is a second
+ * source of truth that can silently disagree with the first. This attribute IS
+ * the JS decision, published where the portal can see it, so the two can never
+ * drift.
+ *
+ * Every desktop shell calls it — the feed shell and the `/kanban` board view —
+ * which is the other reason it is a hook rather than an effect inlined in one of
+ * them: the second shell to forget it would open its ticket panel as a bottom
+ * sheet across a 1440px window, and nothing in the DOM gate could see that.
+ */
+export function useDesktopShellFlag(): void {
+  useEffect(() => {
+    const previousShell = document.body.dataset.shell;
+    document.body.dataset.shell = 'desktop';
+    return () => {
+      if (previousShell === undefined) {
+        delete document.body.dataset.shell;
+      } else {
+        document.body.dataset.shell = previousShell;
+      }
+    };
+  }, []);
+}

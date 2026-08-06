@@ -18,6 +18,7 @@ import {
 } from 'react-router-dom';
 import * as Sentry from '@sentry/react';
 import { PrimaryScreen } from '@/components/PrimaryScreen';
+import { KanbanScreen } from '@/components/KanbanScreen';
 import { DefaultRoute } from '@/components/DefaultRoute';
 import { NotFound } from '@/components/NotFound';
 import { Landing2 } from '@/landing/Landing2';
@@ -111,6 +112,25 @@ createRoot(root).render(
                 <SessionGate>
                   <CurrentProjectProvider>
                     <PrimaryScreen />
+                  </CurrentProjectProvider>
+                </SessionGate>
+              </SessionProvider>
+            }
+          />
+          {/* `/kanban` is the desktop board view: the same shell and the same
+              rail as `/app`, with the feed replaced by five columns of tickets
+              (one per board state). Same session gate and same project scope —
+              every `/api/*` call it makes is project-scoped, and it reads the
+              same board store, so it is a second view of one truth rather than a
+              second app. It is deliberately NOT a route the mobile shell
+              switches on: a kanban board is a desk reading. */}
+          <Route
+            path="/kanban"
+            element={
+              <SessionProvider>
+                <SessionGate>
+                  <CurrentProjectProvider>
+                    <KanbanScreen />
                   </CurrentProjectProvider>
                 </SessionGate>
               </SessionProvider>

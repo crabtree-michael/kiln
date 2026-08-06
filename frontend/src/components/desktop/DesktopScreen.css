@@ -532,11 +532,26 @@ html:has([data-role='desktop-screen']) body {
 
 /* Breathing is reserved for the live reading — an always-animating mark in a
    permanently-present column would be exactly the manufactured activity 13 §1
-   rules out. */
+   rules out.
+
+   The CADENCE is the ticket list's, not one of this panel's own: the same
+   `--pulse-duration` and the same easing that `[data-role='status-dot']
+   [data-status='building']` breathes on in PrimaryScreen.css. Those marks are
+   listed directly under this head — one of them per row — so two tempos in one
+   column read as two different things being reported, and the eye tracks the
+   drift between them rather than either reading. The head follows the rows for
+   the same reason it takes their colour: the ticket's own reading is the source
+   of truth (see the head rule above).
+
+   The desktop's slower `--breathe-duration` still governs the RAIL's project
+   dot, which sits in a different column with no ticket marks beside it to
+   disagree with. Only WHAT breathes stays this panel's own — opacity here, the
+   halo on a status mark — because the two marks are different shapes; the
+   tempo is the part they have to share. */
 [data-role='desktop-working-dot'][data-active='true'] {
   background: var(--working-mark, var(--text-muted));
   box-shadow: 0 0 0 3px var(--working-mark-soft, transparent);
-  animation: kiln-breathe var(--breathe-duration, 3800ms) var(--ease-in-out) infinite;
+  animation: kiln-breathe var(--pulse-duration) ease-in-out infinite;
 }
 
 /* The resting reading. One flat line in the faintest ink on the screen: it

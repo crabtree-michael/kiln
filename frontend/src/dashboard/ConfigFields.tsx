@@ -18,7 +18,7 @@ import type {
   Snapshot,
 } from '@/transport/transport';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
-import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
+import { GITHUB_CONNECT_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 
 // The merge-gate knob (06 §7): which condition marks a ticket done — its work
 // merged to main, or merely in a pull request. Non-optional here (the form
@@ -63,8 +63,10 @@ interface RepoFieldProps {
  *     repo scope, or by having revoked it. A project that already has a repo_url keeps it: it is
  *     shown read-only and still submitted, so editing an unrelated field on an
  *     older project can't silently unlink its repo;
- *  3. connected — the repo dropdown, plus a "Switch account" link that re-runs
- *     the same grant against a different GitHub login. The dropdown carries no
+ *  3. connected — the repo dropdown, plus a "Switch account" link into GitHub's
+ *     own chooser, where the account and the repository selection live. The
+ *     plain connect route would be a no-op here: this user has authorized
+ *     already, so it completes without ever showing them a screen. The dropdown carries no
  *     filter box: a native select already types-to-jump, so a second search
  *     control beside it only raised the question of which one to use. */
 export function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Element {
@@ -135,7 +137,10 @@ export function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Elem
           ))}
         </select>
       </label>
-      <a href={GITHUB_CONNECT_PATH} data-role="switch-github">
+      {/* The setup route, not the plain one: this user is already connected, so
+          signing in again would complete silently and show them nothing. What
+          they want is GitHub's own chooser. */}
+      <a href={GITHUB_SETUP_PATH} data-role="switch-github">
         Switch GitHub account
       </a>
       {github.error !== null && (

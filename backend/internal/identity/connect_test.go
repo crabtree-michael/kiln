@@ -48,6 +48,10 @@ const (
 	patToken = "gh-hand-typed-pat"
 )
 
+// errGitHubUnreachable stands in for a transport failure reaching GitHub — the
+// case that must NOT read as "this user has installed nothing".
+var errGitHubUnreachable = errors.New("github unreachable")
+
 // connectService builds a service whose GitHub double is primed for the connect
 // flow, allowlisting the account it will find-or-create.
 func connectService(t *testing.T, gh *fakeGitHub) *identity.Service {
@@ -496,12 +500,168 @@ func TestExistingProviderKeysSurviveUnchanged(t *testing.T) {
 }
 
 // ConnectURL is the one entry point every affordance leads to, and it must point
-// at the install page — the screen that renders the repository chooser. Pointing
-// it anywhere else is how the whole feature silently stops existing.
-func TestConnectURLTargetsTheInstallPage(t *testing.T) {
+// at the AUTHORIZE screen. It pointed at the install page for a release, which
+// works exactly once per account: GitHub answers `installations/new` with the
+// installation's configure page from the second visit on, and that page never
+// calls the callback — so every returning sign-in stopped dead on github.com.
+func TestConnectURLTargetsTheAuthorizePage(t *testing.T) {
 	svc := connectService(t, connectGitHub())
 	got := svc.ConnectURL("state-nonce")
+	if got != "https://github.example/login/oauth/authorize?client_id=kiln&state=state-nonce" {
+		t.Errorf("ConnectURL = %q, want the App's authorize page carrying the state nonce", got)
+	}
+}
+
+// The install page is still reachable — it is the flow's second leg, for the
+// account that has nothing installed yet, and the screen a connected user is
+// sent to when they ask to change which repositories Kiln may reach.
+func TestInstallURLTargetsTheChooser(t *testing.T) {
+	svc := connectService(t, connectGitHub())
+	got := svc.InstallURL("state-nonce")
 	if got != "https://github.example/apps/kiln/installations/new?state=state-nonce" {
-		t.Errorf("ConnectURL = %q, want the App's install page carrying the state nonce", got)
+		t.Errorf("InstallURL = %q, want the App's install page carrying the state nonce", got)
+	}
+}
+
+// THE REGRESSION. A returning sign-in — the same person on a second device,
+// anyone signing in twice — comes back from the authorize screen with a code and
+// no installation_id, because the installation already exists and GitHub names
+// it nowhere. Resolving it from the user's own listing is what lets that sign-in
+// finish; without it the user is bounced at an install screen they have cleared.
+func TestCompleteConnectResolvesAnExistingInstallation(t *testing.T) {
+	gh := connectGitHub()
+	gh.installations = []githubapi.Installation{
+		{ID: connectInstallation, AccountLogin: connectGitHubLogin},
+	}
+	svc := connectService(t, gh)
+
+	user, err := svc.CompleteConnect(context.Background(), "code-1", 0)
+	if err != nil {
+		t.Fatalf("CompleteConnect with no installation_id: %v", err)
+	}
+
+	// The listing is read with the USER token — the only credential that can say
+	// what THIS person has access to.
+	if gh.gotInstallationsToken != connectedToken {
+		t.Errorf("installations listed with %q, want the user access token", gh.gotInstallationsToken)
+	}
+	// The proof that it landed: the credential path mints against the resolved
+	// installation, so the user is connected rather than merely signed in.
+	got, err := repoTokenFor(t, svc, user.ID)
+	if err != nil {
+		t.Fatalf("repo token: %v", err)
+	}
+	if got != mintedToken {
+		t.Errorf("repo token = %q, want one minted from the resolved installation", got)
+	}
+	if conn := settingsOf(t, svc, user.ID).GitHub; conn.InstallationID != connectInstallation {
+		t.Errorf("stored installation = %d, want %d", conn.InstallationID, connectInstallation)
+	}
+}
+
+// An account that has authorized Kiln and installed it nowhere is the one case
+// that should meet the install screen — and it still signs in, so the caller can
+// send them on rather than bounce them out.
+func TestCompleteConnectWithNoInstallationAnywhereStillSignsIn(t *testing.T) {
+	gh := connectGitHub()
+	gh.installations = nil
+	svc := connectService(t, gh)
+
+	user, err := svc.CompleteConnect(context.Background(), "code-1", 0)
+	if !errors.Is(err, identity.ErrInstallationRequired) {
+		t.Fatalf("err = %v, want ErrInstallationRequired", err)
+	}
+	if user.GitHubLogin != connectLogin {
+		t.Errorf("user = %+v, want the authenticated account alongside the error", user)
+	}
+}
+
+// GitHub being unreachable is not evidence that a working installation went
+// away. Resolving a listing failure to "nothing installed" would push a
+// connected user onto the install screen — which, for them, is the configure
+// page that dead-ends. The stored installation stands instead.
+func TestCompleteConnectKeepsTheStoredInstallationWhenTheListingFails(t *testing.T) {
+	gh := connectGitHub()
+	svc := connectService(t, gh)
+	user, err := svc.CompleteConnect(context.Background(), "code-1", connectInstallation)
+	if err != nil {
+		t.Fatalf("first CompleteConnect: %v", err)
+	}
+
+	gh.installationsErr = errGitHubUnreachable
+	if _, err := svc.CompleteConnect(context.Background(), "code-2", 0); err != nil {
+		t.Fatalf("second CompleteConnect: %v, want the stored installation to carry the sign-in", err)
+	}
+	if conn := settingsOf(t, svc, user.ID).GitHub; conn.InstallationID != connectInstallation {
+		t.Errorf("stored installation = %d, want %d untouched", conn.InstallationID, connectInstallation)
+	}
+}
+
+// A user in several orgs holds several installations, and user_config holds one
+// id. The choice must be STABLE: silently hopping between them from one sign-in
+// to the next would quietly change which repositories that user's projects can
+// reach. Already-chosen wins; failing that, the user's own account.
+func TestCompleteConnectPrefersTheStoredThenTheOwnAccountInstallation(t *testing.T) {
+	const orgInstallation = int64(111222)
+	gh := connectGitHub()
+	gh.installations = []githubapi.Installation{
+		{ID: orgInstallation, AccountLogin: "acme-org"},
+		{ID: connectInstallation, AccountLogin: connectGitHubLogin},
+	}
+	svc := connectService(t, gh)
+
+	// Nothing stored yet: the user's own account wins over the org listed first.
+	user, err := svc.CompleteConnect(context.Background(), "code-1", 0)
+	if err != nil {
+		t.Fatalf("CompleteConnect: %v", err)
+	}
+	if conn := settingsOf(t, svc, user.ID).GitHub; conn.InstallationID != connectInstallation {
+		t.Fatalf("installation = %d, want the user's own account (%d)", conn.InstallationID, connectInstallation)
+	}
+
+	// Now one IS stored, and it stays stored even though the org's is listed
+	// first — a second sign-in must not move the user's repo access.
+	if _, err := svc.CompleteConnect(context.Background(), "code-2", 0); err != nil {
+		t.Fatalf("second CompleteConnect: %v", err)
+	}
+	if conn := settingsOf(t, svc, user.ID).GitHub; conn.InstallationID != connectInstallation {
+		t.Errorf("installation = %d, want the stored %d to survive", conn.InstallationID, connectInstallation)
+	}
+}
+
+// An org-only member — no installation on their personal account — still
+// connects, rather than being told to install something they may not be allowed
+// to install.
+func TestCompleteConnectFallsBackToAnOrgInstallation(t *testing.T) {
+	const orgInstallation = int64(333444)
+	gh := connectGitHub()
+	gh.installations = []githubapi.Installation{{ID: orgInstallation, AccountLogin: "acme-org"}}
+	svc := connectService(t, gh)
+
+	user, err := svc.CompleteConnect(context.Background(), "code-1", 0)
+	if err != nil {
+		t.Fatalf("CompleteConnect: %v", err)
+	}
+	if conn := settingsOf(t, svc, user.ID).GitHub; conn.InstallationID != orgInstallation {
+		t.Errorf("installation = %d, want the org's %d", conn.InstallationID, orgInstallation)
+	}
+}
+
+// An installation_id ON the callback is the trip that just created it, and it
+// wins outright — no listing call, nothing to be stale about.
+func TestCompleteConnectPrefersTheCallbacksInstallation(t *testing.T) {
+	gh := connectGitHub()
+	gh.installations = []githubapi.Installation{{ID: 555666, AccountLogin: connectGitHubLogin}}
+	svc := connectService(t, gh)
+
+	user, err := svc.CompleteConnect(context.Background(), "code-1", connectInstallation)
+	if err != nil {
+		t.Fatalf("CompleteConnect: %v", err)
+	}
+	if conn := settingsOf(t, svc, user.ID).GitHub; conn.InstallationID != connectInstallation {
+		t.Errorf("installation = %d, want the callback's %d", conn.InstallationID, connectInstallation)
+	}
+	if gh.gotInstallationsToken != "" {
+		t.Error("the callback named an installation — nothing needed listing")
 	}
 }

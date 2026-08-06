@@ -34,7 +34,7 @@ import {
   updateBodyFor,
   type ApiKeyProvider,
 } from '@/dashboard/integrations-config';
-import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
+import { GITHUB_CONNECT_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
 import { BotIcon, BoxIcon, CheckIcon, FolderIcon, GitHubIcon, SparkIcon } from '@/dashboard/icons';
 import type { ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
@@ -146,8 +146,9 @@ function GitHubStep({ github, login, onConnect }: GitHubStepProps): JSX.Element 
         <p>Authorize Kiln to reach your repositories, including private ones.</p>
         <p data-role="github-access-note">{GITHUB_ACCESS_NOTE}</p>
         {/* The one grant, and a backend route — so a real navigation, never a
-            router Link. It always asks for `repo`, so clearing it lands the user
-            back here connected. */}
+            router Link. It carries the user through authorize and, if they have
+            not installed Kiln yet, on to the repository chooser, so clearing it
+            lands them back here connected. */}
         {onConnect === undefined ? (
           <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
             Connect GitHub
@@ -174,7 +175,9 @@ function GitHubStep({ github, login, onConnect }: GitHubStepProps): JSX.Element 
         .
       </p>
       {onConnect === undefined ? (
-        <a href={GITHUB_CONNECT_PATH} data-role="switch-github">
+        /* The setup route: this user is connected, so the plain one would
+           re-authorize silently and show them nothing to choose from. */
+        <a href={GITHUB_SETUP_PATH} data-role="switch-github">
           Use a different account
         </a>
       ) : (

@@ -28,13 +28,12 @@ const inviteOnlyPage = `<!DOCTYPE html>
 <body><h1>Kiln is invite-only.</h1>
 <p>Ask for your GitHub username to be added.</p></body></html>`
 
-// installRequiredPage is shown when the callback authorized the USER but
-// carried no installation (CompleteConnect → ErrInstallationRequired) — someone
-// who cleared GitHub's sign-in screen and then backed out of the install itself.
-// The caller IS signed in by then, so the page says what is missing and offers
-// both the one-click retry and the way into the dashboard. The alternative, a
-// silent "Connected" card over an account Kiln cannot read a single repository
-// from, is far worse.
+// installRequiredPage is the end of the second leg for someone who declined it:
+// they authorized, were sent to GitHub's install screen, and came back with no
+// installation again. The caller IS signed in by then, so the page says what is
+// missing and offers both the one-click retry and the way into the dashboard.
+// The alternative, a silent "Connected" card over an account Kiln cannot read a
+// single repository from, is far worse.
 const installRequiredPage = `<!DOCTYPE html>
 <html><head><title>Kiln</title></head>
 <body><h1>Kiln wasn't installed on GitHub.</h1>
@@ -46,18 +45,23 @@ may need to approve the installation.</p>
 <p><a href="/auth/github/connect">Try again</a> &middot;
 <a href="/dashboard">Back to settings</a></p></body></html>`
 
-// handleAuthConnect starts THE GitHub dance (11 §2, amended 2026-08-03 and by
-// the GitHub App migration): mint a random state token, stash it in a
-// short-lived HttpOnly cookie, and redirect the browser to GitHub's install URL
+// handleAuthConnect starts THE GitHub dance (11 §2, amended 2026-08-03, by the
+// GitHub App migration, and again 2026-08-06): mint a random state token, stash
+// it in a short-lived HttpOnly cookie, and redirect the browser to GitHub
 // carrying the same state (checked back at the callback as CSRF protection).
 //
-// There is exactly one flow, and it now ends on GitHub's repository chooser
-// rather than an all-or-nothing `repo` consent screen. The scopeless sign-in
-// that used to sit beside it is long gone: two routes whose only difference was
-// an invisible scope produced UI that pointed at the wrong one. Signing in and
-// connecting being the same act is also what keeps "Switch account" honest —
-// re-running this flow always leaves the session and the installation on the
-// same GitHub account.
+// There is exactly one flow and one route. The scopeless sign-in that used to
+// sit beside it is long gone: two routes whose only difference was an invisible
+// scope produced UI that pointed at the wrong one.
+//
+// `?setup=1` is the one variation, and it survives that history because it is
+// nothing like the trap: it asks for GitHub's repository chooser explicitly, and
+// both ways of getting it wrong are harmless. Asking for setup without an
+// installation installs and returns; omitting it without an installation lands
+// on the chooser anyway, because the callback sends them there. It exists
+// because a CONNECTED user asking to change accounts or repositories wants the
+// screen the plain route deliberately skips — GitHub's configure page, which for
+// them is the destination rather than the dead end it was as a sign-in target.
 func (s *Server) handleAuthConnect(w http.ResponseWriter, r *http.Request) {
 	token, err := randomToken()
 	if err != nil {
@@ -66,7 +70,11 @@ func (s *Server) handleAuthConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setCookie(w, r, stateCookie, token, stateCookieTTL)
-	http.Redirect(w, r, s.auth.ConnectURL(token), http.StatusFound)
+	target := s.auth.ConnectURL(token)
+	if r.URL.Query().Get("setup") == "1" {
+		target = s.auth.InstallURL(token)
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // handleAuthCallback completes the GitHub App dance (11 §2): the state cookie
@@ -76,17 +84,19 @@ func (s *Server) handleAuthConnect(w http.ResponseWriter, r *http.Request) {
 // is cleared on every exit path, successful or not.
 //
 // GitHub delivers this callback in two shapes, and both are ordinary (design
-// §3.2). Coming through Kiln's own connect link, `code` and `installation_id`
-// arrive together and this is the full identity path. Coming from GitHub's own
-// Apps page, only `installation_id` arrives — there was no authorize step to
-// produce a code — and the installation is attached to whoever is already
-// signed in. Neither present is the only real error, and it means the user
-// should start at sign-in.
+// §3.2). Coming through Kiln's own connect link, `code` arrives — with
+// `installation_id` beside it only when the installation was created on that
+// same trip — and this is the full identity path. Coming from GitHub's own Apps
+// page, only `installation_id` arrives, there having been no authorize step to
+// produce a code, and the installation is attached to whoever is already signed
+// in. Neither present is the only real error, and it means the user should start
+// at sign-in.
 //
-// An install the user backed out of is the one partial outcome: the session is
-// still minted (the account authenticated) and only the repository half is
-// refused, so they land signed-in on an explanation with a retry rather than
-// bounced back out to a sign-in screen.
+// A user with nothing installed is the one partial outcome, and it is a hop
+// rather than a failure: the session is minted (the account authenticated) and
+// the browser goes on to GitHub's repository chooser, which is the half still
+// missing. Exactly one hop — coming back from that screen still installation-less
+// means the user declined it, and the honest answer then is the page saying so.
 func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Set eagerly, before any WriteHeader below: once the status line is
 	// written the header map is flushed, so a deferred clear would silently
@@ -118,10 +128,9 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := s.auth.CompleteConnect(r.Context(), code, installationID)
-	// Not a failure of Kiln's — the user cleared GitHub's sign-in screen and
-	// then declined the install. The user comes back populated for exactly this
-	// case, so the sign-in half still succeeds and only the repositories are
-	// withheld.
+	// Not a failure of Kiln's — this account has authorized Kiln and installed
+	// it nowhere. The user comes back populated for exactly this case, so the
+	// sign-in half still succeeds and only the repositories are outstanding.
 	installMissing := errors.Is(err, identity.ErrInstallationRequired)
 	switch {
 	case errors.Is(err, identity.ErrNotAllowed):
@@ -141,13 +150,46 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	setCookie(w, r, sessionCookie, token, time.Until(expires))
 	if installMissing {
+		s.sendToInstall(w, r)
+		return
+	}
+	clearCookie(w, r, installPromptCookie)
+	http.Redirect(w, r, "/dashboard", http.StatusFound)
+}
+
+// sendToInstall runs the flow's second leg for a signed-in user with no
+// installation: on to GitHub's repository chooser, which is the only screen that
+// can grant the half they are missing.
+//
+// Once. The install screen is the one place in this flow a user can decline, and
+// a decline looks identical to never having been there — same callback, same
+// missing installation — so without the marker cookie the two would be
+// indistinguishable and the browser would bounce between Kiln and GitHub for as
+// long as the user kept saying no. With it, the second pass through here stops
+// on the page that explains what is missing and offers the retry deliberately.
+//
+// The state cookie is re-minted for the trip. It was cleared eagerly at the top
+// of the callback, and this Set-Cookie is written after that clear for the same
+// name and path, so the browser keeps this one — the install screen's own
+// callback then has state to check, exactly as the authorize screen's did.
+func (s *Server) sendToInstall(w http.ResponseWriter, r *http.Request) {
+	if _, err := r.Cookie(installPromptCookie); err == nil {
+		clearCookie(w, r, installPromptCookie)
 		// 403 with an explanation beats a 502 "github login failed" — and beats
 		// dropping them on a dashboard that just says "not connected" with no
 		// word on why the screen they just cleared didn't take.
 		writeAuthPage(w, http.StatusForbidden, installRequiredPage, "install-required")
 		return
 	}
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
+	state, err := randomToken()
+	if err != nil {
+		slog.Error("api: mint install state", "err", err)
+		writeAuthPage(w, http.StatusForbidden, installRequiredPage, "install-required")
+		return
+	}
+	setCookie(w, r, stateCookie, state, stateCookieTTL)
+	setCookie(w, r, installPromptCookie, "1", stateCookieTTL)
+	http.Redirect(w, r, s.auth.InstallURL(state), http.StatusFound)
 }
 
 // handleBareInstall handles the code-less callback: someone installed Kiln from
@@ -179,6 +221,9 @@ func (s *Server) handleBareInstall(w http.ResponseWriter, r *http.Request, insta
 		http.Error(w, "github install failed", http.StatusBadGateway)
 		return
 	}
+	// The install this browser was sent for has landed, by the other callback
+	// shape — clear the one-hop marker so a later sign-in starts fresh.
+	clearCookie(w, r, installPromptCookie)
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 

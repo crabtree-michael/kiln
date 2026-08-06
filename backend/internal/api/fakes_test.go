@@ -384,6 +384,10 @@ type fakeAuth struct {
 	mu sync.Mutex
 
 	connectURL string // base URL ConnectURL appends "?state=" onto
+	// installURL is the second leg's base — GitHub's repository chooser — which
+	// the callback redirects to when nothing is installed yet. Distinct from
+	// connectURL so a test can tell the two legs apart in a Location header.
+	installURL string
 
 	// The single flow's completion (11 §2, amended 2026-08-03 and by the GitHub
 	// App migration). A scripted user AND error together is the real
@@ -416,6 +420,10 @@ type fakeAuth struct {
 
 func (f *fakeAuth) ConnectURL(state string) string {
 	return f.connectURL + "?state=" + state
+}
+
+func (f *fakeAuth) InstallURL(state string) string {
+	return f.installURL + "?state=" + state
 }
 
 // attachCall is one AttachInstallation invocation, recorded in order.

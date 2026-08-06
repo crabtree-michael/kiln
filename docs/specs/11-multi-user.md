@@ -51,25 +51,40 @@ dashboard is onboarding + settings only), and any auth provider dependency (§10
 `2026-08-04-github-app-repo-selection-design.md`). Two endpoints and one token exchange:
 
 - `GET /auth/github/connect` — sets a `state` nonce (short-lived cookie), redirects to the
-  App's install page (`github.com/apps/<slug>/installations/new`), where GitHub renders the
-  **"All repositories / Only select repositories" chooser**. **There is exactly one flow**
-  (amended 2026-08-03): signing in and connecting GitHub are the same act. With "Request
-  user authorization (OAuth) during installation" enabled on the App, one trip returns both
-  halves — the installation and a user-authorization code — so there is no second route.
+  App's **authorize** screen (`github.com/login/oauth/authorize`). **There is exactly one
+  flow** (amended 2026-08-03): signing in and connecting GitHub are the same act, and this
+  is its only entry point. `?setup=1` on the same route is the one variation: it redirects
+  to the install page instead, for a connected user who wants GitHub's chooser back (below).
 - `GET /auth/github/callback` — verifies `state`, exchanges the code
   (`KILN_GITHUB_APP_CLIENT_ID`/`_CLIENT_SECRET`), fetches `GET /user`, then:
-  - username on the allowlist → find-or-create the `users` row, store the `installation_id`
-    and the user access token in `user_config`, create a session, redirect to `/dashboard`;
+  - username on the allowlist → find-or-create the `users` row, resolve the installation,
+    store its `installation_id` and the user access token in `user_config`, create a
+    session, redirect to `/dashboard`;
   - not on the allowlist → a friendly "Kiln is invite-only" page; **no user row is
     created**.
-  - allowlisted but nothing was installed (they cleared the sign-in screen then backed out
-    of the install) → the session is still created, **no installation is stored**, and a page
-    explains what's missing and offers the retry. Signing them in is the point: the retry
-    lives inside the app.
+  - allowlisted with **no installation anywhere** → the session is created and the browser
+    is sent on to the App's install page (`github.com/apps/<slug>/installations/new`), where
+    GitHub renders the **"All repositories / Only select repositories" chooser**. That is
+    the flow's second leg, and it runs **once**: coming back still empty means the user
+    declined, and a page then explains what is missing and offers the retry. Signing them
+    in first is the point — the retry lives inside the app.
   - `installation_id` with **no `code`** — somebody installed from GitHub's own Apps page,
     so there was no authorize step — → attach the installation to the session's user. No
     session, no state to check: redirect to `/auth/github/connect`, where the normal flow
     picks the same installation back up.
+
+**Why two legs and not one** (amended 2026-08-06, second revision). The App migration
+pointed `/connect` straight at the install page, on the strength of "Request user
+authorization (OAuth) during installation" returning both halves in one trip. It does —
+for an account that has not installed the App. Once one has, GitHub answers
+`installations/new` with that installation's *configure* page and never calls the callback,
+so every returning sign-in stopped dead on github.com: the reporting user signed in on
+their phone, then found the button on their laptop led to a settings page instead of into
+Kiln. Authorizing is the half that repeats; installing is the half that happens once, so
+the entry point does the repeating half and the callback resolves the installation from
+`GET /user/installations` — falling back to the install page only when the user genuinely
+has none. A listing that *fails* keeps whatever installation is already stored, because
+"GitHub is unreachable" is not evidence that a working installation went away.
 
 **The credential model changed with it.** An OAuth App handed over a long-lived,
 account-wide token Kiln stored forever. A GitHub App hands over an **installation** — the

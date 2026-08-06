@@ -162,7 +162,17 @@ backend/internal/api/
 - **Login runs through a GitHub App** (`docs/superpowers/specs/2026-08-04-github-app-repo-selection-design.md`;
   the OAuth App it replaced is gone as of 2026-08-06, and every session was invalidated by
   migration `0009` rather than migrated). The user picks on GitHub's own chooser which repos
-  Kiln may reach. Five things to know before touching it:
+  Kiln may reach. Six things to know before touching it:
+  - **Sign-in starts at `authorize`, not at the install page** (amended 2026-08-06, second
+    revision). `installations/new` completes exactly once per account: after that GitHub
+    answers it with the installation's *configure* page and never calls the callback, which
+    stranded every returning sign-in on github.com. So `ConnectURL` → `AuthorizeURL`, and the
+    callback resolves the installation itself: `installation_id` when the callback carries
+    one, else `ListUserInstallations` (`GET /user/installations`, USER token, filtered to
+    this App), else — and only else — a one-hop redirect to the install page. A *failed*
+    listing keeps the stored installation; unreachable is not uninstalled. `?setup=1` on
+    `/auth/github/connect` asks for the chooser deliberately, for a connected user changing
+    accounts or repos.
   - **The credential is a function, not a value.** `identity.TokenSource` resolves per
     git/`gh` invocation because an installation token dies within the hour. `RuntimeConfig`
     carries `GitHubToken TokenSource`; `repo.Config.Token` and `verify.VerifyRepo` take one.
@@ -183,10 +193,13 @@ backend/internal/api/
     `PUT /api/settings`, or the deployment's bootstrap `GITHUB_AUTH_TOKEN`. It reads as
     `unknown` (stored, not granted by Kiln), and writing one clears any installation so the
     card never claims a connection the runtime is not using.
-- **The callback has two shapes** (`auth_handlers.go`). `code` + `installation_id` is the
-  full identity path, state-checked. `installation_id` alone — someone installing from
-  GitHub's own Apps page, who never passed through `/auth/github/connect` and so has no state
-  cookie — attaches to the existing session instead; no session means a redirect to connect.
+- **The callback has two shapes** (`auth_handlers.go`). `code` is the full identity path,
+  state-checked, with `installation_id` beside it only when the installation was created on
+  that trip. `installation_id` alone — someone installing from GitHub's own Apps page, who
+  never passed through `/auth/github/connect` and so has no state cookie — attaches to the
+  existing session instead; no session means a redirect to connect. The install hop is
+  bounded by the `kiln_gh_install` marker cookie: a declined install looks exactly like never
+  having been offered one, so without it the browser would ping-pong forever.
 - **Whole surface is project-scoped now (11 phase 2).** `withProject` authenticates the
   session and resolves the caller's project before every `/api/*` handler runs, so identity is
   no longer confined to `/dashboard` — the board/chat (`/app`) and `/debug` are session-gated

@@ -40,11 +40,21 @@ const (
 // GitHub is the service's port onto the GitHub App — satisfied directly by
 // *githubapi.Client (the consumer declares the interface, 02 §2).
 type GitHub interface {
+	// AuthorizeURL builds the SIGN-IN redirect for a state nonce — GitHub's
+	// user-authorization screen, which returns a code to the callback every
+	// time, including (silently) for someone who has authorized before.
+	AuthorizeURL(state string) string
 	// InstallURL builds the install redirect for a state nonce — the page where
 	// GitHub renders the "All repositories / Only select repositories" chooser.
 	// With user authorization enabled on the App, one trip through it yields
-	// both the installation and a user-authorization code.
+	// both the installation and a user-authorization code. Only for an account
+	// with no installation yet, or one deliberately revisiting the chooser:
+	// GitHub turns it into a dead-ending configure page otherwise.
 	InstallURL(state string) string
+	// ListUserInstallations returns the installations of this App the user token
+	// can see. It is how a returning sign-in finds the installation it already
+	// has — the authorize callback names one only when it was just created.
+	ListUserInstallations(ctx context.Context, accessToken string) ([]githubapi.Installation, error)
 	// ExchangeCode returns the USER access token for a callback code. It is the
 	// same endpoint the OAuth App used, authenticated with the App's own client
 	// id and secret; the scope string it used to return went away with the
@@ -117,17 +127,32 @@ func NewService(store Store, cipher *Cipher, gh GitHub, tokens *InstallationToke
 }
 
 // ConnectURL starts THE GitHub flow — there is still exactly one (11 §2,
-// amended 2026-08-03 and again by the GitHub App migration). Only its
-// destination changed: it now points at the App's installation page, where
-// GitHub renders the repository chooser, instead of an OAuth authorize screen
-// that could only grant blanket `repo`.
+// amended 2026-08-03, by the GitHub App migration, and again 2026-08-06). It
+// points at GitHub's user-authorization screen, which always comes back with a
+// code.
 //
-// Signing in and connecting GitHub remain the same act. With user authorization
-// enabled on the App, one pass through this URL returns both halves — the
-// installation (which repositories) and a user-authorization code (who) — so the
-// migration needed no second route, no second callback, and no second thing for
-// a button to point at by mistake.
+// It pointed at the App's install page for one release, on the theory that
+// "request user authorization during installation" made one URL do both jobs.
+// It does — exactly once per account. GitHub answers `installations/new` with
+// the installation's configure page from the second visit on, and that page has
+// no callback, so every returning sign-in stopped on github.com. Authorizing is
+// the half that repeats; installing is the half that happens once, so the
+// repeating half is what the entry point does.
+//
+// Signing in and connecting GitHub remain the same act: CompleteConnect resolves
+// the installation behind this and the caller sends anyone without one on to
+// InstallURL, so a first-time user still ends the flow with both halves granted.
 func (s *Service) ConnectURL(state string) string {
+	return s.gh.AuthorizeURL(state)
+}
+
+// InstallURL is the second leg, for the user who has authorized but installed
+// nothing: GitHub's repository chooser, carrying the same kind of state nonce
+// the callback checks. The caller redirects here on ErrInstallationRequired —
+// and offers it directly to a connected user who wants to revisit the chooser,
+// which is the one case where landing on GitHub's configure page is the goal
+// rather than the bug.
+func (s *Service) InstallURL(state string) string {
 	return s.gh.InstallURL(state)
 }
 
@@ -137,12 +162,18 @@ func (s *Service) ConnectURL(state string) string {
 // `gh` will mint credentials against, and the user token, which is what answers
 // "which of this installation's repos can this person see" for the picker.
 //
-// installationID is GitHub's `installation_id` callback parameter. A callback
-// that authorized the user but installed nothing (0) returns
-// ErrInstallationRequired alongside a POPULATED user. Returning both is
-// deliberate: GitHub really did authenticate an allowlisted account, so the
-// caller signs them in and refuses only the repository half — withholding the
-// user would lock someone out of the very dashboard the retry lives on.
+// installationID is GitHub's `installation_id` callback parameter, and it is
+// present only when the installation was created on THIS trip. Every ordinary
+// sign-in — everyone past their first — comes back without it, so an absent
+// parameter is asked about rather than believed: the user token can list what
+// this App is installed on (resolveInstallation), and only a user for whom that
+// listing is genuinely empty has nothing to clone with.
+//
+// That case returns ErrInstallationRequired alongside a POPULATED user.
+// Returning both is deliberate: GitHub really did authenticate an allowlisted
+// account, so the caller signs them in and sends them on to the install screen —
+// withholding the user would lock someone out of the app over a second grant
+// they are one click from making.
 //
 // setup_action is deliberately not a parameter. `install` and `update` differ
 // only in whether an installation already existed, and this path is idempotent
@@ -153,6 +184,9 @@ func (s *Service) CompleteConnect(ctx context.Context, code string, installation
 	user, token, err := s.completeOAuth(ctx, code, "complete connect")
 	if err != nil {
 		return User{}, err
+	}
+	if installationID == 0 {
+		installationID = s.resolveInstallation(ctx, user, token)
 	}
 	if installationID == 0 {
 		return user, ErrInstallationRequired
@@ -788,6 +822,54 @@ func (s *Service) recordInstallationRevoked(ctx context.Context, installationID 
 		slog.ErrorContext(ctx, "identity: record installation revoked",
 			"installation_id", installationID, "err", err)
 	}
+}
+
+// resolveInstallation finds the installation a returning sign-in already has,
+// for the callback that named none. Returns 0 when the user genuinely has not
+// installed the App — the one case that should meet the install screen.
+//
+// A listing that FAILS resolves to whatever is already stored rather than to 0.
+// The distinction matters: GitHub being briefly unreachable is not evidence that
+// a working installation went away, and treating it as such would push a
+// connected user through an install they have already done, on a screen that
+// dead-ends for them precisely because they have.
+func (s *Service) resolveInstallation(ctx context.Context, user User, token string) int64 {
+	stored := int64(0)
+	if cfg, err := s.store.GetUserConfig(ctx, user.ID); err == nil {
+		stored = cfg.GitHubInstallationID
+	}
+	installs, err := s.gh.ListUserInstallations(ctx, token)
+	if err != nil {
+		slog.ErrorContext(ctx, "identity: list user installations", "user_id", user.ID, "err", err)
+		return stored
+	}
+	return pickInstallation(installs, stored, user.GitHubLogin)
+}
+
+// pickInstallation chooses ONE installation from what the user can see, since a
+// user_config row holds a single id. The order is about stability, not
+// preference: a user in several orgs must not have Kiln silently hop between
+// their installations from one sign-in to the next, quietly changing which
+// repositories their projects can reach.
+//
+//   - the stored one, whenever it is still listed — already chosen, still valid;
+//   - else the one on the user's own account, the choice a person would make;
+//   - else the first listed, so an org-only member still connects.
+func pickInstallation(installs []githubapi.Installation, stored int64, login string) int64 {
+	if len(installs) == 0 {
+		return 0
+	}
+	for _, in := range installs {
+		if in.ID == stored && stored != 0 {
+			return stored
+		}
+	}
+	for _, in := range installs {
+		if strings.EqualFold(in.AccountLogin, login) {
+			return in.ID
+		}
+	}
+	return installs[0].ID
 }
 
 // listRepos picks the listing endpoint for one stored row: the installation's

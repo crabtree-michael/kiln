@@ -28,6 +28,8 @@ type stubAuthenticator struct {
 
 func (a *stubAuthenticator) ConnectURL(string) string { return "" }
 
+func (a *stubAuthenticator) InstallURL(string) string { return "" }
+
 func (a *stubAuthenticator) CompleteConnect(context.Context, string, int64) (identity.User, error) {
 	return identity.User{}, nil
 }

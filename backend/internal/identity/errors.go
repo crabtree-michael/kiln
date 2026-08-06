@@ -18,10 +18,12 @@ var (
 	// "Connect GitHub" flow — so the api maps this to a "not connected"
 	// listing rather than an error.
 	ErrGitHubNotConnected = errors.New("identity: no authorized github credential")
-	// ErrInstallationRequired rejects a callback that authorized the USER but
-	// carried no installation — the GitHub App equivalent of a grant that
-	// authenticates you and gives Kiln no repository access. It is returned
-	// ALONGSIDE a populated user (the account really did authenticate), so the
-	// caller can sign them in and refuse only the repository half.
+	// ErrInstallationRequired reports that the authorizing account has installed
+	// the App NOWHERE — not that the callback merely omitted an installation id,
+	// which is the ordinary shape of every sign-in past the first. It is the
+	// GitHub App equivalent of a grant that authenticates you and gives Kiln no
+	// repository access. Returned ALONGSIDE a populated user (the account really
+	// did authenticate), so the caller can sign them in and send them on to the
+	// install screen for the half still missing.
 	ErrInstallationRequired = errors.New("identity: github app was not installed")
 )

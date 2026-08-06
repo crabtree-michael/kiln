@@ -101,21 +101,140 @@ func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
-// InstallURL builds the redirect that starts THE GitHub grant (design §3.2).
-// It is the target of `/auth/github/connect`, replacing the OAuth authorize URL
-// that used to sit there: this URL is where GitHub renders the "All
-// repositories / Only select repositories" chooser.
+// InstallURL builds the redirect to GitHub's repository chooser — the "All
+// repositories / Only select repositories" screen (design §3.2).
 //
 // With "Request user authorization (OAuth) during installation" enabled on the
-// App, one trip through this URL yields BOTH the installation (the repository
-// choice) and a user-authorization `code` for the existing identity path — which
-// is why the migration needs no second route and no second callback.
+// App, one trip through it yields BOTH the installation (the repository choice)
+// and a user-authorization `code`, so a user who arrives here unauthenticated
+// comes back signed in as well.
 //
-// The state nonce round-trips exactly as it did under the OAuth authorize URL,
-// so the callback's CSRF check was unchanged by the move.
+// It is NOT the sign-in entry point, and briefly was: GitHub answers this URL
+// with the installation's configure page, and no callback at all, once the
+// account has installed the App. That is correct behaviour for "change what
+// Kiln may reach" and a dead end for "let me in", which is why AuthorizeURL now
+// starts the flow and this URL is reached only when there is genuinely an
+// installation to create (or when the user asked to revisit the chooser).
+//
+// The state nonce round-trips exactly as it does through AuthorizeURL, so the
+// callback's CSRF check is the same on both paths.
 func (c *Client) InstallURL(state string) string {
 	q := url.Values{"state": {state}}
 	return fmt.Sprintf("%s/apps/%s/installations/new?%s", c.oauthBaseURL, c.appSlug, q.Encode())
+}
+
+// ErrListInstallations is the static base for a user-installation listing
+// failure. It is deliberately its own sentinel rather than a reuse of
+// ErrListRepos: this call answers "has this person installed the App at all",
+// and a caller that cannot tell that question's failure from a repo listing's
+// would have to guess which half of the connection is broken.
+var ErrListInstallations = errors.New("githubapi: list user installations")
+
+// Installation is one installation of THIS App that a user can see — the id to
+// mint against, and the account it sits on so a caller with several can prefer
+// the user's own.
+type Installation struct {
+	ID           int64
+	AccountLogin string
+}
+
+// userInstallationsResponse is GitHub's GET /user/installations envelope.
+// AppID/AppSlug are decoded only to filter: the endpoint answers for EVERY App
+// the user has installed, and Kiln must never mint against a stranger's.
+type userInstallationsResponse struct {
+	Installations []struct {
+		ID      int64  `json:"id"`
+		AppID   int64  `json:"app_id"`
+		AppSlug string `json:"app_slug"`
+		Account struct {
+			Login string `json:"login"`
+		} `json:"account"`
+	} `json:"installations"`
+}
+
+// ListUserInstallations returns the installations of THIS App that a user
+// access token can see (design §3.2, amended 2026-08-06).
+//
+// It is what makes signing in survive an App that is already installed. The
+// authorize flow (AuthorizeURL) proves who the user is and nothing else — for
+// everyone past their first visit the installation already exists and GitHub
+// mentions it nowhere in the callback — so this is the only way to find the id
+// the callback used to carry. Without it, a returning user would be pushed back
+// at the install screen they have already cleared.
+//
+// accessToken is the USER token, and that is the point: the listing is what THIS
+// person has access to, so it can never hand a caller an installation belonging
+// to somebody else who happens to share an org.
+//
+// One page only. This is one App's installations for one user — a personal
+// account plus their orgs — so a hundred is already far past any real account,
+// and a paging loop here would be code no request ever runs.
+func (c *Client) ListUserInstallations(ctx context.Context, accessToken string) ([]Installation, error) {
+	var body userInstallationsResponse
+	if err := c.doListUserInstallations(ctx, accessToken, &body); err != nil {
+		return nil, err
+	}
+	out := make([]Installation, 0, len(body.Installations))
+	for _, in := range body.Installations {
+		if !c.ownsInstallation(in.AppID, in.AppSlug) {
+			continue
+		}
+		out = append(out, Installation{ID: in.ID, AccountLogin: in.Account.Login})
+	}
+	return out, nil
+}
+
+// ownsInstallation reports whether a listed installation belongs to THIS App.
+// It matches on the numeric app id when one is configured (the identifier GitHub
+// guarantees stable) and falls back to the slug, which an owner can rename. A
+// client configured with neither cannot tell — it claims nothing rather than
+// everything, because minting against another App's installation would fail
+// anyway and claiming it would mask the real cause: an unconfigured deployment.
+func (c *Client) ownsInstallation(appID int64, appSlug string) bool {
+	if want, err := strconv.ParseInt(c.appID, 10, 64); err == nil && want != 0 {
+		return appID == want
+	}
+	return c.appSlug != "" && appSlug == c.appSlug
+}
+
+// doListUserInstallations issues GET /user/installations and decodes the 200
+// body into out. The lone named error return lets the deferred body-close
+// surface its error without a blank assignment (errcheck check-blank), the same
+// shape as doListRepos.
+func (c *Client) doListUserInstallations(
+	ctx context.Context, accessToken string, out *userInstallationsResponse,
+) (err error) {
+	u := c.apiBaseURL + "/user/installations?per_page=" + strconv.Itoa(reposPerPage)
+	req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if rerr != nil {
+		return fmt.Errorf("githubapi: build list-user-installations request: %w", rerr)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, derr := c.http.Do(req)
+	if derr != nil {
+		return fmt.Errorf("githubapi: list user installations: %w: %w", ErrListInstallations, derr)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("githubapi: close list-user-installations response: %w", cerr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, berr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		if berr != nil {
+			return fmt.Errorf("githubapi: list user installations: %w: http %d", ErrListInstallations, resp.StatusCode)
+		}
+		return fmt.Errorf("githubapi: list user installations: %w: http %d: %s",
+			ErrListInstallations, resp.StatusCode, string(errBody))
+	}
+
+	if jerr := json.NewDecoder(resp.Body).Decode(out); jerr != nil {
+		return fmt.Errorf("githubapi: decode user installations response: %w", jerr)
+	}
+	return nil
 }
 
 // InstallationToken is a minted installation access token: the credential git,

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
+import { GITHUB_CONNECT_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 
-// This constant is one half of a contract the type system can't see: the other
-// half is `GET /auth/github/connect` in backend/internal/api/routes.go. Pinning
-// the literal is what makes a rename over there fail here rather than in a
-// browser.
+// These constants are one half of a contract the type system can't see: the
+// other half is `GET /auth/github/connect` in backend/internal/api/routes.go,
+// and the `setup` query parameter its handler reads. Pinning the literals is
+// what makes a rename over there fail here rather than in a browser.
 describe('GITHUB_CONNECT_PATH', () => {
-  it('is the backend route that starts the repo-scoped grant', () => {
+  it('is the backend route that starts the one GitHub grant', () => {
     expect(GITHUB_CONNECT_PATH).toBe('/auth/github/connect');
   });
 
@@ -14,5 +14,14 @@ describe('GITHUB_CONNECT_PATH', () => {
     // Not a router path: nothing in the client's route table serves it, and a
     // router `Link` would swallow the navigation instead of hitting the server.
     expect(GITHUB_CONNECT_PATH.startsWith('/auth/')).toBe(true);
+  });
+});
+
+describe('GITHUB_SETUP_PATH', () => {
+  // The same route with the flag the handler branches on — one route, one
+  // rename, so the two can never drift apart.
+  it('is the same route asking for GitHub’s repository chooser', () => {
+    expect(GITHUB_SETUP_PATH).toBe('/auth/github/connect?setup=1');
+    expect(GITHUB_SETUP_PATH.startsWith(GITHUB_CONNECT_PATH)).toBe(true);
   });
 });

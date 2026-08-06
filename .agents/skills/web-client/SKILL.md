@@ -153,19 +153,26 @@ There is **one** OAuth flow, **one** registered callback, and **one** path const
 `GITHUB_CONNECT_PATH` in `src/auth/github-connect.ts` (`/auth/github/connect`). Import it —
 never restate the literal. Every entry point uses it: `landing/Landing2.tsx` ("Sign in"),
 `components/SessionGate.tsx`, `projects/ProjectsManager.tsx`, `dashboard/SignIn.tsx`,
-`Onboarding`'s step 1, and the `Integrations`/`RepoField` connect + switch-account
-affordances. It is **not** in `integrations-config.ts` with the other shared credential
-facts, on purpose: the landing page and the app's session gate link to it too, and they must
-not pull the dashboard's provider tables into their bundle to do it.
+`Onboarding`'s step 1, and the `Integrations`/`RepoField` connect affordance. It is **not**
+in `integrations-config.ts` with the other shared credential facts, on purpose: the landing
+page and the app's session gate link to it too, and they must not pull the dashboard's
+provider tables into their bundle to do it.
 
-The route redirects to a **GitHub App install page** (as of 2026-08-06), where GitHub renders
-the "All repositories / Only select repositories" chooser, and `CompleteConnect` records the
-resulting installation as the user's GitHub credential — so signing in already authorizes repo
-access, to exactly the repos they picked. This replaced a split — a scopeless
-`/auth/github/login` beside a repo-scoped connect — that shipped a settings card pointed at
-the wrong one. **Never add a second GitHub app, flow, callback, or path constant for repo
-access.** (`/auth/github/login` still 302s here for old bookmarks; nothing in the client
-links to it.)
+The route redirects to the **GitHub App's authorize screen** (as of 2026-08-06), and the
+backend resolves the user's installation behind it, sending anyone without one on to
+GitHub's "All repositories / Only select repositories" chooser — so signing in already
+authorizes repo access, to exactly the repos they picked. This replaced a split — a
+scopeless `/auth/github/login` beside a repo-scoped connect — that shipped a settings card
+pointed at the wrong one. **Never add a second GitHub app, flow, callback, or path constant
+for repo access.** (`/auth/github/login` still 302s here for old bookmarks; nothing in the
+client links to it.)
+
+`GITHUB_SETUP_PATH` (the same route, `?setup=1`) is the **only** sanctioned second link, and
+it is a screen request rather than a second grant: it goes straight to GitHub's chooser, for
+the **already-connected** user who wants to change accounts or repositories. The plain route
+cannot serve them — they have authorized already, so it completes silently and shows them
+nothing. Use it for switch-account affordances only (`RepoField`, `Onboarding`'s connected
+state); a signed-out or unconnected user always gets `GITHUB_CONNECT_PATH`.
 
 `MeSettings.github_connection` carries `installation_id` and `configure_url` (GitHub's own
 installation-settings page) instead of the `scopes` array it had under the OAuth App. Nothing

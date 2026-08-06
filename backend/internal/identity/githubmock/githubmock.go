@@ -109,6 +109,24 @@ func (c *Client) InstallURL(state string) string {
 		"&setup_action=install"
 }
 
+// AuthorizeURL returns the same local placeholder WITHOUT an installation_id —
+// which is the whole point of the shape. GitHub's authorize screen names no
+// installation, so a keyless run through the sign-in route exercises the
+// resolution path a returning user takes (ListUserInstallations) rather than the
+// first-visit one where the callback hands the id over.
+func (c *Client) AuthorizeURL(state string) string {
+	return "/auth/github/callback?state=" + state + "&code=mock-code"
+}
+
+// ListUserInstallations reports the one canned installation for any token, so
+// the offline flow resolves an installation the way a returning production
+// sign-in does.
+func (c *Client) ListUserInstallations(context.Context, string) ([]githubapi.Installation, error) {
+	return []githubapi.Installation{
+		{ID: MockInstallationID, AccountLogin: "keyless-user"},
+	}, nil
+}
+
 // MintInstallationToken returns the canned installation credential for any
 // installation id, with a real one-hour expiry so the caller's cache behaves as
 // it will in production.

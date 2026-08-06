@@ -20,8 +20,9 @@ test('@keyless a new user is walked through setup and the board comes alive', as
   await page.goto('/dashboard');
 
   // ---- Step 1: connect GitHub. In production this step sends the user to the
-  // GitHub App's install page, where they choose which repositories Kiln may
-  // use — but KILN_GITHUB_MODE=mock gives this dev-minted session a synthetic
+  // GitHub App's authorize screen, and on to the install page — where they choose
+  // which repositories Kiln may use — if they have no installation yet. Here
+  // KILN_GITHUB_MODE=mock gives this dev-minted session a synthetic
   // INSTALLATION, so the account already reads as connected and the step is a
   // confirmation. That is exactly why this spec is keyless-only: no headless
   // test can complete a real install against github.com.

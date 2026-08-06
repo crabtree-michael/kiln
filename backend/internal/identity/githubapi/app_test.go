@@ -149,9 +149,10 @@ func TestParsePrivateKeyRejectsGarbage(t *testing.T) {
 	}
 }
 
-// The install URL replaces the authorize URL as `/auth/github/connect`'s target —
-// it is the page that renders GitHub's repository chooser, so its shape is the
-// whole feature.
+// The install URL is the flow's SECOND leg — the page that renders GitHub's
+// repository chooser, so its shape is the whole feature. (It was briefly the
+// first leg too, which is the bug this stopped being: GitHub answers it with a
+// callback-less configure page once the account has installed the App.)
 func TestInstallURL(t *testing.T) {
 	c := githubapi.New(githubapi.Config{
 		OAuthBaseURL: testGitHubHost,
@@ -174,6 +175,103 @@ func TestInstallURL(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, testGitHubHost+"/") {
 		t.Errorf("InstallURL = %q, want prefix %s/", got, testGitHubHost)
+	}
+}
+
+// installationJSON is one entry of GitHub's /user/installations envelope, as a
+// test builds it — the App identifiers included, since filtering on them is
+// what the listing tests are about.
+func installationJSON(id, appID int, appSlug, accountLogin string) map[string]any {
+	return map[string]any{
+		"id":       id,
+		"app_id":   appID,
+		"app_slug": appSlug,
+		"account":  map[string]any{"login": accountLogin},
+	}
+}
+
+// The listing that makes a returning sign-in work: it must ask as the USER (so
+// it can only ever surface installations that person can reach) and must keep
+// only THIS App's, since GitHub answers for every App they have installed.
+func TestListUserInstallationsFiltersToThisApp(t *testing.T) {
+	var gotAuth, gotPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotPath = r.Header.Get("Authorization"), r.URL.Path
+		writeJSON(t, w, map[string]any{"total_count": 3, "installations": []map[string]any{
+			installationJSON(11, 4242, testAppSlug, "someone"),
+			installationJSON(22, 9999, "other-app", "someone"),
+			installationJSON(33, 4242, testAppSlug, "acme-org"),
+		}})
+	}))
+	defer ts.Close()
+	c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL, AppID: "4242", AppSlug: testAppSlug}, nil)
+
+	got, err := c.ListUserInstallations(context.Background(), testUserToken)
+	if err != nil {
+		t.Fatalf("ListUserInstallations: %v", err)
+	}
+
+	if gotPath != "/user/installations" {
+		t.Errorf("path = %q, want /user/installations", gotPath)
+	}
+	// The user token, not an app JWT: the endpoint's whole value is that it
+	// answers for one person's access.
+	if gotAuth != "Bearer "+testUserToken {
+		t.Errorf("Authorization = %q, want the user access token", gotAuth)
+	}
+	want := []githubapi.Installation{
+		{ID: 11, AccountLogin: "someone"},
+		{ID: 33, AccountLogin: "acme-org"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("installations = %+v, want %+v — another App's must be dropped", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("installations[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// An App identified only by slug still filters: the numeric id is the stable
+// identifier and is preferred, but a client configured without one must not fall
+// back to claiming every App's installations.
+func TestListUserInstallationsFiltersBySlugWithoutAnAppID(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, map[string]any{"installations": []map[string]any{
+			installationJSON(11, 4242, testAppSlug, "someone"),
+			installationJSON(22, 9999, "other-app", "someone"),
+		}})
+	}))
+	defer ts.Close()
+	c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL, AppSlug: testAppSlug}, nil)
+
+	got, err := c.ListUserInstallations(context.Background(), testUserToken)
+	if err != nil {
+		t.Fatalf("ListUserInstallations: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 11 {
+		t.Errorf("installations = %+v, want only this App's (id 11)", got)
+	}
+}
+
+// A rejected or unavailable listing is an ERROR, never an empty result. The
+// caller reads emptiness as "this person has installed nothing" and pushes them
+// at the install screen for it — a wrong answer there sends a connected user to
+// the very configure page that dead-ends.
+func TestListUserInstallationsReportsFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+	c := githubapi.New(githubapi.Config{APIBaseURL: ts.URL, AppSlug: testAppSlug}, nil)
+
+	got, err := c.ListUserInstallations(context.Background(), testUserToken)
+	if !errors.Is(err, githubapi.ErrListInstallations) {
+		t.Errorf("err = %v, want ErrListInstallations", err)
+	}
+	if got != nil {
+		t.Errorf("installations = %+v, want nil — a failure must not read as 'none'", got)
 	}
 }
 

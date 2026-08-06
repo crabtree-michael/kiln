@@ -149,6 +149,29 @@ describe('TicketDetail', () => {
     expect(onAccept).toHaveBeenCalledWith('t-shape');
   });
 
+  it('draws Accept as a glyph and keeps the word only as its name', () => {
+    // Accept is an icon button now — the check, on the mic's disc (see
+    // TicketDetail.action-icons.test.ts), with nothing spelled out beside it. The
+    // aria-label is therefore the ONLY place the word survives: lose it and the
+    // one headline decision on the sheet goes unnamed to a screen reader, and
+    // every `getByRole('button', { name: 'Accept' })` in this file stops matching.
+    const shaping = makeTicket({
+      id: 't-shape',
+      title: 'A shaped proposal',
+      body: 'body',
+      state: 'shaping',
+      priority: 2,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    render(<TicketDetail ticket={shaping} onClose={vi.fn()} onAccept={vi.fn()} />);
+
+    const accept = within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' });
+    expect(accept.getAttribute('aria-label')).toBe('Accept');
+    expect(accept.textContent).toBe('');
+    expect(accept.querySelector('svg')).not.toBeNull();
+  });
+
   it('never offers Accept once past shaping — a working ticket has already been accepted', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} onAccept={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();

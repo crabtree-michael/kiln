@@ -915,11 +915,13 @@ export function TicketDetail({
               the state's primary action (Accept) stays rightmost, where flex-end
               makes it the most prominent. While the mic is up the cluster crosses
               to the end of the row and takes that slot instead, so the trailing
-              group reads Send, ×, mic from the right edge inward. The quiet
-              affordances here read as icons only — the mic
-              glyph, the 👉 for Poke, the trash for Delete — with no text label around
-              them; Accept alone carries a word, so the one headline decision is the
-              only thing spelled out. Each button narrows on its callback directly
+              group reads Send, ×, mic from the right edge inward. Every affordance
+              here reads as a glyph only — the mic, the 👉 for Poke, the trash for
+              Delete, the check for Accept — with no text label around any of them;
+              Accept used to carry the word, and now carries it as an aria-label
+              instead, so the footer is one row of icons in one treatment (the
+              mic's — see the CSS) rather than a pill among glyphs. Each button
+              narrows on its callback directly
               inside the guard so TypeScript knows it's defined in the handler — no
               optional chain (the lint gate). */}
           {showDock && (
@@ -1020,12 +1022,12 @@ export function TicketDetail({
                     >
                       <svg
                         viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
+                        width="22"
+                        height="22"
                         aria-hidden="true"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="1.5"
+                        strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
@@ -1045,11 +1047,29 @@ export function TicketDetail({
                     <button
                       type="button"
                       data-role="detail-accept"
+                      aria-label="Accept"
                       onClick={() => {
                         onAccept(ticket.id);
                       }}
                     >
-                      Accept
+                      {/* A check in the same stroked idiom as the trash beside it,
+                      on the same disc as the mic (see the CSS). The glyph is
+                      aria-hidden, so the button's accessible name comes from
+                      aria-label="Accept" — the word is gone from the screen but
+                      not from the accessibility tree. */}
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="22"
+                        height="22"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20 6.5L9.5 17.5 4 12" />
+                      </svg>
                     </button>
                   )}
                 </div>

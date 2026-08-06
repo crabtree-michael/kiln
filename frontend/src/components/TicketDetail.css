@@ -789,28 +789,61 @@
   transform: translateY(1px);
 }
 
-[data-role='detail-accept'] {
-  font-family: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--text-on-accent);
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-pill);
-  padding: 0.55rem 1.4rem;
+/* Accept and Delete wear the MICROPHONE's treatment rather than each having its
+ * own: the footer is a row of peer glyph buttons — the same disc, the same card
+ * fill inside a strong outline, the same raised shadow that collapses under the
+ * thumb — so the three read as one control language instead of a pill, a small
+ * outlined circle and an orb. Accept gave up its word for a check to get here
+ * (the name lives on as its aria-label); what is left to tell the two apart is
+ * the GLYPH's colour — the check in accent (still the headline decision), the
+ * trash in danger, the mic's own bars muted.
+ *
+ * The numbers mirror `[data-role='dock-mic']` in PrimaryScreen.css, which is
+ * where the mic is dressed (unscoped, so it renders identically wherever it is
+ * placed — this footer included). Nothing in the gate would notice the two
+ * drifting apart, since jsdom does no layout, so `TicketDetail.action-icons.test.ts`
+ * holds them in step as a CSS string.
+ *
+ * Like the mic they carry no `:hover` rule at all: the press IS the feedback,
+ * which also keeps a touch device's emulated hover from painting a state nobody
+ * asked for. `-webkit-tap-highlight-color` is off for the same reason it is on
+ * the mic — the collapsing shadow is the press affordance, not a grey box. */
+[data-role='detail-accept'],
+[data-role='detail-delete'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-strong);
+  box-shadow: var(--shadow-raised);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    box-shadow var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
 
-[data-role='detail-accept']:active {
-  transform: translateY(1px);
+[data-role='detail-accept'] {
+  color: var(--accent);
+}
+
+[data-role='detail-accept']:active,
+[data-role='detail-delete']:active {
+  transform: translateY(3px);
+  box-shadow: var(--shadow-card);
 }
 
 /* Poke action — a secondary nudge for a stalled agent, shown alongside the mic
- * (and, on a shaping ticket, Accept). Deliberately quieter than the accent-filled
- * Accept pill: an icon-only circular button (just the 👉, no text label — mirroring
- * Delete) in the neutral outline, so it reads as the softer, optional prod it is,
- * not a headline decision. */
+ * (and, on a shaping ticket, Accept). An icon-only circular button (just the 👉,
+ * no text label — mirroring Delete) in the neutral outline, quieter than the
+ * raised discs beside it, so it reads as the softer, optional prod it is, not a
+ * headline decision. It was deliberately left OUT of the mic-matching treatment
+ * above, which the ticket scoped to Accept and Delete. */
 [data-role='detail-poke'] {
   display: inline-flex;
   align-items: center;
@@ -831,27 +864,12 @@
   transform: translateY(1px);
 }
 
-/* Delete action — discard a proposal that's no longer wanted, shown left of the
- * Accept pill on a shaping ticket. An icon-only circular button (trash glyph, no
- * label): outlined in the danger hue rather than accent-filled, so it reads as
- * the secondary, undo-able-only-by-reproposing exit it is — never competing with
- * Accept for the eye, but unmistakably the removing action. */
+/* Delete action — discard a ticket that's no longer wanted, shown left of Accept
+ * on a shaping ticket. It shares the disc above with Accept; the danger hue is
+ * now carried by the trash glyph alone rather than by a tinted outline, so the
+ * chrome stays the mic's and the colour still says which action this is. */
 [data-role='detail-delete'] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.1rem;
-  height: 2.1rem;
   color: var(--danger);
-  background: transparent;
-  border: 1.5px solid var(--danger-soft);
-  border-radius: 50%;
-  padding: 0;
-  cursor: pointer;
-}
-
-[data-role='detail-delete']:active {
-  transform: translateY(1px);
 }
 
 /* ---------------------------------------------------------------------------
@@ -963,27 +981,13 @@
   font-size: 15px;
 }
 
-/* Match the feed's proposal Accept button exactly, so accepting from the detail
- * reads as the same affirmative action as accepting from the card. */
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept'] {
-  font-size: 13px;
-  color: var(--text-on-accent);
-  background: var(--accent);
-  border-radius: var(--radius-pill);
-  padding: 9px 22px;
-  box-shadow: var(--shadow-raised);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept']:hover {
-  background: var(--accent-hover);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-accept']:active {
-  background: var(--accent-press);
-  transform: translateY(1px);
-}
-
-/* Poke keeps its quiet outlined register on the primary surface too — a card-
+/* Accept and Delete carry NO primary-surface skin: they are dressed once, above,
+ * in the mic's treatment — and the mic itself is styled by unscoped rules in
+ * PrimaryScreen.css, so it looks the same on both surfaces too. Re-skinning them
+ * here (as Accept's accent pill and Delete's 40px danger circle used to be) is
+ * exactly how the footer would drift back apart on the one surface that matters.
+ *
+ * Poke keeps its quiet outlined register on the primary surface — a card-
  * colored ghost pill that recedes behind the accent Accept beside it, and warms
  * to the accent on hover to show it's live. */
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke'] {
@@ -1002,29 +1006,5 @@
 }
 
 [data-role='ticket-detail'][data-surface='primary'] [data-role='detail-poke']:active {
-  transform: translateY(1px);
-}
-
-/* Delete keeps its quiet destructive register on the primary surface — a danger-
- * outlined circular icon button that recedes behind the accent Accept beside it,
- * and fills with the danger hue on hover to confirm it's the removing action. */
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete'] {
-  width: 40px;
-  height: 40px;
-  color: var(--danger);
-  background: var(--surface-card);
-  border: 1.5px solid var(--danger-soft);
-  border-radius: 50%;
-  padding: 0;
-  box-shadow: none;
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete']:hover {
-  border-color: var(--danger);
-  color: var(--text-on-accent);
-  background: var(--danger);
-}
-
-[data-role='ticket-detail'][data-surface='primary'] [data-role='detail-delete']:active {
   transform: translateY(1px);
 }

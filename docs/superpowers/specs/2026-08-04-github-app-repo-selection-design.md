@@ -194,12 +194,30 @@ Issues is also the permission most legible to a user as over-reach on a consent 
 |---|---|
 | `KILN_GITHUB_APP_ID` | numeric App ID |
 | `KILN_GITHUB_APP_SLUG` | the public link's slug — builds the install URL (§3.2) |
-| `KILN_GITHUB_APP_PRIVATE_KEY` | PEM. **Multiline secret** — Render env vars handle newlines poorly; either store base64 and decode at boot, or use a secret file. Decide at implementation and document it in `10`. |
+| `KILN_GITHUB_APP_PRIVATE_KEY` | The App private key. **Multiline secret** — decided 2026-08-06: carried as **base64 of the `.pem`**, one line, decoded at boot (§5.1). |
 | `KILN_GITHUB_APP_CLIENT_ID` / `_CLIENT_SECRET` | the App's own OAuth credentials, for the user-authorization half |
 
 The boot gate at `wiring.go:630-650` extends to these: a partial set must refuse boot exactly as it does today, so a half-configured deployment cannot serve a working-looking `/auth/github/connect` that dead-ends.
 
 Touch `render.yaml`, `docker-compose.yml`, `docker-compose.keyless.yml`, and `docs/onboarding.md`.
+
+### 5.1 The private key is base64, and boot sniffs which form it got
+
+**Decision (2026-08-06):** `KILN_GITHUB_APP_PRIVATE_KEY` carries **base64 of the whole `.pem` file**, on one line — not the PEM itself, and not a path to a secret file.
+
+Why base64 rather than a mounted file: the key has to reach three places that treat multiline values differently (a Render env var, a `docker-compose` env pass-through, a local `.env` that `source` and a dozen ad-hoc parsers both read), and one of them mangling newlines produces a key that parses locally and 401s in production — the intermittent-looking failure this whole file exists to avoid. One base64 line survives all three unchanged. A secret file would avoid the newline problem too, but it adds a mount to configure per environment and a second thing to get wrong; the key is one value, so it stays one value.
+
+Boot decodes with a **sniff, not a flag**:
+
+> A value whose leading non-whitespace is `-----BEGIN` is PEM verbatim; anything else is base64-decoded first, then parsed.
+
+Both branches end at the existing `githubapi.ParsePrivateKey`, which already takes PEM bytes and already accepts PKCS#1 (what GitHub emits) and PKCS#8. So the decode is a few lines in `cmd/kiln` config, not a change to the adapter.
+
+The sniff exists so that a key pasted in its natural form still works. A developer who downloads the `.pem` and pastes it — into a shell heredoc, or a Render env box that does tolerate newlines — gets a working boot rather than an "invalid key" they'd debug as a bad download. The declared, documented form is base64; the sniff is the forgiving path, not a second supported format.
+
+Failure is at **boot**, not first sign-in: a value that is neither valid base64 nor valid PEM fails the §5 gate with a message naming which of the two it tried, so a bad paste never becomes a user-facing broken connect flow. `ParsePrivateKey`'s doc comment already promises this ordering.
+
+Local `.env` is populated (2026-08-06) from `mac-kiln-dev`'s generated key; the `.pem` itself belongs in the password manager, not the repo tree or `~/Downloads`.
 
 ---
 
@@ -221,7 +239,7 @@ The App must be registered by the account/org owner. The form is filled per §4.
 
 1. **App ID** → `KILN_GITHUB_APP_ID`.
 2. **Public link** (`https://github.com/apps/<slug>`) → the slug for `KILN_GITHUB_APP_SLUG`, which builds the installation URL in §3.2.
-3. **A generated private key (`.pem`)** → `KILN_GITHUB_APP_PRIVATE_KEY`. Generated once, downloadable once; store it in the password manager as well as Render.
+3. **A generated private key (`.pem`)** → base64 it (`base64 -i <file> | tr -d '\n'`) into `KILN_GITHUB_APP_PRIVATE_KEY` per §5.1. Generated once, downloadable once; store the `.pem` in the password manager as well as putting the base64 in Render.
 
 Plus the App's own client id and secret (§5). Together these **replace** `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`, which stay configured only for as long as the §6 fallback does.
 

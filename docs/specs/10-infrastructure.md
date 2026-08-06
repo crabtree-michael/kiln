@@ -218,6 +218,7 @@ Every credential that exists, its scope, and where it lives:
 | Sentry MCP | OAuth per session; org-scoped | — | interactive + sentinel agents |
 | `ANTHROPIC_API_KEY` | — | GitHub secret + local `.env` | sentinel's Claude Code run |
 | healthchecks.io ping URLs | write-only pings (not secrets in practice) | workflow env | backup + e2e crons |
+| GitHub App private key (`KILN_GITHUB_APP_PRIVATE_KEY`) | signs App JWTs; mints per-installation tokens that expire in an hour | Render env + local `.env`, **base64 of the `.pem`** on one line (boot decodes; a `-----BEGIN` value is taken as PEM verbatim) | backend `identity`/`githubapi` |
 
 Render can't mint per-verb keys (§3), so the deploy/ops split is discipline plus the
 dedicated-workspace blast radius, not cryptographic enforcement — accepted for a

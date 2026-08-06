@@ -37,7 +37,13 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
       tools.go), delete_ticket (soft archive). Feed: post_update, list_updates, edit_update,
       retract_update. Plus send_to_agent, say, list_agents+get_agent_updates, bash. No pull
       (03 I6), no notify (deferred to 10). Board read IS now a tool (list_tickets/get_ticket)
-      — D3's "state is injected" is superseded.
+      — D3's "state is injected" is superseded. Both reads carry an **"allowed now" line**
+      naming what the ticket's current state accepts, in tool phrasing
+      (`update_ticket state="ready"`, `send_to_agent`, …): rendered by `allowedActions`
+      (tools.go) from the board's own `State.AllowedOps()`, once per column on the roster
+      (a column *is* one state) and once per ticket on get_ticket. It exists because 39% of
+      update_ticket calls were failing and most were guesses at an unavailable transition
+      (docs/brain-optimization-2026-08-05.md §2).
 - [x] The pass → 06 §5: bounded tool loop, **max 12 rounds** (raised from 8 to absorb the
       board reads a pass now makes before acting), tool errors fed back verbatim; no
       mid-pass snapshot refresh; no streaming.
@@ -73,6 +79,11 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   order (fields → approval → state), so every board precondition + ErrInvalidTransition
   still holds. applyState returns the board error unwrapped on purpose (fed back verbatim,
   06 §6) — hence the //nolint:wrapcheck there.
+- Appending "here's what you *could* do instead" to a refused transition. The "allowed now"
+  line is **preventive only** — it goes on the reads. An `ErrInvalidTransition` still comes
+  back exactly as the board worded it, because the idempotency rule (06 §6) reads that error
+  as "already in that state, treat as done, never retry"; offering alternatives at that moment
+  invites the retry the rule forbids. `TestUpdateTicket_RefusalStaysVerbatim` pins it.
 
 ## Potential gotchas
 
@@ -87,6 +98,13 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   calls and used to burn a round self-correcting (`docs/brain-optimization-2026-08-05.md` §1).
   Don't "tidy" the alias away, and don't add `text` to the schema — one advertised name is
   the point. `edit_update` deliberately has no such alias.
+- **Costing a round means reading all three cache-write attrs.** `logRound` (`llm.go`) emits
+  `cache_creation_input_tokens` plus `cache_creation_5m_input_tokens` and
+  `cache_creation_1h_input_tokens` — the aggregate *and* its TTL split, because the two TTLs
+  bill differently (5m 1.25×, 1h 2×) and cache writes are 40–60% of brain spend. Sum the
+  split, don't add it to the aggregate — that double-counts. Records written before
+  2026-08-05 carry the aggregate only, so a window spanning that deploy is still a range
+  (`docs/brain-optimization-2026-08-05.md` §6/D).
 - The prompt is written to 08's interaction model: the user sees the *feed*, not
   the board — routine board actions already emit mechanical toasts (08 §4), so the
   prompt forbids narrating them with `say`/`post_update`. Keep new prompt prose

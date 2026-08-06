@@ -41,6 +41,16 @@ Preconditions are strict: invalid or repeated transitions are typed errors (`Err
 `ErrInvalidTransition`), never no-ops (D8). Every mutation returns the updated Ticket and
 emits `board.updated`. (An archived ticket is `ErrNotFound` to every subsequent read/op.)
 
+**One precondition table (`transitions.go`).** Which states each operation accepts lives in
+exactly one place — `statePreconditions`, keyed by `Operation` (whose values *are* the names
+`ErrInvalidTransition.Attempted` reports). The operations' own guards read it (`guardState`,
+`guardBoundWorker`), and `State.AllowedOps()` derives the reverse view — "what can be done to
+a ticket sitting here" — which the brain renders onto `get_ticket`/`list_tickets` so the model
+stops discovering preconditions by failed call. Add a state-gated operation by adding its row;
+never re-inline a `t.State != …` check, or the advertised set starts lying. State is not the
+*whole* precondition everywhere: the worker-bound ops also need the binding, `ReassignSandbox`
+a free slot, `AcceptToDone` an unspent commit — so an allowed op can still fail.
+
 **Per-ticket sandbox option (`KeepSandbox`, migration 0012).** The user's "save this
 ticket's sandbox" choice, set from the ticket detail sheet via `SetKeepSandbox` (behind
 `POST /api/tickets/{id}/sandbox`). Its whole mechanical effect is one **suppression**: the

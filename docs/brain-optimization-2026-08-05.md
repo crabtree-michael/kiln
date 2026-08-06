@@ -2,8 +2,9 @@
 
 **Date:** 2026-08-05 · **Service:** `srv-d953nmcvikkc73d8aq60` (`kiln`, prod)
 **Log window:** 2026-08-02T18:15Z → 2026-08-05T11:52Z (~2.77 days, 17.9k log records)
-**Status:** investigation + proposal. Recommendation C (`effort`) has since landed at
-`medium`; A, B, D, and E are still unimplemented and left for review.
+**Status:** investigation + proposal. Recommendations A (`post_update` alias), B (allowed
+transitions), C (`effort`, landed at `medium`), and D (cache-write TTL logging) have since
+shipped; E alone is still unimplemented and left for review.
 
 > The brain is not a separate Render service — it is `internal/brain` inside the single
 > `kiln` web service. All figures below are reconstructed from the structured `brain: llm
@@ -138,6 +139,9 @@ the entire pass, so that 6% retry rate is ~6% of LLM spend spent twice.
   The SDK does expose the split (`Usage.CacheCreation.Ephemeral5mInputTokens` /
   `Ephemeral1hInputTokens`, present in the pinned `anthropic-sdk-go@v1.56.0`). **That
   instrumentation gap is why the cost figure above is a range rather than a number.**
+  *Closed by D:* `logRound` now emits `cache_creation_5m_input_tokens` and
+  `cache_creation_1h_input_tokens` alongside the aggregate. The figures in this document
+  predate them and remain a range; a window measured after that deploy can be costed exactly.
 - **The skill doc is stale.** `.claude/skills/orchestrator-brain/SKILL.md` says the default
   model is `claude-haiku-4-5-20251001`; `llm.go:20` says `claude-sonnet-5`. Worth
   correcting so the next investigation doesn't start from the wrong cost model.
@@ -149,7 +153,7 @@ the entire pass, so that 6% retry rate is ~6% of LLM spend spent twice.
 Ordered by (value ÷ risk), not by size. The first three are contained changes with golden
 tests already in place to catch regressions; the fourth is an architecture decision.
 
-### A. Make `post_update` accept `text` as an alias for `body` — or rename the field
+### A. Make `post_update` accept `text` as an alias for `body` — **shipped**
 
 **Fixes §1.** ~79 wasted rounds (3.3%) and ~5 minutes of cumulative latency per window,
 for a few lines in `tools.go`. Two options, and I'd want your preference before scoping:
@@ -170,13 +174,26 @@ pins either key posting the card, `body` winning when both carry text, and the b
 case still rejected. `edit_update` keeps `body` as its only key — the log window shows no
 wrong-key calls there.
 
-### B. Return allowed transitions from `get_ticket`
+### B. Return allowed transitions from `get_ticket` — **shipped**
 
 **Fixes the preventable ~57 of §2.** Have `get_ticket` (and the `list_tickets` rows)
 include the transitions the ticket's current state actually permits, so the model stops
 guessing. This keeps the board's preconditions authoritative — it just stops making the
 model discover them by trial. The ~25 idempotency errors stay exactly as they are, because
 06 §6 depends on them.
+
+> **Landed 2026-08-05.** Both reads carry an `allowed now:` line in tool phrasing
+> (`update_ticket state="ready"`, `send_to_agent`, `delete_ticket`); `get_ticket` writes it
+> per ticket, `list_tickets` once per column, since the allowed set is a function of state
+> and a column is one state — so a roster of any size costs five lines. It covers all 57,
+> not just the 13 `MarkReady` ones: a working/blocked ticket's line omits
+> `title/body/priority`, which is where the other 44 came from. The preconditions moved
+> into one table (`board/transitions.go`) that the operations' own guards and
+> `State.AllowedOps()` both read, so the advertised set cannot drift from the guard; the
+> cross-check test runs all 45 state×operation pairs against the real Board API. The
+> refusal itself is untouched — an `ErrInvalidTransition` still comes back verbatim with no
+> allowed-list appended, because 06 §6 reads it as already-done and naming the alternatives
+> there would invite the retry that rule forbids.
 
 ### C. Set `output_config.effort` explicitly, and sweep it — **shipped at `medium`**
 
@@ -194,12 +211,17 @@ records.
 > `low` is deliberately not taken yet — medium is the accepted setting; the env var makes
 > the sweep a config change when there is a baseline to measure it against.
 
-### D. Log the cache-write TTL split (prerequisite, not an optimization)
+### D. Log the cache-write TTL split (prerequisite, not an optimization) — **shipped**
 
 **Closes the §6 instrumentation gap.** Two extra `slog.Int64` attrs in `logRound` from
 `Usage.CacheCreation`. This costs nothing and turns the cost estimate from a ±50% range
 into a number — which is what any of the above needs in order to be *evaluated* rather
 than merely shipped. I'd land this before or alongside A–C so there is a clean baseline.
+
+Shipped as `cache_creation_5m_input_tokens` / `cache_creation_1h_input_tokens`, logged next
+to the aggregate rather than replacing it, so the new records stay comparable with the
+window above. Note the baseline this buys starts at the deploy, not retroactively: B and C
+both landed before it, so costing their effect means measuring forward from here.
 
 ### E. Revisit board injection — your call, not a recommendation
 

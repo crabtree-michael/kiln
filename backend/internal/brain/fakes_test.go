@@ -34,6 +34,13 @@ const (
 	notifKindUpdate    = "update"
 	notifKindPreview   = "preview"
 	updateBuildIsGreen = "build is green"
+
+	// Tool names and update_ticket argument fragments, as they appear in tool
+	// definitions, the prompt, and the "allowed now" line the board reads carry.
+	toolNameDeleteTicket = "delete_ticket"
+	toolNameSendToAgent  = "send_to_agent"
+	argStateReady        = `state="ready"`
+	argStateDone         = `state="done"`
 )
 
 // --- scripted LLM -----------------------------------------------------

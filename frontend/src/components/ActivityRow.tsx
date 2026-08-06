@@ -239,21 +239,30 @@ export function ActivityRow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const word = useMemo(() => pickKilnWord(), [thinking]);
 
-  // Keep the feed's last card clear of this band. The activity row is an
-  // out-of-flow overlay anchored above the dock (PrimaryScreen.css): when it
-  // holds a "Kiln is thinking…" spinner or a toast stack it floats UP over the
-  // feed's bottom with an opaque fill, occluding the newest card(s) — and with
-  // nothing reserving that space the feed can't be scrolled far enough to reveal
-  // them. Mirror the live transcript's `--dock-overlay-height` trick: publish the
-  // band's current height as `--feed-bottom-inset` on the screen root so the feed
-  // adds exactly that much bottom scroll inset (0px when the band is empty, so the
-  // idle layout is untouched), tracked live via ResizeObserver as toasts stack /
-  // dismiss and the spinner comes and goes. Written on the screen root (not this
-  // row) so it reaches the feed, a distant sibling; a no-op when the row renders
-  // outside a primary screen (isolated tests) since `closest` is null.
+  // Keep the feed's last card — and the "Show earlier" control pinned to its
+  // foot — clear of this band. The activity row is an out-of-flow overlay
+  // anchored above the dock (PrimaryScreen.css): when it holds a "Kiln is
+  // thinking…" spinner or a toast stack it floats UP over the feed's bottom with
+  // an opaque fill, occluding whatever ends the feed — and with nothing reserving
+  // that space the feed can't be scrolled far enough to reveal it. Mirror the
+  // live transcript's `--dock-overlay-height` trick: publish the band's current
+  // height as `--feed-bottom-inset` on the screen root so the feed adds exactly
+  // that much bottom inset (0px when the band is empty, so the idle layout is
+  // untouched), tracked live via ResizeObserver as toasts stack / dismiss and the
+  // spinner comes and goes. Written on the screen root (not this row) so it
+  // reaches the feed, a distant sibling.
+  //
+  // BOTH shell roots are named, and the desktop one is not an afterthought: this
+  // row is mounted by `DesktopScreenView` too, over a feed whose foot carries the
+  // same pinned control, and a selector that knew only about the phone left the
+  // desk with no reserve at all — the band simply covered "Show earlier"
+  // whenever a toast was up. `closest` is null outside either shell (isolated
+  // tests), where the whole effect is a no-op.
   useEffect(() => {
     const el = rowRef.current;
-    const root = el?.closest<HTMLElement>('[data-role="primary-screen"]') ?? null;
+    const root =
+      el?.closest<HTMLElement>('[data-role="primary-screen"], [data-role="desktop-screen"]') ??
+      null;
     if (root === null) {
       return;
     }

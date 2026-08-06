@@ -46,6 +46,61 @@ export function workingStatusNote(status: StreamState): string {
   return STATUS_NOTE[status];
 }
 
+/** What the panel's head reports about the project as a whole. */
+export type WorkingPanelState = 'working' | 'blocked' | 'idle';
+
+/** The head's word per state. Lower case because the head is set in small caps
+ * by CSS (`text-transform: uppercase`) — spelling it upper case here would
+ * double-shout it anywhere the text is read rather than rendered, including the
+ * accessible name. */
+const PANEL_LABEL: Record<WorkingPanelState, string> = {
+  working: 'working now',
+  blocked: 'blocked',
+  idle: 'idle',
+};
+
+/**
+ * What the head says, from the board's own buckets.
+ *
+ * The head used to be the fixed word "working now", which made it a label for
+ * the column rather than a reading of it: a project with nothing running still
+ * announced work in progress, and the only thing that actually said otherwise
+ * was the faint line underneath. So the word follows the board.
+ *
+ * Working wins over blocked. Both can be true at once — an agent building one
+ * ticket while another waits on the user — and this panel's subject is the work
+ * in motion, which it can also NAME underneath. Blocked is what it says when
+ * there is nothing in motion to report: a stuck project reads as stuck rather
+ * than as idle, which is the difference between "nothing is happening" and
+ * "nothing is happening and that is your move".
+ *
+ * Deliberately NOT keyed on the liveness signal (`active` — the brain mid-pass).
+ * That is the breathing dot's job, and the two are different questions: a brain
+ * pass over an empty board is something happening, but it is not a ticket being
+ * worked, and a head that called it "working now" would be naming work no row
+ * under it can show.
+ */
+export function workingPanelState(working: number, blocked: number): WorkingPanelState {
+  if (working > 0) {
+    return 'working';
+  }
+  if (blocked > 0) {
+    return 'blocked';
+  }
+  return 'idle';
+}
+
+export function workingPanelLabel(state: WorkingPanelState): string {
+  return PANEL_LABEL[state];
+}
+
+/** How many tickets are waiting on the user, for `workingPanelState`. Null board
+ * (before the first snapshot) counts as none: an unknown board must not raise an
+ * alarm the user would have to go check. */
+export function blockedCount(board: Board | null): number {
+  return board?.blocked.length ?? 0;
+}
+
 /**
  * The Working tickets of one board, oldest-started first.
  *

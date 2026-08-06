@@ -328,6 +328,35 @@ describe('DesktopScreen.css', () => {
     );
   });
 
+  it('gives the blocked head the colour the BLOCKED ticket wears, and holds it still', () => {
+    // Same rule as the in-progress head above, applied to the state that
+    // replaced the fixed "working now" word at rest: the tokens are read out of
+    // the detail sheet's BLOCKED badge, so the head cannot drift from the badge
+    // of the ticket it is reporting.
+    const badge = detailRuleBody("[data-role='ticket-detail-status'][data-state='blocked'] {");
+    const badgeDot = detailRuleBody(
+      "[data-role='ticket-detail-status'][data-state='blocked'] [data-role='ticket-detail-status-dot'] {",
+    );
+    const head = ruleBody("[data-role='desktop-working-head'][data-state='blocked'] {");
+    expect(head).toMatch(new RegExp(`--working-ink:\\s*var\\(${tokenOf(badge, 'color')}\\)`));
+    expect(head).toMatch(
+      new RegExp(`--working-mark:\\s*var\\(${tokenOf(badgeDot, 'background')}\\)`),
+    );
+    expect(head).toMatch(
+      new RegExp(`--working-mark-soft:\\s*var\\(${tokenOf(badgeDot, 'box-shadow')}\\)`),
+    );
+    // Blocked does not breathe, even when the brain happens to be mid-pass
+    // behind it: the badge's own rule is "stuck, not moving", and a pulsing mark
+    // in the alarm colour is more than one ticket needing a decision is worth.
+    // This has to out-weigh `[data-active='true']` (0,2,0) to get there.
+    expect(
+      ruleBody(
+        "[data-role='desktop-working-head'][data-state='blocked'] [data-role='desktop-working-dot'] {",
+      ),
+    ).toMatch(/animation:\s*none/);
+    expect(badgeDot).not.toMatch(/animation:/);
+  });
+
   it('gives the in-progress panel its own column, ruled off from the feed', () => {
     const body = ruleBody("[data-role='desktop-working-panel'] {");
     // The separator the panel is defined by: a line on the edge it shares with
@@ -368,9 +397,11 @@ describe('DesktopScreen.css', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '');
     expect(strip).not.toMatch(/@keyframes/);
     expect(strip).not.toMatch(/progress/);
-    // The one animation in the region is the head's breathing dot, declared
-    // once — the rows themselves are still.
-    expect(strip.match(/animation:/g)).toHaveLength(1);
+    // The one thing in the region that MOVES is the head's breathing dot,
+    // declared once — the rows themselves are still. `animation: none` doesn't
+    // count against that (it's the blocked head switching the breathing off),
+    // so the count is of animations that actually run.
+    expect(strip.match(/animation:(?!\s*none)/g)).toHaveLength(1);
   });
 
   it('keeps the loading line in the feed’s reading column, and off the accent', () => {

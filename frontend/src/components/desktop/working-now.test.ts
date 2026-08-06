@@ -3,7 +3,13 @@
 // it reads the board rather than the curated feed, it reports the session's real
 // state instead of assuming the column, and it never reorders under the eye.
 import { describe, it, expect } from 'vitest';
-import { workingStatusNote, workingTickets } from '@/components/desktop/working-now';
+import {
+  blockedCount,
+  workingPanelLabel,
+  workingPanelState,
+  workingStatusNote,
+  workingTickets,
+} from '@/components/desktop/working-now';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
 
 const ticket = (id: string, title: string, statusChangedAt: string) =>
@@ -121,5 +127,72 @@ describe('workingStatusNote', () => {
     expect(workingStatusNote('stopped')).toBe('stopped');
     expect(workingStatusNote('idle')).toBe('idle');
     expect(workingStatusNote('starting')).toBe('starting up');
+  });
+});
+
+describe('workingPanelState', () => {
+  it('says working while any ticket is being worked', () => {
+    expect(workingPanelState(2, 0)).toBe('working');
+  });
+
+  it('says blocked when nothing is running and a ticket waits on the user', () => {
+    // The distinction the fixed head could not draw: an idle project has nothing
+    // to do, a blocked one has nothing it CAN do until the user decides. Reading
+    // both as the same rest is how a blocker goes unnoticed on a screen the user
+    // is looking at.
+    expect(workingPanelState(0, 1)).toBe('blocked');
+  });
+
+  it('says idle when the board holds neither', () => {
+    expect(workingPanelState(0, 0)).toBe('idle');
+  });
+
+  it('lets working outrank blocked — the panel names the work it can show', () => {
+    // Both are true at once often enough (one agent building, another ticket
+    // waiting). This panel's subject is the work in motion, and it lists those
+    // tickets underneath; the blocker is stated in the feed, pinned, with its
+    // reason. A head that said "blocked" over a list of live rows would
+    // contradict the rows it heads.
+    expect(workingPanelState(1, 3)).toBe('working');
+  });
+});
+
+describe('workingPanelLabel', () => {
+  it('gives each state its own word', () => {
+    expect(workingPanelLabel('working')).toBe('working now');
+    expect(workingPanelLabel('blocked')).toBe('blocked');
+    expect(workingPanelLabel('idle')).toBe('idle');
+  });
+
+  it('is lower case — the head is set in small caps by CSS, not by the string', () => {
+    // Upper case here would double-shout it anywhere the text is read rather
+    // than rendered, the accessible name included.
+    for (const state of ['working', 'blocked', 'idle'] as const) {
+      const label = workingPanelLabel(state);
+      expect(label).toBe(label.toLowerCase());
+    }
+  });
+});
+
+describe('blockedCount', () => {
+  it('counts the board blocked bucket', () => {
+    const board = makeBoard({
+      blocked: [
+        makeTicket({
+          id: 'b1',
+          title: 'blocked one',
+          body: 'body',
+          state: 'blocked',
+          priority: 1,
+          createdAt: '2026-08-04T09:00:00Z',
+          updatedAt: '2026-08-04T09:00:00Z',
+        }),
+      ],
+    });
+    expect(blockedCount(board)).toBe(1);
+  });
+
+  it('is zero before the first snapshot, rather than raising an alarm on an unknown board', () => {
+    expect(blockedCount(null)).toBe(0);
   });
 });

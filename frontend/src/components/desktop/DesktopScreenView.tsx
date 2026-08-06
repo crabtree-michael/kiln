@@ -43,7 +43,7 @@ import { ActivityRow } from '@/components/ActivityRow';
 import { DesktopRail } from '@/components/desktop/DesktopRail';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
 import { WorkingNow } from '@/components/desktop/WorkingNow';
-import { workingTickets } from '@/components/desktop/working-now';
+import { blockedCount, workingTickets } from '@/components/desktop/working-now';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { lastWordDetail, streamDetail } from '@/components/feed-format';
@@ -323,6 +323,7 @@ export function DesktopScreenView({
       <div data-role="desktop-working-panel">
         <WorkingNow
           tickets={inProgress}
+          blocked={blockedCount(board)}
           active={working}
           onOpenTicket={setOpenTicketId}
           now={now}

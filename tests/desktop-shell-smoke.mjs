@@ -635,12 +635,22 @@ console.log(
     await page.evaluate(() => {
       const panel = document.querySelector('[data-role="detail-sandbox-panel"]');
       const sheet = document.querySelector('[data-role="ticket-detail"]');
-      if (!panel || !sheet) return 'missing';
+      const trigger = document.querySelector('[data-role="detail-sandbox-trigger"]');
+      const heading = document.querySelector('[data-role="ticket-detail-heading"]');
+      if (!panel || !sheet || !trigger || !heading) return 'missing';
       const p = panel.getBoundingClientRect();
       const s = sheet.getBoundingClientRect();
       return {
         items: [...panel.querySelectorAll('button')].map((b) => b.textContent?.trim()),
         insideSheet: p.left >= s.left && p.right <= s.right && p.bottom <= s.bottom,
+        // The gear sits at the status row's END: its glyph should land on the
+        // heading column's own right edge (0 = flush) — `margin-left: auto` on
+        // the menu carries it there, and the trigger's negative margin cancels
+        // its hit-area padding so what aligns is the glyph, not the button box.
+        gearOffHeadingRight: Math.round(
+          heading.getBoundingClientRect().right -
+            (trigger.firstElementChild ?? trigger).getBoundingClientRect().right,
+        ),
         // The topmost element at the panel's own centre is the panel itself, not
         // the body text it opened over.
         onTop: document

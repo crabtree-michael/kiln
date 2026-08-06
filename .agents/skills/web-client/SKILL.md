@@ -462,8 +462,8 @@ Two consequences worth keeping when you touch either:
 ### All of it lives behind ONE gear (`TicketDetailSandboxMenu`)
 
 The three sandbox affordances used to be a checkbox, two buttons and three paragraphs of
-explanation at the foot of the sheet's scrolling body. They are now one gear **leading** the
-sheet's **status row** (directly under the title's left edge, ahead of the
+explanation at the foot of the sheet's scrolling body. They are now one gear at the **end** of
+the sheet's **status row** (under the title, on the sheet's right edge, after the
 "In progress"/"Blocked"/"Done" badge) opening a dropdown. Points worth keeping:
 
 - **Each item self-gates on its callback arriving.** `TicketDetail` decides — toggle whenever
@@ -481,11 +481,12 @@ sheet's **status row** (directly under the title's left edge, ahead of the
   this sheet needs the same trick.
 - **The panel is absolutely positioned inside the header, which carries `position: relative;
   z-index: 1`** so it paints over the scrolling body rather than under it. It opens
-  down-and-**right** (`left: 0`, `transform-origin: top left`) from the trigger at the row's
-  **start**, which keeps it inside the sheet's `overflow: hidden` in both shells — the desktop
-  panel needs no re-anchoring (unlike the bell, above). **The anchor tracks the trigger:** it
-  hung `right: 0` while the gear sat at the row's end, and moving the gear without moving the
-  anchor would clip the panel off the sheet's edge. `desktop-shell-smoke.mjs` measures exactly
+  down-and-**left** (`right: 0`, `transform-origin: top right`) from the trigger at the row's
+  **end** (`margin-left: auto` on the menu), which keeps it inside the sheet's `overflow:
+  hidden` in both shells — the desktop panel needs no re-anchoring (unlike the bell, above).
+  **The anchor tracks the trigger:** it hung `left: 0` while the gear led the row,
+  and moving the gear without moving the anchor would clip the panel off the sheet's edge.
+  `desktop-shell-smoke.mjs` measures exactly
   that (`SANDBOX MENU`: inside the sheet, panel on top, Escape closes the menu and not the
   sheet); `TicketDetail.header-layout.test.ts` pins the CSS in the gate.
 - **A closed panel stays mounted** (so it animates both ways) and is taken out of the page by

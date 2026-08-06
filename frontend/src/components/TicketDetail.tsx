@@ -788,17 +788,31 @@ export function TicketDetail({
                   }}
                 />
               )}
-              {/* The status row, directly under the title: the sandbox gear and
-                  the lifecycle badge, side by side. They share a line because
-                  they answer the two questions asked at a glance — what can be
-                  done about the workspace behind this ticket, and what is
-                  happening to it — and because the gear needs a home that exists
-                  on every lifecycle state, including the ones that wear no badge.
-                  The gear leads the row so it sits on the title's own left edge
-                  rather than off in the corner the × used to hold. It is skipped
-                  entirely when neither has anything to show. */}
+              {/* The status row, directly under the title: the lifecycle badge
+                  and the sandbox gear, side by side. They share a line because
+                  they answer the two questions asked at a glance — what is
+                  happening to this ticket, and what can be done about the
+                  workspace behind it — and because the gear needs a home that
+                  exists on every lifecycle state, including the ones that wear no
+                  badge. The badge leads, reading from the title's own left edge;
+                  the gear is pushed to the row's far end (CSS `margin-left:
+                  auto`), so it lands in the same right-hand corner whatever the
+                  badge says, or says nothing. The row is skipped entirely when
+                  neither has anything to show. */}
               {(statusLabel !== undefined || showSandboxMenu) && (
                 <div data-role="ticket-detail-status-row">
+                  {/* The lifecycle badge: a dot + word that names the ticket's
+                      state at a glance (In progress / Blocked / Done), each in its
+                      own colour. Only the states that carry a signal show one;
+                      shaping/ready wear none. Keyed on data-state (not Radix's own
+                      data-state, which lives on the panel) for its per-state
+                      colour. */}
+                  {statusLabel !== undefined && (
+                    <span data-role="ticket-detail-status" data-state={ticket.state}>
+                      <span data-role="ticket-detail-status-dot" aria-hidden="true" />
+                      {statusLabel}
+                    </span>
+                  )}
                   {/* Every sandbox decision for this ticket, behind one gear. Each
                       item is gated by whether its callback arrives: the two
                       destructive ones only on a ticket that has a sandbox, and Move
@@ -813,18 +827,6 @@ export function TicketDetail({
                       onReassignSandbox={hasSandbox && canReassign ? onReassignSandbox : undefined}
                       sandboxStatusLabel={hasSandbox ? sandboxStatusLabel : undefined}
                     />
-                  )}
-                  {/* The lifecycle badge: a dot + word that names the ticket's
-                      state at a glance (In progress / Blocked / Done), each in its
-                      own colour. Only the states that carry a signal show one;
-                      shaping/ready wear none. Keyed on data-state (not Radix's own
-                      data-state, which lives on the panel) for its per-state
-                      colour. */}
-                  {statusLabel !== undefined && (
-                    <span data-role="ticket-detail-status" data-state={ticket.state}>
-                      <span data-role="ticket-detail-status-dot" aria-hidden="true" />
-                      {statusLabel}
-                    </span>
                   )}
                 </div>
               )}

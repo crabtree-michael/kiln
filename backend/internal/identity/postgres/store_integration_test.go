@@ -640,3 +640,158 @@ func TestListProjectsOrderedByCreatedAt(t *testing.T) {
 		t.Fatalf("ListProjects ids = %v, want both %q and %q", ids, p1.ID, p2.ID)
 	}
 }
+
+// ---- GitHub App installation (design 2026-08-04) ---------------------------
+
+// The installation columns round-trip through the same upsert as the rest of
+// the row. Worth its own test because 0008 added two columns the upsert never
+// listed, so they read back as whatever the default was no matter what the
+// service wrote — a bug invisible to every unit test, since the fake store just
+// keeps the struct.
+func TestUserConfigInstallationRoundTrips(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	user := mustNewUser(ctx, t, store, identity.User{GitHubID: 4242, GitHubLogin: "installer"})
+
+	zero, err := store.GetUserConfig(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig before any write: %v", err)
+	}
+	if zero.GitHubInstallationID != 0 || zero.GitHubInstallationRevokedAt != nil {
+		t.Fatalf("unwritten config = %+v, want no installation", zero)
+	}
+
+	const installation = int64(987654)
+	if err := store.UpsertUserConfig(ctx, identity.UserConfig{
+		UserID:               user.ID,
+		GitHubTokenEnc:       []byte{0xFF},
+		GitHubInstallationID: installation,
+		GitHubConnectedLogin: "installer",
+	}); err != nil {
+		t.Fatalf("UpsertUserConfig: %v", err)
+	}
+
+	got, err := store.GetUserConfig(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig: %v", err)
+	}
+	if got.GitHubInstallationID != installation {
+		t.Errorf("installation = %d, want %d", got.GitHubInstallationID, installation)
+	}
+	if got.GitHubConnectedLogin != "installer" {
+		t.Errorf("connected login = %q, want %q", got.GitHubConnectedLogin, "installer")
+	}
+	if got.GitHubInstallationRevokedAt != nil {
+		t.Errorf("revoked at = %v, want nil on a fresh connection", got.GitHubInstallationRevokedAt)
+	}
+}
+
+// MarkInstallationRevoked is keyed by INSTALLATION, not by user, because the
+// failure arrives from the credential path — which knows the installation it
+// could not mint against and not whose it is. So it must mark every user on that
+// installation, leave everyone else alone, and be idempotent under the hourly
+// retry of a dead grant.
+func TestMarkInstallationRevoked(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	const doomed, healthy = int64(111), int64(222)
+	onDoomed := mustNewUser(ctx, t, store, identity.User{GitHubID: 1, GitHubLogin: "doomed-one"})
+	alsoDoomed := mustNewUser(ctx, t, store, identity.User{GitHubID: 2, GitHubLogin: "doomed-two"})
+	unaffected := mustNewUser(ctx, t, store, identity.User{GitHubID: 3, GitHubLogin: "fine"})
+	for _, seed := range []struct {
+		userID       string
+		installation int64
+	}{
+		{onDoomed.ID, doomed}, {alsoDoomed.ID, doomed}, {unaffected.ID, healthy},
+	} {
+		if err := store.UpsertUserConfig(ctx, identity.UserConfig{
+			UserID: seed.userID, GitHubInstallationID: seed.installation,
+		}); err != nil {
+			t.Fatalf("seed config for %s: %v", seed.userID, err)
+		}
+	}
+
+	first := time.Now().UTC().Truncate(time.Millisecond)
+	if err := store.MarkInstallationRevoked(ctx, doomed, first); err != nil {
+		t.Fatalf("MarkInstallationRevoked: %v", err)
+	}
+
+	for _, id := range []string{onDoomed.ID, alsoDoomed.ID} {
+		cfg, err := store.GetUserConfig(ctx, id)
+		if err != nil {
+			t.Fatalf("GetUserConfig(%s): %v", id, err)
+		}
+		if cfg.GitHubInstallationRevokedAt == nil {
+			t.Errorf("user %s on the dead installation was not marked", id)
+		}
+	}
+	other, err := store.GetUserConfig(ctx, unaffected.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig(unaffected): %v", err)
+	}
+	if other.GitHubInstallationRevokedAt != nil {
+		t.Error("a user on a different installation was marked")
+	}
+
+	// Idempotent: the retry an hour later must not rewrite the moment the grant
+	// actually died, which is the only forensic value the column has.
+	before, err := store.GetUserConfig(ctx, onDoomed.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig: %v", err)
+	}
+	if err := store.MarkInstallationRevoked(ctx, doomed, first.Add(time.Hour)); err != nil {
+		t.Fatalf("second MarkInstallationRevoked: %v", err)
+	}
+	after, err := store.GetUserConfig(ctx, onDoomed.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig: %v", err)
+	}
+	if !after.GitHubInstallationRevokedAt.Equal(*before.GitHubInstallationRevokedAt) {
+		t.Errorf("revoked-at moved from %v to %v; the first rejection is the one that matters",
+			before.GitHubInstallationRevokedAt, after.GitHubInstallationRevokedAt)
+	}
+
+	// A reconnect clears it — the user has answered whatever killed the grant.
+	cleared := after
+	cleared.GitHubInstallationRevokedAt = nil
+	if err := store.UpsertUserConfig(ctx, cleared); err != nil {
+		t.Fatalf("clear revocation: %v", err)
+	}
+	reread, err := store.GetUserConfig(ctx, onDoomed.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig: %v", err)
+	}
+	if reread.GitHubInstallationRevokedAt != nil {
+		t.Error("reconnecting did not clear the revocation mark")
+	}
+}
+
+// Installation 0 is the "not connected" sentinel every unconnected row carries.
+// Marking it must be a no-op — the WHERE would otherwise sweep the entire table
+// and tell every user who has never connected that they need to reconnect.
+func TestMarkInstallationRevokedIgnoresTheZeroSentinel(t *testing.T) {
+	db := testDB(t)
+	store := postgres.New(db)
+	ctx := context.Background()
+
+	user := mustNewUser(ctx, t, store, identity.User{GitHubID: 7, GitHubLogin: "unconnected"})
+	if err := store.UpsertUserConfig(ctx, identity.UserConfig{UserID: user.ID}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	if err := store.MarkInstallationRevoked(ctx, 0, time.Now()); err != nil {
+		t.Fatalf("MarkInstallationRevoked(0): %v", err)
+	}
+
+	cfg, err := store.GetUserConfig(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserConfig: %v", err)
+	}
+	if cfg.GitHubInstallationRevokedAt != nil {
+		t.Error("an unconnected user was marked as needing a reconnect")
+	}
+}

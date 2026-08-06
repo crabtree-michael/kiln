@@ -48,6 +48,28 @@ services:
         sync: false
       - key: GITHUB_REPO_URL
         sync: false
+      # Dashboard auth (11 §2) through a GitHub App — it replaced the OAuth App
+      # (GITHUB_OAUTH_CLIENT_ID/_SECRET) on 2026-08-06, and those two are gone.
+      # All five must be present or identity stays unmounted; a partial set
+      # serves a connect route whose callback always fails, so the boot gate
+      # refuses it and logs what is missing.
+      - key: KILN_GITHUB_APP_ID
+        sync: false
+      - key: KILN_GITHUB_APP_SLUG
+        sync: false
+      # BASE64-encoded PEM on one line. Render's env vars mangle multi-line
+      # values, so the key is packaged rather than pasted; the backend decodes it
+      # once at boot and fails the boot if it cannot.
+      - key: KILN_GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: KILN_GITHUB_APP_CLIENT_ID
+        sync: false
+      - key: KILN_GITHUB_APP_CLIENT_SECRET
+        sync: false
+      - key: KILN_ALLOWED_GITHUB_USERS
+        sync: false
+      - key: KILN_SECRETS_KEY
+        sync: false
       # Web Push VAPID pair (02 §10): both keys unset ⇒ push disabled, log-only
       # notifier. Values set out-of-band; the public key is served to clients
       # via /api/push/key, the private key never leaves the backend.

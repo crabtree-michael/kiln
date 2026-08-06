@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/verify"
 )
 
@@ -17,7 +18,7 @@ func TestMockVerifierReportsOK(t *testing.T) {
 		{"anthropic", m.VerifyAnthropic(ctx, "any").Status},
 		{"amika", m.VerifyAmika(ctx, "any").Status},
 		{"devin", m.VerifyDevin(ctx, "any").Status},
-		{"repo", m.VerifyRepo(ctx, "repo", "token").Status},
+		{nameRepoCheck, m.VerifyRepo(ctx, "repo", identity.StaticTokenSource("token")).Status},
 	} {
 		if got.result != "ok" {
 			t.Errorf("%s status = %q, want ok", got.name, got.result)

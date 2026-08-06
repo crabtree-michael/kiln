@@ -94,6 +94,13 @@ export function parseSignupPath(value: string | null): SignupPath {
 
 const UNSET: SecretStatus = { set: false, tail: '' };
 
+/** The GitHub App installation the rehearsal pretends the user just created,
+ * and the link the real card would offer beside it. Obviously fake: `/signup`
+ * saves nothing and reaches nothing, so neither must be mistaken for something
+ * anybody could act on. */
+const SIMULATED_INSTALLATION_ID = 1;
+const SIMULATED_CONFIGURE_URL = 'https://github.com/settings/installations/1';
+
 /** The account the flow is handed at the start of a run.
  *
  * BOTH paths drop `projects`, and that is what makes `/signup` repeatable: the
@@ -112,7 +119,12 @@ export function accountForPath(account: Me, path: SignupPath): Me {
       amika_api_key: UNSET,
       devin_api_key: UNSET,
       github_auth_token: UNSET,
-      github_connection: { status: 'disconnected', login: '', scopes: [] },
+      github_connection: {
+        status: 'disconnected',
+        login: '',
+        installation_id: 0,
+        configure_url: '',
+      },
       amika_claude_cred_id: '',
     },
   };
@@ -245,7 +257,8 @@ export function useSignupRun(account: Me, path: SignupPath): SignupRun {
         github_connection: {
           status: 'connected',
           login: current.user.github_login,
-          scopes: ['repo'],
+          installation_id: SIMULATED_INSTALLATION_ID,
+          configure_url: SIMULATED_CONFIGURE_URL,
         },
       },
     });

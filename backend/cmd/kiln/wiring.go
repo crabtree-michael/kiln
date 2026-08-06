@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -332,10 +335,14 @@ func buildTenantProviders(
 	// The brain's repo-inspection shell: a maintained clone under a per-project
 	// directory, from the project repo with its owner's token. repo.New is
 	// non-fatal — an unconfigured/failed clone yields a disabled shell.
+	// The token is a SOURCE, not a value: an installation token dies within the
+	// hour, and this shell outlives many of them. The conversion is explicit
+	// because repo declares its own TokenSource rather than importing identity's
+	// — the whole point of it depending on nothing.
 	repoShell := repo.New(ctx, repo.Config{
-		RepoURL:   rc.Project.RepoURL,
-		AuthToken: rc.GitHubAuthToken,
-		Dir:       cfg.RepoDir + "/" + pid,
+		RepoURL: rc.Project.RepoURL,
+		Token:   repo.TokenSource(rc.GitHubToken),
+		Dir:     cfg.RepoDir + "/" + pid,
 	})
 
 	// The brain model is a backend-only setting (06 §2): KILN_BRAIN_MODEL
@@ -431,18 +438,66 @@ func newVoiceMinter(cfg Config) api.VoiceTokenMinter {
 	})
 }
 
-// newGitHub builds identity's GitHub adapter (11 §2, plus the settings repo
+// githubAdapter is the pair of ports identity needs from one GitHub object: the
+// user-facing calls (identity.GitHub) and the installation-token mint
+// (identity.Minter). They are separate interfaces because they have separate
+// consumers — the service and the token cache — and one adapter because they are
+// two halves of one GitHub App.
+type githubAdapter interface {
+	identity.GitHub
+	identity.Minter
+}
+
+// newGitHub builds identity's GitHub App adapter (11 §2, plus the settings repo
 // picker). KILN_GITHUB_MODE=mock swaps it for the offline stand-in so a keyless
 // stack can list repos — and therefore onboard through the real form — with no
 // GitHub credential anywhere (keyless design §3).
-func newGitHub(cfg Config) identity.GitHub {
+//
+// It returns an error only for a malformed private key, which must fail the boot
+// rather than the first user's sign-in: a key that cannot sign produces a
+// perfectly working-looking connect flow whose every mint 500s.
+func newGitHub(cfg Config) (githubAdapter, error) {
 	if cfg.GitHubMode == modeMock {
-		return githubmock.New()
+		return githubmock.New(), nil
+	}
+	key, err := parseAppPrivateKey(cfg.GitHubAppPrivateKey)
+	if err != nil {
+		return nil, err
 	}
 	return githubapi.New(githubapi.Config{
-		ClientID:     cfg.GitHubOAuthClientID,
-		ClientSecret: cfg.GitHubOAuthClientSecret,
-	}, nil)
+		ClientID:      cfg.GitHubAppClientID,
+		ClientSecret:  cfg.GitHubAppClientSecret,
+		AppID:         cfg.GitHubAppID,
+		AppSlug:       cfg.GitHubAppSlug,
+		AppPrivateKey: key,
+	}, nil), nil
+}
+
+// parseAppPrivateKey turns KILN_GITHUB_APP_PRIVATE_KEY into a signing key.
+//
+// The value is stored BASE64-ENCODED. GitHub hands out a multi-line PEM, and
+// multi-line secrets survive a hosting provider's environment poorly — they get
+// their newlines mangled, or silently truncated at the first blank line — so the
+// PEM is base64'd into one line for transport and decoded here, once, at boot.
+//
+// A raw PEM is accepted too. Not as a fallback to lean on, but because the two
+// forms are trivially distinguishable and a deployment that pastes the .pem
+// directly should fail on something real rather than on the packaging.
+func parseAppPrivateKey(raw string) (*rsa.PrivateKey, error) {
+	raw = strings.TrimSpace(raw)
+	pemBytes := []byte(raw)
+	if !strings.HasPrefix(raw, "-----BEGIN") {
+		decoded, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("kiln: KILN_GITHUB_APP_PRIVATE_KEY is neither PEM nor base64: %w", err)
+		}
+		pemBytes = decoded
+	}
+	key, err := githubapi.ParsePrivateKey(pemBytes)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: KILN_GITHUB_APP_PRIVATE_KEY: %w", err)
+	}
+	return key, nil
 }
 
 // newVerifier builds identity's live-check adapter (11 §4). KILN_VERIFY_MODE=mock
@@ -638,38 +693,88 @@ func newSteward(
 	)
 }
 
-// buildIdentity constructs the dashboard-auth service (11 §2) when
-// GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY
-// are ALL set, returning a nil *identity.Service (not mounted) when all three
-// are unset — an unconfigured boot is today's boot. A malformed
-// KILN_SECRETS_KEY fails hard (11 §3): a half-working cipher must never
-// silently store plaintext. Any partial subset (one or two of the three set)
-// is a misconfiguration too incomplete to run identity from — mounting on
-// ClientID+SecretsKey alone would serve a working-looking /auth/github/connect
-// whose callback always fails the token exchange (final review, Minor #3) —
-// so it logs a warning and stays unmounted rather than erroring.
-func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service, error) {
-	switch {
-	case cfg.GitHubOAuthClientID != "" && cfg.GitHubOAuthClientSecret != "" && cfg.SecretsKey != "":
-		cipher, err := identity.NewCipher(cfg.SecretsKey)
-		if err != nil {
-			return nil, fmt.Errorf("kiln: identity cipher: %w", err)
-		}
-		idSvc := identity.NewService(identitypg.New(db), cipher, newGitHub(cfg), cfg.AllowedGitHubUsers)
-		idSvc.SetVerifier(newVerifier(cfg))
-		// Keyless only: make a dev-minted session carry a GitHub credential, so the
-		// onboarding form's repo picker is populated with the mock listing. Never
-		// set against real GitHub — it would overwrite a user's real token.
-		if cfg.GitHubMode == modeMock {
-			idSvc.SetDevGitHubToken(githubmock.MockToken)
-		}
-		return idSvc, nil
-	case cfg.GitHubOAuthClientID != "" || cfg.GitHubOAuthClientSecret != "" || cfg.SecretsKey != "":
-		log.Warn("identity disabled: need all of GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and KILN_SECRETS_KEY")
+// identityEnvVars lists the settings identity needs, in the order an operator
+// reads them. Named here so the boot gate's "all or nothing" test and its
+// warning message can never drift apart.
+var identityEnvVars = []string{
+	"KILN_GITHUB_APP_ID", "KILN_GITHUB_APP_SLUG", "KILN_GITHUB_APP_PRIVATE_KEY",
+	"KILN_GITHUB_APP_CLIENT_ID", "KILN_GITHUB_APP_CLIENT_SECRET", "KILN_SECRETS_KEY",
+}
+
+// identitySettings returns the values behind identityEnvVars, positionally.
+func identitySettings(cfg Config) []string {
+	return []string{
+		cfg.GitHubAppID, cfg.GitHubAppSlug, cfg.GitHubAppPrivateKey,
+		cfg.GitHubAppClientID, cfg.GitHubAppClientSecret, cfg.SecretsKey,
 	}
-	//nolint:nilnil // a nil *identity.Service with a nil error IS "not configured" — the
-	// caller's idSvc != nil check is exactly this contract, not an ambiguous failure.
-	return nil, nil
+}
+
+// buildIdentity constructs the dashboard-auth service (11 §2) when every
+// identityEnvVars setting is present, returning a nil *identity.Service (not
+// mounted) when they are all absent — an unconfigured boot is today's boot.
+//
+// A malformed KILN_SECRETS_KEY or App private key fails HARD (11 §3): a
+// half-working cipher must never silently store plaintext, and a key that cannot
+// sign would serve a flawless-looking connect flow whose every mint fails.
+//
+// A partial subset is a misconfiguration too incomplete to run identity from —
+// mounting on the client id alone would serve a working-looking
+// /auth/github/connect whose callback always fails the token exchange (final
+// review, Minor #3) — so it logs a warning naming what is missing and stays
+// unmounted rather than erroring. The five App settings arrived together
+// replacing GITHUB_OAUTH_CLIENT_ID/_SECRET, which is exactly the situation this
+// gate exists to catch: a deploy that updated some of them and not the rest.
+func buildIdentity(cfg Config, db *sql.DB, log *slog.Logger) (*identity.Service, error) {
+	set, missing := partitionSettings(identityEnvVars, identitySettings(cfg))
+	switch {
+	case len(missing) == 0:
+	case len(set) == 0:
+		//nolint:nilnil // a nil *identity.Service with a nil error IS "not configured" — the
+		// caller's idSvc != nil check is exactly this contract, not an ambiguous failure.
+		return nil, nil
+	default:
+		log.Warn("identity disabled: incomplete configuration", "missing", strings.Join(missing, ", "))
+		//nolint:nilnil // as above.
+		return nil, nil
+	}
+
+	cipher, err := identity.NewCipher(cfg.SecretsKey)
+	if err != nil {
+		return nil, fmt.Errorf("kiln: identity cipher: %w", err)
+	}
+	gh, err := newGitHub(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// The mint cache is built over the same adapter the service talks to, and
+	// handed to the service so a rejected mint can be recorded against the users
+	// on that installation (what turns a runtime failure into a "reconnect" card).
+	idSvc := identity.NewService(
+		identitypg.New(db), cipher, gh, identity.NewInstallationTokens(gh), cfg.AllowedGitHubUsers,
+	)
+	idSvc.SetVerifier(newVerifier(cfg))
+	// Keyless only: make a dev-minted session carry a GitHub connection, so the
+	// onboarding form's repo picker is populated with the mock listing. Never set
+	// against real GitHub — it would overwrite a user's real installation.
+	if cfg.GitHubMode == modeMock {
+		idSvc.SetDevGitHubConnection(githubmock.MockInstallationID, githubmock.MockToken)
+	}
+	return idSvc, nil
+}
+
+// partitionSettings splits parallel name/value slices into the names that are
+// set and the names that are not — the shape a boot gate wants: "all", "none",
+// or "here is precisely what you forgot".
+func partitionSettings(names, values []string) ([]string, []string) {
+	var set, missing []string
+	for i, name := range names {
+		if values[i] != "" {
+			set = append(set, name)
+			continue
+		}
+		missing = append(missing, name)
+	}
+	return set, missing
 }
 
 // resolveAmikaBaseURL is the platform-global Amika base URL (AMIKA_BASE_URL,
@@ -728,7 +833,7 @@ func enableServerRoutes(
 	server.EnableHealthz(version, db.PingContext)
 	server.EnableSPA(web.Handler())
 	// Dashboard auth (11 §2, §4): mounted only when idSvc was constructed
-	// (both GITHUB_OAUTH_CLIENT_ID and KILN_SECRETS_KEY set) — an unconfigured
+	// (every KILN_GITHUB_APP_* setting and KILN_SECRETS_KEY set) — an unconfigured
 	// boot leaves /auth/* and /api/me absent (dark-when-unconfigured).
 	if idSvc != nil {
 		server.EnableIdentity(idSvc, idSvc)

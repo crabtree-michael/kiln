@@ -47,29 +47,45 @@ dashboard is onboarding + settings only), and any auth provider dependency (§10
 
 ## 2. Identity & auth
 
-**Sign-in: GitHub OAuth web application flow, self-implemented** (§10, D2). Two
-endpoints and one token exchange:
+**Sign-in: a GitHub App, self-implemented** (§10, D2; amended 2026-08-06, design
+`2026-08-04-github-app-repo-selection-design.md`). Two endpoints and one token exchange:
 
-- `GET /auth/github/connect` — sets an OAuth `state` nonce (short-lived cookie), redirects
-  to GitHub's authorize URL requesting the `repo` scope. **There is exactly one flow**
-  (amended 2026-08-03): signing in and connecting GitHub are the same act, and the token
-  it yields is stored as the user's repo credential. The old scopeless
-  `GET /auth/github/login` is a deprecated 302 into this route, kept only for bookmarks.
+- `GET /auth/github/connect` — sets a `state` nonce (short-lived cookie), redirects to the
+  App's install page (`github.com/apps/<slug>/installations/new`), where GitHub renders the
+  **"All repositories / Only select repositories" chooser**. **There is exactly one flow**
+  (amended 2026-08-03): signing in and connecting GitHub are the same act. With "Request
+  user authorization (OAuth) during installation" enabled on the App, one trip returns both
+  halves — the installation and a user-authorization code — so there is no second route.
 - `GET /auth/github/callback` — verifies `state`, exchanges the code
-  (`GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`), fetches `GET /user`, then:
-  - username on the allowlist → find-or-create the `users` row, store the access token
-    and its granted scopes in `user_config`, create a session, redirect to `/dashboard`;
+  (`KILN_GITHUB_APP_CLIENT_ID`/`_CLIENT_SECRET`), fetches `GET /user`, then:
+  - username on the allowlist → find-or-create the `users` row, store the `installation_id`
+    and the user access token in `user_config`, create a session, redirect to `/dashboard`;
   - not on the allowlist → a friendly "Kiln is invite-only" page; **no user row is
     created**.
-  - allowlisted but GitHub withheld `repo` (the user unticked an org, or the OAuth app
-    isn't approved there) → the session is still created, **no credential is stored**,
-    and a page explains what's missing and offers the retry. Signing them in is the
-    point: the retry lives inside the app.
+  - allowlisted but nothing was installed (they cleared the sign-in screen then backed out
+    of the install) → the session is still created, **no installation is stored**, and a page
+    explains what's missing and offers the retry. Signing them in is the point: the retry
+    lives inside the app.
+  - `installation_id` with **no `code`** — somebody installed from GitHub's own Apps page,
+    so there was no authorize step — → attach the installation to the session's user. No
+    session, no state to check: redirect to `/auth/github/connect`, where the normal flow
+    picks the same installation back up.
 
-**Sessions predating the merge keep working.** A user who only ever did the old scopeless
-sign-in has a session and no repo credential — the ordinary "disconnected" state the
-dashboard already renders. They pick up repo access the next time they run the flow; there
-is no forced re-auth and no backfill.
+**The credential model changed with it.** An OAuth App handed over a long-lived,
+account-wide token Kiln stored forever. A GitHub App hands over an **installation** — the
+repositories the user picked — and Kiln mints an **installation access token** (≈1 hour)
+against it on demand, signing an RS256 JWT with the App private key. So `user_config` holds
+an identifier where it held a secret, and every repo-touching call site takes a *token
+source* rather than a token, because a value resolved at wiring time would be dead before
+a long agent turn used it. The private key is the only long-lived secret, and it never
+leaves the backend.
+
+**Every session was invalidated at the cutover** (migration `0009`). Each existing session
+was minted by an OAuth grant whose token the same migration deletes; leaving them alive
+would have left people signed in to an account with no repository access and no prompt to
+fix it. Since the sign-in flow *is* the connect flow, the honest way back is through the
+front door — users sign in again and land on the repository chooser. There was no backfill
+because there is nothing an automated migration could have chosen on their behalf.
 
 **Allowlist: `KILN_ALLOWED_GITHUB_USERS`** — comma-separated GitHub usernames,
 case-insensitive (§10, D1). An env var, not a table: adding a user is a one-line Render
@@ -231,15 +247,20 @@ existing `.env` still yields a working instance with no onboarding clicks.
 user. Existing e2e suites keep passing in phase 1 untouched (nothing they call is
 guarded); in phase 2 they add this one setup call.
 
-**New platform env vars:** `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
-`KILN_ALLOWED_GITHUB_USERS`, `KILN_SECRETS_KEY`, `KILN_BOOTSTRAP_GITHUB_USER`. The
-per-user credential env vars disappear from prod once bootstrap has seeded them
+**New platform env vars:** `KILN_GITHUB_APP_ID`, `KILN_GITHUB_APP_SLUG`,
+`KILN_GITHUB_APP_PRIVATE_KEY` (base64-encoded PEM — a multi-line secret does not survive
+an env var), `KILN_GITHUB_APP_CLIENT_ID`, `KILN_GITHUB_APP_CLIENT_SECRET`,
+`KILN_ALLOWED_GITHUB_USERS`, `KILN_SECRETS_KEY`, `KILN_BOOTSTRAP_GITHUB_USER`. The first
+five replaced `GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET` on 2026-08-06. The
+identity settings are **all-or-nothing**: a partial set leaves identity unmounted with a
+warning naming what is missing, rather than serving a connect route whose callback always
+fails. The per-user credential env vars disappear from prod once bootstrap has seeded them
 (compose keeps them for local dev seeding).
 
 **Rollout order:**
 
 1. **Phase 1 ships dark:** new tables + auth + dashboard deploy; register the GitHub
-   OAuth app; set the new env vars; the operator signs in and configures via the
+   App; set the new env vars; the operator signs in and configures via the
    dashboard; `verify` passes. The app and runtime are provably untouched (their tests
    didn't change).
 2. **Phase 2 flips tenancy:** `project_id` threading + registry + app auth + bootstrap

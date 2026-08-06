@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
-	"slices"
 	"strings"
 	"time"
 
@@ -38,25 +37,34 @@ const (
 	statusSkipped = "skipped"
 )
 
-// GitHub is the service's port onto the OAuth provider — satisfied directly
-// by *githubapi.Client (the consumer declares the interface, 02 §2).
+// GitHub is the service's port onto the GitHub App — satisfied directly by
+// *githubapi.Client (the consumer declares the interface, 02 §2).
 type GitHub interface {
-	// AuthorizeURL builds the authorize redirect for a state nonce and scope;
-	// an empty scope is the plain sign-in grant (no `scope` param at all).
-	AuthorizeURL(state, scope string) string
-	// ExchangeCode returns the access token AND the scope string GitHub
-	// actually granted it — which can be narrower than the one requested.
-	ExchangeCode(ctx context.Context, code string) (string, string, error)
+	// InstallURL builds the install redirect for a state nonce — the page where
+	// GitHub renders the "All repositories / Only select repositories" chooser.
+	// With user authorization enabled on the App, one trip through it yields
+	// both the installation and a user-authorization code.
+	InstallURL(state string) string
+	// ExchangeCode returns the USER access token for a callback code. It is the
+	// same endpoint the OAuth App used, authenticated with the App's own client
+	// id and secret; the scope string it used to return went away with the
+	// scopes themselves — a GitHub App's reach is its installation permissions,
+	// decided at registration, not a per-grant scope list.
+	ExchangeCode(ctx context.Context, code string) (string, error)
 	FetchUser(ctx context.Context, accessToken string) (githubapi.GitHubUser, error)
-	// ListRepos returns the repos the access token can reach, for the settings
-	// repo picker. A token GitHub rejects (revoked, or one that never carried
-	// the repo scope) yields githubapi.ErrUnauthorized.
+	// ListRepos returns the repos a raw access token can reach — the picker's
+	// source for a hand-typed PAT or bootstrap token, which has no installation
+	// to narrow. A token GitHub rejects yields githubapi.ErrUnauthorized.
 	ListRepos(ctx context.Context, accessToken string) ([]githubapi.Repo, error)
-	// TokenScopes reports the scopes an already-stored token carries, so a
-	// credential Kiln did not mint (a PAT carried over from the old manual
-	// field) can be classified without the user re-entering anything. An
-	// error means "could not determine", never "no scopes".
-	TokenScopes(ctx context.Context, accessToken string) (string, error)
+	// ListInstallationRepos returns the repos of ONE installation the user can
+	// themselves see — the picker's source once an installation exists, and the
+	// user-visible payoff of the App: it lists exactly what they ticked on
+	// GitHub's chooser. accessToken is the USER token, not a minted one.
+	ListInstallationRepos(ctx context.Context, accessToken string, installationID int64) ([]githubapi.Repo, error)
+	// ConfigureURL is GitHub's own settings page for one installation, where the
+	// repository selection is changed. Kiln links out to it rather than
+	// reimplementing a screen only GitHub can render.
+	ConfigureURL(installationID int64) string
 }
 
 // Verifier is the service's port onto live connection checks — satisfied by
@@ -66,7 +74,10 @@ type Verifier interface {
 	VerifyAnthropic(ctx context.Context, apiKey string) CheckResult
 	VerifyAmika(ctx context.Context, apiKey string) CheckResult
 	VerifyDevin(ctx context.Context, apiKey string) CheckResult
-	VerifyRepo(ctx context.Context, repoURL, token string) CheckResult
+	// VerifyRepo probes repo reachability with a credential resolved AT PROBE
+	// TIME: an installation token is minted per use and would be stale if the
+	// caller had resolved it earlier.
+	VerifyRepo(ctx context.Context, repoURL string, token TokenSource) CheckResult
 }
 
 // Service is identity's domain service (11 §2–§4): login, sessions, config.
@@ -74,133 +85,153 @@ type Service struct {
 	store      Store
 	cipher     *Cipher
 	gh         GitHub
+	tokens     *InstallationTokens
 	verifier   Verifier
 	allowed    map[string]bool
 	now        func() time.Time
 	invalidate func(projectID string)
-	// devGitHubToken is the synthetic GitHub credential DevSignIn stores, empty
-	// (the default) outside a keyless stack — see SetDevGitHubToken.
-	devGitHubToken string
+	// devGitHubToken / devGitHubInstallationID are the synthetic GitHub
+	// connection DevSignIn stores, both zero (the default) outside a keyless
+	// stack — see SetDevGitHubConnection.
+	devGitHubToken          string
+	devGitHubInstallationID int64
 }
 
-func NewService(store Store, cipher *Cipher, gh GitHub, allowedLogins []string) *Service {
+// NewService builds the domain service. tokens mints installation credentials
+// (nil-safe: without it an installation resolves to no credential, which is the
+// unconfigured-App state rather than a crash) and is wired back to the service
+// so a mint GitHub rejects is recorded against the user it belongs to — the one
+// place a runtime failure becomes the dashboard's "reconnect" prompt.
+func NewService(store Store, cipher *Cipher, gh GitHub, tokens *InstallationTokens, allowedLogins []string) *Service {
 	allowed := make(map[string]bool, len(allowedLogins))
 	for _, l := range allowedLogins {
 		if l = strings.ToLower(strings.TrimSpace(l)); l != "" {
 			allowed[l] = true
 		}
 	}
-	return &Service{store: store, cipher: cipher, gh: gh, allowed: allowed, now: time.Now}
+	s := &Service{store: store, cipher: cipher, gh: gh, tokens: tokens, allowed: allowed, now: time.Now}
+	if tokens != nil {
+		tokens.OnUnavailable(s.recordInstallationRevoked)
+	}
+	return s
 }
 
-// ConnectURL starts THE GitHub grant — there is exactly one (11 §2, amended
-// 2026-08-03). It asks for `repo`, full read/write repository access, because
-// signing in and connecting GitHub are now the same act: the token it yields is
-// what CompleteConnect stores as the user's GitHubToken, so it is the
-// credential the brain's clone/fetch, the `gh` PR gate, and the sandbox's
-// clone/push all authenticate with.
+// ConnectURL starts THE GitHub flow — there is still exactly one (11 §2,
+// amended 2026-08-03 and again by the GitHub App migration). Only its
+// destination changed: it now points at the App's installation page, where
+// GitHub renders the repository chooser, instead of an OAuth authorize screen
+// that could only grant blanket `repo`.
 //
-// It replaces a split — a scopeless LoginURL beside this one — that bought a
-// consent screen without a `repo` prompt at the price of two routes which
-// looked interchangeable and weren't. Every entry point (landing sign-in,
-// session gate, the dashboard's Connect card) now leads here, so "which one
-// does this button want?" is no longer a question anyone can get wrong.
+// Signing in and connecting GitHub remain the same act. With user authorization
+// enabled on the App, one pass through this URL returns both halves — the
+// installation (which repositories) and a user-authorization code (who) — so the
+// migration needed no second route, no second callback, and no second thing for
+// a button to point at by mistake.
 func (s *Service) ConnectURL(state string) string {
-	return s.gh.AuthorizeURL(state, githubapi.ScopeRepo)
+	return s.gh.InstallURL(state)
 }
 
-// CompleteConnect completes the single grant (ConnectURL): exchange the code,
-// enforce the allowlist on every sign-in (11 §2), find-or-create the user, and
-// PERSIST the access token as their GitHubToken — the same encrypted slot the
-// old manual token field wrote to, which is why a token stored by that field
-// keeps working until replaced here.
+// CompleteConnect completes the single flow (ConnectURL): exchange the code for
+// a user token, enforce the allowlist on every sign-in (11 §2), find-or-create
+// the user, and persist BOTH halves — the installation id, which is what git and
+// `gh` will mint credentials against, and the user token, which is what answers
+// "which of this installation's repos can this person see" for the picker.
 //
-// Storing the token is what makes "Connected" on the dashboard card mean the
-// repo is actually reachable, rather than merely "you signed in with GitHub".
+// installationID is GitHub's `installation_id` callback parameter. A callback
+// that authorized the user but installed nothing (0) returns
+// ErrInstallationRequired alongside a POPULATED user. Returning both is
+// deliberate: GitHub really did authenticate an allowlisted account, so the
+// caller signs them in and refuses only the repository half — withholding the
+// user would lock someone out of the very dashboard the retry lives on.
 //
-// A grant that came back WITHOUT `repo` returns ErrRepoScopeNotGranted
-// alongside a POPULATED user. Returning both is deliberate: GitHub really did
-// authenticate an allowlisted account, so the caller can still sign them in and
-// refuse only the unusable token. While this was the connect-only path an empty
-// user was harmless — the caller already had a session. Now that it is also the
-// sign-in path, withholding the user would lock someone out of the very
-// dashboard the retry lives on.
-func (s *Service) CompleteConnect(ctx context.Context, code string) (User, error) {
-	user, token, scope, err := s.completeOAuth(ctx, code, "complete connect")
+// setup_action is deliberately not a parameter. `install` and `update` differ
+// only in whether an installation already existed, and this path is idempotent
+// either way: it re-records the installation and re-stores the token, which is
+// exactly what a user returning from GitHub's Configure screen with a changed
+// repository selection needs.
+func (s *Service) CompleteConnect(ctx context.Context, code string, installationID int64) (User, error) {
+	user, token, err := s.completeOAuth(ctx, code, "complete connect")
 	if err != nil {
 		return User{}, err
 	}
-	// GitHub can hand back a NARROWER grant than the one asked for — the user
-	// unticks an org, or the OAuth app isn't approved there. Storing such a
-	// token would light the dashboard card up as "Connected" while every clone
-	// and push still failed, so refuse it: the caller turns this into a page
-	// that says what happened and offers to retry.
-	if !grantsRepoScope(scope) {
-		return user, ErrRepoScopeNotGranted
+	if installationID == 0 {
+		return user, ErrInstallationRequired
 	}
-	if err := s.storeGitHubConnection(ctx, user.ID, token, scope, user.GitHubLogin); err != nil {
+	if err := s.storeGitHubConnection(ctx, user.ID, installationID, token, user.GitHubLogin); err != nil {
 		return User{}, fmt.Errorf("identity: complete connect: %w", err)
 	}
 	return user, nil
 }
 
-// grantsRepoScope reports whether GitHub's granted-scope string carries full
-// `repo`. The string is comma-separated (e.g. "repo,gist"), and the match is
-// exact per element on purpose: `public_repo` is a strictly narrower scope that
-// cannot clone or push a private repo, so it must not pass for `repo`.
-func grantsRepoScope(scope string) bool {
-	return slices.Contains(splitScopes(scope), githubapi.ScopeRepo)
-}
-
-// splitScopes normalizes GitHub's scope string into its non-empty elements.
-// GitHub uses commas in the token-exchange body and (historically) commas with
-// spaces in the X-OAuth-Scopes header, so both are tolerated. An empty string
-// yields an empty (never nil) slice, so the wire field is always an array.
-func splitScopes(scope string) []string {
-	out := []string{}
-	for part := range strings.SplitSeq(scope, ",") {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
+// AttachInstallation records an installation against an ALREADY SIGNED-IN user.
+// It is the second way into the callback: someone who installs Kiln from
+// GitHub's own Apps/Marketplace page arrives with an `installation_id` and no
+// `code`, because they never passed through Kiln's authorize step. There is
+// nothing to exchange and no new user token, so the stored one is left alone.
+//
+// Without this the flow would dead-end for a perfectly ordinary path — the user
+// has installed the App, GitHub has sent them to Kiln, and Kiln would say "not
+// connected".
+func (s *Service) AttachInstallation(ctx context.Context, userID string, installationID int64) error {
+	if installationID == 0 {
+		return ErrInstallationRequired
 	}
-	return out
+	if err := s.storeGitHubConnection(ctx, userID, installationID, "", ""); err != nil {
+		return fmt.Errorf("identity: attach installation: %w", err)
+	}
+	return nil
 }
 
 // gitHubConnection derives the account view's repo-credential state from the
-// stored row. The ordering encodes the carry-forward guarantee: a credential
-// with NO scope record — every token carried over from the old manual field —
-// reads as connected-with-unknown-scopes, never as disconnected and never as
-// needing a reconnect. Only a scope list Kiln actually holds, and which
-// actually lacks `repo`, downgrades the connection, so nobody is pushed through
-// a fresh OAuth grant merely because of this refactor.
-func gitHubConnection(cfg UserConfig) GitHubConnection {
-	if len(cfg.GitHubTokenEnc) == 0 {
-		return GitHubConnection{Status: GitHubDisconnected, Scopes: []string{}}
+// stored row. The ordering encodes what each state is FOR:
+//
+//   - an installation GitHub has rejected reads needs_reconnect, so a grant that
+//     died since it was made surfaces on the card rather than at the next agent
+//     turn;
+//   - an installation nothing has reported dead reads connected;
+//   - a stored token with NO installation reads unknown — a hand-typed PAT or the
+//     deployment's bootstrap token, deliberately treated as working, since it was
+//     configured on purpose and Kiln simply did not grant it;
+//   - nothing at all reads disconnected.
+//
+// It is a pure read of the stored row: no network call hides in a dashboard
+// render. What GitHub thinks is learned when a credential is actually used, and
+// recorded (recordInstallationRevoked) for this function to find later.
+func gitHubConnection(cfg UserConfig, configureURL func(int64) string) GitHubConnection {
+	if cfg.GitHubInstallationID == 0 {
+		if len(cfg.GitHubTokenEnc) == 0 {
+			return GitHubConnection{Status: GitHubDisconnected}
+		}
+		return GitHubConnection{Status: GitHubUnknownScopes, Login: cfg.GitHubConnectedLogin}
 	}
-	conn := GitHubConnection{Login: cfg.GitHubConnectedLogin, Scopes: splitScopes(cfg.GitHubTokenScopes)}
-	switch {
-	case len(conn.Scopes) == 0:
-		conn.Status = GitHubUnknownScopes
-	case grantsRepoScope(cfg.GitHubTokenScopes):
-		conn.Status = GitHubConnected
-	default:
+	conn := GitHubConnection{
+		Status:         GitHubConnected,
+		Login:          cfg.GitHubConnectedLogin,
+		InstallationID: cfg.GitHubInstallationID,
+	}
+	if configureURL != nil {
+		conn.ConfigureURL = configureURL(cfg.GitHubInstallationID)
+	}
+	if cfg.GitHubInstallationRevokedAt != nil {
 		conn.Status = GitHubNeedsReconnect
 	}
 	return conn
 }
 
 // ListGitHubRepos returns the repos the caller's connected GitHub account can
-// reach — the source of the settings repo picker, replacing hand-typed repo
-// URLs. Private repos are included: the credential the "Connect GitHub" grant
-// stores carries the repo scope.
+// reach — the source of the settings repo picker, replacing hand-typed repo URLs.
 //
-// It reads the SAME credential the Integrations card reports on
-// (GitHubTokenEnc), so the picker and the card can never disagree about whether
-// the account is connected. Returns ErrGitHubNotConnected when the caller has
-// no stored credential — the ordinary state before they connect, since signing
-// in grants nothing (11 §2 D2) — or when GitHub rejects the one they have
-// (revoked, or a carried-over manual token that never had the scope). Both mean
-// "run the Connect GitHub grant", which is the remedy the picker offers.
+// With an installation this lists ONLY the repositories the user ticked on
+// GitHub's chooser, which is the user-visible payoff of the App migration: the
+// picker stops offering every repository the account can reach. Without one it
+// falls back to the token's own reach, for the hand-typed PAT and bootstrap
+// paths that have no installation to narrow.
+//
+// It reads the SAME row the Integrations card reports on, so the picker and the
+// card can never disagree about whether the account is connected. Returns
+// ErrGitHubNotConnected when there is no credential at all, or when GitHub
+// rejects the one there is — both mean "run the Connect GitHub flow", which is
+// the remedy the picker offers.
 func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, error) {
 	cfg, err := s.store.GetUserConfig(ctx, userID)
 	if err != nil {
@@ -210,7 +241,7 @@ func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, e
 	if token == "" {
 		return nil, ErrGitHubNotConnected
 	}
-	found, err := s.gh.ListRepos(ctx, token)
+	found, err := s.listRepos(ctx, cfg, token)
 	if err != nil {
 		if errors.Is(err, githubapi.ErrUnauthorized) {
 			return nil, ErrGitHubNotConnected
@@ -224,16 +255,44 @@ func (s *Service) ListGitHubRepos(ctx context.Context, userID string) ([]Repo, e
 	return repos, nil
 }
 
+// GitHubTokenSource resolves the repo credential for one user as a FUNCTION,
+// not a value (design §3.3). An installation token lives about an hour, so a
+// string captured when a project's providers were built would be dead long
+// before that project's next agent turn; every call site therefore re-resolves
+// per git/`gh` invocation, and the cache behind this makes that cheap.
+//
+// The branch is the credential model, not a migration shim: an installation
+// mints, and anything else — a hand-typed PAT, the bootstrap GITHUB_AUTH_TOKEN,
+// the keyless stack's synthetic credential — is already a usable token and is
+// handed back as-is.
+func (s *Service) GitHubTokenSource(cfg UserConfig) TokenSource {
+	if cfg.GitHubInstallationID == 0 {
+		return StaticTokenSource(s.decrypt(cfg.GitHubTokenEnc))
+	}
+	installationID := cfg.GitHubInstallationID
+	if s.tokens == nil {
+		// No minter wired in (the App is unconfigured): report it as an
+		// unavailable installation rather than silently falling back to a user
+		// token that cannot clone, so the failure names its own cause.
+		return func(context.Context) (string, error) {
+			return "", fmt.Errorf("identity: installation %d: %w", installationID, githubapi.ErrNoAppCredentials)
+		}
+	}
+	return func(ctx context.Context) (string, error) {
+		return s.tokens.Token(ctx, installationID)
+	}
+}
+
 // DevSignIn is the KILN_DEV_ENDPOINTS-only seam (11 §7): find-or-create with
 // NO allowlist check, so e2e can mint sessions without real OAuth. It shares
 // EnsureUser's find-or-create mechanics.
 //
-// When a dev GitHub credential is configured (SetDevGitHubToken — keyless
-// stacks only), it is stored for the user the way CompleteConnect stores the
-// real OAuth token, so a dev-minted session reaches the settings repo picker already
+// When a dev GitHub connection is configured (SetDevGitHubConnection — keyless
+// stacks only), it is stored for the user the way CompleteConnect stores a real
+// one, so a dev-minted session reaches the settings repo picker already
 // connected. Without that call this is a pure find-or-create and touches no
-// credential — a real-service e2e run can never have its stored GitHub token
-// clobbered by a synthetic one.
+// credential — a real-service e2e run can never have its stored GitHub
+// connection clobbered by a synthetic one.
 //
 // The write happens ONCE per user, only when they have no GitHub credential yet.
 // That is not an optimization: a credential write invalidates every project the
@@ -248,15 +307,24 @@ func (s *Service) DevSignIn(ctx context.Context, login string) (User, error) {
 		return User{}, err
 	}
 	if s.devGitHubToken != "" {
-		s.ensureDevGitHubToken(ctx, user.ID)
+		s.ensureDevGitHubConnection(ctx, user.ID, user.GitHubLogin)
 	}
 	return user, nil
 }
 
-// SetDevGitHubToken configures the synthetic GitHub credential DevSignIn stores
-// (keyless e2e). Setter, not a constructor arg, for the same reason as
-// SetVerifier — and so it is off unless a composition root explicitly opts in.
-func (s *Service) SetDevGitHubToken(token string) { s.devGitHubToken = token }
+// SetDevGitHubConnection configures the synthetic GitHub connection DevSignIn
+// stores (keyless e2e): the mock installation the credential path mints
+// against, and the mock user token the repo picker lists with. Setter, not a
+// constructor arg, for the same reason as SetVerifier — and so it is off unless
+// a composition root explicitly opts in.
+//
+// It stores an INSTALLATION, not just a token, so the keyless lane exercises the
+// real App credential path (mint, cache, installation-scoped listing) rather
+// than the raw-token fallback beside it.
+func (s *Service) SetDevGitHubConnection(installationID int64, token string) {
+	s.devGitHubInstallationID = installationID
+	s.devGitHubToken = token
+}
 
 // EnsureUser finds-or-creates a user by GitHub login WITHOUT the allowlist
 // check — the shared find-or-create used by DevSignIn (11 §7) and the phase-2
@@ -347,7 +415,7 @@ func (s *Service) Me(ctx context.Context, userID string) (Me, error) {
 		AmikaKey:          s.secretStatus(cfg.AmikaKeyEnc),
 		DevinKey:          s.secretStatus(cfg.DevinKeyEnc),
 		GitHubToken:       s.secretStatus(cfg.GitHubTokenEnc),
-		GitHub:            gitHubConnection(cfg),
+		GitHub:            gitHubConnection(cfg, s.configureURL),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
 	}}
 	views, err := s.ListProjects(ctx, userID)
@@ -401,13 +469,15 @@ func (s *Service) UpdateSettings(ctx context.Context, userID string, upd Setting
 	if upd.AmikaClaudeCredID != "" {
 		cfg.AmikaClaudeCredID = upd.AmikaClaudeCredID
 	}
-	// A GitHub token written through THIS path (the API, which still accepts the
-	// field for back-compat) came with no scope record, so the old token's record
-	// must not be inherited by the new one — reset both to unknown and let the
-	// next verify's scope probe classify it. CompleteConnect never comes through
-	// here; it records the real scope itself.
+	// A GitHub token written through THIS path — the API's back-compat field, the
+	// bootstrap seed, the keyless stack's synthetic credential — is a raw token
+	// nobody installed an App for. It must not inherit the previous credential's
+	// provenance: clear the installation and the recorded account so the card
+	// reads "stored, not granted by Kiln" rather than claiming an installation
+	// this token has nothing to do with. CompleteConnect never comes through here.
 	if upd.GitHubToken != "" {
-		cfg.GitHubTokenScopes = ""
+		cfg.GitHubInstallationID = 0
+		cfg.GitHubInstallationRevokedAt = nil
 		cfg.GitHubConnectedLogin = ""
 	}
 	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
@@ -626,7 +696,12 @@ type RuntimeConfig struct {
 	// DEVIN_API_KEY env (multi-provider design §8). Plaintext — in-process only.
 	DevinAPIKey       string
 	AmikaClaudeCredID string
-	GitHubAuthToken   string
+	// GitHubToken resolves the repo credential AT USE TIME (see
+	// GitHubTokenSource). It is a function rather than a string because an
+	// installation token expires within the hour: a value resolved when this
+	// bundle was built would be dead by the time a long agent turn used it.
+	// Never nil — an unconfigured credential resolves to "".
+	GitHubToken TokenSource
 	// AmikaSecrets is the project's decrypted secrets (name + value) to inject
 	// into every sandbox at startup (02 §8). Plaintext — in-process use only.
 	AmikaSecrets []AmikaSecretValue
@@ -665,7 +740,7 @@ func (s *Service) RuntimeConfig(ctx context.Context, projectID string) (RuntimeC
 		AmikaAPIKey:       s.decrypt(cfg.AmikaKeyEnc),
 		DevinAPIKey:       s.decrypt(cfg.DevinKeyEnc),
 		AmikaClaudeCredID: cfg.AmikaClaudeCredID,
-		GitHubAuthToken:   s.decrypt(cfg.GitHubTokenEnc),
+		GitHubToken:       s.GitHubTokenSource(cfg),
 		AmikaSecrets:      s.resolveAmikaSecrets(proj.AmikaSecrets),
 	}, nil
 }
@@ -697,57 +772,75 @@ func (s *Service) VerifyProject(ctx context.Context, userID, projectID string) (
 	return s.verifyRepo(ctx, userID, proj.RepoURL)
 }
 
-// refreshGitHubScopes classifies a stored repo credential whose scopes aren't
-// recorded yet — the carried-over manual token. It asks GitHub what the token
-// actually carries and persists the answer, so the dashboard can stop guessing
-// and either leave the card green or prompt a reconnect.
+// recordInstallationRevoked marks every user on an installation GitHub has just
+// listRepos picks the listing endpoint for one stored row: the installation's
+// recordInstallationRevoked marks every user on an installation GitHub has just
+// rejected, so the Integrations card can prompt a re-install instead of leaving
+// the failure to resurface as a mysteriously broken agent turn.
 //
-// Best-effort by design, and only ever run from the verify path (never from a
-// read): a probe failure means "still unknown" — a revoked or network-blocked
-// token must NOT be recorded as scopeless, because that would show a reconnect
-// prompt for a credential that may be perfectly fine. It also never re-probes a
-// credential whose scopes are already recorded, so the common case costs
-// nothing.
-func (s *Service) refreshGitHubScopes(ctx context.Context, userID string, cfg UserConfig) {
-	if s.gh == nil || len(cfg.GitHubTokenEnc) == 0 || cfg.GitHubTokenScopes != "" {
-		return
+// Best-effort and fire-and-forget by design: it runs on the failure path of a
+// credential mint, where the caller already has a real error to return, and a
+// failed bookkeeping write must never mask it. It is also idempotent — the
+// store only writes rows that are not already marked — so the hourly retry of a
+// dead installation does not rewrite the row every time.
+func (s *Service) recordInstallationRevoked(ctx context.Context, installationID int64) {
+	if err := s.store.MarkInstallationRevoked(ctx, installationID, s.now()); err != nil {
+		slog.ErrorContext(ctx, "identity: record installation revoked",
+			"installation_id", installationID, "err", err)
 	}
-	scope, err := s.gh.TokenScopes(ctx, s.decrypt(cfg.GitHubTokenEnc))
-	if err != nil || strings.TrimSpace(scope) == "" {
-		// Unknown stays unknown: see the doc comment. A fine-grained PAT
-		// legitimately reports no scopes, so an empty answer is not evidence
-		// that the credential is insufficient.
-		return
+}
+
+// listRepos picks the listing endpoint for one stored row: the installation's
+// (narrowed to the user's own access within it) when there is an installation,
+// the token's own reach otherwise.
+func (s *Service) listRepos(ctx context.Context, cfg UserConfig, token string) ([]githubapi.Repo, error) {
+	if cfg.GitHubInstallationID != 0 {
+		found, err := s.gh.ListInstallationRepos(ctx, token, cfg.GitHubInstallationID)
+		if err != nil {
+			return nil, fmt.Errorf("identity: list installation repos: %w", err)
+		}
+		return found, nil
 	}
-	cfg.UserID = userID
-	cfg.GitHubTokenScopes = scope
-	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
-		slog.Warn("identity: record github token scopes", "err", err)
+	found, err := s.gh.ListRepos(ctx, token)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list repos: %w", err)
 	}
+	return found, nil
+}
+
+// configureURL is the nil-safe accessor for the adapter's installation-settings
+// link, so gitHubConnection can be a pure function over the stored row and still
+// be called on a service built without a GitHub adapter (unit tests, and the
+// unconfigured deployment).
+func (s *Service) configureURL(installationID int64) string {
+	if s.gh == nil {
+		return ""
+	}
+	return s.gh.ConfigureURL(installationID)
 }
 
 // completeOAuth is the identity half of the callback: exchange the code, read
 // the profile, enforce the allowlist, find-or-create the user. It returns the
-// access token and its granted scope alongside the user so CompleteConnect can
-// vet and store them. The token is a live secret — never log it.
-func (s *Service) completeOAuth(ctx context.Context, code, op string) (User, string, string, error) {
-	token, scope, err := s.gh.ExchangeCode(ctx, code)
+// user access token alongside the user so CompleteConnect can store it. The
+// token is a live secret — never log it.
+func (s *Service) completeOAuth(ctx context.Context, code, op string) (User, string, error) {
+	token, err := s.gh.ExchangeCode(ctx, code)
 	if err != nil {
-		return User{}, "", "", fmt.Errorf("identity: %s: %w", op, err)
+		return User{}, "", fmt.Errorf("identity: %s: %w", op, err)
 	}
 	ghUser, err := s.gh.FetchUser(ctx, token)
 	if err != nil {
-		return User{}, "", "", fmt.Errorf("identity: %s: %w", op, err)
+		return User{}, "", fmt.Errorf("identity: %s: %w", op, err)
 	}
 	login := strings.ToLower(ghUser.Login)
 	if !s.allowed[login] {
-		return User{}, "", "", ErrNotAllowed
+		return User{}, "", ErrNotAllowed
 	}
 	user, err := s.upsertFromGitHub(ctx, ghUser)
 	if err != nil {
-		return User{}, "", "", err
+		return User{}, "", err
 	}
-	return user, token, scope, nil
+	return user, token, nil
 }
 
 // invalidateOwnedProjects rebuilds every project the user owns after a config
@@ -765,13 +858,24 @@ func (s *Service) invalidateOwnedProjects(ctx context.Context, userID, op string
 	return nil
 }
 
-// storeGitHubConnection persists a freshly granted repo credential: the token
-// itself (into the SAME encrypted column the old manual field wrote to, so the
-// two paths are interchangeable), plus the scope GitHub granted it and the
-// account it belongs to. Recording the scope is what lets the dashboard tell
-// "connected" apart from "stored but can't reach the repo" without re-probing
-// GitHub on every page load.
-func (s *Service) storeGitHubConnection(ctx context.Context, userID, token, scope, login string) error {
+// storeGitHubConnection persists a freshly granted connection: the installation
+// id (what git and `gh` mint against) plus, when the flow carried one, the user
+// access token and the account it belongs to. An empty token/login leaves the
+// stored ones untouched — that is the AttachInstallation path, where the user
+// installed from GitHub's own page and there was never a code to exchange.
+//
+// It clears any recorded revocation: the user has just come back through
+// GitHub's install screen, so whatever killed the previous installation has been
+// answered, and leaving the flag set would show a reconnect prompt to somebody
+// who has this second reconnected.
+//
+// It also forgets the installation's cached token. The repository selection may
+// have changed on the screen the user just left, and a token minted against the
+// old selection would keep working against repos they have just removed —
+// exactly the blanket access this migration exists to end.
+func (s *Service) storeGitHubConnection(ctx context.Context, userID string, installationID int64,
+	token, login string,
+) error {
 	cfg, err := s.store.GetUserConfig(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("identity: store github connection: %w", err)
@@ -780,10 +884,16 @@ func (s *Service) storeGitHubConnection(ctx context.Context, userID, token, scop
 	if err := s.mergeSecret(&cfg.GitHubTokenEnc, token); err != nil {
 		return err
 	}
-	cfg.GitHubTokenScopes = scope
-	cfg.GitHubConnectedLogin = login
+	cfg.GitHubInstallationID = installationID
+	cfg.GitHubInstallationRevokedAt = nil
+	if login != "" {
+		cfg.GitHubConnectedLogin = login
+	}
 	if err := s.store.UpsertUserConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("identity: store github connection: %w", err)
+	}
+	if s.tokens != nil {
+		s.tokens.Forget(installationID)
 	}
 	return s.invalidateOwnedProjects(ctx, userID, "store github connection")
 }
@@ -799,12 +909,12 @@ func (s *Service) verifyRepo(ctx context.Context, userID, repoURL string) ([]Che
 	anthropicKey := s.decrypt(cfg.AnthropicKeyEnc)
 	amikaKey := s.decrypt(cfg.AmikaKeyEnc)
 	devinKey := s.decrypt(cfg.DevinKeyEnc)
-	ghToken := s.decrypt(cfg.GitHubTokenEnc)
-	// Verify is the one user-facing action that is already allowed to touch the
-	// network, so it is where a carried-over GitHub token gets its scopes
-	// classified — turning the card's provisional "connected" into either a
-	// confirmed one or a reconnect prompt. No-op once the scopes are recorded.
-	s.refreshGitHubScopes(ctx, userID, cfg)
+	// The repo check gets a token SOURCE, not a token: under an installation the
+	// credential is minted by the probe itself. That also makes verify the one
+	// user-facing action that discovers a dead installation — the mint's failure
+	// is recorded (recordInstallationRevoked), so the card flips to "reconnect"
+	// on the very run that reports the repo unreachable.
+	ghToken := s.GitHubTokenSource(cfg)
 	checks := make([]CheckResult, 0, verifyCheckCount)
 	checks = append(checks, s.check(ctx, "anthropic", anthropicKey != "", func(ctx context.Context) CheckResult {
 		return s.verifier.VerifyAnthropic(ctx, anthropicKey)
@@ -880,21 +990,23 @@ func (s *Service) decrypt(enc []byte) string {
 	return plain
 }
 
-// ensureDevGitHubToken stores the configured dev credential only for a user who
-// has none, so repeat sign-ins cause no config write (and therefore no tenant
-// invalidation). Best-effort: a failure leaves the user unconnected, which the
-// dashboard renders as the connect prompt, and is never fatal to signing in.
-func (s *Service) ensureDevGitHubToken(ctx context.Context, userID string) {
+// ensureDevGitHubConnection stores the configured dev connection only for a user
+// who has none, so repeat sign-ins cause no config write (and therefore no
+// tenant invalidation). Best-effort: a failure leaves the user unconnected,
+// which the dashboard renders as the connect prompt, and is never fatal to
+// signing in.
+func (s *Service) ensureDevGitHubConnection(ctx context.Context, userID, login string) {
 	cfg, err := s.store.GetUserConfig(ctx, userID)
 	if err != nil {
-		slog.ErrorContext(ctx, "identity: read config for dev github token", "user_id", userID, "err", err)
+		slog.ErrorContext(ctx, "identity: read config for dev github connection", "user_id", userID, "err", err)
 		return
 	}
-	if len(cfg.GitHubTokenEnc) > 0 {
+	if cfg.GitHubInstallationID != 0 || len(cfg.GitHubTokenEnc) > 0 {
 		return
 	}
-	if serr := s.UpdateSettings(ctx, userID, SettingsUpdate{GitHubToken: s.devGitHubToken}); serr != nil {
-		slog.ErrorContext(ctx, "identity: store dev github token", "user_id", userID, "err", serr)
+	serr := s.storeGitHubConnection(ctx, userID, s.devGitHubInstallationID, s.devGitHubToken, login)
+	if serr != nil {
+		slog.ErrorContext(ctx, "identity: store dev github connection", "user_id", userID, "err", serr)
 	}
 }
 

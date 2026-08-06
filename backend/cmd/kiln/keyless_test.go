@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,17 +99,66 @@ func TestNewVerifierMode(t *testing.T) {
 
 // TestNewGitHubMode covers KILN_GITHUB_MODE (settings repo picker): mock lists
 // the canned repos offline so the keyless lane can onboard through the real
-// dashboard form; default builds the live GitHub adapter.
+// dashboard form, and mints a canned installation token so it exercises the App
+// credential path too.
 func TestNewGitHubMode(t *testing.T) {
-	repos, err := newGitHub(Config{GitHubMode: modeMock}).ListRepos(context.Background(), "any")
+	gh, err := newGitHub(Config{GitHubMode: modeMock})
+	if err != nil {
+		t.Fatalf("newGitHub(mock): %v", err)
+	}
+	repos, err := gh.ListRepos(context.Background(), "any")
 	if err != nil {
 		t.Fatalf("mock ListRepos: %v", err)
 	}
 	if len(repos) == 0 {
 		t.Error("mock ListRepos returned no repos, want the canned listing")
 	}
-	if newGitHub(Config{}) == nil {
-		t.Error("default github adapter is nil")
+	// The mock must satisfy the mint half too, or a keyless stack's brain has no
+	// credential at all once the dev session stores an installation.
+	if _, err := gh.MintInstallationToken(context.Background(), 1); err != nil {
+		t.Errorf("mock MintInstallationToken: %v", err)
+	}
+	// The mock stands in for GitHub entirely, so it needs no private key —
+	// exactly what lets a keyless stack boot with no credentials anywhere.
+	if _, err := newGitHub(Config{GitHubMode: modeMock}); err != nil {
+		t.Errorf("mock github adapter needs no App key, got %v", err)
+	}
+}
+
+// A live adapter needs a usable App private key, and the key is carried
+// base64-encoded because a multi-line PEM does not survive a hosting provider's
+// environment intact. Both forms must load, and a broken value must fail the
+// BOOT rather than the first user's sign-in.
+func TestNewGitHubParsesTheAppPrivateKey(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+
+	cases := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "base64 (how it is stored)", value: base64.StdEncoding.EncodeToString(pemBytes)},
+		{name: "raw PEM", value: string(pemBytes)},
+		{name: "neither", value: "!!! not base64 and not pem !!!", wantErr: true},
+		{name: "base64 of garbage", value: base64.StdEncoding.EncodeToString([]byte("nope")), wantErr: true},
+		{name: "empty", value: "", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := newGitHub(Config{GitHubAppPrivateKey: tc.value})
+			if tc.wantErr && err == nil {
+				t.Fatal("expected an error, got nil — a bad key must fail the boot")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("newGitHub: %v", err)
+			}
+		})
 	}
 }
 

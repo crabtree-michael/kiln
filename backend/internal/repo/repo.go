@@ -33,11 +33,23 @@ var allowlist = []string{
 	"head", "tail", "sort", "uniq", "wc", "awk", "sed", "cat",
 }
 
+// TokenSource resolves the GitHub credential AT USE TIME. It is a function
+// rather than a string because the credential is a GitHub App installation
+// token: minted on demand and dead within the hour, so a value captured when
+// this Shell was built would be stale long before a long-running brain used it.
+//
+// Declared here rather than imported so this package keeps depending on nothing
+// (the identity module's own TokenSource converts to it at the composition
+// root). A nil source, or one that fails, means "no credential" — `gh` then runs
+// unauthenticated and fails the way it would for an unconfigured deployment,
+// which is the same fail-soft posture as the rest of this package.
+type TokenSource func(ctx context.Context) (string, error)
+
 // Config is the boot input for a Shell.
 type Config struct {
-	RepoURL   string // e.g. https://github.com/owner/name (may be empty)
-	AuthToken string // GitHub token, embedded into an https clone URL
-	Dir       string // absolute path to the clone directory
+	RepoURL string // e.g. https://github.com/owner/name (may be empty)
+	Token   TokenSource
+	Dir     string // absolute path to the clone directory
 }
 
 // Verify is the outcome of a merge-gate check (VerifyOnMain or VerifyInPR).
@@ -143,7 +155,7 @@ func (s *Shell) Run(ctx context.Context, command string) Result {
 	//nolint:gosec // G204: intentional shell runner, contained by restricted PATH/env (allowlist).
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	cmd.Dir = s.cfg.Dir
-	cmd.Env = s.runEnv()
+	cmd.Env = s.runEnv(ctx)
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -230,7 +242,7 @@ func (s *Shell) argvRunner(ctx context.Context, bin string) func(args ...string)
 		//nolint:gosec // G204: fixed subcommand of an allowlisted bin; argv (no shell), restricted PATH/env.
 		cmd := exec.CommandContext(ctx, binPath, args...)
 		cmd.Dir = s.cfg.Dir
-		cmd.Env = s.runEnv()
+		cmd.Env = s.runEnv(ctx)
 		out, err := cmd.CombinedOutput()
 		var exitErr *exec.ExitError
 		switch {
@@ -334,15 +346,15 @@ func (s *Shell) disable(ctx context.Context, reason string) *Shell {
 // UNAUTHENTICATED — v1 targets a public repo, so no token goes into the URL.
 // Keeping the token out of the clone URL keeps it out of the persisted origin
 // remote (and thus out of any `git remote -v` the brain runs and its logs).
-// Private-repo auth is a later addition (Config.AuthToken is still carried for
-// gh; see runEnv). The returned string is combined git output.
+// Private-repo auth is a later addition (Config.Token is still carried for gh;
+// see runEnv). The returned string is combined git output.
 func (s *Shell) clone(ctx context.Context) (string, error) {
 	gitBin := filepath.Join(s.allowedBinDir, "git")
 	// The command is fixed; only the configured repo URL/dir vary, and git runs
 	// with the restricted PATH/env of runEnv.
 	//nolint:gosec // G204: configured clone of a trusted repo URL, restricted PATH/env.
 	cmd := exec.CommandContext(ctx, gitBin, "clone", "--filter=blob:none", s.cfg.RepoURL, s.cfg.Dir)
-	cmd.Env = s.runEnv()
+	cmd.Env = s.runEnv(ctx)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -387,6 +399,13 @@ func (s *Shell) buildAllowedBin() (string, bool) {
 // even against a public repo; it is never used by git and so never lands in the
 // remote URL.
 //
+// It takes a ctx because resolving GH_TOKEN can be a network call — minting an
+// installation token — and is therefore done PER INVOCATION rather than once at
+// boot. A resolution failure is not fatal: the env is built with an empty
+// GH_TOKEN and `gh` reports its own auth error, which the brain reads as a
+// failed command. That is deliberate — a shell that refused to run at all would
+// take the whole repo tool down over a credential only some commands need.
+//
 // GIT_CONFIG_GLOBAL/SYSTEM=/dev/null cut git off from ALL host configuration.
 // This is a hard requirement, not hygiene: a developer host's git config
 // commonly sets `credential.helper = osxkeychain` (or libsecret on Linux), and
@@ -395,11 +414,11 @@ func (s *Shell) buildAllowedBin() (string, bool) {
 // into a fast error instead of a hang. The result is a hermetic clone that never
 // touches the host keychain and behaves identically on a dev laptop and in the
 // distro-clean container.
-func (s *Shell) runEnv() []string {
+func (s *Shell) runEnv(ctx context.Context) []string {
 	return []string{
 		"PATH=" + s.allowedBinDir,
 		"HOME=" + s.home,
-		"GH_TOKEN=" + s.cfg.AuthToken,
+		"GH_TOKEN=" + s.ghToken(ctx),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
@@ -411,6 +430,21 @@ func (s *Shell) runEnv() []string {
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=",
 	}
+}
+
+// ghToken resolves the credential for one invocation, degrading to "" on any
+// failure. It logs the failure without the error's text: a mint error can carry
+// GitHub's response body, and this value's neighbours in the env are secrets.
+func (s *Shell) ghToken(ctx context.Context) string {
+	if s.cfg.Token == nil {
+		return ""
+	}
+	token, err := s.cfg.Token(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "repo.shell.token_unavailable", "repo_url", s.cfg.RepoURL)
+		return ""
+	}
+	return token
 }
 
 // commitURL builds the GitHub web URL for a commit from the configured repo URL

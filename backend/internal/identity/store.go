@@ -37,6 +37,14 @@ type Store interface {
 	// user has never written config — callers treat absent as all-unset.
 	GetUserConfig(ctx context.Context, userID string) (UserConfig, error)
 	UpsertUserConfig(ctx context.Context, cfg UserConfig) error
+	// MarkInstallationRevoked records that GitHub rejected a mint against this
+	// installation, for every user on it — what flips the Integrations card to
+	// needs_reconnect. Keyed by installation id rather than user id because the
+	// failure arrives from the credential path, which knows the installation and
+	// not whose it is. Idempotent: a row already marked is left alone, so the
+	// hourly retry of a dead installation does not rewrite it. Marking an
+	// installation nobody holds is a no-op, never an error.
+	MarkInstallationRevoked(ctx context.Context, installationID int64, at time.Time) error
 
 	// GetProjectByOwner returns the owner's FIRST live project (oldest by
 	// created_at), or ErrNotFound when they own none — the back-compat resolver

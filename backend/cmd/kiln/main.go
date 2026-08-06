@@ -113,12 +113,22 @@ type Config struct {
 	SentryDSN         string // SENTRY_BACKEND_DSN — backend project DSN; empty ⇒ Sentry disabled
 	SentryEnvironment string // SENTRY_ENVIRONMENT — deployment env label (e.g. "production")
 
-	// Multi-user phase 1 (11 §2, §7): dashboard auth. All four unset ⇒ the
-	// identity surface is not mounted and the binary behaves exactly as before.
-	GitHubOAuthClientID     string   // GITHUB_OAUTH_CLIENT_ID
-	GitHubOAuthClientSecret string   // GITHUB_OAUTH_CLIENT_SECRET
-	AllowedGitHubUsers      []string // KILN_ALLOWED_GITHUB_USERS — comma-separated logins
-	SecretsKey              string   // KILN_SECRETS_KEY — 64 hex chars; malformed-but-set ⇒ refuse boot
+	// Multi-user phase 1 (11 §2, §7): dashboard auth, now through a GitHub App
+	// (design 2026-08-04). All unset ⇒ the identity surface is not mounted and
+	// the binary behaves exactly as before.
+	//
+	// The five App vars replaced GITHUB_OAUTH_CLIENT_ID/_SECRET. The App's own
+	// client id and secret drive the user-authorization half (the same token
+	// exchange the OAuth App used); the app id, slug, and private key drive the
+	// installation half — the slug builds the install URL users are sent to, the
+	// key signs the JWTs that mint installation tokens.
+	GitHubAppID           string   // KILN_GITHUB_APP_ID — numeric App id, the `iss` of every app JWT
+	GitHubAppSlug         string   // KILN_GITHUB_APP_SLUG — the public-link slug that builds the install URL
+	GitHubAppPrivateKey   string   // KILN_GITHUB_APP_PRIVATE_KEY — base64-encoded PEM (see parseAppPrivateKey)
+	GitHubAppClientID     string   // KILN_GITHUB_APP_CLIENT_ID
+	GitHubAppClientSecret string   // KILN_GITHUB_APP_CLIENT_SECRET
+	AllowedGitHubUsers    []string // KILN_ALLOWED_GITHUB_USERS — comma-separated logins
+	SecretsKey            string   // KILN_SECRETS_KEY — 64 hex chars; malformed-but-set ⇒ refuse boot
 
 	// Multi-user phase 2 (11 §3): the GitHub login the boot-time adoption seeds
 	// the owner user + project from and backfills every legacy orphan row into.
@@ -210,11 +220,14 @@ func loadConfig() Config {
 		SentryDSN:         os.Getenv("SENTRY_BACKEND_DSN"),
 		SentryEnvironment: os.Getenv("SENTRY_ENVIRONMENT"),
 
-		GitHubOAuthClientID:     os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
-		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
-		AllowedGitHubUsers:      splitCSV(os.Getenv("KILN_ALLOWED_GITHUB_USERS")),
-		SecretsKey:              os.Getenv("KILN_SECRETS_KEY"),
-		BootstrapGitHubUser:     os.Getenv("KILN_BOOTSTRAP_GITHUB_USER"),
+		GitHubAppID:           os.Getenv("KILN_GITHUB_APP_ID"),
+		GitHubAppSlug:         os.Getenv("KILN_GITHUB_APP_SLUG"),
+		GitHubAppPrivateKey:   os.Getenv("KILN_GITHUB_APP_PRIVATE_KEY"),
+		GitHubAppClientID:     os.Getenv("KILN_GITHUB_APP_CLIENT_ID"),
+		GitHubAppClientSecret: os.Getenv("KILN_GITHUB_APP_CLIENT_SECRET"),
+		AllowedGitHubUsers:    splitCSV(os.Getenv("KILN_ALLOWED_GITHUB_USERS")),
+		SecretsKey:            os.Getenv("KILN_SECRETS_KEY"),
+		BootstrapGitHubUser:   os.Getenv("KILN_BOOTSTRAP_GITHUB_USER"),
 
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),

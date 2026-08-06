@@ -19,12 +19,12 @@ test('@keyless a new user is walked through setup and the board comes alive', as
 
   await page.goto('/dashboard');
 
-  // ---- Step 1: connect GitHub. Signing in grants no scopes, so this step is a
-  // real repo-scoped grant — but KILN_GITHUB_MODE=mock gives this dev-minted
-  // session a synthetic credential that the mock reports as repo-scoped, so the
-  // account already reads as connected and the step is a confirmation. That is
-  // exactly why this spec is keyless-only: no headless test can complete the
-  // real grant against github.com.
+  // ---- Step 1: connect GitHub. In production this step sends the user to the
+  // GitHub App's install page, where they choose which repositories Kiln may
+  // use — but KILN_GITHUB_MODE=mock gives this dev-minted session a synthetic
+  // INSTALLATION, so the account already reads as connected and the step is a
+  // confirmation. That is exactly why this spec is keyless-only: no headless
+  // test can complete a real install against github.com.
   await expect(page.getByRole('heading', { name: 'Connect GitHub' })).toBeVisible();
   await expect(page.locator('[data-role="github-connect"]')).toHaveAttribute(
     'data-state',

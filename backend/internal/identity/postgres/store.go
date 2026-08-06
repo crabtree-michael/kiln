@@ -196,14 +196,14 @@ func (s *Store) GetSessionUser(ctx context.Context, tokenHash string) (identity.
 func (s *Store) GetUserConfig(ctx context.Context, userID string) (identity.UserConfig, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT user_id, anthropic_api_key_enc, amika_api_key_enc, devin_api_key_enc,
-		       github_auth_token_enc, github_token_scopes, github_connected_login,
-		       amika_claude_cred_id
+		       github_auth_token_enc, github_installation_id, github_installation_revoked_at,
+		       github_connected_login, amika_claude_cred_id
 		FROM user_config WHERE user_id = $1`, userID)
 
 	var cfg identity.UserConfig
 	if err := row.Scan(&cfg.UserID, &cfg.AnthropicKeyEnc, &cfg.AmikaKeyEnc, &cfg.DevinKeyEnc,
-		&cfg.GitHubTokenEnc, &cfg.GitHubTokenScopes, &cfg.GitHubConnectedLogin,
-		&cfg.AmikaClaudeCredID); err != nil {
+		&cfg.GitHubTokenEnc, &cfg.GitHubInstallationID, &cfg.GitHubInstallationRevokedAt,
+		&cfg.GitHubConnectedLogin, &cfg.AmikaClaudeCredID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return identity.UserConfig{UserID: userID}, nil
 		}
@@ -217,19 +217,45 @@ func (s *Store) GetUserConfig(ctx context.Context, userID string) (identity.User
 func (s *Store) UpsertUserConfig(ctx context.Context, cfg identity.UserConfig) error {
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO user_config (user_id, anthropic_api_key_enc, amika_api_key_enc,
-		                         devin_api_key_enc, github_auth_token_enc, amika_claude_cred_id,
+		                         devin_api_key_enc, github_auth_token_enc,
+		                         github_installation_id, github_installation_revoked_at,
+		                         github_connected_login, amika_claude_cred_id,
 		                         updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 		ON CONFLICT (user_id) DO UPDATE
-		  SET anthropic_api_key_enc = EXCLUDED.anthropic_api_key_enc,
-		      amika_api_key_enc     = EXCLUDED.amika_api_key_enc,
-		      devin_api_key_enc     = EXCLUDED.devin_api_key_enc,
-		      github_auth_token_enc = EXCLUDED.github_auth_token_enc,
-		      amika_claude_cred_id  = EXCLUDED.amika_claude_cred_id,
-		      updated_at            = now()`,
+		  SET anthropic_api_key_enc          = EXCLUDED.anthropic_api_key_enc,
+		      amika_api_key_enc              = EXCLUDED.amika_api_key_enc,
+		      devin_api_key_enc              = EXCLUDED.devin_api_key_enc,
+		      github_auth_token_enc          = EXCLUDED.github_auth_token_enc,
+		      github_installation_id         = EXCLUDED.github_installation_id,
+		      github_installation_revoked_at = EXCLUDED.github_installation_revoked_at,
+		      github_connected_login         = EXCLUDED.github_connected_login,
+		      amika_claude_cred_id           = EXCLUDED.amika_claude_cred_id,
+		      updated_at                     = now()`,
 		cfg.UserID, cfg.AnthropicKeyEnc, cfg.AmikaKeyEnc, cfg.DevinKeyEnc, cfg.GitHubTokenEnc,
+		cfg.GitHubInstallationID, cfg.GitHubInstallationRevokedAt, cfg.GitHubConnectedLogin,
 		cfg.AmikaClaudeCredID); err != nil {
 		return fmt.Errorf("identity/postgres: upsert user config: %w", err)
+	}
+	return nil
+}
+
+// MarkInstallationRevoked stamps every user on installationID as needing a
+// reconnect. The `IS NULL` guard makes it idempotent: the first rejection
+// records the moment it happened, and the retries that follow (one per mint
+// attempt, roughly hourly per installation) touch nothing. installationID 0 is
+// the "no installation" sentinel and is never matched — the WHERE would
+// otherwise sweep every unconnected user in the table.
+func (s *Store) MarkInstallationRevoked(ctx context.Context, installationID int64, at time.Time) error {
+	if installationID == 0 {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE user_config
+		   SET github_installation_revoked_at = $2, updated_at = now()
+		 WHERE github_installation_id = $1
+		   AND github_installation_revoked_at IS NULL`, installationID, at); err != nil {
+		return fmt.Errorf("identity/postgres: mark installation revoked: %w", err)
 	}
 	return nil
 }

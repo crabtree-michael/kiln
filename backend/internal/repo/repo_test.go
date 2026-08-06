@@ -2,6 +2,8 @@ package repo
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,11 @@ import (
 	"testing"
 	"time"
 )
+
+// errTokenUnavailable stands in for a credential that cannot be resolved — a
+// dead GitHub App installation (static, per the err113 rule against dynamic
+// errors).
+var errTokenUnavailable = errors.New("repo_test: token unavailable")
 
 // seedRemote builds a real local "remote": a bare repo with one seeded commit.
 // It returns the bare repo path, usable as a plain-filesystem RepoURL (no token
@@ -432,5 +439,91 @@ func TestNew_ExistingCloneReused(t *testing.T) {
 	res := s2.Run(context.Background(), "git log --oneline")
 	if res.ExitCode != 0 || !strings.Contains(res.Output, subject) {
 		t.Fatalf("reused clone log failed: exit=%d output=%q", res.ExitCode, res.Output)
+	}
+}
+
+// The credential is resolved PER INVOCATION, not once at boot. That is the
+// whole reason Config.Token is a function: a GitHub App installation token
+// lives about an hour, and a long-running brain outlives many of them — a value
+// captured when the Shell was built would be dead by the time it was used.
+func TestRunResolvesTheTokenOnEveryInvocation(t *testing.T) {
+	bare, _ := seedRemote(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+
+	var calls int
+	s := New(context.Background(), Config{
+		RepoURL: bare,
+		Dir:     dir,
+		Token: func(context.Context) (string, error) {
+			calls++
+			return fmt.Sprintf("minted-%d", calls), nil
+		},
+	})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+	// The clone itself resolved once; count from there so the assertion is about
+	// the Runs, not about how many times boot happened to ask.
+	afterClone := calls
+
+	res := s.Run(context.Background(), "echo $GH_TOKEN")
+	if res.ExitCode != 0 {
+		t.Fatalf("echo exit=%d output=%q", res.ExitCode, res.Output)
+	}
+	first := strings.TrimSpace(res.Output)
+
+	res = s.Run(context.Background(), "echo $GH_TOKEN")
+	if res.ExitCode != 0 {
+		t.Fatalf("second echo exit=%d output=%q", res.ExitCode, res.Output)
+	}
+	second := strings.TrimSpace(res.Output)
+
+	if first == second {
+		t.Errorf("GH_TOKEN was %q both times; the source must be re-resolved per run", first)
+	}
+	if got := calls - afterClone; got != 2 {
+		t.Errorf("token resolved %d times across 2 runs, want 2", got)
+	}
+}
+
+// A credential that cannot be resolved must not take the whole repo tool down:
+// `gh` reports its own auth error (which the brain reads as a failed command),
+// and every git command — the majority of what this shell runs — keeps working.
+func TestRunSurvivesAnUnresolvableToken(t *testing.T) {
+	bare, subject := seedRemote(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+
+	s := New(context.Background(), Config{
+		RepoURL: bare,
+		Dir:     dir,
+		Token: func(context.Context) (string, error) {
+			return "", errTokenUnavailable
+		},
+	})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	res := s.Run(context.Background(), "git log --oneline")
+	if res.ExitCode != 0 {
+		t.Fatalf("git log exit=%d output=%q — git needs no credential here", res.ExitCode, res.Output)
+	}
+	if !strings.Contains(res.Output, subject) {
+		t.Fatalf("git log output missing seeded commit %q; got %q", subject, res.Output)
+	}
+
+	res = s.Run(context.Background(), "echo \"[$GH_TOKEN]\"")
+	if got := strings.TrimSpace(res.Output); got != "[]" {
+		t.Errorf("GH_TOKEN = %q, want empty when the source fails", got)
+	}
+}
+
+// A nil source is the unconfigured deployment, and behaves the same way: no
+// credential, no crash.
+func TestRunWithNoTokenSource(t *testing.T) {
+	s := newEnabledShell(t) // built with no Token at all
+	res := s.Run(context.Background(), "echo \"[$GH_TOKEN]\"")
+	if got := strings.TrimSpace(res.Output); got != "[]" {
+		t.Errorf("GH_TOKEN = %q, want empty with no source configured", got)
 	}
 }

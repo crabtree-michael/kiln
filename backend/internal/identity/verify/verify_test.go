@@ -7,6 +7,7 @@ package verify_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/verify"
 )
 
@@ -25,7 +27,13 @@ const (
 	wantOK           = "ok"
 	wantFailed       = "failed"
 	testHTTPSRepoURL = "https://github.com/x/y"
+	// nameRepoCheck is the fixed CheckResult.Name of the repo probe (11 §4).
+	nameRepoCheck = "repo"
 )
+
+// errCredentialGone stands in for a mint against a dead GitHub App installation
+// (static, per the err113 rule against dynamic errors).
+var errCredentialGone = errors.New("verify_test: installation unavailable")
 
 func TestVerifyAnthropicOK(t *testing.T) {
 	var gotPath, gotKey, gotVersion string
@@ -215,12 +223,35 @@ func TestVerifyRepoOK(t *testing.T) {
 	bare := newBareRepo(t)
 
 	v := verify.New("", "")
-	res := v.VerifyRepo(context.Background(), "file://"+bare, "")
+	res := v.VerifyRepo(context.Background(), "file://"+bare, identity.StaticTokenSource(""))
 	if res.Status != wantOK {
 		t.Fatalf("status = %q message = %q, want ok", res.Status, res.Message)
 	}
-	if res.Name != "repo" {
+	if res.Name != nameRepoCheck {
 		t.Fatalf("name = %q, want repo", res.Name)
+	}
+}
+
+// A credential that cannot be resolved — a dead GitHub App installation — is a
+// repo-check failure with its own message, not a git error and not a crash. The
+// message must name the class of problem without echoing the underlying error,
+// which can carry GitHub's response body.
+func TestVerifyRepoUnresolvableCredential(t *testing.T) {
+	v := verify.New("", "")
+	res := v.VerifyRepo(context.Background(), "https://github.com/acme/api",
+		func(context.Context) (string, error) { return "", errCredentialGone })
+
+	if res.Status != wantFailed {
+		t.Fatalf("status = %q, want failed", res.Status)
+	}
+	if res.Name != nameRepoCheck {
+		t.Fatalf("name = %q, want repo", res.Name)
+	}
+	if !strings.Contains(res.Message, "credential") {
+		t.Errorf("message = %q, want it to name the credential as the problem", res.Message)
+	}
+	if strings.Contains(res.Message, errCredentialGone.Error()) {
+		t.Errorf("message = %q, must not echo the underlying error", res.Message)
 	}
 }
 
@@ -231,7 +262,7 @@ func TestVerifyRepoMissing(t *testing.T) {
 	empty := t.TempDir() // no repo here at all
 
 	v := verify.New("", "")
-	res := v.VerifyRepo(context.Background(), "file://"+empty, "")
+	res := v.VerifyRepo(context.Background(), "file://"+empty, identity.StaticTokenSource(""))
 	if res.Status != wantFailed {
 		t.Fatalf("status = %q, want failed", res.Status)
 	}

@@ -385,12 +385,22 @@ type fakeAuth struct {
 
 	connectURL string // base URL ConnectURL appends "?state=" onto
 
-	// The single grant's completion (11 §2, amended 2026-08-03). A scripted
-	// user AND error together is the real ErrRepoScopeNotGranted shape: GitHub
-	// authenticated the account but withheld `repo`.
+	// The single flow's completion (11 §2, amended 2026-08-03 and by the GitHub
+	// App migration). A scripted user AND error together is the real
+	// ErrInstallationRequired shape: GitHub authenticated the account but
+	// nothing was installed.
 	completeConnectUser  identity.User
 	completeConnectErr   error
 	completeConnectCalls []string // codes CompleteConnect was called with, in order
+	// completeConnectInstallations records the installation_id each call
+	// carried, so a test can prove the callback's query parameter reaches the
+	// service rather than being dropped on the floor.
+	completeConnectInstallations []int64
+
+	// attachCalls records (userID, installationID) for the code-less callback —
+	// the shape GitHub produces when somebody installs from its own Apps page.
+	attachCalls []attachCall
+	attachErr   error
 
 	sessionToken     string
 	sessionExpires   time.Time
@@ -408,11 +418,27 @@ func (f *fakeAuth) ConnectURL(state string) string {
 	return f.connectURL + "?state=" + state
 }
 
-func (f *fakeAuth) CompleteConnect(_ context.Context, code string) (identity.User, error) {
+// attachCall is one AttachInstallation invocation, recorded in order.
+type attachCall struct {
+	userID         string
+	installationID int64
+}
+
+func (f *fakeAuth) CompleteConnect(
+	_ context.Context, code string, installationID int64,
+) (identity.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.completeConnectCalls = append(f.completeConnectCalls, code)
+	f.completeConnectInstallations = append(f.completeConnectInstallations, installationID)
 	return f.completeConnectUser, f.completeConnectErr
+}
+
+func (f *fakeAuth) AttachInstallation(_ context.Context, userID string, installationID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.attachCalls = append(f.attachCalls, attachCall{userID: userID, installationID: installationID})
+	return f.attachErr
 }
 
 func (f *fakeAuth) CreateSession(_ context.Context, _ string) (string, time.Time, error) {
@@ -428,6 +454,28 @@ func (f *fakeAuth) Logout(_ context.Context, token string) error {
 	defer f.mu.Unlock()
 	f.logoutCalls = append(f.logoutCalls, token)
 	return f.logoutErr
+}
+
+// lastAttach returns the most recent AttachInstallation call, and whether there
+// was one at all.
+func (f *fakeAuth) lastAttach() (attachCall, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.attachCalls) == 0 {
+		return attachCall{}, false
+	}
+	return f.attachCalls[len(f.attachCalls)-1], true
+}
+
+// lastCompleteConnectInstallation returns the installation_id the most recent
+// CompleteConnect carried (0 when there were none).
+func (f *fakeAuth) lastCompleteConnectInstallation() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.completeConnectInstallations) == 0 {
+		return 0
+	}
+	return f.completeConnectInstallations[len(f.completeConnectInstallations)-1]
 }
 
 func (f *fakeAuth) completeConnectCallCount() int {

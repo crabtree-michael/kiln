@@ -123,14 +123,16 @@ project-scoped (`withProject`, `ProjectResolver`).
 
 ```
 backend/internal/identity/
-  service.go       Service — OAuth login + allowlist, sliding-window sessions,
+  service.go       Service — GitHub App login + allowlist, sliding-window sessions,
                     Me/UpdateSettings/UpsertProject/Verify
+  installation.go   TokenSource + the per-installation mint cache (singleflight,
+                    refresh-before-expiry)
   cipher.go         AES-GCM envelope for secrets-at-rest (KILN_SECRETS_KEY)
   entities.go/store.go   User/Project/Settings + the Store port
   postgres/         Store adapter + migrations (users, projects, settings, sessions)
-  githubapi/        GitHub client — OAuth App flow (client.go) + GitHub App
-                    installation flow (app.go: install URL, app JWT, mint,
-                    installation repo listing)
+  githubapi/        GitHub client — the App's user-authorization half (client.go:
+                    code exchange, /user, repo listing) + its installation half
+                    (app.go: install URL, app JWT, mint, installation repo listing)
   verify/           live connection checks (anthropic/amika/repo) — 11 §4
 backend/internal/api/
   auth_handlers.go       GET /auth/github/connect·/callback, POST /auth/logout
@@ -139,10 +141,16 @@ backend/internal/api/
 ```
 
 - **Env gating** (`buildIdentity` in `cmd/kiln/wiring.go`): identity is **all-or-nothing** and
-  needs **all three** of `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, and
-  `KILN_SECRETS_KEY`. Any missing → `EnableIdentity` is never called, so `/auth/*` and
-  `/api/me` etc. are simply **absent** (404, not 401). A malformed `KILN_SECRETS_KEY` (wrong
-  length/encoding) fails the boot hard rather than silently running with broken crypto.
+  needs **all six** of `KILN_GITHUB_APP_ID`, `_SLUG`, `_PRIVATE_KEY`, `_CLIENT_ID`,
+  `_CLIENT_SECRET`, and `KILN_SECRETS_KEY` (the list lives once, in `identityEnvVars`). Any
+  missing → `EnableIdentity` is never called, so `/auth/*` and `/api/me` etc. are simply
+  **absent** (404, not 401), and the warning names the missing vars. All absent is silent —
+  that is a deployment that never turned identity on. A malformed `KILN_SECRETS_KEY` or App
+  private key fails the boot **hard** rather than silently running with broken crypto or a
+  connect flow whose every mint fails.
+- **The App private key is base64-encoded** (`KILN_GITHUB_APP_PRIVATE_KEY`). GitHub emits a
+  multi-line PEM and multi-line secrets do not survive a hosting provider's environment;
+  `parseAppPrivateKey` decodes it once at boot, accepting a raw PEM too.
 - **Dev session mint**: `POST /api/dev/session` (gated by `KILN_DEV_ENDPOINTS=1` **and**
   identity enabled) signs in — or creates — a user from a plain `{github_login}` body and
   mints a real session cookie, bypassing the OAuth dance. This is how e2e establishes an
@@ -151,20 +159,34 @@ backend/internal/api/
 - **Write-only secrets**: `PUT /api/settings` accepts raw secret values but `GET /api/me`
   only ever returns a `{set, tail}` status per secret (encrypted at rest via `cipher.go`,
   fingerprint/tail derived at write time) — the plaintext never round-trips over the wire.
-- **GitHub App migration, in progress** (`docs/superpowers/specs/2026-08-04-github-app-repo-selection-design.md`).
-  Kiln is moving off the OAuth App (blanket `repo` scope) onto a GitHub App, so the user picks
-  which repos Kiln may reach. `githubapi/app.go` is landed and unused so far: `InstallURL`,
-  `MintInstallationToken` (RS256 app JWT → a **1-hour** installation token), and
-  `ListInstallationRepos`. Three things to know before touching it:
-  - **The adapter is stateless.** A mint is a network call; the caller caches until shortly
-    before `ExpiresAt`. That cache belongs in `identity`, not here — same as `ExchangeCode`
-    not remembering tokens.
-  - **Both halves are live during the migration.** A client with no `AppID`/`AppPrivateKey`
-    still serves every OAuth call and returns `ErrNoAppCredentials` only from the mint. Do not
-    "fix" that by requiring App config in `New` — the boot gate is `cmd/kiln`'s job.
+- **Login runs through a GitHub App** (`docs/superpowers/specs/2026-08-04-github-app-repo-selection-design.md`;
+  the OAuth App it replaced is gone as of 2026-08-06, and every session was invalidated by
+  migration `0009` rather than migrated). The user picks on GitHub's own chooser which repos
+  Kiln may reach. Five things to know before touching it:
+  - **The credential is a function, not a value.** `identity.TokenSource` resolves per
+    git/`gh` invocation because an installation token dies within the hour. `RuntimeConfig`
+    carries `GitHubToken TokenSource`; `repo.Config.Token` and `verify.VerifyRepo` take one.
+    Never hoist a resolved token into a longer-lived variable.
+  - **The adapter is stateless.** A mint is a network call; `identity.InstallationTokens`
+    caches until `refreshMargin` before `ExpiresAt`, with a per-installation singleflight so
+    a waking fleet costs one round trip. That cache belongs in `identity`, not `githubapi` —
+    same as `ExchangeCode` not remembering tokens.
+  - **A rejected mint is recorded, not just returned.** `githubapi.ErrInstallationUnavailable`
+    (401/403/404) fires `Service.recordInstallationRevoked`, which is what flips the card to
+    `needs_reconnect`. A transport failure must NOT — a network blip is not a revoked grant.
+    This is also why `GET /api/me` stays a pure DB read: what GitHub thinks is learned when
+    a credential is *used* and written down for the read to find.
   - **`ListInstallationRepos` takes a USER token, not the minted one**, and hits
     `/user/installations/{id}/repositories`. This is deliberate: the installation-wide listing
     would offer an org member repos they cannot themselves reach.
+  - **A stored token with no installation still works** — a hand-typed PAT through
+    `PUT /api/settings`, or the deployment's bootstrap `GITHUB_AUTH_TOKEN`. It reads as
+    `unknown` (stored, not granted by Kiln), and writing one clears any installation so the
+    card never claims a connection the runtime is not using.
+- **The callback has two shapes** (`auth_handlers.go`). `code` + `installation_id` is the
+  full identity path, state-checked. `installation_id` alone — someone installing from
+  GitHub's own Apps page, who never passed through `/auth/github/connect` and so has no state
+  cookie — attaches to the existing session instead; no session means a redirect to connect.
 - **Whole surface is project-scoped now (11 phase 2).** `withProject` authenticates the
   session and resolves the caller's project before every `/api/*` handler runs, so identity is
   no longer confined to `/dashboard` — the board/chat (`/app`) and `/debug` are session-gated

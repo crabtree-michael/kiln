@@ -1,11 +1,12 @@
-// GitHub App vocabulary, beside this package's OAuth App vocabulary (client.go).
+// The GitHub App's installation half, beside its user-authorization half
+// (client.go).
 //
-// The difference that matters: an OAuth App's token is long-lived, account-wide,
-// and stored; a GitHub App's token is minted on demand from the App's private
-// key, scoped to ONE installation — the repositories the user picked on GitHub's
-// own chooser — and dies within the hour. That is the whole point of the
-// migration (design 2026-08-04 §3.3): the only long-lived secret becomes the
-// private key, which never leaves the backend.
+// The difference that matters, and the reason the OAuth App this replaced is
+// gone: an OAuth App's token was long-lived, account-wide, and stored; an
+// installation token is minted on demand from the App's private key, scoped to
+// ONE installation — the repositories the user picked on GitHub's own chooser —
+// and dies within the hour (design 2026-08-04 §3.3). The only long-lived secret
+// left is the private key, which never leaves the backend.
 //
 // The mint is two hops, both here:
 //
@@ -100,18 +101,18 @@ func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
-// InstallURL builds the redirect that starts THE GitHub grant under the App
-// (design §3.2). It is the App-era sibling of AuthorizeURL, and replaces it as
-// the target of `/auth/github/connect`: this URL is where GitHub renders the
-// "All repositories / Only select repositories" chooser.
+// InstallURL builds the redirect that starts THE GitHub grant (design §3.2).
+// It is the target of `/auth/github/connect`, replacing the OAuth authorize URL
+// that used to sit there: this URL is where GitHub renders the "All
+// repositories / Only select repositories" chooser.
 //
 // With "Request user authorization (OAuth) during installation" enabled on the
 // App, one trip through this URL yields BOTH the installation (the repository
 // choice) and a user-authorization `code` for the existing identity path — which
 // is why the migration needs no second route and no second callback.
 //
-// The state nonce round-trips exactly as it does for AuthorizeURL, so the
-// callback's CSRF check is unchanged.
+// The state nonce round-trips exactly as it did under the OAuth authorize URL,
+// so the callback's CSRF check was unchanged by the move.
 func (c *Client) InstallURL(state string) string {
 	q := url.Values{"state": {state}}
 	return fmt.Sprintf("%s/apps/%s/installations/new?%s", c.oauthBaseURL, c.appSlug, q.Encode())

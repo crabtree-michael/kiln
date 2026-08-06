@@ -1,19 +1,23 @@
 # Design: user-selected repository access (OAuth App → GitHub App migration)
 
 **Date:** 2026-08-04
-**Status:** approved for build — migration confirmed 2026-08-05. **One decision blocks rollout, not implementation (§0).**
+**Status:** **BUILT AND SHIPPED 2026-08-06.** §0 was answered — see the amendment below — and §6's compatibility fallback was dropped as a consequence.
 **Scope:** `internal/identity` (+ `githubapi`, `githubmock`, `verify`), `internal/repo`, `cmd/kiln` (config, wiring, bootstrap, registry), `schema/openapi.yaml` + both generated sides, the dashboard's onboarding step 1 and Integrations card, `render.yaml` / `docker-compose*.yml`, the keyless e2e stack.
 **Amends:** spec `11` §2 (identity & auth). Supersedes the "Deferred → GitHub App installation tokens" entry in `2026-07-12-private-repository-support-design.md` §9.
 
 ---
 
-## 0. Decision needed before rollout
+## 0. Decision needed before rollout — ANSWERED 2026-08-06
 
 > **Do existing connected users get prompted to install the App and re-select repos, or does this apply to new sign-ups only?**
 
-Everything below can be built and merged without the answer — §6's fallback keeps every existing OAuth credential working untouched, so the migration is non-breaking either way. What the answer changes is one banner on Integrations and whether an install prompt is forced on next sign-in. It must be settled **before this reaches production users**, because the two answers imply different states for the same account and we should not ship a half-decided prompt.
+**Everyone re-installs.** At the cutover every session was deleted and every stored OAuth credential cleared (migration `0009`), so existing users simply sign in again and land on GitHub's repository chooser like everyone else.
 
-Two other prerequisites are outside this repo and gate deployment, not coding: the App registration (§7) and its secrets in Render.
+That answer **removed §6 from the build**. The compatibility fallback existed only to avoid a flag day; once the flag day was chosen deliberately, keeping a branch that prefers a stored OAuth token over an installation would have been a way for a dead credential to look alive. What survives from §6 is narrower and unrelated to OAuth: a stored token with no installation still works, because that is how a hand-typed PAT and the deployment's bootstrap `GITHUB_AUTH_TOKEN` reach the runtime. It reads as `unknown` — stored, not granted by Kiln.
+
+**Scoped out of the shipping ticket:** the Integrations "Configure on GitHub" link (§3.5). `configure_url` and `installation_id` are on the wire and populated, but nothing renders them, because the only place that affordance belongs is the connect step — and the ticket that shipped this excluded onboarding changes. Wiring the link up is a follow-up with no backend work left in it.
+
+Two other prerequisites were outside this repo: the App registration (§7) and its secrets in Render. Both are done.
 
 ---
 

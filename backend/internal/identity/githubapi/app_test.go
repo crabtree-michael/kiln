@@ -177,6 +177,23 @@ func TestInstallURL(t *testing.T) {
 	}
 }
 
+// The Configure link is the only route by which a user can change which
+// repositories Kiln may touch, so it has to land on GitHub's own settings page
+// for their installation — not on the App's public page, which cannot change
+// anything.
+func TestConfigureURL(t *testing.T) {
+	c := githubapi.New(githubapi.Config{OAuthBaseURL: testGitHubHost, AppSlug: testAppSlug}, nil)
+
+	if got, want := c.ConfigureURL(4242), testGitHubHost+"/settings/installations/4242"; got != want {
+		t.Errorf("ConfigureURL = %q, want %q", got, want)
+	}
+	// No installation, no link: the card renders the Connect prompt instead, and
+	// a URL ending in "/0" would 404 anyone who followed it.
+	if got := c.ConfigureURL(0); got != "" {
+		t.Errorf("ConfigureURL(0) = %q, want empty", got)
+	}
+}
+
 // The JWT is the App's proof of identity, so every claim GitHub validates is
 // asserted here: the issuer it matches against the App, and a window it rejects
 // if it is over 10 minutes or issued in GitHub's future.

@@ -73,6 +73,14 @@ anchored above the dock's *current* top, not its collapsed top:
   controls row, the var clears the transcript. Collapsed and expanded both stay clear.
 - z-index (hub 6 > transcript 5) is only a belt-and-braces backstop for mid-resize
   frames; the geometry, not the z-order, is what keeps them from overlapping.
+- **Those numbers are sealed inside the dock region** — its keyboard-lift `transform`
+  makes it a stacking context — so they order the layers *within* the dock and say
+  nothing about the dock versus the feed. That is `[data-role='dock-region']`'s own
+  `z-index: 1`, and it is the whole of it: **the dock layer is above the feed layer**.
+  Anything the feed pins into the bottom reserve (today, "Show earlier" + its skirt)
+  paints under the toast band and the transcript, and nothing in the feed should carry
+  a `z-index` that fights that. Above the feed, below the header's 5, whose dropdowns
+  still fall over the dock.
 
 **When you add any new bottom-anchored surface** (another dock affordance, a second
 hub, a banner): decide its place in this upward stack and anchor it to the *dynamic*
@@ -704,10 +712,23 @@ retracted, so this is unrelated to swipe-dismiss above.
   reserve needs changing, change the padding. (This is the one place the "anchor to the
   dynamic height of the layers below you" principle is satisfied *indirectly*.)
 - **The control needs an opaque fill AND an opaque skirt below it** (`background` +
-  `box-shadow: 0 var(--space-10) 0 var(--surface-page)`). Cards scroll under it now, and
-  the reserve beneath it is still scrollable area they pass through — without the skirt
-  the control ends the feed with a line of the next card stranded under it. It needs no
-  measuring: the feed's own `overflow-y: auto` clips it to the region's bottom edge.
+  `box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page)`). Cards scroll under
+  it now, and the reserve beneath it is still scrollable area they pass through — without
+  the skirt the control ends the feed with a line of the next card stranded under it. It
+  needs no measuring: the feed's own `overflow-y: auto` clips it to the region's bottom edge.
+  **Offset and spread, never offset alone.** An outer shadow is the border box moved by the
+  offset and then clipped back *out* of that box, so the original `0 var(--space-10) 0`
+  started 2px below a 38px-tall control — a 2px hairline of scrolled card sitting directly
+  on the dock's separator, which is the one thing the skirt is for. Half offset + half
+  spread reaches the same 40px with its top edge on the control's own at any height.
+- **The control carries NO `z-index`, and `[data-role='dock-region']` carries `z-index: 1`.**
+  This pair is the feed-vs-dock layering and it is easy to get backwards. The band and the
+  transcript stand *inside* the reserve the skirt paints, so a `z-index` on the control
+  lifts the skirt over them — a grey blob across the band's separator and the top of every
+  toast, and over the transcript's hairline mid-utterance. Nor can the dock answer from its
+  own side: its keyboard-lift `transform` makes it a stacking context, sealing the band's
+  `z-index: 6` inside, so only a number on the REGION speaks for the layer. The control
+  needs no lift of its own — a positioned box already paints above the in-flow cards.
 - **`[data-role='desktop-feed']` is a flex column in every state and has NO bottom pad.**
   Both were previously gated on a `data-empty` attribute, which is gone — nothing read it
   once the anchoring stopped being conditional. Its old `--space-10` bottom pad was
@@ -721,7 +742,10 @@ retracted, so this is unrelated to swipe-dismiss above.
   is the containing block the anchoring hangs off — in the two view tests. The only thing
   that can see it actually resolve is `tests/desktop-shell-smoke.mjs`, which now measures
   the control at both viewports, with and without cards, and on a deliberately short
-  window so the feed really overflows.
+  window so the feed really overflows. What paints over what is a browser question too:
+  `tests/show-earlier-skirt-repro.mjs` (hand-run, same stance) puts a toast band and a
+  typed draft under the control and screenshots the strip between them at 3×, which is
+  the only way the 2px and 1px artefacts here are visible at all.
 
 ## Potential gotchas
 

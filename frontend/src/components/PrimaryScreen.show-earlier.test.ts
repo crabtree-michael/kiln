@@ -80,8 +80,36 @@ describe('feed "Show earlier" anchoring', () => {
     // clips the skirt to the region's bottom edge, so it covers exactly the
     // reserve and never reaches the dock; it only has to be TALLER than the part
     // of that reserve nothing else paints over.
+    //
+    // FOUR lengths, not three: offset THEN spread. An outer shadow is the border
+    // box moved down and then clipped back out of itself, so the pure 40px offset
+    // this started as began 2px below a 38px-tall control — and that 2px of
+    // scrolled card, immediately above the dock's separator, is precisely what the
+    // skirt exists to hide. Splitting the same 40px reach into 20 offset + 20
+    // spread lands the rect's top edge on the control's own at any height.
     const body = ruleBody("[data-role='feed-show-earlier'] {");
-    expect(body).toMatch(/box-shadow:\s*0\s+var\(--space-10\)\s+0\s+var\(--surface-page\)/);
+    expect(body).toMatch(
+      /box-shadow:\s*0\s+var\(--space-5\)\s+0\s+var\(--space-5\)\s+var\(--surface-page\)/,
+    );
+  });
+
+  it('never lifts itself over the dock layer, whose overlays stand in that reserve', () => {
+    // The bug this pins: the skirt painted a page-tone blob across the toast
+    // band's separator hairline and the first line of every toast, because the
+    // control carried a `z-index: 1`. The band and the transcript are anchored
+    // ABOVE the dock (`bottom: 100%`), so they stand inside the very reserve the
+    // skirt covers, and they are the layer that owns it.
+    const control = ruleBody("[data-role='feed-show-earlier'] {");
+    expect(control).not.toMatch(/z-index/);
+
+    // The dock region can't answer this from its own side without help: its
+    // keyboard-lift transform makes it a stacking context, sealing the band's
+    // `z-index: 6` inside — so the whole layer is lifted by one number here.
+    // Above the feed's pinned control, below the header's 5 (the status /
+    // project / notification dropdowns still drop over the dock).
+    const dock = ruleBody("[data-role='dock-region'] {");
+    expect(dock).toMatch(/z-index:\s*1/);
+    expect(ruleBody("[data-role='feed-header'] {")).toMatch(/z-index:\s*5/);
   });
 
   it('is opaque, because cards now scroll underneath it', () => {

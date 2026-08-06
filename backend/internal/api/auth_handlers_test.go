@@ -39,6 +39,9 @@ const (
 	// GitHub affordance leads to, and where a callback with nobody signed in
 	// gets sent back to.
 	testConnectPath = "/auth/github/connect"
+
+	// testDashboardPath is where a completed sign-in lands.
+	testDashboardPath = "/dashboard"
 )
 
 // newAuthTestServer builds a bare server with EnableIdentity turned on over
@@ -155,8 +158,8 @@ func TestAuthCallbackSuccess(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/dashboard" {
-		t.Errorf("Location = %q, want /dashboard", loc)
+	if loc := resp.Header.Get("Location"); loc != testDashboardPath {
+		t.Errorf("Location = %q, want %s", loc, testDashboardPath)
 	}
 
 	sess := cookieNamed(resp, testSessionCookie)

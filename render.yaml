@@ -23,6 +23,18 @@ services:
           property: connectionString
       - key: KILN_LOG_LEVEL
         value: info
+      # The ONE origin Kiln is published at (added 2026-08-06). The service also
+      # answers on its Render hostname, and that second door is what broke
+      # sign-in: the OAuth state cookie is written on whichever host the user is
+      # reading Kiln on, while GitHub delivers the callback to the App's single
+      # registered callback URL — so state written on trykiln.dev was read on
+      # onrender.com and found on neither ("missing oauth state cookie"), and the
+      # user ended up parked on the Render URL. Any browser GET arriving off this
+      # origin is now redirected onto it before a handler runs (/healthz exempt,
+      # so Render's probe still reaches the instance directly).
+      # Set-but-malformed refuses the boot; unset disables the redirect entirely.
+      - key: KILN_PUBLIC_URL
+        value: https://trykiln.dev
       # Per-environment worker-name scope (05 §4, amended 2026-07-05): prod owns
       # kiln-prod-worker-* exclusively, so no other Kiln instance on the shared
       # Amika account (local dev = kiln-dev-worker-, e2e) can ever adopt or sweep

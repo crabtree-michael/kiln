@@ -200,6 +200,20 @@ backend/internal/api/
   existing session instead; no session means a redirect to connect. The install hop is
   bounded by the `kiln_gh_install` marker cookie: a declined install looks exactly like never
   having been offered one, so without it the browser would ping-pong forever.
+- **Sign-in needs ONE public origin (`KILN_PUBLIC_URL`, `api/canonical.go`, added 2026-08-06).**
+  A cookie belongs to a host; the App's callback URL is a fixed string in GitHub's settings and
+  has no idea which host the user started on. A deployment answering on both its platform
+  hostname and its real domain therefore splits the flow across two cookie jars — state written
+  on `trykiln.dev`, read on `…onrender.com`, found on neither, which is exactly the
+  "missing oauth state cookie" 400 users hit, and had it passed they'd have been handed a
+  session cookie on the wrong domain. `EnableCanonicalHost` redirects any off-origin GET/HEAD
+  onto the pinned origin **before the mux**, so the callback is re-delivered (query intact) to
+  the host holding the cookie. Two exemptions and one non-exemption, all load-bearing:
+  `/healthz` (Render's probe reaches an internal hostname; a 302 reads as unhealthy), non-safe
+  methods (a redirected POST can lose its body), and *nothing else* — the whole point is that
+  a stray landing on the platform URL ends up on the real domain. Unset ⇒ no wrapper at all
+  (local/dev); set-but-malformed ⇒ **refuse the boot**, since a shrugged-off typo serves the
+  precise breakage the setting exists to close.
 - **Whole surface is project-scoped now (11 phase 2).** `withProject` authenticates the
   session and resolves the caller's project before every `/api/*` handler runs, so identity is
   no longer confined to `/dashboard` — the board/chat (`/app`) and `/debug` are session-gated

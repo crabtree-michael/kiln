@@ -235,7 +235,12 @@ await page.route('**/api/**', async (route) => {
         amika_api_key: { set: true, tail: 'wxyz' },
         devin_api_key: { set: false, tail: '' },
         github_auth_token: { set: true, tail: '1234' },
-        github_connection: { status: 'connected', login: 'amika', scopes: ['repo'] },
+        github_connection: {
+          status: 'connected',
+          login: 'amika',
+          installation_id: 4242,
+          configure_url: 'https://github.com/settings/installations/4242',
+        },
         amika_claude_cred_id: '',
       },
     });

@@ -132,7 +132,8 @@ await page.route('**/api/**', async (route) => {
           github_connection: {
             status: 'connected',
             login: 'amika',
-            scopes: ['repo'],
+            installation_id: 4242,
+            configure_url: 'https://github.com/settings/installations/4242',
           },
           amika_claude_cred_id: '',
         },

@@ -528,6 +528,21 @@ html:has([data-role='desktop-screen']) body {
   --working-mark-soft: var(--warn-soft);
 }
 
+/* Blocked — the same fire the ticket's own BLOCKED badge burns (TicketDetail.css,
+   `[data-state='blocked']`: `--danger` for the word, `--danger` + `--danger-soft`
+   for the dot), for the same reason the working head borrows ember: the ticket's
+   reading is the source of truth and the head follows it.
+
+   It does not breathe. Blocked is the state where nothing is moving, so the mark
+   sits still and lit — the detail sheet's "stuck, not moving" rule, and the one
+   place on this screen where the loudest ink is correct, because it is the state
+   that wants the user. */
+[data-role='desktop-working-head'][data-state='blocked'] {
+  --working-ink: var(--danger);
+  --working-mark: var(--danger);
+  --working-mark-soft: var(--danger-soft);
+}
+
 [data-role='desktop-working-dot'] {
   width: 6px;
   height: 6px;
@@ -559,6 +574,21 @@ html:has([data-role='desktop-screen']) body {
   background: var(--working-mark, var(--text-muted));
   box-shadow: 0 0 0 3px var(--working-mark-soft, transparent);
   animation: kiln-breathe var(--pulse-duration) ease-in-out infinite;
+}
+
+/* …except when the head reads blocked, which takes a rule of its own because
+   the mark can be LIVE while the board is stuck: the brain takes a pass with
+   nothing in Working and a ticket waiting on the user, and the rule above
+   (0,2,0) would breathe that dot — in fire. A pulsing alarm is more than "one
+   ticket needs a decision" is worth, and the badge this head borrows from is
+   explicitly "stuck, not moving". Weighs (0,3,0), so it wins; the colour still
+   says blocked and the transient pass simply goes unpulsed.
+
+   It must sit AFTER the plain dot rules: the layout test finds a rule by the
+   first occurrence of its selector text, and this one ends with the same
+   `[data-role='desktop-working-dot'] {` the base rule is looked up by. */
+[data-role='desktop-working-head'][data-state='blocked'] [data-role='desktop-working-dot'] {
+  animation: none;
 }
 
 /* The resting reading. One flat line in the faintest ink on the screen: it

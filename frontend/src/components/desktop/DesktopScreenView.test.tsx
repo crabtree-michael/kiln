@@ -525,6 +525,92 @@ describe('DesktopScreenView', () => {
     expect(strip?.textContent).not.toMatch(/2 (working|tickets)/);
   });
 
+  it('resting: the head says idle, not "working now" over an empty column', () => {
+    // The head is a reading, not a label. It used to say "working now"
+    // unconditionally, which made the panel claim work on a board where nothing
+    // was running — the one thing on the screen most likely to be trusted at a
+    // glance, saying the one thing it could not know.
+    const { container } = renderShell();
+    const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
+    expect(head).toHaveTextContent('idle');
+    // Quiet: nothing to do gets no ink of its own.
+    expect(head).not.toHaveAttribute('data-state');
+  });
+
+  it('blocked: nothing running because a ticket needs a decision reads as blocked, not idle', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        blocked: [
+          makeTicket({
+            id: 'b1',
+            title: 'auth refresh',
+            body: 'the full record',
+            state: 'blocked',
+            priority: 1,
+            createdAt: '2026-08-04T09:00:00Z',
+            updatedAt: '2026-08-04T11:00:00Z',
+            statusChangedAt: '2026-08-04T11:00:00Z',
+          }),
+        ],
+      }),
+    });
+    const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
+    expect(head).toHaveTextContent('blocked');
+    // …and it wears the ticket's own BLOCKED reading, the same state value the
+    // detail sheet's badge is keyed on (the tokens are pinned in
+    // DesktopScreen.layout.test.ts).
+    expect(head).toHaveAttribute('data-state', 'blocked');
+    // The cause is said in words too — the head's one word cannot carry the
+    // difference between "nothing to run" and "nothing it may run".
+    expect(screen.getByText('Nothing in progress — a ticket needs you.')).toBeInTheDocument();
+  });
+
+  it('blocked: a live ticket outranks it — the head names the work it can list', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [workingTicket('t1', 'poller', '2026-08-04T11:00:00Z')],
+        blocked: [
+          makeTicket({
+            id: 'b1',
+            title: 'auth refresh',
+            body: 'the full record',
+            state: 'blocked',
+            priority: 1,
+            createdAt: '2026-08-04T09:00:00Z',
+            updatedAt: '2026-08-04T11:00:00Z',
+            statusChangedAt: '2026-08-04T11:00:00Z',
+          }),
+        ],
+      }),
+    });
+    const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
+    expect(head).toHaveTextContent('working now');
+    expect(head).toHaveAttribute('data-state', 'working');
+  });
+
+  it('working: a worked ticket keeps the head reading "working now"', () => {
+    const { container } = renderShell({
+      board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+    });
+    expect(container.querySelector('[data-role="desktop-working-head"]')).toHaveTextContent(
+      'working now',
+    );
+  });
+
+  it('resting: a brain pass over an empty board breathes, but does not claim work', () => {
+    // The two signals are separate on purpose. The dot answers "is anything
+    // happening" and the word answers "what state is this project in" — a pass
+    // with nothing in Working is a true yes to the first and no work to name for
+    // the second, so a head reading "working now" would be pointing at rows that
+    // do not exist.
+    const { container } = renderShell({ thinking: true });
+    expect(container.querySelector('[data-role="desktop-working-dot"]')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
+    expect(container.querySelector('[data-role="desktop-working-head"]')).toHaveTextContent('idle');
+  });
+
   it('resting: the panel stays put and says nothing is running, rather than vanishing', () => {
     // The column is permanent on purpose. A panel that appeared and disappeared
     // with the work would shove the feed sideways every time an agent picked

@@ -253,16 +253,26 @@ func renderContext(input PassInput) string {
 	return b.String()
 }
 
+// doneRosterLimit caps how many Done tickets the roster lists. Done is the one
+// column that only grows — every accepted ticket stays in it for the project's
+// life — and the brain acts on its tail at most (what just landed), so listing
+// all of it spends context on history no pass reads. The rest stays reachable
+// on demand through search_tickets, which the elision line names.
+const doneRosterLimit = 5
+
 // renderBoard writes the snapshot's five columns in render order (06 §3.1).
 // Written by hand rather than JSON-marshalled so the brain sees a compact,
-// stable, model-friendly layout of every ticket.
+// stable, model-friendly layout of every ticket — every one, except Done's
+// older tail (doneRosterLimit).
 func renderBoard(b *strings.Builder, snap board.Snapshot) {
 	fmt.Fprintf(b, "workers: %d free / %d total\n", snap.WorkerFree, snap.WorkerTotal)
-	renderColumn(b, "Shaping", board.StateShaping, snap.Shaping)
-	renderColumn(b, "Ready", board.StateReady, snap.Ready)
-	renderColumn(b, "Blocked", board.StateBlocked, snap.Blocked)
-	renderColumn(b, "Working", board.StateWorking, snap.Working)
-	renderColumn(b, "Done", board.StateDone, snap.Done)
+	renderColumn(b, "Shaping", board.StateShaping, snap.Shaping, 0)
+	renderColumn(b, "Ready", board.StateReady, snap.Ready, 0)
+	renderColumn(b, "Blocked", board.StateBlocked, snap.Blocked, 0)
+	renderColumn(b, "Working", board.StateWorking, snap.Working, 0)
+	// Snapshot.Done is newest-first (03 §4), so the head is the recent tail of
+	// the project's history — the only part a pass is likely to act on.
+	renderColumn(b, "Done", board.StateDone, snap.Done, doneRosterLimit)
 }
 
 // renderColumn writes one board column's tickets, one per line, under a header
@@ -271,17 +281,28 @@ func renderBoard(b *strings.Builder, snap board.Snapshot) {
 // for the column rather than repeated on every row — the roster tells the model
 // what it can do to these tickets at no per-ticket cost. An empty column has
 // nothing to act on, so it stays a bare header.
-func renderColumn(b *strings.Builder, label string, state board.State, tickets []board.Ticket) {
+//
+// limit caps how many rows are listed (0 = all). The header always counts the
+// whole column and an elided remainder is named explicitly, so a windowed column
+// never reads as a complete one — the model can tell "no more" from "not shown".
+func renderColumn(b *strings.Builder, label string, state board.State, tickets []board.Ticket, limit int) {
 	fmt.Fprintf(b, "## %s (%d)\n", label, len(tickets))
 	if len(tickets) > 0 {
 		fmt.Fprintf(b, "%s on these: %s\n", allowedPrefix, allowedActions(state))
 	}
-	for _, t := range tickets {
+	shown := tickets
+	if limit > 0 && len(shown) > limit {
+		shown = shown[:limit]
+	}
+	for _, t := range shown {
 		fmt.Fprintf(b, "- [%s] %q (state=%s, priority=%d)", t.ID, t.Title, t.State, t.Priority)
 		if t.BlockedReason != nil {
 			fmt.Fprintf(b, " blocked_reason=%q", *t.BlockedReason)
 		}
 		b.WriteByte('\n')
+	}
+	if len(shown) < len(tickets) {
+		fmt.Fprintf(b, "(%d older not shown — find them with %s)\n", len(tickets)-len(shown), ToolSearchTickets)
 	}
 }
 

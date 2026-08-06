@@ -15,16 +15,18 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/brain"
 )
 
-// TestToolSet_IsExactlyFourteenToolsInFixedOrder pins the CRUD-consolidated tool
+// TestToolSet_IsExactlyFifteenToolsInFixedOrder pins the CRUD-consolidated tool
 // set (06 §4 amended): clean CRUD over tickets and feed updates, plus the agent
-// read seam, send/say, and bash — exactly these fourteen, in this order (order
+// read seam, send/say, and bash — exactly these fifteen, in this order (order
 // matters for prompt-cache friendliness and golden fixtures, 06 §4/§9). No pull
-// tool; board reads are now tools (list_tickets/get_ticket), not injection.
-func TestToolSet_IsExactlyFourteenToolsInFixedOrder(t *testing.T) {
+// tool; board reads are now tools (list_tickets/get_ticket/search_tickets), not
+// injection.
+func TestToolSet_IsExactlyFifteenToolsInFixedOrder(t *testing.T) {
 	want := []brain.ToolName{
 		brain.ToolCreateTicket,
 		brain.ToolListTickets,
 		brain.ToolGetTicket,
+		brain.ToolSearchTickets,
 		brain.ToolUpdateTicket,
 		brain.ToolDeleteTicket,
 		brain.ToolSendToAgent,
@@ -58,7 +60,7 @@ func TestSystemPrompt_HasToolGuidance(t *testing.T) {
 		t.Fatalf("RenderSystemPrompt: %v", err)
 	}
 	tools := []string{
-		"list_tickets", "get_ticket", "update_ticket", "delete_ticket",
+		"list_tickets", "get_ticket", "search_tickets", "update_ticket", "delete_ticket",
 		"post_update", "edit_update", "retract_update", "bash",
 	}
 	for _, tool := range tools {

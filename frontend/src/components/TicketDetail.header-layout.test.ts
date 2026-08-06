@@ -1,8 +1,9 @@
-// TicketDetail header geometry, after the × came out and the gear moved left.
-// jsdom does no layout, so the DOM tests next door can only see that the close
-// button is gone and that the gear leads the status row — not that the header is
-// actually a single full-width column, nor that the gear's dropdown now opens
-// from the correct corner. Those three are CSS, and this is the only thing in
+// TicketDetail header geometry, after the × came out and the gear moved to the
+// status row's right end. jsdom does no layout, so the DOM tests next door can
+// only see that the close button is gone and that the gear comes last in the
+// status row — not that the header is actually a single full-width column, nor
+// that the auto margin carries the gear to the right edge, nor that its dropdown
+// opens from the correct corner. Those are CSS, and this is the only thing in
 // the gate that can catch them regressing.
 //
 // The stylesheet is pulled in as a raw string (Vite `?raw`, typed via
@@ -34,28 +35,29 @@ describe('TicketDetail header layout', () => {
     expect(ruleBody("[data-role='ticket-detail-heading'] {")).toMatch(/flex:\s*1 1 auto/);
   });
 
-  it('leaves the gear at the status row’s start rather than pushing it to the end', () => {
-    // `margin-left: auto` is what parked it in the sheet's right corner, under
-    // the ×. Without it the gear sits where the row starts — the title's own
-    // left edge — which is the whole point of the move.
-    expect(ruleBody("[data-role='detail-sandbox-menu'] {")).not.toMatch(/margin-left:\s*auto/);
+  it('pushes the gear to the status row’s end, on the sheet’s right edge', () => {
+    // `margin-left: auto` is the whole mechanism: DOM order puts the gear after
+    // the badge, and the auto margin eats the row's spare width so it lands in
+    // the right corner however short the badge's word — or on a ticket that
+    // wears no badge at all.
+    expect(ruleBody("[data-role='detail-sandbox-menu'] {")).toMatch(/margin-left:\s*auto/);
   });
 
-  it('cancels the trigger’s hit-area padding so the glyph lands on the title’s edge', () => {
+  it('cancels the trigger’s hit-area padding so the glyph lands on the sheet’s edge', () => {
     // The button keeps a comfortable tap target (padding) while the negative
-    // margin pulls its box back out of flow, so what aligns with the title is
-    // the gear itself and not the padding around it.
+    // margin pulls its box back out of flow, so what aligns with the sheet's
+    // right edge is the gear itself and not the padding around it.
     const body = ruleBody("[data-role='detail-sandbox-trigger'] {");
     expect(body).toMatch(/padding:\s*5px/);
     expect(body).toMatch(/margin:\s*-5px/);
   });
 
-  it('re-anchors the gear’s dropdown to open down-and-right from its new corner', () => {
-    // Anchored `right: 0` it would hang off the sheet's left edge now that the
+  it('anchors the gear’s dropdown to open down-and-left from its corner', () => {
+    // Anchored `left: 0` it would hang off the sheet's right edge now that the
     // trigger sits there — clipped by the panel's own overflow: hidden.
     const body = ruleBody("[data-role='detail-sandbox-panel'] {");
-    expect(body).toMatch(/left:\s*0/);
-    expect(body).not.toMatch(/right:\s*0/);
-    expect(body).toMatch(/transform-origin:\s*top left/);
+    expect(body).toMatch(/right:\s*0/);
+    expect(body).not.toMatch(/left:\s*0/);
+    expect(body).toMatch(/transform-origin:\s*top right/);
   });
 });

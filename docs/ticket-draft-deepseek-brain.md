@@ -335,6 +335,35 @@ Kiln's actual payloads. Phase 0 exists to confirm them:
 - The real-world rate of §4.2 in Kiln's specific prompt/tool shape.
 - What `stop_reason` values are returned; the compat docs do not list them.
 
+### Status: phase 0 deferred (2026-08-06)
+
+**The spike has not been run.** Two blockers, both environmental:
+
+1. **Credentials.** `DEEPSEEK_API_KEY` is not provisioned. `ANTHROPIC_API_KEY` is wanted
+   alongside it — not as a fallback, but because the same chained-tool-call harness run
+   against Anthropic is the known-good baseline that makes the DeepSeek result legible.
+   Anthropic's extended thinking *does* require thinking blocks replayed across chained tool
+   calls, so the Anthropic run is what tells us whether a DeepSeek failure is a DeepSeek
+   quirk or our harness reproducing a constraint both providers share.
+2. **No Go toolchain in the sandbox.** `go` is not on `PATH` (a `~/go` directory exists but
+   no binary), so the harness cannot be built or run here even once keys land. Docker *is*
+   available, so the practical route is a `golang:1.26` container mounting `backend/` — the
+   SDK (`anthropic-sdk-go@v1.56.0`) is already a dependency, so the harness needs no new
+   module. Alternatively run it anywhere with a normal Go install; nothing about it is
+   sandbox-specific.
+
+Deferred until both are resolved; **not blocking** any other work in this proposal.
+
+Everything above stands as written — this is a gap in *confirmation*, not a change of
+position. The consequence is only that §5's kill criteria remain untested, so phases 1–3 stay
+gated (§6.1) rather than becoming eligible by default through the passage of time.
+
+The specific thing to run when the keys arrive: a **≥5-call chained tool-use sequence**,
+replaying assistant turns exactly as `toSDKMessages` (`brain/llm.go:351`) does today — that
+is, with thinking blocks dropped — and then a second pass with them replayed. The delta
+between those two runs is the answer to §4.1, which is the criterion the other five spike
+questions are subordinate to.
+
 [^1]: `openclaw/openclaw` issue #72044 — DeepSeek-v4-pro thinking mode breaks on multi-turn
     tool-call flows. Closed 2026-04-26; the reported v4.24 fix "only addressed short chains".
     <https://github.com/openclaw/openclaw/issues/72044>

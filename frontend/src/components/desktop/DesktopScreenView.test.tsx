@@ -78,6 +78,25 @@ function workingTicket(id: string, title: string, statusChangedAt: string) {
   });
 }
 
+/** A ticket waiting rather than running, for the backlog cases. */
+function waitingTicket(
+  id: string,
+  title: string,
+  state: 'ready' | 'shaping',
+  statusChangedAt: string,
+) {
+  return makeTicket({
+    id,
+    title,
+    body: 'the full record',
+    state,
+    priority: 1,
+    createdAt: '2026-08-04T09:00:00Z',
+    updatedAt: statusChangedAt,
+    statusChangedAt,
+  });
+}
+
 const blockerCard = makeFeedCard({
   kind: 'blocker',
   id: 'c1',
@@ -524,6 +543,152 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-working-head"]')).not.toHaveAttribute(
       'role',
     );
+  });
+
+  // The panel's second section. The desk used to report only the tickets an
+  // agent happened to be holding, so a project with every worker busy and eleven
+  // tickets queued behind them looked exactly like a project with four tickets
+  // in it. The phone has always answered this in its header dropdown; these
+  // cases are that coverage brought over.
+  it('backlog: names what is queued as well as what is running', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')],
+        ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')],
+        shaping: [waitingTicket('s1', 'retry backoff', 'shaping', '2026-08-04T11:30:00Z')],
+      }),
+    });
+    // The in-progress list is untouched — this ADDS a section, it does not
+    // replace one.
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[data-role="desktop-working-title"]'),
+      ).map((node) => node.textContent),
+    ).toEqual(['auth refresh']);
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[data-role="desktop-backlog-title"]'),
+      ).map((node) => node.textContent),
+    ).toEqual(['poller', 'retry backoff']);
+  });
+
+  it('backlog: lives in the left panel beside the feed, not inside the scroller', () => {
+    // Same reasoning as the working list above it: a standing fact about the
+    // project must not be scrollable away by reading back through the history.
+    const { container } = renderShell({
+      board: makeBoard({ ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')] }),
+    });
+    const backlog = container.querySelector('[data-role="desktop-backlog"]');
+    expect(backlog).not.toBeNull();
+    expect(backlog?.parentElement).toHaveAttribute('data-role', 'desktop-working-panel');
+    expect(
+      container.querySelector('[data-role="desktop-feed"] [data-role="desktop-backlog"]'),
+    ).toBeNull();
+  });
+
+  it('backlog: reads the ready queue in the order the server sent it', () => {
+    // Ready arrives in exact pull order (03 §5/D9), so the top row is the ticket
+    // a freed worker actually takes next. Sorting it locally would replace real
+    // information with a guess.
+    const { container } = renderShell({
+      board: makeBoard({
+        ready: [
+          waitingTicket('r-urgent', 'urgent', 'ready', '2026-08-04T11:59:00Z'),
+          waitingTicket('r-older', 'older', 'ready', '2026-08-04T09:00:00Z'),
+        ],
+      }),
+    });
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[data-role="desktop-backlog-title"]'),
+      ).map((node) => node.textContent),
+    ).toEqual(['urgent', 'older']);
+  });
+
+  it('backlog: says which tickets are still proposals, and says nothing about the rest', () => {
+    // `ready` is the expected case in a queue and carries no word — a row
+    // reading "ready · ready" is noise. A shaping ticket is waiting on a person
+    // rather than on a worker, which is a different wait, so it is named.
+    renderShell({
+      board: makeBoard({
+        ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')],
+        shaping: [waitingTicket('s1', 'retry backoff', 'shaping', '2026-08-04T11:30:00Z')],
+      }),
+    });
+    expect(screen.getByText('proposal')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open backlog ticket: poller — ready, waiting for 1h' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Open backlog ticket: retry backoff — proposal, waiting for 30m',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('backlog: each row carries the SAME status mark, coloured by the ticket itself', () => {
+    // The shared vocabulary, exactly as the working rows use it: `data-state` is
+    // the ticket's own lifecycle state and picks the ink. Shaping and ready are
+    // the two states the detail sheet gives no badge either, so both land on the
+    // mark's flat faint default — right for a ticket nothing is happening to.
+    const { container } = renderShell({
+      board: makeBoard({
+        ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')],
+        shaping: [waitingTicket('s1', 'retry backoff', 'shaping', '2026-08-04T11:30:00Z')],
+      }),
+    });
+    const marks = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-role="desktop-backlog-ticket"] [data-role="status-dot"]',
+      ),
+    );
+    expect(marks.map((mark) => mark.dataset.state)).toEqual(['ready', 'shaping']);
+    // …and no session status is invented: a backlog ticket has no worker bound,
+    // so texturing its mark with one would report a session that doesn't exist.
+    expect(marks.every((mark) => mark.dataset.status === undefined)).toBe(true);
+  });
+
+  it('backlog: opening a row opens that ticket over the feed', () => {
+    const { container } = renderShell({
+      board: makeBoard({ ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')] }),
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open backlog ticket: poller — ready, waiting for 1h' }),
+    );
+    expect(screen.getByRole('dialog', { name: 'poller' })).toBeInTheDocument();
+    expect(container.querySelector('[data-role="desktop-feed"]')).not.toBeNull();
+  });
+
+  it('backlog: at rest it stays put, states the absence, and nothing about it is live', () => {
+    // The section is permanent for the same reason the working list is: a block
+    // that appeared and vanished with the queue would move the feed sideways
+    // every time a ticket was accepted. And nothing here is running, so there is
+    // no breathing mark and no live region re-announcing an unchanged queue.
+    const { container } = renderShell();
+    const backlog = container.querySelector('[data-role="desktop-backlog"]');
+    expect(backlog).not.toBeNull();
+    expect(container.querySelector('[data-role="desktop-backlog-list"]')).toBeNull();
+    expect(screen.getByText('Nothing waiting.')).toBeInTheDocument();
+    expect(backlog?.querySelector('[data-role="desktop-working-dot"]')).toBeNull();
+    expect(container.querySelector('[data-role="desktop-backlog-head"]')).not.toHaveAttribute(
+      'role',
+    );
+  });
+
+  it('backlog: no counts and no meters — it lists, it does not measure (13 §8)', () => {
+    // The queue's DEPTH is a number, and the board view at /kanban is where a
+    // number belongs. This column is read at a glance and stays a list.
+    const { container } = renderShell({
+      board: makeBoard({
+        ready: [
+          waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z'),
+          waitingTicket('r2', 'retry backoff', 'ready', '2026-08-04T11:30:00Z'),
+        ],
+      }),
+    });
+    const backlog = container.querySelector('[data-role="desktop-backlog"]');
+    expect(backlog?.querySelector('progress')).toBeNull();
+    expect(backlog?.textContent).not.toMatch(/2 (waiting|ready|tickets)/);
   });
 
   it('disconnected: stated permanently and in place — never a modal', () => {

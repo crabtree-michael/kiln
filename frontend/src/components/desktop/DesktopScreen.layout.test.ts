@@ -353,6 +353,56 @@ describe('DesktopScreen.css', () => {
     // 720px-wide block trying to live in a 248px column.
     expect(ruleBody("[data-role='desktop-working-head'] {")).not.toMatch(/max-width/);
     expect(ruleBody("[data-role='desktop-working-list'] {")).not.toMatch(/max-width/);
+    expect(ruleBody("[data-role='desktop-backlog-head'] {")).not.toMatch(/max-width/);
+    expect(ruleBody("[data-role='desktop-backlog-list'] {")).not.toMatch(/max-width/);
+  });
+
+  it('gives the backlog its own section in the panel, set apart by air not by a rule', () => {
+    // The column's whole boundary story is the single strong line on its right
+    // edge (13 §4). A second rule inside it, between two sections of the same
+    // reading, would turn a quiet column into a stack of boxes.
+    const body = ruleBody("[data-role='desktop-backlog'] {");
+    expect(body).toMatch(/margin-top:\s*var\(--space-\d+\)/);
+    expect(body).not.toMatch(/border/);
+    expect(body).not.toMatch(/background/);
+    // It holds its own height rather than stretching, like the section above it,
+    // so a long queue scrolls the panel instead of squeezing the working list.
+    expect(body).toMatch(/flex:\s*none/);
+  });
+
+  it('nothing in the backlog breathes — only the running section is live', () => {
+    // The difference between "running" and "waiting" is the entire reason the
+    // two sections are separate rather than one merged list, and the liveness is
+    // where that difference is carried. A mark looping over a static queue would
+    // be manufactured activity (13 §1) AND would erase the distinction.
+    const backlog = css
+      .slice(
+        css.indexOf("[data-role='desktop-backlog'] {"),
+        css.indexOf('/* -------------------------------------------------- one row, both sections'),
+      )
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(backlog).not.toMatch(/animation/);
+    expect(backlog).not.toMatch(/@keyframes/);
+    expect(backlog).not.toMatch(/progress/);
+    // The head is a plain label: it carries no colour variables of its own, so
+    // it cannot claim a lifecycle state on a mixed queue's behalf.
+    expect(ruleBody("[data-role='desktop-backlog-head'] {")).toMatch(
+      /color:\s*var\(--text-faint\)/,
+    );
+    expect(css).not.toMatch(/desktop-backlog-head'\]\[data-state=/);
+  });
+
+  it('draws one row treatment for both sections, so a pulled ticket does not change shape', () => {
+    // Grouped selectors, not two rule sets that agree today: a ticket moving
+    // from the backlog to the working list should change its mark and its word
+    // and nothing else. Copies drift the first time either is tuned.
+    for (const part of ['ticket', 'title', 'meta', 'note', 'age']) {
+      expect(css).toMatch(
+        new RegExp(
+          `\\[data-role='desktop-working-${part}'\\][^{]*,\\s*\\[data-role='desktop-backlog-${part}'\\]`,
+        ),
+      );
+    }
   });
 
   it('the in-progress panel lists, it never measures — no bar, no ticking counter', () => {

@@ -4,14 +4,17 @@
 // mobile view into these props.
 //
 // Three regions, left to right (13 §3, amended): the projects rail, the
-// in-progress panel, and the selected project's feed with the input under it.
+// tickets panel, and the selected project's feed with the input under it.
 // The middle column is the one addition to the original two-region shape, and it
-// is deliberately NOT an inspector: it holds no selection, shows no detail, and
-// answers exactly one standing question — what is being worked on right now. It
-// is separated from the feed by a rule rather than by space, because unlike the
-// rail (peripheral furniture, set apart by its recessed surface) it is content
-// about the same project the feed is about, and the line is what says "these are
-// two readings of one thing" instead of "this is more feed".
+// is deliberately NOT an inspector: it holds no selection and shows no detail.
+// It answers two standing questions, in two sections — what is being worked on
+// right now, and what is queued behind it (the ready pull queue and the
+// proposals still being shaped, the same coverage the phone's header dropdown
+// has always had). It is separated from the feed by a rule rather than by
+// space, because unlike the rail (peripheral furniture, set apart by its
+// recessed surface) it is content about the same project the feed is about, and
+// the line is what says "these are two readings of one thing" instead of "this
+// is more feed".
 //
 // There is still no board and no detail pane — ticket detail is an OVERLAY,
 // opened against the window's right edge so the work stays in sight (13 D7/D7a)
@@ -44,6 +47,8 @@ import { DesktopRail } from '@/components/desktop/DesktopRail';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
 import { WorkingNow } from '@/components/desktop/WorkingNow';
 import { workingTickets } from '@/components/desktop/working-now';
+import { Backlog } from '@/components/desktop/Backlog';
+import { backlogTickets } from '@/components/desktop/backlog';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { lastWordDetail, streamDetail } from '@/components/feed-format';
@@ -203,6 +208,11 @@ export function DesktopScreenView({
   // the brain thinks with nothing in Working, and a board snapshot can name a
   // working ticket before the feed summary agrees. Either lights the strip.
   const inProgress = workingTickets(board);
+  // …and what is queued up behind them: the ready pull queue, then the
+  // proposals still being shaped. Off the same board snapshot, for the same
+  // reason — a ticket can wait a long time without the brain having anything to
+  // say about it, so the feed beside this column will never mention it.
+  const waiting = backlogTickets(board);
   // Disconnected must be STATED, not hidden (13 §10): an ambient app that has
   // silently stopped receiving is worse than one that is visibly off. Low-key
   // and permanent while it lasts — never a modal, and deliberately not in the
@@ -304,12 +314,18 @@ export function DesktopScreenView({
         onDisablePush={onDisablePush}
       />
 
-      {/* The working indication (13 §8.2), and what it is working ON — its own
-          column, beside the feed rather than above it. A property of the project
-          that stays true for as long as the work runs has no business inside (or
-          on top of) a scrolling history: here it cannot be scrolled away, and it
-          keeps its own reading rhythm instead of borrowing the feed's measure
-          and reading as the first card.
+      {/* The working indication (13 §8.2), what it is working ON, and what is
+          queued behind it — its own column, beside the feed rather than above
+          it. A property of the project that stays true for as long as the work
+          runs has no business inside (or on top of) a scrolling history: here it
+          cannot be scrolled away, and it keeps its own reading rhythm instead of
+          borrowing the feed's measure and reading as the first card.
+
+          The two sections answer the two standing questions this column exists
+          for — what is running, and what is next — and they are separate
+          sections rather than one merged list because the difference between
+          them is precisely what the reader is after. Only the first is live;
+          only the first breathes.
 
           Scoped to the SELECTED project, like the feed beside it. The rail's
           per-project working counts come from a slow cross-project poll
@@ -327,6 +343,7 @@ export function DesktopScreenView({
           onOpenTicket={setOpenTicketId}
           now={now}
         />
+        <Backlog tickets={waiting} onOpenTicket={setOpenTicketId} now={now} />
       </div>
 
       <main data-role="desktop-main">

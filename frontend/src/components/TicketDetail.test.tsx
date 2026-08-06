@@ -351,6 +351,67 @@ describe('TicketDetail', () => {
       expect(within(dialog).queryByRole('button', { name: 'Accept' })).toBeNull();
     });
 
+    // Delete is the other half of the proposal's accept-or-discard pair, so it
+    // stands down with Accept: a trash can has no business appearing the moment
+    // someone starts speaking to a proposal they are reshaping.
+    it('withholds Delete on a proposal while speaking', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          onDelete={vi.fn()}
+          voiceControl={mic}
+          voiceActive
+        />,
+      );
+      expect(
+        within(screen.getByRole('dialog')).queryByRole('button', { name: 'Delete' }),
+      ).toBeNull();
+    });
+
+    it('brings Delete back on a proposal the moment the session ends', () => {
+      const { rerender } = render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          onDelete={vi.fn()}
+          voiceControl={mic}
+          voiceActive
+        />,
+      );
+      expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+      rerender(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          onDelete={vi.fn()}
+          voiceControl={mic}
+          voiceActive={false}
+        />,
+      );
+      expect(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }),
+      ).toBeInTheDocument();
+    });
+
+    it('keeps Delete on a proposal when no voice control is wired (a read-only sheet)', () => {
+      render(
+        <TicketDetail
+          ticket={proposal}
+          onClose={vi.fn()}
+          onAccept={vi.fn()}
+          onDelete={vi.fn()}
+          voiceActive
+        />, // no mic
+      );
+      expect(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }),
+      ).toBeInTheDocument();
+    });
+
     it('brings Accept back in its normal place the moment the session ends', () => {
       const { rerender } = render(
         <TicketDetail
@@ -378,7 +439,9 @@ describe('TicketDetail', () => {
       ).toHaveAttribute('data-position', 'lead');
     });
 
-    it('leaves Delete and Poke alone while speaking (only Accept stands down)', () => {
+    // A blocked ticket is not a proposal: speaking there is how the user unblocks
+    // the work, so neither of its secondaries moves.
+    it('leaves a blocked ticket’s Delete and Poke alone while speaking', () => {
       render(
         <TicketDetail
           ticket={makeTicket({

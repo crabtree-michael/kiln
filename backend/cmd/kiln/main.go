@@ -66,10 +66,17 @@ type Config struct {
 	// counterpart to AGENT_MODE=mock. "scripted" swaps the Anthropic adapter for
 	// a fixture-driven LLM so the whole loop runs with no Anthropic key; "" (or
 	// "anthropic") is the real model.
-	BrainMode    string // KILN_BRAIN_MODE: "" / "anthropic" (default) or "scripted"
-	BrainScript  string // KILN_BRAIN_SCRIPT — fixture path, required when BrainMode == "scripted"
-	HTTPAddr     string // KILN_HTTP_ADDR — address the api server binds (04 §7)
-	LogLevel     string // KILN_LOG_LEVEL (docker-compose.yml)
+	BrainMode   string // KILN_BRAIN_MODE: "" / "anthropic" (default) or "scripted"
+	BrainScript string // KILN_BRAIN_SCRIPT — fixture path, required when BrainMode == "scripted"
+	HTTPAddr    string // KILN_HTTP_ADDR — address the api server binds (04 §7)
+	LogLevel    string // KILN_LOG_LEVEL (docker-compose.yml)
+	// PublicURL is the ONE origin this deployment is published at (e.g.
+	// "https://trykiln.dev"). A browser GET arriving on any other host — the
+	// platform's own hostname, most of all — is redirected onto it before any
+	// handler runs, so the whole GitHub sign-in dance happens in a single cookie
+	// jar (api/canonical.go). Unset ⇒ no redirect; set-but-malformed ⇒ refuse
+	// boot, since the value's only job is to make sign-in land.
+	PublicURL    string // KILN_PUBLIC_URL
 	WorkerCount  int    // KILN_WORKER_COUNT — board WIP cap / worker slots (03 §2.3)
 	WorkerPrefix string // KILN_WORKER_PREFIX — per-environment provider worker-name scope (05 §4)
 	DevEndpoints bool   // KILN_DEV_ENDPOINTS=1 — mount dev-only seed routes (local/e2e)
@@ -199,6 +206,7 @@ func loadConfig() Config {
 		BrainScript:      os.Getenv("KILN_BRAIN_SCRIPT"),
 		HTTPAddr:         resolveHTTPAddr(),
 		LogLevel:         getenvDefault("KILN_LOG_LEVEL", defaultLogLevel),
+		PublicURL:        os.Getenv("KILN_PUBLIC_URL"),
 		WorkerCount:      getenvInt("KILN_WORKER_COUNT", defaultWorkerCount),
 		WorkerPrefix:     resolveWorkerPrefix(),
 		DevEndpoints:     os.Getenv("KILN_DEV_ENDPOINTS") == "1",

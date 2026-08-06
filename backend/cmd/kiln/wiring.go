@@ -270,6 +270,9 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	agentEvents.rt = rtSvc // close the runtime↔agent cycle.
 
 	server := api.NewServer(boardSvc, rtSvc, rtSvc, rtSvc, rtSvc, hub, newVoiceMinter(cfg))
+	if err := enableCanonicalHost(server, cfg, log); err != nil {
+		return graph{}, err
+	}
 	enableServerRoutes(server, cfg, db, boardSvc, rtSvc, agentSvc, boardStore, idSvc, pushStore, betapg.New(db), registry)
 
 	events, outbox := rtSvc.Workers(clock)
@@ -691,6 +694,27 @@ func newSteward(
 		clock,
 		steward.Config{Stall: cfg.PokeStall, Interval: cfg.PokeInterval},
 	)
+}
+
+// enableCanonicalHost pins the deployment's public origin (KILN_PUBLIC_URL) so
+// every browser navigation — the GitHub callback above all — lands on the domain
+// users actually type rather than on the hosting platform's own hostname
+// (api/canonical.go). Unset is the local/dev default and mounts nothing.
+//
+// Set-but-malformed fails the boot, alongside the secrets key and the App
+// private key. The value's whole purpose is to keep the sign-in flow inside one
+// cookie jar; a deployment that shrugged at a typo here would serve exactly the
+// "missing oauth state cookie" this closes, with the operator believing the
+// origin configured.
+func enableCanonicalHost(server *api.Server, cfg Config, log *slog.Logger) error {
+	if cfg.PublicURL == "" {
+		return nil
+	}
+	if err := server.EnableCanonicalHost(cfg.PublicURL); err != nil {
+		return fmt.Errorf("%w: %w", errBadConfig, err)
+	}
+	log.Info("kiln canonical origin", "public_url", cfg.PublicURL)
+	return nil
 }
 
 // identityEnvVars lists the settings identity needs, in the order an operator

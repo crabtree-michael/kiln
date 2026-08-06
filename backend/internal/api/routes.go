@@ -465,6 +465,12 @@ type Server struct {
 	version    string                      // release string surfaced by GET /healthz
 	healthPing func(context.Context) error // non-nil ⇒ GET /healthz is mounted
 	spa        http.Handler                // non-nil ⇒ the "/" catch-all serves the embedded SPA
+
+	// canonical is the deployment's one public origin (canonical.go); non-nil ⇒
+	// a browser navigation arriving on any other host is redirected onto it
+	// before any handler runs. Set via EnableCanonicalHost; nil is a single-host
+	// deployment, where every request is already where it belongs.
+	canonical *canonicalOrigin
 }
 
 // NewServer wires the routes over their ports and the hub.
@@ -625,7 +631,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	s.mountIdentityRoutes(mux)
 	if s.healthPing != nil {
-		mux.HandleFunc("GET /healthz", s.handleHealthz)
+		mux.HandleFunc("GET "+healthzPath, s.handleHealthz)
 	}
 	if s.spa != nil {
 		// The "/" pattern is the lowest-precedence match in a Go 1.22 ServeMux,
@@ -633,7 +639,10 @@ func (s *Server) Handler() http.Handler {
 		// paths (client routes, embedded assets) reach the SPA handler.
 		mux.Handle("/", s.spa)
 	}
-	return mux
+	// Outside the mux, so an off-origin navigation is redirected before any
+	// handler reads a cookie the browser only holds on the canonical host
+	// (canonical.go). A no-op wrapper when no origin was pinned.
+	return s.withCanonicalHost(mux)
 }
 
 // projectHandler is an app handler already scoped to one resolved project — the

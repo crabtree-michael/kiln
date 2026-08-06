@@ -114,6 +114,10 @@ interface GitHubStepProps {
   github: GitHubRepos;
   /** The signed-in account's GitHub login, for the connected reading. */
   login: string;
+  /** Simulate the grant instead of navigating to it — see `OnboardingProps`.
+   * Explicitly `| undefined` because `exactOptionalPropertyTypes` is on and the
+   * caller passes its own optional prop straight through. */
+  onConnect?: (() => void) | undefined;
 }
 
 /** Step 1. Three readings, mirroring `RepoField`'s — and in the same order, so
@@ -127,7 +131,7 @@ interface GitHubStepProps {
  * The disconnected branch still earns its place: a user who signed in before
  * the merge, or who revoked the grant, lands on it, and the note says out loud
  * what GitHub's consent screen will ask for. */
-function GitHubStep({ github, login }: GitHubStepProps): JSX.Element {
+function GitHubStep({ github, login, onConnect }: GitHubStepProps): JSX.Element {
   if (github.loading) {
     return (
       <div data-role="github-connect" data-state="loading">
@@ -144,9 +148,15 @@ function GitHubStep({ github, login }: GitHubStepProps): JSX.Element {
         {/* The one grant, and a backend route — so a real navigation, never a
             router Link. It always asks for `repo`, so clearing it lands the user
             back here connected. */}
-        <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
-          Connect GitHub
-        </a>
+        {onConnect === undefined ? (
+          <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
+            Connect GitHub
+          </a>
+        ) : (
+          <button type="button" data-role="connect-github" onClick={onConnect}>
+            Connect GitHub
+          </button>
+        )}
         {github.error !== null && (
           <p data-role="onboarding-error" role="alert">
             {github.error}
@@ -163,9 +173,15 @@ function GitHubStep({ github, login }: GitHubStepProps): JSX.Element {
         {github.repos.length === 1 ? '1 repository' : `${String(github.repos.length)} repositories`}
         .
       </p>
-      <a href={GITHUB_CONNECT_PATH} data-role="switch-github">
-        Use a different account
-      </a>
+      {onConnect === undefined ? (
+        <a href={GITHUB_CONNECT_PATH} data-role="switch-github">
+          Use a different account
+        </a>
+      ) : (
+        <button type="button" data-role="switch-github" onClick={onConnect}>
+          Use a different account
+        </button>
+      )}
     </div>
   );
 }
@@ -323,7 +339,23 @@ function ProviderKeyField({
   );
 }
 
-export function Onboarding(): JSX.Element {
+export interface OnboardingProps {
+  /** Rewrites the live GitHub reading before the flow sees it. Absent
+   * everywhere in the real app; the sign-up rehearsal (`/signup`) passes one so
+   * it can present an account as not-yet-connected — the first-time experience —
+   * without touching the real credential. A transform rather than the reading
+   * itself so the fetch still happens exactly once, here, whoever is watching.
+   */
+  overrideGitHub?: (live: GitHubRepos) => GitHubRepos;
+  /** Simulate the GitHub grant instead of navigating to it. Absent everywhere in
+   * the real app; the rehearsal passes it because the real round trip returns to
+   * `/dashboard`, which would end the replay. When set, step 1's Connect and
+   * Switch-account affordances are buttons on this handler rather than
+   * `GITHUB_CONNECT_PATH` links — same `data-role`, same accessible name. */
+  onConnect?: () => void;
+}
+
+export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}): JSX.Element {
   const {
     me,
     saveProject,
@@ -336,7 +368,8 @@ export function Onboarding(): JSX.Element {
   } = useDashboardStore();
   // User-scoped, so one mount serves every step: the GitHub step reads its
   // connected/disconnected state from it and the project step lists from it.
-  const github = useGitHubRepos();
+  const live = useGitHubRepos();
+  const github = overrideGitHub === undefined ? live : overrideGitHub(live);
 
   const [step, setStep] = useState<StepId>('github');
   const [repoUrl, setRepoUrl] = useState('');
@@ -505,7 +538,9 @@ export function Onboarding(): JSX.Element {
         </header>
 
         <div data-role="onboarding-fields">
-          {current.id === 'github' && <GitHubStep github={github} login={me.user.github_login} />}
+          {current.id === 'github' && (
+            <GitHubStep github={github} login={me.user.github_login} onConnect={onConnect} />
+          )}
 
           {current.id === 'project' && (
             <>

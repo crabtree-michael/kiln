@@ -118,7 +118,8 @@ first-run project onboarding → settings with credentials + live verify). It ow
 session** — `main.tsx` wraps **both `/app` and `/debug`** in `SessionProvider` + `SessionGate`
 (the gate resolves `GET /api/me` before either mounts), because every `/api/*` call is now
 project-scoped. Only the public routes — the landing (`/`), onboarding, and beta-thanks — stay
-session-free.
+session-free. `/signup` sits beside `/dashboard` (its own provider, outside the gate): the
+same sign-up flow, replayable on demand — see the rehearsal section below.
 
 - `src/dashboard/` reuses the store/context split from `src/stores/`: `dashboard-store.tsx`
   (the provider + all mutation methods — `saveProject`, `saveSettings`, `runVerify`,
@@ -231,6 +232,53 @@ key), then "Finish setup". It replaces the single crammed project form that used
   needs `KILN_GITHUB_MODE=mock` for step 1, which no headless test can complete against real
   GitHub). Every other spec seeds a project over `PUT /api/project` instead of walking the
   steps — don't couple new specs to the flow.
+
+### `/signup` replays that flow on demand (the sign-up rehearsal)
+
+`src/signup/` is a **second mount of the real flow, not a second flow.** It exists because
+the team iterates on sign-up and `/dashboard` only shows the guided steps while
+`me.projects` is empty — the second look used to cost a fresh or wiped GitHub account.
+`Signup.tsx` mounts the very same `SignIn` + `Onboarding` over a simulated store
+(`signup-run.ts`). If you change the flow, you change what `/signup` shows; that is the
+whole design, so **never fork the components to make the rehearsal easier.**
+
+- **Reads are live, writes go nowhere.** `GET /api/me` and `GET /api/github/repos` are the
+  real calls (the tester's own login, repos and the deployment's real providers); every
+  write lands in the simulated `Me`. This is not squeamishness: `saveProject` is
+  `PUT /api/project`, an **upsert over the caller's FIRST project**
+  (`identity.UpsertProject`), so a rehearsal that reached the network would rewrite the
+  project the tester actually works in — and provider keys are user-scoped, so a throwaway
+  key would replace the real one every project of theirs runs on. `Signup.test.tsx` asserts
+  the whole flow finishes with every transport write un-called; keep that case.
+- **Two paths, `?as=new` (default) and `?as=returning`.** They differ ONLY in the account
+  `accountForPath` hands the flow — new blanks the settings and the GitHub connection,
+  returning passes the real ones through. **Both drop `projects`**, which is what removes
+  the "already onboarded" gate. The path rides on the query param so it is linkable, and
+  the banner's switch writes it.
+- **Restart is a remount, never a reset method.** `SignupBody` keys `SignupRunView` by
+  `path + runId`; "Start over", the path switch and "Run it again" all bump `runId`. A
+  reset routine would silently miss a field (the step index, a half-typed key, the
+  simulated grant) the first time someone adds one.
+- **GitHub's consent screen is the one thing faked**, because `/auth/github/callback`
+  always redirects to `/dashboard` and a real grant mid-run would end the replay. The
+  seams for it are two optional props, absent everywhere else in the app and changing no
+  DOM when omitted: `Onboarding`'s `onConnect` (Connect / Switch account become buttons)
+  and `SignIn`'s `onStart`. `Onboarding`'s `overrideGitHub` is a **transform** over the
+  live reading, not the reading itself, so `useGitHubRepos` still fires exactly once, in
+  `Onboarding`, whoever is watching.
+- **The simulated store mirrors the real one's SEQUENCE, not just its results** — pending
+  set → save → chained verify → pending cleared — because the credential indicator going
+  `…` then `✓` is part of the experience being rehearsed. `credentialKeyIn` moved to
+  `integrations-config.ts` so both stores ask that question the same way.
+- Signed out for real, `/signup` renders the ordinary `SignIn` with the ordinary link: the
+  allowlist check behind the OAuth route is what decides whether the tester gets in, and
+  it cannot be simulated.
+- **Styling: the rehearsal renders inside `[data-role='dashboard']`** so every
+  onboarding/sign-in rule in `Dashboard.css` applies unchanged — `Signup.css` only styles
+  what the route ADDS (the banner, the done panel) and is scoped under
+  `[data-surface='signup']`. Watch shorthands there: `border: 0` on the
+  link-turned-button `switch-github` weighs (0,2,1) against Dashboard.css's (0,2,0) and
+  silently takes that control's underline with it — reset per side.
 
 ### The settings page is desktop-first (settings redesign)
 

@@ -152,7 +152,13 @@
   /* The desktop shell's breathing (13 §8.2) — slower and shallower than the orb
      pulse on purpose. A window you leave open all day sits in peripheral vision,
      and at the orb's tempo "something is working" reads as "something is
-     wrong". Long enough that you notice it is alive without it drawing the eye. */
+     wrong". Long enough that you notice it is alive without it drawing the eye.
+
+     This is now the RAIL's tempo specifically — a project dot in furniture, with
+     nothing beside it to keep time against. The in-progress panel's head sits
+     directly above a list of status marks and takes `--pulse-duration` from
+     them instead: where the two tempos meet on one screen, the marks the user
+     is actually reading win. */
   --breathe-duration: 3800ms;
 }
 

@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import cssRaw from './DesktopScreen.css?raw';
 import tokensRaw from '@/styles/tokens.css?raw';
 import detailCssRaw from '@/components/TicketDetail.css?raw';
+import primaryCssRaw from '@/components/PrimaryScreen.css?raw';
 import { DESKTOP_MIN_WIDTH } from '@/components/desktop/use-desktop-layout';
 
 const css: string = cssRaw;
@@ -14,6 +15,9 @@ const tokens: string = tokensRaw;
 /** The detail sheet's own stylesheet, read here so the in-progress head can be
  * pinned to the colour the TICKET wears rather than to a copy of it. */
 const detailCss: string = detailCssRaw;
+/** Where the shared status mark lives — read here so the in-progress head can be
+ * pinned to the TEMPO those marks breathe on rather than to a copy of it. */
+const primaryCss: string = primaryCssRaw;
 
 /** How far the listening mic's glow reaches past the button's edge, in px: the
  * outer stop of `kiln-mic-glow` (PrimaryScreen.css) is a 5px spread under a 28px
@@ -38,6 +42,27 @@ function detailRuleBody(selector: string): string {
   const open = detailCss.indexOf('{', start);
   const close = detailCss.indexOf('}', open);
   return detailCss.slice(open + 1, close);
+}
+
+/** The same, against the phone shell's stylesheet — where the status mark that
+ * both surfaces share is declared. */
+function primaryRuleBody(selector: string): string {
+  const start = primaryCss.indexOf(selector);
+  expect(start, `selector not found: ${selector}`).toBeGreaterThanOrEqual(0);
+  const open = primaryCss.indexOf('{', start);
+  const close = primaryCss.indexOf('}', open);
+  return primaryCss.slice(open + 1, close);
+}
+
+/** An `animation` shorthand's timing — everything except which keyframes it
+ * runs. `kiln-breathe var(--pulse-duration) ease-in-out infinite` →
+ * `var(--pulse-duration) ease-in-out infinite`. Comparing this rather than the
+ * whole declaration is the point: two marks of different shapes animate
+ * different properties, and it is the CADENCE they have to agree on. */
+function animationCadence(body: string): string {
+  const match = /animation:\s*[\w-]+\s+([^;]+);/.exec(body);
+  expect(match, `no animation shorthand in: ${body}`).not.toBeNull();
+  return (match?.[1] ?? '').replace(/\s+/g, ' ').trim();
 }
 
 /** The token a declaration paints with — `background: var(--warn)` → `--warn`.
@@ -200,6 +225,24 @@ describe('DesktopScreen.css', () => {
     expect(ruleBody("[data-role='desktop-working-dot'] {")).not.toMatch(/animation/);
     const live = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
     expect(live).toMatch(/animation:\s*kiln-breathe/);
+  });
+
+  it('breathes on the ticket list’s cadence, not one of the panel’s own', () => {
+    // The bug this pins down: the head's mark and the status marks listed
+    // directly under it ran on two different tempos, so a column reporting one
+    // thing looked like it was reporting two, and the eye tracked the drift
+    // between them instead of either reading. The ticket list is the reference,
+    // so its timing is read out of PrimaryScreen.css here rather than written
+    // down a second time — retune the marks and this fails until the head
+    // follows.
+    const mark = primaryRuleBody("[data-role='status-dot'][data-status='building'] {");
+    const head = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
+    expect(animationCadence(head)).toBe(animationCadence(mark));
+    // Only the tempo is shared. WHAT breathes stays each mark's own — opacity on
+    // the head's flat dot, the halo on a status mark — because a halo on a 6px
+    // dot with no ring to expand into would read as a size change, not a pulse.
+    expect(head).toMatch(/animation:\s*kiln-breathe/);
+    expect(mark).toMatch(/animation:\s*kiln-status-pulse/);
   });
 
   it('gives the in-progress head the colour the TICKET wears, not one of its own', () => {

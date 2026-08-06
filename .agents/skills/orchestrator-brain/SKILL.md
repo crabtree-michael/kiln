@@ -30,8 +30,9 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
       board is NO LONGER injected — the model pulls it via list_tickets/get_ticket, so a
       pass spends no tokens on state it doesn't need. System prompt is a Go template in the
       repo (D7; a single unversioned prompt — versioning was removed by user decision).
-- [x] Tools → 06 §4 (amended, CRUD consolidation): **fourteen** — clean CRUD over the two
-      nouns. Tickets: create_ticket, list_tickets + get_ticket (reads), update_ticket (one
+- [x] Tools → 06 §4 (amended, CRUD consolidation): **fifteen** — clean CRUD over the two
+      nouns. Tickets: create_ticket, list_tickets + get_ticket + search_tickets (reads),
+      update_ticket (one
       patch folding the old shape/mark_ready/mark_blocked/accept_to_done/request_approval
       verbs — routes each field to the board's typed op; see applyState/applyUpdate in
       tools.go), delete_ticket (soft archive). Feed: post_update, list_updates, edit_update,
@@ -44,6 +45,17 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
       (a column *is* one state) and once per ticket on get_ticket. It exists because 39% of
       update_ticket calls were failing and most were guesses at an unavailable transition
       (docs/brain-optimization-2026-08-05.md §2).
+- [x] Roster window + search (2026-08-06): the roster lists every live ticket but only the
+      **5 most recent Done** (`doneRosterLimit`, service.go — Snapshot.Done is newest-first),
+      since Done only grows and a pass acts on its tail at most. The header still counts the
+      whole column and an elision line names the remainder plus the way to reach it, so a
+      windowed column never reads as a complete one. `search_tickets` (search.go) is that
+      way: case-insensitive substring keyword match (all words must appear — AND) over id /
+      title / body / blocked_reason of the **GetBoard snapshot**, filtered in memory rather
+      than through a second read path; title matches rank above body-only ones, then
+      recency, then id. Pages of `searchPageSize` (5), 1-based `page`, and a page with more
+      behind it prints the exact next call. Non-archived only — search never resurrects a
+      deleted ticket.
 - [x] The pass → 06 §5: bounded tool loop, **max 12 rounds** (raised from 8 to absorb the
       board reads a pass now makes before acting), tool errors fed back verbatim; no
       mid-pass snapshot refresh; no streaming.

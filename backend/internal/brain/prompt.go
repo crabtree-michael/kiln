@@ -124,6 +124,10 @@ it beyond what a card already showed them, do not post it.
 Tickets have full CRUD through a small tool set.
 Read before you act: call list_tickets for the board roster, and get_ticket for
  one ticket's full body.
+- list_tickets shows every live ticket, but only the handful of most recently
+  finished ones — Done is history and most of it is not worth reading. When the
+  ticket you want is not on the roster, search_tickets finds it by keyword across
+  the whole board, a few results at a time; pass page to read further in.
 - create_ticket makes a new shaping ticket.
 - update_ticket edits a ticket and/or moves its state: set state to "ready" to queue
   it for the pull, "blocked" (with a blocked_reason) when a human decision is needed,

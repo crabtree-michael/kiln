@@ -21,13 +21,13 @@ const (
 	toolResultSummaryBytes = 512
 )
 
-// ToolName enumerates the fourteen tools (06 §4 amended — the CRUD
+// ToolName enumerates the fifteen tools (06 §4 amended — the CRUD
 // consolidation) — the brain's entire action surface, organized as clean CRUD
 // over the two nouns it owns, tickets and feed updates, plus the agent/repo
 // seams:
 //
-//   - Tickets: create_ticket (C), list_tickets + get_ticket (R),
-//     update_ticket (U — one patch folding the old shape/mark_ready/
+//   - Tickets: create_ticket (C), list_tickets + get_ticket + search_tickets
+//     (R), update_ticket (U — one patch folding the old shape/mark_ready/
 //     mark_blocked/accept_to_done/request_approval verbs), delete_ticket (D,
 //     soft archive).
 //   - Feed updates: post_update (C), list_updates (R), edit_update (U),
@@ -48,6 +48,7 @@ const (
 	ToolCreateTicket    ToolName = "create_ticket"
 	ToolListTickets     ToolName = "list_tickets"
 	ToolGetTicket       ToolName = "get_ticket"
+	ToolSearchTickets   ToolName = "search_tickets"
 	ToolUpdateTicket    ToolName = "update_ticket"
 	ToolDeleteTicket    ToolName = "delete_ticket"
 	ToolSendToAgent     ToolName = "send_to_agent"
@@ -88,6 +89,14 @@ type ListTicketsInput struct{}
 // ticket in full, including its body.
 type GetTicketInput struct {
 	ID string `json:"id"`
+}
+
+// SearchTicketsInput — search_tickets (search.go): keyword lookup across every
+// ticket on the board, a page at a time. Query is the words that must all
+// appear; Page is 1-based and omitted means the first page.
+type SearchTicketsInput struct {
+	Query string `json:"query"`
+	Page  int    `json:"page,omitempty"`
 }
 
 // UpdateTicketInput — update_ticket (06 §4 amended): one patch tool folding the
@@ -228,6 +237,8 @@ const (
 	fieldNotificationID = "notification_id"
 	fieldWorkerID       = "worker_id"
 	fieldCommand        = "command"
+	fieldQuery          = "query"
+	fieldPage           = "page"
 
 	// notifKindUpdate/notifKindPreview are post_update's / edit_update's two
 	// kinds (08 §7): "preview" when an image is attached, "update" otherwise.
@@ -275,10 +286,11 @@ var Tools = []ToolDef{
 	},
 	{
 		Name: ToolListTickets,
-		Description: "List every ticket on the board with its state, priority and worker — the " +
+		Description: "List the tickets on the board with their state, priority and worker — the " +
 			"compact roster, without bodies. Each column says what its tickets accept right now " +
-			"(\"allowed now\"). Read the board here before deciding; use " +
-			"get_ticket for a single ticket's full body. Read-only.",
+			"(\"allowed now\"). Every live ticket is listed; Done shows only its most recent few, " +
+			"with the rest reachable through search_tickets. Read the board here before deciding; " +
+			"use get_ticket for a single ticket's full body. Read-only.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
@@ -288,6 +300,18 @@ var Tools = []ToolDef{
 			"than attempting a change the state will refuse. Read-only.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
+		}),
+	},
+	{
+		Name: ToolSearchTickets,
+		Description: "Find tickets by keyword across the whole board, including the older Done " +
+			"tickets the roster does not list. Matching is case-insensitive on ticket ids, titles " +
+			"and bodies, and every word in the query must appear — so add a word to narrow, drop " +
+			"one to widen. Results come a few per page, best match first; pass page to read the " +
+			"next one. Read-only.",
+		InputSchema: objectSchema([]string{fieldQuery}, map[string]any{
+			fieldQuery: stringSchema("Words to look for; a ticket matches only if all of them appear."),
+			fieldPage:  intSchema("Which page of results to read, 1-based. Omit for the first page."),
 		}),
 	},
 	{
@@ -411,6 +435,7 @@ var Tools = []ToolDef{
 //	create_ticket  -> BoardAPI.CreateTicket(title, body)
 //	list_tickets   -> BoardReader.GetBoard()                          (compact roster)
 //	get_ticket     -> BoardReader.GetTicket(id)                       (full body)
+//	search_tickets -> BoardReader.GetBoard(), filtered by keyword     (one page)
 //	update_ticket  -> facade: ShapeTicket / RequestApproval / MarkReady /
 //	                  MarkBlocked / AcceptToDone, routed per patch field
 //	delete_ticket  -> BoardAPI.ArchiveTicket(id)
@@ -468,6 +493,8 @@ func (s *Service) routeTool(ctx context.Context, call ToolCall) (ToolResult, boo
 		return s.doListTickets(ctx, call)
 	case ToolGetTicket:
 		return s.doGetTicket(ctx, call)
+	case ToolSearchTickets:
+		return s.doSearchTickets(ctx, call)
 	case ToolUpdateTicket:
 		return s.doUpdateTicket(ctx, call)
 	case ToolDeleteTicket:
@@ -532,6 +559,32 @@ func (s *Service) doGetTicket(ctx context.Context, call ToolCall) (ToolResult, b
 		return errorResult(call.ID, err), false
 	}
 	return ToolResult{ToolCallID: call.ID, Content: formatTicketDetail(t)}, false
+}
+
+// doSearchTickets runs one keyword query over the board snapshot and returns a
+// single page of hits (search.go). It reads through the same GetBoard the roster
+// uses — non-archived tickets only, so search never resurrects a deleted one —
+// and filters in memory: a project's board is small, and a second read path
+// would buy nothing a filter does not. A blank query is malformed (06 §8): it
+// would otherwise "match" nothing and read as an empty board.
+func (s *Service) doSearchTickets(ctx context.Context, call ToolCall) (ToolResult, bool) {
+	var in SearchTicketsInput
+	if err := json.Unmarshal(call.Input, &in); err != nil {
+		return malformedResult(call.ID, err), true
+	}
+	if res, ok := requireField(call.ID, ToolSearchTickets, fieldQuery, in.Query); !ok {
+		return res, true
+	}
+	snap, err := s.reader.GetBoard(ctx)
+	if err != nil {
+		return errorResult(call.ID, err), false
+	}
+	// An omitted (0) or nonsensical page is the first page rather than an error:
+	// the model asked to search, and refusing over a page number spends a round
+	// on nothing.
+	page := max(in.Page, 1)
+	hits := searchTickets(snap, searchWords(in.Query))
+	return ToolResult{ToolCallID: call.ID, Content: formatSearchResults(in.Query, hits, page)}, false
 }
 
 // doUpdateTicket is the update_ticket facade (06 §4 amended): it validates the

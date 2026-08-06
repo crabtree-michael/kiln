@@ -214,6 +214,17 @@ const emptyFeed = {
 // route so the swap needs nothing but a reload.
 let feedBody = feed;
 
+// What the SSE stub replays. Empty for every pass but one: an empty body closes
+// the connection at once, which settles the shell into `reconnecting` and gets
+// the disconnected indication (13 §10) into the screenshots for free. The
+// "Show earlier" toast pass below swaps in a `say` and a board `toast` so the
+// activity band is actually up — the one state that used to cover the control.
+let streamBody = '';
+const bandStream = [
+  `event: say\ndata: ${JSON.stringify({ message_id: 1, text: 'Rate-limiting the webhook retry now — backing off on 5xx, capped at five attempts.', at: '2026-08-04T11:55:00Z' })}\n\n`,
+  `event: activity\ndata: ${JSON.stringify({ kind: 'toast', verb: 'started', ticket_title: 'auth refresh', ticket_id: 't1' })}\n\n`,
+].join('');
+
 const browser = await chromium.launch();
 // Opens in dark because the OS says dark — not because the shell forces it
 // (13 D6a). The light pass below flips exactly this and nothing else.
@@ -256,11 +267,11 @@ await page.route('**/api/**', async (route) => {
   if (url.pathname.endsWith('/board')) return json(board ? board[1] : boards.p1);
   if (url.pathname.endsWith('/feed')) return json(feedBody);
   if (url.pathname.endsWith('/activity')) return json({ thinking: false });
-  // An empty body closes the SSE connection at once, so the shell settles into
-  // its `reconnecting` state — which is convenient: the disconnected indication
-  // (13 §10) shows up in the screenshot for free.
+  // Empty by default, which closes the SSE connection at once, so the shell
+  // settles into its `reconnecting` state — convenient: the disconnected
+  // indication (13 §10) shows up in the screenshot for free.
   if (url.pathname.includes('/stream')) {
-    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: streamBody });
   }
   return json({});
 });
@@ -458,8 +469,87 @@ await page.setViewportSize({ width: 1440, height: 520 });
 await page.waitForTimeout(200);
 await page.screenshot({ path: '/tmp/desktop-shell-show-earlier-scrolling.png' });
 console.log('SHOW EARLIER — CARDS, SCROLLING FEED', await readShowEarlier());
+{
+  const box = await page.evaluate(async () => {
+    document.querySelector('[data-role="desktop-feed"]').scrollTop = 0;
+    await new Promise((r) => requestAnimationFrame(r));
+    const b = document.querySelector('[data-role="feed-show-earlier"]').getBoundingClientRect();
+    return { x: b.left, y: b.top - 10, width: b.width, height: b.height + 60 };
+  });
+  await page.screenshot({ path: '/tmp/probe-foot.png', clip: box });
+  console.log(
+    'PROBE',
+    JSON.stringify(
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-role="feed-show-earlier"]');
+        const s = getComputedStyle(el);
+        return {
+          boxShadow: s.boxShadow,
+          height: el.getBoundingClientRect().height,
+          zIndex: s.zIndex,
+          position: s.position,
+        };
+      }),
+    ),
+  );
+}
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.waitForTimeout(200);
+
+// ── "Show earlier" with the activity band up ───────────────────────────────
+// The band is an opaque out-of-flow overlay anchored at the composer region's
+// TOP edge (`bottom: 100%`, PrimaryScreen.css), which is the same edge the
+// pinned control rests on — so it floats up over exactly the strip the control
+// occupies. The desk reserved none of it, and a toast simply hid the control:
+// present in the DOM, correct in every CSS-string assertion, invisible on
+// screen. The fix is the feed region's `--feed-bottom-inset` bottom pad, which
+// ActivityRow publishes on the shell root; the control then rides it indirectly,
+// via the containing block a sticky box is clamped to.
+//
+// So this pass reads the two boxes against each other. `bandGap` is the number:
+// at or above zero the control sits clear of the band, below zero it is under
+// it. The var is read back too, because a zero there means the publisher never
+// found this shell's root — the actual shape of the original bug.
+streamBody = bandStream;
+await page.reload();
+await page.waitForSelector('[data-role="toast-stack"]', { timeout: 10_000 });
+await page.waitForTimeout(600);
+await page.screenshot({ path: '/tmp/desktop-shell-show-earlier-toast.png' });
+console.log(
+  'SHOW EARLIER — TOAST BAND UP',
+  JSON.stringify(
+    await page.evaluate(() => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const region = document.querySelector('[data-role="desktop-feed"]');
+      const button = rect('[data-role="feed-show-earlier"]');
+      const band = rect('[data-role="activity-row"]');
+      const regionBox = region.getBoundingClientRect();
+      return {
+        bandHeight: Math.round(band.height),
+        // The reserve, read off the root the publisher actually wrote to. `0px`
+        // (or empty) is the bug: the desk shell root went unrecognised.
+        inset: getComputedStyle(
+          document.querySelector('[data-role="desktop-screen"]'),
+        ).getPropertyValue('--feed-bottom-inset'),
+        regionPadBottom: getComputedStyle(region).paddingBottom,
+        // The whole complaint, in one number.
+        bandGap: Math.round(band.top - button.bottom),
+        clearOfBand: button.bottom <= band.top + 1,
+        // ...and still inside the region, i.e. reachable without scrolling.
+        onScreen: button.top >= regionBox.top - 1 && button.bottom <= regionBox.bottom + 1,
+      };
+    }),
+    null,
+    2,
+  ),
+);
+streamBody = '';
+await page.reload();
+await page.waitForSelector('[data-role="desktop-screen"]', { timeout: 10_000 });
+await page.waitForTimeout(400);
 
 // ── The narrow desk (1024px, the shell threshold) ──────────────────────────
 // The tightest window that still gets this layout, and the one the in-progress

@@ -1217,6 +1217,110 @@ button[data-role='feed-card-head']:focus-visible {
   overflow: hidden;
 }
 
+/* The brain-authored body is Markdown rendered to real block elements
+   (react-markdown + GFM), the same treatment the ticket sheet gives a ticket
+   body — tightened for a card. Three things are deliberate here:
+
+   • Every block carries its spacing as a TOP margin only, and the first block
+     has none. So the rendered body starts and ends exactly where the plain text
+     used to, and a three-line clamp shows three lines of prose rather than two
+     and a gap. (Stating it as one margin per block rather than as a `* + *`
+     rule keeps the spacing at the same specificity as the dressing below it —
+     the two used to disagree, and the blanket rule silently won.)
+   • A heading gets a little more air above it than prose does: it opens a
+     section, and that break has to be legible once the card is expanded.
+   • Headings sit at body size in bold. A note that opens with `## Objective`
+     should read as a heading, not grow the card to twice its height in a feed
+     whose whole premise is a scannable three-line preview.
+
+   The "tap to see more" cue is left out of all of it by position rather than by
+   selector: it is absolutely positioned against the body's bottom edge, so a
+   margin on it moves nothing.
+
+   These rules are unscoped, like every other feed-card rule in this sheet, so
+   the desktop shell (which layers on top of it) inherits them. */
+[data-role='feed-card-body'] p,
+[data-role='feed-card-body'] ul,
+[data-role='feed-card-body'] ol,
+[data-role='feed-card-body'] pre,
+[data-role='feed-card-body'] blockquote,
+[data-role='feed-card-body'] table {
+  margin: 0.45em 0 0;
+}
+
+[data-role='feed-card-body'] h1,
+[data-role='feed-card-body'] h2,
+[data-role='feed-card-body'] h3,
+[data-role='feed-card-body'] h4,
+[data-role='feed-card-body'] h5,
+[data-role='feed-card-body'] h6 {
+  margin: 0.75em 0 0;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+/* The first block hugs the top of the card body. The `:not` is what carries the
+   specificity past the per-element rules above (and excludes the cue, which is
+   never in the flow anyway). */
+[data-role='feed-card-body'] > :first-child:not([data-role='feed-card-more']) {
+  margin-top: 0;
+}
+
+[data-role='feed-card-body'] ul,
+[data-role='feed-card-body'] ol {
+  padding-left: 1.25em;
+}
+
+[data-role='feed-card-body'] li + li {
+  margin-top: 0.2em;
+}
+
+[data-role='feed-card-body'] a {
+  color: var(--accent);
+}
+
+[data-role='feed-card-body'] code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface-inset);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+
+[data-role='feed-card-body'] pre {
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.6em;
+  overflow-x: auto;
+}
+
+[data-role='feed-card-body'] pre code {
+  background: none;
+  padding: 0;
+}
+
+[data-role='feed-card-body'] blockquote {
+  padding-left: 0.7em;
+  border-left: 3px solid var(--border-default);
+  color: var(--text-muted);
+}
+
+[data-role='feed-card-body'] table {
+  border-collapse: collapse;
+}
+
+[data-role='feed-card-body'] th,
+[data-role='feed-card-body'] td {
+  border: 1px solid var(--border-default);
+  padding: 0.2em 0.4em;
+  text-align: left;
+}
+
+[data-role='feed-card-body'] img {
+  max-width: 100%;
+}
+
 /* Already-seen bodies (08 D2′) collapse tighter than the three-line preview — a
    two-line skim of the top. Comes before the expanded rule so tapping to expand
    still fully wins (equal specificity, last-declared clamp applies). */

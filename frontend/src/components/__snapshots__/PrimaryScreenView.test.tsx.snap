@@ -580,11 +580,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                   now
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                The /auth endpoint hands back both a session cookie and a JWT. Which should the client trust as the source of truth?
-              </p>
+                <p>
+                  The /auth endpoint hands back both a session cookie and a JWT. Which should the client trust as the source of truth?
+                </p>
+              </div>
             </article>
           </div>
           <div
@@ -608,11 +610,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                   2m
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
-              </p>
+                <p>
+                  Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
+                </p>
+              </div>
             </article>
           </div>
           <div
@@ -643,12 +647,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                   14m
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
                 data-seen="true"
               >
-                Drafted three subject lines for the password-reset email and kept the clearest.
-              </p>
+                <p>
+                  Drafted three subject lines for the password-reset email and kept the clearest.
+                </p>
+              </div>
             </article>
           </div>
           <div
@@ -673,12 +679,14 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: blocker + last-
                   1h
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
                 data-seen="true"
               >
-                Reindexed the product catalog; queries are back under 40ms.
-              </p>
+                <p>
+                  Reindexed the product catalog; queries are back under 40ms.
+                </p>
+              </div>
             </article>
           </div>
           <button
@@ -1020,11 +1028,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                   now
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                Here's the login screen running against the live endpoint.
-              </p>
+                <p>
+                  Here's the login screen running against the live endpoint.
+                </p>
+              </div>
               <img
                 alt="Auth"
                 data-role="feed-card-image"
@@ -1053,11 +1063,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: preview (4c) 1`
                   2m
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
-              </p>
+                <p>
+                  Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
+                </p>
+              </div>
             </article>
           </div>
         </div>
@@ -1739,11 +1751,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                   2m
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
-              </p>
+                <p>
+                  Added a fixed-window limiter on /auth — 20 requests a minute per IP. Suite is green.
+                </p>
+              </div>
             </article>
           </div>
           <div
@@ -1767,11 +1781,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                   14m
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                Drafted three subject lines for the password-reset email and kept the clearest.
-              </p>
+                <p>
+                  Drafted three subject lines for the password-reset email and kept the clearest.
+                </p>
+              </div>
             </article>
           </div>
           <div
@@ -1795,11 +1811,13 @@ exports[`PrimaryScreenView > matches the DOM-structure snapshot: updates only (4
                   1h
                 </span>
               </div>
-              <p
+              <div
                 data-role="feed-card-body"
               >
-                Reindexed the product catalog; queries are back under 40ms.
-              </p>
+                <p>
+                  Reindexed the product catalog; queries are back under 40ms.
+                </p>
+              </div>
             </article>
           </div>
         </div>

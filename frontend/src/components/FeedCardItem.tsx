@@ -10,6 +10,13 @@
 // (muted for updates, fire for blockers — the latter also flagged by the pulse
 // dot — and fire for proposals too); only preview keeps the tag since the colour
 // scheme doesn't cover it.
+// A brain-authored body (update/blocker/preview) is Markdown source and renders
+// as Markdown — headings, emphasis and lists come out formatted rather than as
+// literal syntax — dressed card-sized in `PrimaryScreen.css` so a heading does
+// not grow the card. The done card's work summary is a commit message, not
+// Markdown, and stays verbatim text (see `FeedCardBody`'s `markdown` prop); the
+// proposal digest is plain text too, since its body lives inside a button (the
+// click-through into the full ticket, which renders the same body as Markdown).
 // Every kind clamps its body to three lines, and when the body actually
 // overflows the last line carries the same small, light "tap to see more" cue
 // (right-aligned, with a tiny chevron) so the truncation reads as more, not as
@@ -42,7 +49,9 @@
 // three-line preview, so the new-since-last-visit cards above stay the focus.
 // The expand affordance is unchanged — a seen card just starts more collapsed.
 import { useState } from 'react';
-import type { JSX } from 'react';
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { FeedCard } from '@/transport/transport';
 import { cardTag, relativeAge } from '@/components/feed-format';
 // The clamp-overflow measurement — the single signal both card-body variants
@@ -109,25 +118,44 @@ function GitHubMark(): JSX.Element {
 }
 
 /**
- * The card body for kinds that expand in place (update/blocker/preview). Unseen
- * cards clamp to three lines; already-seen cards (`seen`) clamp tighter (a skim
- * of the top) via the `data-seen` hook, both driven from CSS. When the clamp
- * actually bites, the paragraph turns into a button (cursor + `data-clickable`)
- * that reveals the full body on tap and collapses it again on the next, with the
- * shared "tap to see more" cue on the last line while clamped. A body that fits
- * stays inert plain copy with no cue.
+ * The card body for kinds that expand in place (update/blocker/preview, and the
+ * done card's work summary). Unseen cards clamp to three lines; already-seen
+ * cards (`seen`) clamp tighter (a skim of the top) via the `data-seen` hook,
+ * both driven from CSS. When the clamp actually bites, the block turns into a
+ * button (cursor + `data-clickable`) that reveals the full body on tap and
+ * collapses it again on the next, with the shared "tap to see more" cue on the
+ * last line while clamped. A body that fits stays inert plain copy with no cue.
+ *
+ * `markdown` picks how the text is rendered, and the two callers disagree on
+ * purpose:
+ *   • the brain-authored body (update/blocker/preview) is **Markdown source** —
+ *     the brain writes in Markdown (06 prompt), so a note that leads with a
+ *     `##` heading or a `-` list used to read as literal syntax in the feed. It
+ *     goes through react-markdown + GFM, the same pair the ticket sheet's body
+ *     uses, dressed card-sized by `PrimaryScreen.css`.
+ *   • the done card's work summary is a **commit message / PR description** and
+ *     stays verbatim text (`white-space: pre-line` keeps its line breaks). It
+ *     is not authored as Markdown, and running it through a renderer would fold
+ *     its hard-wrapped lines into one run and eat a leading `#` as a heading.
+ *
+ * It renders a `div` rather than a `p` because the rendered Markdown is real
+ * block elements (paragraphs, lists, headings) and those cannot live inside a
+ * paragraph. The plain-text reading is unaffected — every rule that dresses the
+ * body keys off `data-role`, never the tag.
  */
 function FeedCardBody({
   body,
   seen,
   moreLabel,
+  markdown,
 }: {
   body: string;
   seen: boolean;
   moreLabel: string;
+  markdown: boolean;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const { ref, truncated } = useClampOverflow<HTMLParagraphElement>(body, !expanded);
+  const { ref, truncated } = useClampOverflow<HTMLDivElement>(body, !expanded);
 
   // The clamp is the cue: only make the body a toggle once it actually overflows
   // (or is already expanded). A body that fits stays plain, non-interactive copy.
@@ -139,9 +167,18 @@ function FeedCardBody({
   const toggle = (): void => {
     setExpanded((value) => !value);
   };
+  // A link inside the rendered Markdown is still a link: following a reference
+  // is not a request to expand the note it sits in. Same rule (and the same
+  // `closest('a')` test) the ticket sheet's body applies to its own press.
+  const toggleFromClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (event.target instanceof Element && event.target.closest('a') !== null) {
+      return;
+    }
+    toggle();
+  };
 
   return (
-    <p
+    <div
       ref={ref}
       data-role="feed-card-body"
       data-seen={seen ? 'true' : undefined}
@@ -150,7 +187,7 @@ function FeedCardBody({
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       aria-expanded={interactive ? expanded : undefined}
-      onClick={interactive ? toggle : undefined}
+      onClick={interactive ? toggleFromClick : undefined}
       onKeyDown={
         interactive
           ? (event) => {
@@ -164,9 +201,9 @@ function FeedCardBody({
           : undefined
       }
     >
-      {body}
+      {markdown ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown> : body}
       {showMore && <SeeMoreCue label={moreLabel} />}
-    </p>
+    </div>
   );
 }
 
@@ -333,7 +370,7 @@ export function FeedCardItem({
         </a>
       )}
       {isDone && card.work_summary != null && card.work_summary !== '' && (
-        <FeedCardBody body={card.work_summary} seen={seen} moreLabel={moreLabel} />
+        <FeedCardBody body={card.work_summary} seen={seen} moreLabel={moreLabel} markdown={false} />
       )}
       {!isPoke &&
         !isDone &&
@@ -346,7 +383,7 @@ export function FeedCardItem({
             onOpen={openDetail}
           />
         ) : (
-          <FeedCardBody body={card.body} seen={seen} moreLabel={moreLabel} />
+          <FeedCardBody body={card.body} seen={seen} moreLabel={moreLabel} markdown={true} />
         ))}
       {card.kind === 'preview' && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />

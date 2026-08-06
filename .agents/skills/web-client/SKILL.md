@@ -551,6 +551,38 @@ either way, since the client only posts an intent and the brain decides whether 
 (`PrimaryScreenView`, `DesktopScreenView`, `KanbanScreenView`), but now feeds only the gear
 menu's `sandboxStatus` line. Don't reintroduce a liveness gate here.
 
+## A feed card's body is Markdown — except the two that aren't
+
+`FeedCardBody` takes a `markdown` flag, and the three bodies on a card disagree on purpose:
+
+- **The brain-authored body (update/blocker/preview) renders as Markdown** (react-markdown +
+  remark-gfm, the same pair `TicketDetail` uses). The brain writes in Markdown — the 06 prompt
+  tells it to — so a ticket summary that leads with `## What changed` used to read as literal
+  syntax in the feed.
+- **The done card's work summary stays verbatim text.** It is a commit message / PR
+  description, not Markdown: a renderer would fold its hard-wrapped lines into one run and eat
+  a leading `#`. Its `white-space: pre-line` rule is what keeps the line breaks.
+- **The proposal digest stays text too**, because it lives inside the `feed-card-open`
+  **button** that opens the ticket — block elements and nested links cannot go there (the same
+  reason the ticket sheet's body is a `div` and not a button). The sheet one tap away renders
+  the same body as Markdown, so nothing is lost. If a ticket ever wants the digest formatted,
+  that means restructuring the click-through, not just flipping the flag.
+
+Consequences worth carrying:
+
+- **The body element is a `div`, not a `p`** (block children can't live in a paragraph). Every
+  rule that dresses it keys off `data-role`, never the tag — keep it that way.
+- **The clamp still works over block children** — `-webkit-box` + `-webkit-line-clamp` counts
+  line boxes across them — but jsdom can't see it. It was verified in a browser (three lines
+  shown, cue in place, expand-in-place intact); re-verify the same way if the dressing changes.
+- **Markdown blocks carry a TOP margin only, and the first child's is zeroed** — stated as one
+  rule per element rather than a `* + *` owl, because `[data-role='feed-card-body'] p` (0,1,1)
+  silently beats `[data-role='feed-card-body'] > * + *` (0,1,0) and the spacing vanishes. The
+  first-child reset needs a `:not()` to climb past them. Headings are body-size and bold: a
+  card whose premise is a scannable three-line preview must not double in height for a `##`.
+- **A link in the body is still a link.** The clamped body is the expand toggle, so its click
+  handler ignores presses that land inside an `<a>` (`closest('a')`, same guard as the sheet).
+
 ## Swipe-to-dismiss (feed cards, 08 §3)
 
 - `SwipeToDismiss.tsx` is the reusable swipe-left-to-clear wrapper (pure pointer

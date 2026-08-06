@@ -25,6 +25,7 @@ import { Landing2 } from '@/landing/Landing2';
 import { BetaThanks } from '@/landing/BetaThanks';
 import { Guide } from '@/guide/Guide';
 import { Dashboard } from '@/dashboard/Dashboard';
+import { Signup } from '@/signup/Signup';
 import { ProjectsManager } from '@/projects/ProjectsManager';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { SessionGate } from '@/components/SessionGate';
@@ -91,7 +92,8 @@ if (root === null) {
 // 2): every `/api/*` call now requires a session cookie, so the gate resolves
 // `GET /api/me` before the screen mounts its data providers (which immediately
 // open SSE + fetch board/feed). `/dashboard`
-// keeps its own existing gate. `/onboarding` is the onboarding guide
+// keeps its own existing gate, and `/signup` (the sign-up rehearsal) sits beside
+// it. `/onboarding` is the onboarding guide
 // (docs/onboarding.md) as a standalone, stateless styled page in the same
 // design-system chrome. `/beta/thanks` is the confirmation page the beta-signup
 // form redirects to. The landing, onboarding, and thanks pages stay public (no
@@ -139,6 +141,13 @@ createRoot(root).render(
           <Route path="/onboarding" element={<Guide />} />
           <Route path="/beta/thanks" element={<BetaThanks />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
+          {/* `/signup` replays the sign-up experience on demand: the same
+              `SignIn`/`Onboarding` components the dashboard mounts, over a
+              simulated store, so an already-onboarded account can walk the whole
+              flow again — either path — without being wiped first and without
+              writing anything. Like `/dashboard`, it owns its own provider and
+              so mounts outside the app's SessionGate. */}
+          <Route path="/signup" element={<Signup />} />
           {/* `/projects` is the app-native project-management page (12 follow-up):
               list / create / configure / delete projects in the app's own chrome,
               where the header switcher's "Add" and the account view's projects

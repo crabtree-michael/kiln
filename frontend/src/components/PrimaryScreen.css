@@ -1511,12 +1511,38 @@ button[data-role='feed-card-head']:focus-visible {
    edge, so it covers exactly the reserve and never a pixel of the dock. Its one
    requirement is being at least as tall as the part of that reserve nothing else
    paints (the 8px base plus an empty toast band ≈ 20px) — the transcript and a
-   filled band are opaque and cover their own share. */
+   filled band are opaque and cover their own share.
+
+   Half offset, half SPREAD (20 + 20), rather than the 40px offset it started as,
+   and the split is the whole point. An outer shadow is the border box moved by
+   the offset and then clipped back OUT of that box, so a 40px drop on a control
+   only 38px tall began 2px below its own bottom edge — and that 2px hairline of
+   scrolled card, sitting immediately above the dock's separator, was the very
+   sliver the skirt exists to hide. Spread grows the rect in every direction
+   instead, so the top edge lands on the control's own (`top + 20 - 20`) however
+   tall the control renders — no gap to reopen when the label wraps, the type
+   scale moves, or the padding is touched. Reach is unchanged at 20 + 20 = 40px.
+   The sideways 20px is harmless: it spreads into the feed's own 26px side
+   padding, page tone over page tone, with no card in it.
+
+   And it carries NO `z-index`, deliberately. "Never a pixel of the dock" is only
+   half the layering: the dock's overlays — the toast band and the transcript —
+   are anchored ABOVE the dock (`bottom: 100%`), so they stand inside the very
+   reserve this skirt paints, and they are the layer that owns it. A `z-index: 1`
+   here lifted the control out of the feed's layer and over them: the skirt cut a
+   page-tone blob across the band's top separator and the first line of every
+   toast, and over the transcript's hairline mid-utterance. It cannot be answered
+   from the dock's side either — `[data-role='dock-region']` carries a transform
+   (the keyboard lift), which makes it a stacking context, so the band's own
+   `z-index: 6` is sealed inside it and can never out-rank a lift applied out
+   here. Without one, the control is a positioned box with `z-index: auto`: it
+   still paints above every card in the feed (positioned boxes paint after
+   in-flow content), and the dock region — a later sibling, and lifted over the
+   feed by its own rule below — paints over the skirt where the two meet. */
 [data-role='feed-show-earlier'] {
   position: sticky;
   bottom: 0;
-  box-shadow: 0 var(--space-10) 0 var(--surface-page);
-  z-index: 1;
+  box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page);
   margin: auto 0 0;
   width: 100%;
   font-family: inherit;
@@ -1606,6 +1632,18 @@ button[data-role='feed-card-head']:focus-visible {
    grow/shrink freely without ever resizing this region or reflowing the feed. */
 [data-role='dock-region'] {
   position: relative;
+  /* The dock layer sits above the feed layer — the whole region, and with it the
+     two overlays anchored above the dock (the toast band and the transcript),
+     which float over the feed's bottom reserve rather than inside the dock's own
+     box. Nothing the feed pins down there may paint over them: "Show earlier" is
+     sticky at the foot of the scrollport with an opaque skirt below it (see its
+     rule above), and while that skirt sat at `z-index: 1` it covered the band's
+     separator hairline and the top of every toast. Stated here rather than left
+     to tree order because the region's transform below makes it a stacking
+     context, sealing the band's `z-index: 6` inside it — this number is the only
+     one that speaks for the whole layer. Below the header's 5, so the status /
+     project / notification dropdowns still drop over the dock as before. */
+  z-index: 1;
   flex-shrink: 0;
   /* Ride the on-screen keyboard: `use-keyboard-viewport` publishes the keyboard's
      overlap of the bottom edge as `--keyboard-inset` (0px when closed), frame-synced

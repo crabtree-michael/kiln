@@ -489,10 +489,36 @@ html:has([data-role='desktop-screen']) body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--text-faint);
+  /* The word and the mark read one ink, set by the state rule below and falling
+     back to the neutral reading when there is nothing listed to take a colour
+     from. Declared as variables rather than restated per element so the two can
+     never disagree with each other. */
+  color: var(--working-ink, var(--text-faint));
   font: var(--type-caption);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
+}
+
+/* In progress — the ember the TICKET wears, not a colour of the panel's own.
+   Every row listed under this head is a ticket in `working`, and opening any of
+   them shows the detail sheet's IN PROGRESS badge in exactly these tokens
+   (TicketDetail.css, `[data-state='working']`: `--warn-strong` for the word,
+   `--warn` + `--warn-soft` for the dot). The ticket's own reading is the source
+   of truth and this follows it, so the head cannot say one thing about a ticket
+   that its detail view then contradicts.
+
+   Deliberately NOT keyed off the bound session's status (`building`/`starting`/
+   `errored`): that is a different axis — how the worker behind the ticket is
+   faring — and it is already spoken, per row, by the shared status mark and its
+   note. Painting the head with it would have made the head agree with one row's
+   session while disagreeing with every listed ticket's own colour.
+
+   The mark's geometry, halo and breathing stay the head's own; only the hue is
+   shared, which is the one thing the two surfaces have to agree on. */
+[data-role='desktop-working-head'][data-state='working'] {
+  --working-ink: var(--warn-strong);
+  --working-mark: var(--warn);
+  --working-mark-soft: var(--warn-soft);
 }
 
 [data-role='desktop-working-dot'] {
@@ -501,14 +527,15 @@ html:has([data-role='desktop-screen']) body {
   border-radius: 50%;
   /* Dimmer while nothing is running: the panel is permanent now, so its heading
      mark has to be able to say "not right now" without going away. */
-  background: var(--text-faint);
+  background: var(--working-mark, var(--text-faint));
 }
 
 /* Breathing is reserved for the live reading — an always-animating mark in a
    permanently-present column would be exactly the manufactured activity 13 §1
    rules out. */
 [data-role='desktop-working-dot'][data-active='true'] {
-  background: var(--text-muted);
+  background: var(--working-mark, var(--text-muted));
+  box-shadow: 0 0 0 3px var(--working-mark-soft, transparent);
   animation: kiln-breathe var(--breathe-duration, 3800ms) var(--ease-in-out) infinite;
 }
 

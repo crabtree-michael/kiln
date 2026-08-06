@@ -14,6 +14,35 @@ import type { CredentialName } from '@/dashboard/dashboard-context';
  * connected through OAuth, not by pasting a token. */
 export type ApiKeyCredential = Exclude<CredentialName, 'github_auth_token'>;
 
+/** The `SettingsUpdateRequest` keys that are write-only secrets with their own
+ * verify check and indicator — as opposed to `amika_claude_cred_id`, which is
+ * plain text and never chains a verify run. */
+export const CREDENTIAL_KEYS: readonly CredentialName[] = [
+  'anthropic_api_key',
+  'amika_api_key',
+  'devin_api_key',
+  'github_auth_token',
+];
+
+/** Which single credential field (if any) a partial `SettingsUpdateRequest`
+ * body is writing — each auto-save commits exactly one field, so at most one
+ * ever matches.
+ *
+ * Lives here rather than in `dashboard-store.tsx` because a second store now
+ * answers the same question: the sign-up rehearsal (`/signup`) drives the real
+ * flow against a simulated store, and it has to mark the same field pending and
+ * chain the same verify run, or the rehearsal stops rehearsing the thing it
+ * exists to show. */
+export function credentialKeyIn(body: SettingsUpdateRequest): CredentialName | null {
+  for (const key of CREDENTIAL_KEYS) {
+    const value = body[key];
+    if (typeof value === 'string' && value !== '') {
+      return key;
+    }
+  }
+  return null;
+}
+
 /** Which `VerifyCheck.name` each credential's indicator reads from — GitHub's
  * connection guards repo access, so it maps to the "repo" check rather than a
  * standalone "github" one. */

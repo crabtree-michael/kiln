@@ -58,6 +58,23 @@ export function WorkingNow({ tickets, active, onOpenTicket, now }: WorkingNowPro
   // on every unrelated re-render.
   const live = active || tickets.length > 0;
 
+  // The head is a summary of the list under it, so it wears the colour those
+  // tickets wear rather than a fixed grey of its own — a head that stayed
+  // neutral above a list of live work read as a second, contradicting status.
+  //
+  // The colour comes from the TICKET's lifecycle state, which is why this is
+  // `working` (the same value `ticket.state` carries into the detail sheet's
+  // badge) and not one of the session statuses the rows below key on. Every
+  // ticket in this panel is in Working, so opening any of them shows an IN
+  // PROGRESS badge; the ticket's own reading is the source of truth and the head
+  // matches it. Keying off a row's session status instead would make the head
+  // disagree with the detail view of the very ticket it sits above.
+  //
+  // Undefined when nothing is listed — the brain thinking with an empty Working
+  // bucket has no ticket to take a colour from, and falls back to the neutral
+  // reading in CSS.
+  const headState = tickets.length > 0 ? 'working' : undefined;
+
   return (
     <section data-role="desktop-working" aria-label="Working now">
       {/* `role="status"` is on the head line ONLY, not the whole panel: the
@@ -66,6 +83,7 @@ export function WorkingNow({ tickets, active, onOpenTicket, now }: WorkingNowPro
       <div
         data-role="desktop-working-head"
         data-active={live ? 'true' : 'false'}
+        data-state={headState}
         role={live ? 'status' : undefined}
       >
         <span

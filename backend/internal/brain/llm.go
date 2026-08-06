@@ -278,12 +278,22 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 // Info rather than Debug on purpose: one compact record per LLM round is cheap,
 // and it is the only signal that distinguishes a cold cache write from a read
 // after deploy.
+//
+// The two cache-write counts break the aggregate down by the TTL each write
+// bought, because the two bill at different multiples of the base input rate
+// (5m at 1.25×, 1h at 2×). Cache writes are 40–60% of the brain's spend, so
+// without the split a round's cost is only knowable as a range — which is what
+// made the 2026-08-05 optimization pass quote $192–$374/30d instead of a
+// number. They sum to cache_creation_input_tokens; logging all three keeps the
+// aggregate comparable across the records written before the split existed.
 func (a *Adapter) logRound(ctx context.Context, u anthropic.Usage, resp LLMResponse) {
 	a.log().LogAttrs(ctx, slog.LevelInfo, "brain: llm round",
 		slog.Int64("input_tokens", u.InputTokens),
 		slog.Int64("output_tokens", u.OutputTokens),
 		slog.Int64("cache_read_input_tokens", u.CacheReadInputTokens),
 		slog.Int64("cache_creation_input_tokens", u.CacheCreationInputTokens),
+		slog.Int64("cache_creation_5m_input_tokens", u.CacheCreation.Ephemeral5mInputTokens),
+		slog.Int64("cache_creation_1h_input_tokens", u.CacheCreation.Ephemeral1hInputTokens),
 		slog.String("stop_reason", string(resp.StopReason)),
 		slog.String("text", obs.Summary(resp.Text, roundTextSummaryBytes)),
 		slog.String("tool_calls", summarizeCalls(resp.Calls)),

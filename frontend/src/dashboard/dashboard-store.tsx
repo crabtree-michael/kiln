@@ -30,29 +30,7 @@ import {
   type DashboardPhase,
   type DashboardStoreValue,
 } from '@/dashboard/dashboard-context';
-
-/** The `SettingsUpdateRequest` keys that are write-only secrets with their own
- * verify check and indicator — as opposed to `amika_claude_cred_id`, which is
- * plain text and never chains a verify run. */
-const CREDENTIAL_KEYS: readonly CredentialName[] = [
-  'anthropic_api_key',
-  'amika_api_key',
-  'devin_api_key',
-  'github_auth_token',
-];
-
-/** Which single credential field (if any) a partial `SettingsUpdateRequest`
- * body is writing — each auto-save commits exactly one field, so at most one
- * ever matches. */
-function credentialKeyIn(body: SettingsUpdateRequest): CredentialName | null {
-  for (const key of CREDENTIAL_KEYS) {
-    const value = body[key];
-    if (typeof value === 'string' && value !== '') {
-      return key;
-    }
-  }
-  return null;
-}
+import { credentialKeyIn } from '@/dashboard/integrations-config';
 
 export interface DashboardProviderProps {
   children: ReactNode;

@@ -818,18 +818,18 @@ describe('TicketDetail — sandbox menu', () => {
     expect(keepToggle()).toBeInTheDocument();
   });
 
-  it('leads the status row, on the title’s left edge, ahead of the lifecycle badge', () => {
+  it('ends the status row, on the sheet’s right edge, after the lifecycle badge', () => {
     render(<TicketDetail ticket={working} onClose={vi.fn()} onSetKeepSandbox={vi.fn()} />);
     const row = gear().closest('[data-role="ticket-detail-status-row"]');
     expect(row).not.toBeNull();
     expect(row?.querySelector('[data-role="ticket-detail-status"]')?.textContent).toContain(
       'In progress',
     );
-    // The gear comes first in the row — that (plus the row starting at the
-    // heading's left edge) is what left-aligns it with the title. jsdom does no
+    // The gear comes last in the row — that (plus the `margin-left: auto` that
+    // pushes it to the row's far end) is what right-aligns it. jsdom does no
     // layout, so DOM order is what there is to assert; the geometry rides on the
     // CSS assertion in TicketDetail.header-layout.test.ts.
-    expect(row?.firstElementChild?.getAttribute('data-role')).toBe('detail-sandbox-menu');
+    expect(row?.lastElementChild?.getAttribute('data-role')).toBe('detail-sandbox-menu');
   });
 
   // The work is over on a done ticket, so every item behind the gear is spent:

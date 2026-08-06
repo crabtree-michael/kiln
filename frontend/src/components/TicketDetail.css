@@ -108,10 +108,11 @@
   white-space: nowrap;
 }
 
-/* The status row under the title: the sandbox gear and the lifecycle badge on
- * one line, in that order. It spans the heading's width, and the gear leads it
- * so the glyph starts on the title's own left edge — the same place on every
- * lifecycle state, including the ones (shaping/ready) that wear no badge. */
+/* The status row under the title: the lifecycle badge and the sandbox gear on
+ * one line, in that order. It spans the heading's width so the gear can sit at
+ * the row's end, clear of the badge's words however long they run — and so a
+ * ticket with no badge (shaping/ready) still puts the gear in the same place
+ * rather than sliding it left. */
 [data-role='ticket-detail-status-row'] {
   align-self: stretch;
   display: flex;
@@ -456,12 +457,14 @@
  * the scrolling body) so it is reachable without scrolling past the ticket's
  * text, and folded away so the ticket's own words are what the body shows.
  *
- * The gear leads the status row, so it sits directly under the title's first
- * character rather than off in the sheet's right corner. The trigger's negative
+ * The gear is pushed to the status row's end, so it sits in the sheet's right
+ * corner, clear of the badge's words however long they run — and in the same
+ * place on a ticket that wears no lifecycle badge at all. The trigger's negative
  * margin cancels its own hit-area padding, which is what puts the *glyph* — not
- * the button's box — on the title's left edge. */
+ * the button's box — on the sheet's right edge. */
 [data-role='detail-sandbox-menu'] {
   position: relative;
+  margin-left: auto;
   display: flex;
 }
 
@@ -490,17 +493,16 @@
   background: var(--surface-inset);
 }
 
-/* The dropdown, anchored to the trigger's bottom-LEFT corner — the gear now
- * leads the status row, so it opens down and to the right, back across the
- * sheet rather than off its edge (the mirror of where it hung when the gear sat
- * at the row's end). It stays mounted while closed (so it animates both ways)
- * and is taken out of the page by max-height/opacity plus the aria-hidden the
- * component writes. It opens *over* the scrolling body, and the header is given
- * a stacking order above that body for exactly this. */
+/* The dropdown, anchored to the trigger's bottom-RIGHT corner — the gear sits at
+ * the status row's end, so it opens down and to the left, back across the sheet
+ * rather than off its edge. It stays mounted while closed (so it animates both
+ * ways) and is taken out of the page by max-height/opacity plus the aria-hidden
+ * the component writes. It opens *over* the scrolling body, and the header is
+ * given a stacking order above that body for exactly this. */
 [data-role='detail-sandbox-panel'] {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
+  right: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -510,7 +512,7 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-overlay);
   overflow: hidden;
-  transform-origin: top left;
+  transform-origin: top right;
   opacity: 0;
   transform: translateY(-6px) scale(0.98);
   max-height: 0;

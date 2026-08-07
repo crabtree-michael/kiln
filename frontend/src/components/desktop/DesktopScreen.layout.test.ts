@@ -150,15 +150,42 @@ describe('DesktopScreen.css', () => {
     // unconditionally rather than under an empty-state selector.
     expect(region).toMatch(/display:\s*flex/);
     expect(region).toMatch(/flex-direction:\s*column/);
-    // And no bottom pad, because a pinned control is clamped to the region's
-    // content box: any pad here sits UNDER it, showing a strip of the next card
-    // beneath the thing that is meant to end the feed.
-    expect(region).toMatch(/padding:\s*var\(--space-8\)\s+var\(--space-8\)\s+0/);
+    // And no STATIC bottom pad, because a pinned control is clamped to the
+    // region's content box: a fixed pad here sits UNDER it, showing a strip of
+    // the next card beneath the thing that is meant to end the feed. The one
+    // term that IS allowed is the band's live height, which is 0px at rest — see
+    // the case below.
+    expect(region).toMatch(
+      /padding:\s*var\(--space-8\)\s+var\(--space-8\)\s+var\(--feed-bottom-inset,\s*0px\)/,
+    );
     // The state flag that used to gate all of this is gone, and with it the one
     // arrangement that only held when the feed was resting. Comments are
     // stripped first — the rules' own history is written up there, and matching
     // prose would make this assertion impossible to explain in place.
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/\[data-empty/);
+  });
+
+  it('reserves the activity band’s height, so a toast cannot cover "Show earlier"', () => {
+    // The regression this pins: the band is an opaque out-of-flow overlay
+    // anchored at the composer region's top edge (`bottom: 100%`,
+    // PrimaryScreen.css), so it floats up over exactly the strip of feed that
+    // the pinned control rests on. With no reserve here the control sat directly
+    // underneath it — hidden, not merely crowded — whenever a toast was up.
+    //
+    // The clearance is applied ONCE, by this padding: the control's sticky
+    // `bottom` stays 0 (asserted above) and rides the band indirectly, because a
+    // sticky box is clamped to its containing block's content box. The phone has
+    // named both overlay vars in its feed padding since they existed; this is
+    // the desk catching up on the one it has (there is no dock here, so no
+    // `--dock-overlay-height`).
+    const region = ruleBody("[data-role='desktop-feed'] {");
+    expect(region).toMatch(/padding:[^;]*var\(--feed-bottom-inset,\s*0px\)/);
+    // 0px at rest, so an idle desk lays out exactly as it did before.
+    expect(region).not.toMatch(/var\(--feed-bottom-inset\)/);
+    // And the reserve must not be applied a second time on the control itself,
+    // which would float it a whole band's height off the composer mid-toast.
+    const control = ruleBody("[data-role='desktop-screen'] [data-role='feed-show-earlier'] {");
+    expect(control.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/--feed-bottom-inset/);
   });
 
   it('keeps the reading air on the list, so it does not depend on the control', () => {

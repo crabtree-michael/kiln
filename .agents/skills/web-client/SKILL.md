@@ -176,6 +176,18 @@ in `integrations-config.ts` with the other shared credential facts, on purpose: 
 page and the app's session gate link to it too, and they must not pull the dashboard's
 provider tables into their bundle to do it.
 
+**Where the flow ends is chosen by which form of the constant you link** (added 2026-08-07).
+Plain `GITHUB_CONNECT_PATH` ends **in the app** (`/app`) — that is what "Sign in" means, and
+the backend only diverts to `/dashboard` when the user has no project and onboarding is
+genuinely next. `GITHUB_DASHBOARD_RETURN_PATH` (`?next=dashboard`) ends on the dashboard, and
+is for the affordances that LIVE there — `dashboard/SignIn.tsx`, `Onboarding`'s step 1,
+`RepoField`'s connect prompt — where the grant is a step in something the user is already
+doing on that screen. `GITHUB_SETUP_PATH` needs no marker: the backend reads `setup=1` as the
+same request, asking for GitHub's chooser being something only the dashboard does. Getting
+this wrong is invisible on a phone — an installed web app relaunches at `start_url` and
+`DefaultRoute` walks it to `/app` regardless — and stops a laptop dead on the wrong screen,
+which is exactly how the callback's old unconditional `/dashboard` survived as long as it did.
+
 The route redirects to the **GitHub App's authorize screen** (as of 2026-08-06), and the
 backend resolves the user's installation behind it, sending anyone without one on to
 GitHub's "All repositories / Only select repositories" chooser — so signing in already

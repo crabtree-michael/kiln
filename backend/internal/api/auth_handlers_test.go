@@ -31,6 +31,10 @@ const (
 	// matching the query param" test case shares.
 	testStateValue = "st-1"
 
+	// testAuthCode is the authorization code every callback case carries. The
+	// exchange behind it is a fake, so its value is never the thing under test.
+	testAuthCode = "c1"
+
 	// testSessionToken is the session token fakeAuth mints on a successful
 	// callback.
 	testSessionToken = "sess-tok-1"
@@ -40,16 +44,45 @@ const (
 	// gets sent back to.
 	testConnectPath = "/auth/github/connect"
 
-	// testDashboardPath is where a completed sign-in lands.
+	// testAppPath is where a completed sign-in lands, and testDashboardPath
+	// where the two exceptions do — a user with no project (onboarding lives
+	// there) and one who set out from the dashboard.
+	testAppPath       = "/app"
 	testDashboardPath = "/dashboard"
+
+	// testDashboardStateSuffix mirrors the unexported api.dashboardStateSuffix:
+	// the marker a state nonce carries to name the second of those.
+	testDashboardStateSuffix = ".dashboard"
 )
 
 // newAuthTestServer builds a bare server with EnableIdentity turned on over
-// the given fakeAuth double.
+// the given fakeAuth double and an account with no projects — the first-visit
+// user, whose sign-in ends on onboarding.
 func newAuthTestServer(auth *fakeAuth) *httptest.Server {
+	return newAuthTestServerFor(auth, &fakeAccount{})
+}
+
+// newAuthTestServerFor is the same over a chosen account double, which is what
+// decides where a completed sign-in lands.
+func newAuthTestServerFor(auth *fakeAuth, account *fakeAccount) *httptest.Server {
 	srv := newBareServer()
-	srv.EnableIdentity(auth, &fakeAccount{})
+	srv.EnableIdentity(auth, account)
 	return httptest.NewServer(srv.Handler())
+}
+
+// accountWithProject is the ordinary returning user: one project, so the app has
+// a board to open onto.
+func accountWithProject() *fakeAccount {
+	return &fakeAccount{projectViews: []identity.ProjectView{{Project: identity.Project{ID: testProjectID}}}}
+}
+
+// signedInAuth is the double for a sign-in that completes cleanly.
+func signedInAuth() *fakeAuth {
+	return &fakeAuth{
+		completeConnectUser: identity.User{ID: "u-1"},
+		sessionToken:        testSessionToken,
+		sessionExpires:      time.Now().Add(30 * 24 * time.Hour),
+	}
 }
 
 // noFollowClient stops at the first redirect (ErrUseLastResponse) so a 302's
@@ -137,29 +170,33 @@ func TestAuthLoginPathRedirectsToConnect(t *testing.T) {
 	}
 }
 
+// A completed sign-in lands IN the app, which is what the person who clicked
+// "Sign in" asked for.
+//
+// It used to land on the dashboard unconditionally, and that read as a
+// laptop-only bug because an installed web app hides it: a home-screen app
+// relaunches at its start_url and DefaultRoute takes it to /app regardless of
+// where the callback pointed. A browser tab simply stayed on the settings
+// screen — the last remaining way to "sign in and end up on a settings page"
+// after the entry point stopped stranding returning users on github.com.
 func TestAuthCallbackSuccess(t *testing.T) {
-	expires := time.Now().Add(30 * 24 * time.Hour)
-	auth := &fakeAuth{
-		completeConnectUser: identity.User{ID: "u-1"},
-		sessionToken:        testSessionToken,
-		sessionExpires:      expires,
-	}
-	ts := newAuthTestServer(auth)
+	auth := signedInAuth()
+	ts := newAuthTestServerFor(auth, accountWithProject())
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code=c1&state="+testStateValue,
+	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+testStateValue,
 		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 		&http.Cookie{Name: testStateCookie, Value: testStateValue})
 	defer closeBody(t, resp)
 
-	if got := auth.lastCompleteConnectCode(); got != "c1" {
-		t.Errorf("CompleteConnect called with %q, want c1", got)
+	if got := auth.lastCompleteConnectCode(); got != testAuthCode {
+		t.Errorf("CompleteConnect called with %q, want %s", got, testAuthCode)
 	}
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != testDashboardPath {
-		t.Errorf("Location = %q, want %s", loc, testDashboardPath)
+	if loc := resp.Header.Get("Location"); loc != testAppPath {
+		t.Errorf("Location = %q, want %s", loc, testAppPath)
 	}
 
 	sess := cookieNamed(resp, testSessionCookie)
@@ -176,12 +213,59 @@ func TestAuthCallbackSuccess(t *testing.T) {
 	}
 }
 
+// Two sign-ins still finish on the dashboard, for opposite reasons: one user has
+// nothing for the app to show and needs onboarding, the other set out from the
+// dashboard and asked to be put back. A third case is neither — a listing that
+// fails says nothing about which user this is, so it takes the destination that
+// works for both.
+func TestAuthCallbackLandsOnTheDashboardWhenThatIsTheRightScreen(t *testing.T) {
+	cases := []struct {
+		name    string
+		state   string
+		account *fakeAccount
+	}{
+		{
+			name:    "no project yet, so onboarding is what comes next",
+			state:   testStateValue,
+			account: &fakeAccount{},
+		},
+		{
+			name:    "started from the dashboard, so it goes back there",
+			state:   testStateValue + testDashboardStateSuffix,
+			account: accountWithProject(),
+		},
+		{
+			name:    "the project listing failed, so it takes the safe screen",
+			state:   testStateValue,
+			account: &fakeAccount{projectErr: errFakeGitHubDown},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newAuthTestServerFor(signedInAuth(), tc.account)
+			defer ts.Close()
+
+			resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+tc.state,
+				//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
+				&http.Cookie{Name: testStateCookie, Value: tc.state})
+			defer closeBody(t, resp)
+
+			if resp.StatusCode != http.StatusFound {
+				t.Fatalf("status = %d, want 302", resp.StatusCode)
+			}
+			if loc := resp.Header.Get("Location"); loc != testDashboardPath {
+				t.Errorf("Location = %q, want %s", loc, testDashboardPath)
+			}
+		})
+	}
+}
+
 func TestAuthCallbackStateMismatch(t *testing.T) {
 	auth := &fakeAuth{}
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code=c1&state=wrong",
+	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state=wrong",
 		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 		&http.Cookie{Name: testStateCookie, Value: "right"})
 	defer closeBody(t, resp)
@@ -199,7 +283,7 @@ func TestAuthCallbackMissingStateCookie(t *testing.T) {
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code=c1&state="+testStateValue)
+	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+testStateValue)
 	defer closeBody(t, resp)
 
 	if resp.StatusCode != http.StatusBadRequest {
@@ -215,7 +299,7 @@ func TestAuthCallbackNotAllowlisted(t *testing.T) {
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code=c1&state="+testStateValue,
+	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+testStateValue,
 		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 		&http.Cookie{Name: testStateCookie, Value: testStateValue})
 	defer closeBody(t, resp)
@@ -237,7 +321,7 @@ func TestAuthCallbackGitHubDown(t *testing.T) {
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code=c1&state="+testStateValue,
+	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+testStateValue,
 		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 		&http.Cookie{Name: testStateCookie, Value: testStateValue})
 	defer closeBody(t, resp)

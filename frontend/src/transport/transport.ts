@@ -32,7 +32,6 @@ export type VoiceToken = components['schemas']['VoiceToken'];
 export type PushKey = components['schemas']['PushKey'];
 export type PushSubscriptionPayload = components['schemas']['PushSubscription'];
 export type PresenceUpdatePayload = components['schemas']['PresenceUpdate'];
-export type BetaSignupRequest = components['schemas']['BetaSignupRequest'];
 export type NotificationMode = components['schemas']['NotificationMode'];
 /** The push-notification frequency values, mirroring the wire enum. */
 export type NotificationModeValue = NotificationMode['mode'];
@@ -722,10 +721,6 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
   }
 }
 
-/** `POST /api/beta-signup` — record a landing-page beta-interest email. The
- * server is idempotent on the address, so a repeat submit still resolves; the
- * caller redirects to the confirmation page on success. Throws on a non-2xx so
- * the form can surface an error and keep the visitor on the page. */
 /** `POST /api/presence` — heartbeat that this device is foregrounded (02 §10
  * push dedup). The server stamps `last_seen_foreground_at` on this endpoint's
  * subscription row so the notify.send sender skips it while it's visible, letting
@@ -763,18 +758,6 @@ export function beaconPresenceHidden(endpoint: string): boolean {
   // JSON regardless of content type, but this keeps the wire honest.
   const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
   return navigator.sendBeacon('/api/presence', blob);
-}
-
-export async function postBetaSignup(email: string): Promise<void> {
-  const body: BetaSignupRequest = { email };
-  const response = await fetch('/api/beta-signup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw new Error(`postBetaSignup: HTTP ${String(response.status)}`);
-  }
 }
 
 function isNotificationMode(value: unknown): value is NotificationMode {

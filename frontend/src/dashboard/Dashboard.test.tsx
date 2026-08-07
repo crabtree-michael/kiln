@@ -117,7 +117,10 @@ describe('Dashboard', () => {
     renderDashboard();
 
     const link = await screen.findByRole('link', { name: 'Continue with GitHub' });
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
+    // The dashboard-return form: this card is only ever met by someone who came
+    // to the dashboard, so signing in from it puts them back here rather than in
+    // the app (which is where the landing page's and session gate's links go).
+    expect(link).toHaveAttribute('href', '/auth/github/connect?next=dashboard');
     expect(document.querySelector('[data-role="dashboard"]')).not.toBeNull();
     expect(document.querySelector('[data-role="dashboard-error"]')).toBeNull();
   });
@@ -130,7 +133,7 @@ describe('Dashboard', () => {
     const errorEl = document.querySelector('[data-role="dashboard-error"]');
     expect(errorEl).not.toBeNull();
     expect(errorEl?.textContent).toContain('fetchMe: HTTP 500');
-    expect(link).toHaveAttribute('href', '/auth/github/connect');
+    expect(link).toHaveAttribute('href', '/auth/github/connect?next=dashboard');
   });
 
   it('signed in, no project: opens the guided setup flow on its first step', async () => {
@@ -258,7 +261,7 @@ describe('Dashboard', () => {
     expect(
       section.querySelector('[data-role="integration-card"][data-provider="github"]'),
     ).toBeNull();
-    expect(section.querySelector('a[href="/auth/github/connect"]')).toBeNull();
+    expect(section.querySelector('a[href^="/auth/github/connect"]')).toBeNull();
     // The manual "GitHub token" input is gone from the whole screen.
     expect(screen.queryByLabelText('GitHub token')).toBeNull();
     expect(document.querySelector('[data-role="api-key-modal"]')).toBeNull();

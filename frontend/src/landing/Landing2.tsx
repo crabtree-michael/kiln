@@ -11,10 +11,14 @@
 // (frontend/public/shots/*.png) that `/landing` frames; the ones with a light
 // and a dark capture are served through <picture> with a prefers-color-scheme
 // source so each screenshot matches the page theme.
-import { useState, type JSX } from 'react';
+//
+// Every call to action on the page is now a GitHub link. The email-capture form
+// and its modal are gone: signing up IS authorizing with GitHub, and the
+// allowlist check behind the callback either lets someone into the app or lands
+// them on the private-beta screen, recording them on the way. Nobody is asked
+// for an address they have already proved they own.
+import type { JSX } from 'react';
 import { Link } from 'react-router-dom';
-import { BetaSignupForm } from '@/landing/BetaSignupForm';
-import { BetaModal } from '@/landing/BetaModal';
 import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 import '@/landing/Landing2.css';
 
@@ -175,10 +179,6 @@ const FEATURES: {
 ];
 
 export function Landing2(): JSX.Element {
-  const [betaOpen, setBetaOpen] = useState(false);
-  const openBeta = (): void => {
-    setBetaOpen(true);
-  };
   return (
     <div className="kiln-landing-2">
       <header className="kiln-nav">
@@ -193,20 +193,24 @@ export function Landing2(): JSX.Element {
             <a href="#surfaces">The surfaces</a>
           </nav>
           <div className="kiln-nav__actions">
-            {/* Sign-in is a plain full-page anchor — NOT a router Link — because
-                `GITHUB_CONNECT_PATH` is a backend route the SPA does not own
-                (mirrors SessionGate / dashboard SignIn). It sits beside the beta
-                CTA so returning users have a way straight into the app. */}
-            <a href={GITHUB_CONNECT_PATH} className="kiln-btn kiln-btn--ghost kiln-nav__signin">
-              Sign in
+            {/* Two buttons, ONE flow. Both are plain full-page anchors to the same
+                `GITHUB_CONNECT_PATH` — NOT router Links, because it is a backend
+                route the SPA does not own (mirrors SessionGate / dashboard
+                SignIn), and NOT two routes, because 11 D2a settled that a second
+                GitHub route differing only invisibly is how a call site ends up
+                pointed at the wrong one.
+
+                They differ in wording alone, and deliberately so: a visitor
+                arrives knowing which of the two they are, and a page offering
+                only "Sign in" reads as closed to newcomers. GitHub answers both
+                the same way, and the allowlist behind the callback decides what
+                happens next — into the app, or onto the private-beta screen. */}
+            <a href={GITHUB_CONNECT_PATH} className="kiln-btn kiln-btn--primary kiln-nav__signup">
+              Sign up
             </a>
-            <button
-              type="button"
-              className="kiln-btn kiln-btn--primary kiln-nav__cta"
-              onClick={openBeta}
-            >
-              Join the beta
-            </button>
+            <a href={GITHUB_CONNECT_PATH} className="kiln-btn kiln-btn--ghost kiln-nav__login">
+              Log in
+            </a>
           </div>
         </div>
       </header>
@@ -225,11 +229,20 @@ export function Landing2(): JSX.Element {
               between meetings, or from the couch. Your team never has to wait for you to sit down.
             </p>
             <div className="kiln-hero__actions">
-              <BetaSignupForm cta="Join the beta" />
+              <a
+                href={GITHUB_CONNECT_PATH}
+                className="kiln-btn kiln-btn--primary kiln-btn--lg kiln-hero__primary"
+              >
+                Sign up with GitHub
+              </a>
               <a href="#how" className="kiln-btn kiln-btn--ghost kiln-btn--lg kiln-hero__secondary">
                 How it works
               </a>
             </div>
+            <p className="kiln-hero__gate">
+              Kiln is in private beta. Sign up with GitHub and we’ll be in touch the moment your
+              spot is ready.
+            </p>
             <ul className="kiln-hero__chips" aria-label="Steer Kiln from">
               <li>On your phone</li>
               <li>At your desk</li>
@@ -346,13 +359,9 @@ export function Landing2(): JSX.Element {
                 so a mis-hear never quietly wrecks your work.
               </p>
               <div className="kiln-voice__actions">
-                <button
-                  type="button"
-                  className="kiln-btn kiln-btn--primary kiln-btn--lg"
-                  onClick={openBeta}
-                >
-                  Join the beta
-                </button>
+                <a href={GITHUB_CONNECT_PATH} className="kiln-btn kiln-btn--primary kiln-btn--lg">
+                  Sign up with GitHub
+                </a>
               </div>
             </div>
             <div className="kiln-voice__art">
@@ -369,9 +378,7 @@ export function Landing2(): JSX.Element {
             <span>Kiln</span>
           </div>
           <nav className="kiln-footer__links" aria-label="Footer">
-            <button type="button" className="kiln-footer__link-btn" onClick={openBeta}>
-              Join the beta
-            </button>
+            <a href={GITHUB_CONNECT_PATH}>Sign up</a>
             <a href="#anywhere">Anywhere</a>
             <a href="#how">How it works</a>
           </nav>
@@ -380,15 +387,6 @@ export function Landing2(): JSX.Element {
           </span>
         </div>
       </footer>
-
-      <BetaModal
-        open={betaOpen}
-        onClose={() => {
-          setBetaOpen(false);
-        }}
-        heading="Take your agents anywhere."
-        blurb="Kiln is in private beta. Leave your email and we’ll let you know the moment your spot is ready."
-      />
     </div>
   );
 }

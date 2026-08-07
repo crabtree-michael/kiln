@@ -75,6 +75,91 @@ func TestAuthConnectRedirectsToTheAuthorizeFlow(t *testing.T) {
 	if state != sc.Value {
 		t.Errorf("redirect state = %q, cookie = %q; want identical", state, sc.Value)
 	}
+	// One nonce, one URL carrying it, once. A cached copy of this response would
+	// send a later sign-in to whatever entry point was current when it was
+	// stored, holding a nonce the callback no longer accepts — and this entry
+	// point has now moved twice.
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+}
+
+// Where the flow ENDS is decided when it starts, because by the time the
+// callback runs the only thing left of the request that began it is the state
+// nonce. So the destination rides in the nonce: GitHub echoes it back verbatim,
+// and the callback has already proved it matches the cookie before reading it.
+//
+// The dashboard's own affordances ask for it, so connecting a repo from a
+// settings form comes back to that form. Everything else — the landing page's
+// "Sign in", the session gate — leaves it off and lands in the app.
+func TestAuthConnectCarriesTheReturnDestinationInState(t *testing.T) {
+	cases := []struct {
+		name        string
+		query       string
+		toDashboard bool
+	}{
+		{name: "plain sign-in ends in the app", query: "", toDashboard: false},
+		{name: "next=dashboard comes back to the dashboard", query: "?next=dashboard", toDashboard: true},
+		// Asking for GitHub's chooser is something only the dashboard does, so
+		// it needs no second parameter to say where it came from.
+		{name: "setup implies it", query: "?setup=1", toDashboard: true},
+		// Not a destination this route knows, so it is not one it acts on.
+		{name: "an unknown next is ignored", query: "?next=https://evil.example", toDashboard: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newAuthTestServer(&fakeAuth{connectURL: testAuthorizeURL, installURL: testInstallURL})
+			defer ts.Close()
+
+			resp := doAuthRequest(t, http.MethodGet, ts.URL+testConnectPath+tc.query)
+			defer closeBody(t, resp)
+
+			if resp.StatusCode != http.StatusFound {
+				t.Fatalf("status = %d, want 302", resp.StatusCode)
+			}
+			sc := cookieNamed(resp, testStateCookie)
+			if sc == nil {
+				t.Fatal("no kiln_oauth_state cookie set")
+			}
+			if got := strings.HasSuffix(sc.Value, testDashboardStateSuffix); got != tc.toDashboard {
+				t.Errorf("state %q carries the dashboard marker = %t, want %t", sc.Value, got, tc.toDashboard)
+			}
+			// Marker or not, it is still the nonce the callback compares.
+			loc, err := resp.Location()
+			if err != nil {
+				t.Fatalf("Location: %v", err)
+			}
+			if got := loc.Query().Get("state"); got != sc.Value {
+				t.Errorf("redirect state = %q, cookie = %q; want identical", got, sc.Value)
+			}
+		})
+	}
+}
+
+// The install hop is a detour, not a new journey: someone who set out from the
+// dashboard and had to stop at GitHub's chooser on the way still meant to end up
+// back on the dashboard. The re-minted state carries the same marker, which is
+// the only thing that survives the hop to say so.
+func TestInstallHopKeepsTheReturnDestination(t *testing.T) {
+	ts := newAuthTestServer(installlessAuth())
+	defer ts.Close()
+
+	state := testStateValue + testDashboardStateSuffix
+	resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, state, 0),
+		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
+		&http.Cookie{Name: testStateCookie, Value: state})
+	defer closeBody(t, resp)
+
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want 302 on to the install screen", resp.StatusCode)
+	}
+	minted := lastCookieNamed(resp, testStateCookie)
+	if minted == nil || minted.MaxAge <= 0 {
+		t.Fatalf("kiln_oauth_state = %+v, want a fresh cookie for the install hop", minted)
+	}
+	if !strings.HasSuffix(minted.Value, testDashboardStateSuffix) {
+		t.Errorf("re-minted state = %q, want it still marked for the dashboard", minted.Value)
+	}
 }
 
 // The callback has ONE completion. The old split carried the intent on a
@@ -92,7 +177,7 @@ func TestAuthCallbackAlwaysCompletesTheOneFlow(t *testing.T) {
 			ts := newAuthTestServer(auth)
 			defer ts.Close()
 
-			resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, "c1", state, testInstallationID),
+			resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, state, testInstallationID),
 				//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 				&http.Cookie{Name: testStateCookie, Value: state})
 			defer closeBody(t, resp)
@@ -131,7 +216,7 @@ func TestAuthCallbackTreatsAnUnparseableInstallationAsAbsent(t *testing.T) {
 	defer ts.Close()
 
 	resp := doAuthRequest(t, http.MethodGet,
-		ts.URL+"/auth/github/callback?code=c1&installation_id=not-a-number&state="+testStateValue,
+		ts.URL+"/auth/github/callback?code="+testAuthCode+"&installation_id=not-a-number&state="+testStateValue,
 		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 		&http.Cookie{Name: testStateCookie, Value: testStateValue})
 	defer closeBody(t, resp)
@@ -154,7 +239,7 @@ func TestAuthCallbackWithoutInstallationSendsOnToTheChooser(t *testing.T) {
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, "c1", testStateValue, 0),
+	resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, testStateValue, 0),
 		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
 		&http.Cookie{Name: testStateCookie, Value: testStateValue})
 	defer closeBody(t, resp)
@@ -201,7 +286,7 @@ func TestAuthCallbackStopsExplainingAfterOneInstallHop(t *testing.T) {
 	ts := newAuthTestServer(auth)
 	defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, "c1", testStateValue, 0),
+	resp := doAuthRequest(t, http.MethodGet, callbackURL(ts.URL, testStateValue, 0),
 		//nolint:gosec // G124: outgoing request cookies the test sends, not Set-Cookie responses.
 		&http.Cookie{Name: testStateCookie, Value: testStateValue},
 		//nolint:gosec // G124: as above.
@@ -285,7 +370,7 @@ func installlessAuth() *fakeAuth {
 // the request, and the installation is attached to it.
 func TestAuthCallbackAttachesABareInstallationToTheSession(t *testing.T) {
 	auth := &fakeAuth{resolveUser: identity.User{ID: testUserID}}
-	ts := newAuthTestServer(auth)
+	ts := newAuthTestServerFor(auth, accountWithProject())
 	defer ts.Close()
 
 	resp := doAuthRequest(t, http.MethodGet,
@@ -307,6 +392,11 @@ func TestAuthCallbackAttachesABareInstallationToTheSession(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302 into the app", resp.StatusCode)
+	}
+	// This shape carries no state, so there is no stated destination — and the
+	// default is the app, same as any other completed sign-in.
+	if loc := resp.Header.Get("Location"); loc != testAppPath {
+		t.Errorf("Location = %q, want %s", loc, testAppPath)
 	}
 }
 
@@ -352,9 +442,11 @@ func TestAuthCallbackWithNeitherCodeNorInstallationIsABadRequest(t *testing.T) {
 
 // callbackURL builds the App callback GitHub sends, with installation_id
 // omitted entirely when it is 0 (the "user authorized, nothing installed" case,
-// which is an ABSENT parameter rather than a zero one).
-func callbackURL(base, code, state string, installationID int64) string {
-	u := base + "/auth/github/callback?code=" + code + "&state=" + state
+// which is an ABSENT parameter rather than a zero one). The code is always
+// testAuthCode: nothing here reads it, since the exchange is a fake — what
+// varies between these cases is the state and the installation.
+func callbackURL(base, state string, installationID int64) string {
+	u := base + "/auth/github/callback?code=" + testAuthCode + "&state=" + state
 	if installationID != 0 {
 		u += "&installation_id=" + strconv.FormatInt(installationID, 10)
 	}

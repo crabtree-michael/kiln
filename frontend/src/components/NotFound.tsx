@@ -1,6 +1,6 @@
 // Catch-all 404 page for unmatched routes (registered as `path="*"` in
 // main.tsx, last so every real route wins first). Deliberately self-contained
-// like BetaThanks: it mounts no app shell, opens no stream/store/provider, and
+// like PrivateBeta: it mounts no app shell, opens no stream/store/provider, and
 // borrows only the Kiln design tokens (src/styles/tokens.css) so light/dark
 // follows the OS theme. Its one job is to tell the visitor the page was not
 // found and hand them a way back to the app, rather than the blank screen an

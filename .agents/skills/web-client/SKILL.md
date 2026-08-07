@@ -125,7 +125,7 @@ first-run project onboarding → settings with credentials + live verify). It ow
 `DashboardProvider`; the primary screen never mounts it. **Phase 2 put the whole app behind a
 session** — `main.tsx` wraps **both `/app` and `/debug`** in `SessionProvider` + `SessionGate`
 (the gate resolves `GET /api/me` before either mounts), because every `/api/*` call is now
-project-scoped. Only the public routes — the landing (`/`), onboarding, and beta-thanks — stay
+project-scoped. Only the public routes — the landing (`/`), onboarding, and private-beta — stay
 session-free. `/signup` sits beside `/dashboard` (its own provider, outside the gate): the
 same sign-up flow, replayable on demand — see the rehearsal section below.
 
@@ -159,12 +159,25 @@ same sign-up flow, replayable on demand — see the rehearsal section below.
 
 There is **one** OAuth flow, **one** registered callback, and **one** path constant:
 `GITHUB_CONNECT_PATH` in `src/auth/github-connect.ts` (`/auth/github/connect`). Import it —
-never restate the literal. Every entry point uses it: `landing/Landing2.tsx` ("Sign in"),
+never restate the literal. Every entry point uses it: `landing/Landing2.tsx` ("Sign up" AND
+"Log in" — see the private-beta section below),
 `components/SessionGate.tsx`, `projects/ProjectsManager.tsx`, `dashboard/SignIn.tsx`,
 `Onboarding`'s step 1, and the `Integrations`/`RepoField` connect affordance. It is **not**
 in `integrations-config.ts` with the other shared credential facts, on purpose: the landing
 page and the app's session gate link to it too, and they must not pull the dashboard's
 provider tables into their bundle to do it.
+
+**Where the flow ends is chosen by which form of the constant you link** (added 2026-08-07).
+Plain `GITHUB_CONNECT_PATH` ends **in the app** (`/app`) — that is what "Sign in" means, and
+the backend only diverts to `/dashboard` when the user has no project and onboarding is
+genuinely next. `GITHUB_DASHBOARD_RETURN_PATH` (`?next=dashboard`) ends on the dashboard, and
+is for the affordances that LIVE there — `dashboard/SignIn.tsx`, `Onboarding`'s step 1,
+`RepoField`'s connect prompt — where the grant is a step in something the user is already
+doing on that screen. `GITHUB_SETUP_PATH` needs no marker: the backend reads `setup=1` as the
+same request, asking for GitHub's chooser being something only the dashboard does. Getting
+this wrong is invisible on a phone — an installed web app relaunches at `start_url` and
+`DefaultRoute` walks it to `/app` regardless — and stops a laptop dead on the wrong screen,
+which is exactly how the callback's old unconditional `/dashboard` survived as long as it did.
 
 The route redirects to the **GitHub App's authorize screen** (as of 2026-08-06), and the
 backend resolves the user's installation behind it, sending anyone without one on to
@@ -174,6 +187,47 @@ scopeless `/auth/github/login` beside a repo-scoped connect — that shipped a s
 pointed at the wrong one. **Never add a second GitHub app, flow, callback, or path constant
 for repo access.** (`/auth/github/login` still 302s here for old bookmarks; nothing in the
 client links to it.)
+
+### Two buttons, one flow — and the private-beta gate behind it
+
+The landing page's nav offers **"Sign up" and "Log in" as two separate buttons**, and they
+point at the **same** `GITHUB_CONNECT_PATH`. The wording is the only difference, and that is
+the design: a visitor knows which of the two they are, and a bar offering only "Sign in"
+reads as closed to newcomers. **Do not give them separate routes or query markers** — 11 D2a
+settled that two GitHub routes differing only invisibly is how a call site ends up pointed at
+the wrong one, and "which button did they press" is not something the backend needs to know.
+Both are plain `<a href>`, never router `Link`s.
+
+**Both survive on mobile.** The bar used to keep one CTA and `display: none` the sign-in link
+under 720px to save width, which left a returning user on a phone with no way in from this
+page at all. Width now comes out of the buttons' padding instead (the section links have
+already collapsed by then). Don't reintroduce a rule that hides either one.
+
+**There is no email capture anywhere on the page.** `BetaSignupForm`, `BetaModal` and
+`POST /api/beta-signup` are all gone, along with the `/beta/thanks` page. Signing up IS the
+GitHub grant, and the beta list is now written server-side from the login (see below) — so
+nobody is asked for an address they have already proved they own. Don't add a form back.
+
+**What happens after GitHub is the backend's call, and there are three endings.** The
+callback checks the allowlist (`KILN_ALLOWED_GITHUB_USERS`, 11 §2) and either lands them in
+the app / on the dashboard as described above, or — if they are not on it — records their
+login on the `beta_signups` list and redirects to **`/beta/pending`** (`landing/PrivateBeta.tsx`).
+That screen is a **public** route, sitting outside `SessionProvider`/`SessionGate` for the
+obvious reason: everyone who reaches it was just refused a session, so a provider fetching
+`/api/me` would only bounce them off the gate again. It is **not an error page** — the person
+did everything right and is early — so it asks them for nothing and offers no next step to
+chase. `PrivateBeta.test.tsx` pins that (no textbox, no button, no link); keep it, since the
+page it replaced told people to go and find an admin.
+
+**`tests/landing-auth-buttons-smoke.mjs` is the only thing that can see the nav actually lay
+out** — hand-run, same harness and stance as `desktop-shell-smoke.mjs` (`cd frontend && pnpm
+build`, then `cd ../tests && node landing-auth-buttons-smoke.mjs`). It measures both buttons at
+390px and 1440px: on one row, inside the viewport, clear of the brand, right of centre, and
+**≥32px tall**. That last one is not padding: `.kiln-btn` has no `height`/`min-height` and
+`line-height: 1`, so its entire height comes from `padding: 11px 20px` — writing the mobile
+override as the `padding` shorthand zeroes the vertical half and collapses both buttons to a
+16px sliver. Every DOM test still passed (the element is present and "visible"), and only the
+browser caught it. Use `padding-inline` for any future per-viewport tightening here.
 
 `GITHUB_SETUP_PATH` (the same route, `?setup=1`) is the **only** sanctioned second link, and
 it is a screen request rather than a second grant: it goes straight to GitHub's chooser, for

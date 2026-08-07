@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
-	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -59,10 +58,6 @@ const maxTicketTextBody = 256 << 10
 // maxPushBody caps the POST /api/push/subscribe body before decoding. A browser
 // PushSubscription (endpoint URL + two short base64url keys) is well under 8 KiB.
 const maxPushBody = 8 << 10
-
-// maxBetaBody caps the POST /api/beta-signup body before decoding. A single
-// email address (RFC-max 254 chars) plus JSON framing is well under 1 KiB.
-const maxBetaBody = 1 << 10
 
 // BoardReader is the api's port onto the board's read path (03 §4 GetBoard),
 // scoped to one project (11 phase 2): a caller only ever reads the board of
@@ -264,13 +259,14 @@ type PushRegistrar interface {
 	SetMode(ctx context.Context, userID, mode string) error
 }
 
-// BetaRegistrar is the api's port onto the beta-signup store: POST
-// /api/beta-signup lands one landing-page email. Idempotent on the address so a
-// repeat submit still succeeds (the client always redirects to the confirmation
-// page). The api never imports internal/beta — email is a plain string on this
-// boundary, same rule PushRegistrar follows. Satisfied by a cmd/kiln adapter.
+// BetaRegistrar is the api's port onto the private-beta list: the GitHub OAuth
+// callback lands one login here when the allowlist turns it away, so a request
+// to get in is recorded rather than lost. Idempotent on the login so a rejected
+// user retrying sign-in stays one row. The api never imports internal/beta — the
+// login is a plain string on this boundary, same rule PushRegistrar follows.
+// Satisfied by a cmd/kiln adapter.
 type BetaRegistrar interface {
-	Register(ctx context.Context, email string) error
+	Register(ctx context.Context, githubLogin string) error
 }
 
 // Authenticator is the api's port onto the GitHub OAuth + cookie-session
@@ -436,7 +432,7 @@ type Server struct {
 	voice      VoiceTokenMinter
 	push       PushRegistrar      // non-nil ⇒ POST /api/push/subscribe + GET /api/push/key are mounted (02 §10)
 	vapidKey   string             // VAPID public key served by GET /api/push/key; empty ⇒ that route 404s (push disabled)
-	beta       BetaRegistrar      // non-nil ⇒ POST /api/beta-signup is mounted (landing-page beta list)
+	beta       BetaRegistrar      // non-nil ⇒ an allowlist rejection is recorded on the private-beta list
 	seeder     TicketSeeder       // dev-only; non-nil ⇒ POST /api/dev/tickets is mounted
 	devNotes   NotificationPoster // dev-only; non-nil ⇒ POST /api/dev/notifications is mounted
 	resetter   Resetter           // non-nil ⇒ POST /api/dev/reset is mounted
@@ -520,10 +516,11 @@ func (s *Server) EnablePush(registrar PushRegistrar, vapidPublicKey string) {
 	s.vapidKey = vapidPublicKey
 }
 
-// EnableBeta turns on the POST /api/beta-signup route (call before Handler):
-// the landing page's "Join the beta" form lands an email on the registrar. Wired
-// unconditionally at the composition root — the pre-launch landing page relies
-// on it always being present.
+// EnableBeta gives the GitHub callback somewhere to record a login the allowlist
+// turned away (see rejectToPrivateBeta). It mounts no route — the private-beta
+// list has no client-facing endpoint any more, only this internal write. Wired
+// unconditionally at the composition root; a nil registrar merely means the
+// rejection is not recorded, and the user still gets the same screen.
 func (s *Server) EnableBeta(registrar BetaRegistrar) { s.beta = registrar }
 
 // EnableIdentity turns on the GitHub OAuth + cookie-session routes (11 §2):
@@ -603,13 +600,6 @@ func (s *Server) Handler() http.Handler {
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
-	// Beta signup is the one PUBLIC app data route (11 phase 2): the pre-launch
-	// landing page's visitors have no session, so it mounts unguarded when the
-	// registrar is wired — it is genuinely stateless (one email → the beta list)
-	// and touches no project.
-	if s.beta != nil {
-		mux.HandleFunc("POST /api/beta-signup", s.handleBetaSignup)
-	}
 	if s.push != nil {
 		mux.HandleFunc("POST /api/push/subscribe", s.withSession(s.handlePushSubscribe))
 		mux.HandleFunc("DELETE /api/push/subscribe", s.withSession(s.handlePushUnsubscribe))
@@ -1417,40 +1407,6 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, _ iden
 		return
 	}
 	writeJSON(w, http.StatusOK, wire.VoiceToken{Token: token, ExpiresAt: expiresAt})
-}
-
-// handleBetaSignup records a landing-page beta-interest email. It caps and
-// decodes {email}, validates it parses as a single address within the wire
-// bounds (schema BetaSignupRequest: 3–254 chars), and stores it. Idempotent on
-// the address (the store swallows a duplicate), so a repeat submit is still a
-// 202 — the client always redirects to the confirmation page on success.
-func (s *Server) handleBetaSignup(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBetaBody)
-	var req wire.BetaSignupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	email := strings.TrimSpace(req.Email)
-	if len(email) < 3 || len(email) > 254 {
-		http.Error(w, "email must be 3-254 characters", http.StatusBadRequest)
-		return
-	}
-	if _, err := mail.ParseAddress(email); err != nil {
-		http.Error(w, "email is not a valid address", http.StatusBadRequest)
-		return
-	}
-	if err := s.beta.Register(r.Context(), email); err != nil {
-		slog.Error("api: beta signup", "err", err)
-		http.Error(w, "record signup", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
 }
 
 // handlePushKey serves the VAPID public key for pushManager.subscribe (02 §10).

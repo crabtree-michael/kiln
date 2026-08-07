@@ -364,7 +364,7 @@ describe('/signup — the sign-up rehearsal', () => {
 
     expect(await screen.findByRole('link', { name: 'Continue with GitHub' })).toHaveAttribute(
       'href',
-      '/auth/github/connect',
+      '/auth/github/connect?next=dashboard',
     );
   });
 });

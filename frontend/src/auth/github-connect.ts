@@ -14,9 +14,27 @@
  * second hop is the server's business, not the client's, but it is why signing
  * in sometimes ends on a chooser and sometimes goes straight through.
  *
+ * It ends in the app (`/app`), which is what someone clicking "Sign in" is
+ * asking for — or on the dashboard when they have no project yet and onboarding
+ * is what's next. `GITHUB_DASHBOARD_RETURN_PATH` below is for the callers that
+ * want the other ending.
+ *
  * They are backend routes the SPA does not own, so every navigation to either
  * must be a real full-page load — a plain `<a href>`, NEVER a router `Link`. */
 export const GITHUB_CONNECT_PATH = '/auth/github/connect';
+
+/** The same flow, ending back on the dashboard instead of in the app.
+ *
+ * For the affordances that live ON the dashboard — the sign-in card, the
+ * connect prompt on a project's repo field — where the grant is a step in
+ * something the user is already doing there. Landing them in the app would
+ * answer "connect your GitHub account" by walking them out of the form they
+ * were filling in.
+ *
+ * Everything reached from outside the dashboard uses the plain constant, and
+ * `GITHUB_SETUP_PATH` needs no marker: asking for GitHub's chooser is something
+ * only the dashboard does, so the backend reads it as this same request. */
+export const GITHUB_DASHBOARD_RETURN_PATH = `${GITHUB_CONNECT_PATH}?next=dashboard`;
 
 /** The same route, asking for GitHub's repository chooser explicitly — where a
  * user picks which repositories Kiln may reach, and which account it sits on.

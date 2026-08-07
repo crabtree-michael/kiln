@@ -5,11 +5,13 @@ package api
 // routes.go).
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
@@ -19,6 +21,27 @@ import (
 // (11 §2): long enough for a user to complete GitHub's consent screen, short
 // enough to bound a CSRF replay window.
 const stateCookieTTL = 10 * time.Minute
+
+// The two places a completed sign-in can land: the primary screen (08), and the
+// settings screen that owns onboarding and the connection cards (11 §5).
+const (
+	appPath       = "/app"
+	dashboardPath = "/dashboard"
+)
+
+// nextParam is how a caller asks for a landing other than the default, and
+// dashboardDest is its one accepted value. A closed set rather than a path,
+// deliberately: a `next` that carried a URL would be an open redirect hanging
+// off the one route an attacker most wants to aim, for the sake of a choice
+// between two destinations this package already knows by name.
+const (
+	nextParam     = "next"
+	dashboardDest = "dashboard"
+)
+
+// dashboardStateSuffix marks an in-flight sign-in that must come back to the
+// settings screen. It rides inside the state nonce — see mintAuthState.
+const dashboardStateSuffix = ".dashboard"
 
 // inviteOnlyPage is the small inline HTML shown when CompleteConnect rejects a
 // GitHub login that isn't on the allowlist (11 §2) — a one-shot error page
@@ -62,8 +85,15 @@ may need to approve the installation.</p>
 // because a CONNECTED user asking to change accounts or repositories wants the
 // screen the plain route deliberately skips — GitHub's configure page, which for
 // them is the destination rather than the dead end it was as a sign-in target.
+//
+// `?next=dashboard` is the other, and it names where the flow ENDS rather than
+// where it goes: the affordances on the settings screen send the user back to
+// the settings screen, and everything else lands them in the app (postAuthPath).
+// `setup=1` implies it, being asked for from that screen and nowhere else.
 func (s *Server) handleAuthConnect(w http.ResponseWriter, r *http.Request) {
-	token, err := randomToken()
+	q := r.URL.Query()
+	setup := q.Get("setup") == "1"
+	token, err := mintAuthState(setup || q.Get(nextParam) == dashboardDest)
 	if err != nil {
 		slog.Error("api: mint oauth state", "err", err)
 		http.Error(w, "start login", http.StatusInternalServerError)
@@ -71,10 +101,45 @@ func (s *Server) handleAuthConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	setCookie(w, r, stateCookie, token, stateCookieTTL)
 	target := s.auth.ConnectURL(token)
-	if r.URL.Query().Get("setup") == "1" {
+	if setup {
 		target = s.auth.InstallURL(token)
 	}
+	// Never served from a cache. This response pairs one freshly minted nonce
+	// with the one URL carrying it, so a browser that replayed an earlier one
+	// would send the user to a stale entry point holding a nonce the callback
+	// rejects — and the entry point is exactly what the last two fixes changed.
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// mintAuthState mints the CSRF nonce for one trip to GitHub, carrying the
+// destination the browser should come back to.
+//
+// The destination rides IN the state rather than in a cookie of its own because
+// it has to survive the same round trip, and state already does: GitHub echoes
+// it back verbatim, and the callback has proved it matches the cookie before
+// anything reads it. A second cookie would be another thing to set, clear and
+// re-mint on the install hop, guarded by nothing.
+//
+// randomToken is base64url, whose alphabet has no ".", so the suffix can never
+// be mistaken for part of the nonce it is appended to.
+func mintAuthState(toDashboard bool) (string, error) {
+	token, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	if toDashboard {
+		return token + dashboardStateSuffix, nil
+	}
+	return token, nil
+}
+
+// stateWantsDashboard reads the destination back out of a state value. Call it
+// only on a state that has already passed the callback's comparison against the
+// cookie: this is the one part of that string acted on, and an unverified one is
+// whatever the caller felt like sending.
+func stateWantsDashboard(state string) bool {
+	return strings.HasSuffix(state, dashboardStateSuffix)
 }
 
 // handleAuthCallback completes the GitHub App dance (11 §2): the state cookie
@@ -149,12 +214,49 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setCookie(w, r, sessionCookie, token, time.Until(expires))
+	// c.Value, not the query parameter: the two were just proved equal, and the
+	// cookie is the half this server wrote.
+	toDashboard := stateWantsDashboard(c.Value)
 	if installMissing {
-		s.sendToInstall(w, r)
+		s.sendToInstall(w, r, toDashboard)
 		return
 	}
 	clearCookie(w, r, installPromptCookie)
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
+	http.Redirect(w, r, s.postAuthPath(r.Context(), user.ID, toDashboard), http.StatusFound)
+}
+
+// postAuthPath is where a completed sign-in lands, and the answer is normally
+// the app. Signing in is how a person gets INTO Kiln, and a browser parked on
+// the settings screen has stopped one step short of the board it came for.
+//
+// It read as a phone-works/laptop-doesn't bug because on a phone it is invisible:
+// an installed web app relaunches at its start_url and DefaultRoute sends it to
+// /app, so the settings screen the callback chose never survives long enough to
+// be seen. A browser tab just stays on it — which, after the entry point was
+// fixed to stop stranding returning users on github.com, was the whole of what
+// was left of "sign in and end up on a settings page".
+//
+// Two users still belong there. One has no project, so the app has nothing to
+// show them and onboarding is what they need. The other STARTED there — the
+// connection cards and the chooser trip ask for `next=dashboard` — and wants to
+// go back to what they were configuring; the app would be a different way of
+// losing their place.
+//
+// A listing that fails resolves to the settings screen, the destination that is
+// merely a detour for one of those users and is a blank board for the other.
+func (s *Server) postAuthPath(ctx context.Context, userID string, toDashboard bool) string {
+	if toDashboard || s.account == nil {
+		return dashboardPath
+	}
+	projects, err := s.account.ListProjects(ctx, userID)
+	if err != nil {
+		slog.Error("api: list projects for sign-in landing", "user_id", userID, "err", err)
+		return dashboardPath
+	}
+	if len(projects) == 0 {
+		return dashboardPath
+	}
+	return appPath
 }
 
 // sendToInstall runs the flow's second leg for a signed-in user with no
@@ -171,8 +273,10 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 // The state cookie is re-minted for the trip. It was cleared eagerly at the top
 // of the callback, and this Set-Cookie is written after that clear for the same
 // name and path, so the browser keeps this one — the install screen's own
-// callback then has state to check, exactly as the authorize screen's did.
-func (s *Server) sendToInstall(w http.ResponseWriter, r *http.Request) {
+// callback then has state to check, exactly as the authorize screen's did. It
+// is re-minted carrying the same destination, so a user who set out from the
+// settings screen still ends there after the detour.
+func (s *Server) sendToInstall(w http.ResponseWriter, r *http.Request, toDashboard bool) {
 	if _, err := r.Cookie(installPromptCookie); err == nil {
 		clearCookie(w, r, installPromptCookie)
 		// 403 with an explanation beats a 502 "github login failed" — and beats
@@ -181,7 +285,7 @@ func (s *Server) sendToInstall(w http.ResponseWriter, r *http.Request) {
 		writeAuthPage(w, http.StatusForbidden, installRequiredPage, "install-required")
 		return
 	}
-	state, err := randomToken()
+	state, err := mintAuthState(toDashboard)
 	if err != nil {
 		slog.Error("api: mint install state", "err", err)
 		writeAuthPage(w, http.StatusForbidden, installRequiredPage, "install-required")
@@ -224,7 +328,10 @@ func (s *Server) handleBareInstall(w http.ResponseWriter, r *http.Request, insta
 	// The install this browser was sent for has landed, by the other callback
 	// shape — clear the one-hop marker so a later sign-in starts fresh.
 	clearCookie(w, r, installPromptCookie)
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
+	// No state came with this shape, so there is no stated destination to honour
+	// and the default applies: into the app, or onboarding for a user who has
+	// installed Kiln on GitHub before making a project.
+	http.Redirect(w, r, s.postAuthPath(r.Context(), user.ID, false), http.StatusFound)
 }
 
 // parseInstallationID reads GitHub's `installation_id` query parameter, mapping

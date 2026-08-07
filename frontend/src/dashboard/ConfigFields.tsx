@@ -18,7 +18,7 @@ import type {
   Snapshot,
 } from '@/transport/transport';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
-import { GITHUB_CONNECT_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
+import { GITHUB_DASHBOARD_RETURN_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 
 // The merge-gate knob (06 §7): which condition marks a ticket done — its work
 // merged to main, or merely in a pull request. Non-optional here (the form
@@ -58,8 +58,9 @@ interface RepoFieldProps {
  *  1. loading — a quiet placeholder, so the connect prompt never flashes up
  *     before we know whether the account is actually connected;
  *  2. disconnected — the "Connect GitHub account" link, pointed at the one
- *     grant, `GITHUB_CONNECT_PATH`, the same route every other entry point uses.
- *     A user reaches this state by having signed in before Kiln asked for the
+ *     grant, the same route every other entry point uses, asked to end back
+ *     here rather than in the app. A user reaches this state by having signed
+ *     in before Kiln asked for the
  *     repo scope, or by having revoked it. A project that already has a repo_url keeps it: it is
  *     shown read-only and still submitted, so editing an unrelated field on an
  *     older project can't silently unlink its repo;
@@ -87,8 +88,10 @@ export function RepoField({ value, onChange, github }: RepoFieldProps): JSX.Elem
           Connect your GitHub account to pick a repository. Kiln uses the same GitHub sign-in you
           already use — connecting just grants it access to your repos, including private ones.
         </p>
-        {/* A backend route, so a real navigation — never a router Link. */}
-        <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
+        {/* A backend route, so a real navigation — never a router Link. The
+            dashboard-return form: the grant is a step in editing this project,
+            and landing in the app would abandon the form mid-edit. */}
+        <a href={GITHUB_DASHBOARD_RETURN_PATH} data-role="connect-github">
           Connect GitHub account
         </a>
         {value !== '' && (

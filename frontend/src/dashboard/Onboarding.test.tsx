@@ -194,13 +194,14 @@ describe('Onboarding — the guided setup flow', () => {
         'disconnected',
       );
     });
-    // The one shared GITHUB_CONNECT_PATH — the same route the sign-in links and
-    // the Integrations card use — and a backend route, so a real navigation
-    // rather than a router Link. It always asks for `repo`, so clearing it
-    // returns the user here connected.
+    // The one shared connect route — the same one the sign-in links and the
+    // Integrations card use — and a backend route, so a real navigation rather
+    // than a router Link. It always asks for `repo`, so clearing it returns the
+    // user here connected: `next=dashboard` is what makes "here" true, since
+    // this step is the middle of onboarding and not a way into the app.
     expect(screen.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute(
       'href',
-      '/auth/github/connect',
+      '/auth/github/connect?next=dashboard',
     );
     // The gate: you cannot reach the repo picker without a credential to list from.
     expect(nextButton()).toBeDisabled();

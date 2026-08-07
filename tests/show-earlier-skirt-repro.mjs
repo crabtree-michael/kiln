@@ -1,10 +1,15 @@
-// Hand-run repro for "the Show earlier skirt covers the dock separator and the
-// toast band" (phone shell).
+// Hand-run repro for how the pinned "Show earlier" control meets the toast band
+// (phone shell). Two questions, one harness, because both are the same strip of
+// screen:
+//
+//   1. where the control's `box-shadow` skirt lands relative to the band and the
+//      dock's separator hairline (screenshots, read by eye at 3x); and
+//   2. whether a toast OVERLAYS the control or pushes it up (measured: the
+//      control's standoff from the dock must not change when a band appears).
 //
 // Same stance and harness as `toast-mic-glow-repro.mjs`: serve `frontend/dist`,
-// stub every `/api` call, then look at one thing jsdom cannot see — where the
-// sticky "Show earlier" control's `box-shadow` skirt lands relative to the toast
-// band and the dock's separator hairline.
+// stub every `/api` call, then look at what jsdom — which does no layout, and
+// whose hit-testing ignores a box-shadow — cannot see.
 //
 //     cd frontend && pnpm build
 //     cd ../tests && node show-earlier-skirt-repro.mjs
@@ -102,14 +107,32 @@ const feed = {
   cards: [card(1), card(2), card(3), card(4), card(5), card(6)],
 };
 
-const streamBody = [
-  `event: say\ndata: ${JSON.stringify({ message_id: 1, text: 'Rate-limiting the webhook retry now — backing off on 5xx, capped at five attempts.', at: '2026-08-04T11:55:00Z' })}\n\n`,
-  `event: activity\ndata: ${JSON.stringify({ kind: 'toast', verb: 'started', ticket_title: 'auth refresh', ticket_id: 't1' })}\n\n`,
-].join('');
+// The band is what the control has to hold its place under, so it is now a knob
+// rather than a constant: `band` puts a `say` + a board toast in the stack,
+// `thinking` puts the floating "Kiln is thinking…" chip on the same layer. The
+// four combinations are the four positions the control can be asked to take.
+const streamBody = ({ band, thinking }) =>
+  [
+    thinking
+      ? `event: activity\ndata: ${JSON.stringify({ kind: 'thinking', on: true })}\n\n`
+      : '',
+    // `band: 'toast'` is the SHORTEST band the app can show — one board toast,
+    // no `say` — which is the case where the control, dropped into the band,
+    // comes closest to poking out over its top edge.
+    band === true
+      ? `event: say\ndata: ${JSON.stringify({ message_id: 1, text: 'Rate-limiting the webhook retry now — backing off on 5xx, capped at five attempts.', at: '2026-08-04T11:55:00Z' })}\n\n`
+      : '',
+    band
+      ? `event: activity\ndata: ${JSON.stringify({ kind: 'toast', verb: 'started', ticket_title: 'auth refresh', ticket_id: 't1' })}\n\n`
+      : '',
+  ].join('');
 
 const browser = await chromium.launch();
 
-async function shot(name, { width, height, colorScheme, typed = false }) {
+async function shot(
+  name,
+  { width, height, colorScheme, typed = false, band = true, thinking = false },
+) {
   const page = await browser.newPage({
     viewport: { width, height },
     colorScheme,
@@ -144,12 +167,12 @@ async function shot(name, { width, height, colorScheme, typed = false }) {
     }
     if (url.pathname.endsWith('/board')) return route.fulfill({ json: board });
     if (url.pathname.endsWith('/feed')) return route.fulfill({ json: feed });
-    if (url.pathname.endsWith('/activity')) return route.fulfill({ json: { thinking: false } });
+    if (url.pathname.endsWith('/activity')) return route.fulfill({ json: { thinking } });
     if (url.pathname.includes('/stream')) {
       return route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
-        body: streamBody,
+        body: streamBody({ band, thinking }),
       });
     }
     return route.fulfill({ json: {} });
@@ -159,7 +182,12 @@ async function shot(name, { width, height, colorScheme, typed = false }) {
   await page.waitForSelector('[data-role="feed-show-earlier"]', {
     timeout: 10_000,
   });
-  await page.waitForSelector('[data-role="toast-stack"]', { timeout: 10_000 });
+  if (band) {
+    await page.waitForSelector('[data-role="toast-stack"]', { timeout: 10_000 });
+  }
+  if (thinking) {
+    await page.waitForSelector('[data-role="thinking-indicator"]', { timeout: 10_000 });
+  }
   // The transcript panel is the OTHER thing standing in the feed's bottom
   // reserve, and it carries the dock's separator hairline while it is up. The
   // typed draft mounts the same panel, so a keyboard tap + some words is enough
@@ -189,15 +217,33 @@ async function shot(name, { width, height, colorScheme, typed = false }) {
     const control = rect('[data-role="feed-show-earlier"]');
     const band = rect('[data-role="toast-stack"]');
     const pill = rect('[data-role="toast-pill"]') ?? rect('[data-role="say-pill"]');
+    const chip = rect('[data-role="thinking-indicator"]');
+    const region = rect('[data-role="dock-region"]');
     const cx = control ? control.left + control.width / 2 : 100;
     return {
       control,
       band,
       pill,
+      chip,
       transcript: rect('[data-role="dock-transcript"]'),
       dock: rect('[data-role="dock"]'),
-      region: rect('[data-role="dock-region"]'),
+      region,
       feed: rect('[data-role="feed"]'),
+      // The one number the "toasts overlay, never push" question turns on: how
+      // far the control's bottom edge stands off the top of the dock region.
+      // Measured from the dock rather than the viewport so it survives a
+      // different viewport height, and compared across band states below.
+      standoff: control && region ? Math.round(region.top - control.bottom) : null,
+      // ...and the other half of it: with a band up, the control is BEHIND it.
+      coveredByBand: control ? roleAt(cx, control.top + control.height / 2) : null,
+      // ...top edge included: a control poking a rounded hairline out over the
+      // band's separator is the visible failure the drop can produce.
+      topEdgeCovered: control ? roleAt(cx, control.top + 1) : null,
+      // The chip must never land on the control — it is narrow, floating, and
+      // has no fill to hide anything behind it (which is why the drop is gated
+      // on a real band rather than on the whole activity row).
+      chipClearsControl:
+        chip && control ? chip.bottom <= control.top || chip.top >= control.bottom : null,
       // Sample down the strip between the control and the dock.
       samples: control
         ? [4, 12, 20, 28, 36, 44].map((dy) => ({
@@ -233,6 +279,7 @@ async function shot(name, { width, height, colorScheme, typed = false }) {
     });
   }
   await page.close();
+  return geometry;
 }
 
 await shot('phone-light', { width: 390, height: 720, colorScheme: 'light' });
@@ -245,6 +292,51 @@ await shot('phone-typing', {
 });
 await shot('phone-dark', { width: 390, height: 720, colorScheme: 'dark' });
 await shot('desk-light', { width: 1280, height: 800, colorScheme: 'light' });
+
+// The second question this script answers: a toast OVERLAYS the control, it does
+// not push it up. The band's height is in the feed's bottom reserve (so the last
+// card can still be scrolled clear of it) and the control gives that height back
+// in paint, so its standoff from the dock must be the SAME number in all three
+// band states — while the chip, which has no fill, still gets its clearance.
+const phone = { width: 390, height: 720, colorScheme: 'light' };
+const states = {
+  'no band': await shot('phone-no-band', { ...phone, band: false }),
+  'band': await shot('phone-band', { ...phone }),
+  'shortest band': await shot('phone-band-short', { ...phone, band: 'toast' }),
+  'thinking only': await shot('phone-thinking', { ...phone, band: false, thinking: true }),
+  'band + thinking': await shot('phone-band-thinking', { ...phone, thinking: true }),
+};
+
+console.log('\n=== does the band move the control? ===');
+for (const [label, g] of Object.entries(states)) {
+  console.log(
+    [
+      label.padEnd(16),
+      `standoff ${String(g.standoff).padStart(4)}px`,
+      `band ${String(g.band ? Math.round(g.band.height) : 0).padStart(3)}px`,
+      `mid: ${String(g.coveredByBand).padEnd(20)}`,
+      `top edge: ${String(g.topEdgeCovered).padEnd(20)}`,
+      `chip clears control: ${g.chipClearsControl}`,
+    ].join('  '),
+  );
+}
+const rest = states['no band'].standoff;
+// Held means both halves of the ask: the control did not move, and the band is
+// the thing painting where the control now stands — its top edge included, since
+// that is the edge that would show as a hairline over the band's separator.
+const held = ['band', 'shortest band', 'band + thinking'].every(
+  (k) =>
+    states[k].standoff === rest &&
+    states[k].coveredByBand !== 'feed-show-earlier' &&
+    states[k].topEdgeCovered !== 'feed-show-earlier',
+);
+console.log(
+  held
+    ? `\nPASS — the control holds ${rest}px off the dock with a band up, and the band paints over it`
+    : `\nFAIL — the control moved: ${JSON.stringify(
+        Object.fromEntries(Object.entries(states).map(([k, g]) => [k, g.standoff])),
+      )}`,
+);
 
 await browser.close();
 server.close();

@@ -82,6 +82,18 @@ anchored above the dock's *current* top, not its collapsed top:
   a `z-index` that fights that. Above the feed, below the header's 5, whose dropdowns
   still fall over the dock.
 
+**The reserve is for the CARDS, not for whatever the feed pins into it.** The feed's
+`padding-bottom` grows with `--dock-overlay-height` + `--feed-bottom-inset` so the newest
+card can be scrolled clear of the overlays standing over it. That reserve is a scroll
+allowance and nothing more — it is not a claim that everything in the feed must ride the
+band's height. A toast arriving is not a layout event: it must not move anything the user
+is looking at. "Show earlier" sits at the top of that reserve, so it *did* ride it, and
+every toast lifted the control and every dismissal dropped it back; the fix is a
+paint-only `transform` that gives the band's share back (below), leaving the band to
+overlay the control. **Both shells**, off one rule — the desk grew the same reserve, and
+with it the same lift, the moment `--feed-bottom-inset` was taught to reach
+`[data-role='desktop-screen']`.
+
 **When you add any new bottom-anchored surface** (another dock affordance, a second
 hub, a banner): decide its place in this upward stack and anchor it to the *dynamic*
 height of the layers below it (via the same var / a measured offset), never to a fixed
@@ -764,7 +776,10 @@ retracted, so this is unrelated to swipe-dismiss above.
   a second time: a sliver of card stranded under the control at rest, and — far worse —
   the control floating a whole transcript's height off the dock mid-utterance. If the
   reserve needs changing, change the padding. (This is the one place the "anchor to the
-  dynamic height of the layers below you" principle is satisfied *indirectly*.)
+  dynamic height of the layers below you" principle is satisfied *indirectly*.) The band
+  half of that clearance is then handed back by a `transform` — see the toast-overlay
+  bullet below — which is not a contradiction: `bottom` moves the sticky box and takes
+  the reserve with it, a transform moves only the paint.
 - **The control needs an opaque fill AND an opaque skirt below it** (`background` +
   `box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page)`). Cards scroll under
   it now, and the reserve beneath it is still scrollable area they pass through — without
@@ -783,23 +798,62 @@ retracted, so this is unrelated to swipe-dismiss above.
   own side: its keyboard-lift `transform` makes it a stacking context, sealing the band's
   `z-index: 6` inside, so only a number on the REGION speaks for the layer. The control
   needs no lift of its own — a positioned box already paints above the in-flow cards.
-- **`[data-role='desktop-feed']` is a flex column in every state and has NO bottom pad.**
-  Both were previously gated on a `data-empty` attribute, which is gone — nothing read it
-  once the anchoring stopped being conditional. Its old `--space-10` bottom pad was
-  reading air for the last card; that moved to `[data-role='desktop-feed-list']`'s
-  `padding-bottom`, where it neither pushes the pinned control off the foot nor vanishes
-  on a feed with nothing earlier to show. A bottom pad on the region would only sit
-  *under* the control and show cards through it.
+- **A toast OVERLAYS the control; it does not push it up.** The reserve still grows with
+  the band (the cards need it), but the control gives that growth back in paint:
+  `:has([data-role='toast-stack'])` on **either shell root** sets `--show-earlier-drop`,
+  a term in the control's one `transform`, so it holds its place — 20px off the dock on
+  the phone, 12px off the composer region on the desk, both measured — and the band,
+  opaque and full-width, covers it. One rule for both roots, in `PrimaryScreen.css`: the
+  publisher, the band and the control are the same objects in both shells, and a second
+  copy in `DesktopScreen.css` is how the two would drift apart. Three things about that
+  rule, each of which was a bug on the way in:
+  - **The drop is `--feed-bottom-inset` MINUS `--activity-rest-gap`**, not the whole
+    inset. An empty activity row is not 0px tall — it is that 12px gap (the same
+    declaration that floats the thinking chip off the dock, which is why it is a var
+    read by both) — and that much is already under the control at rest. Give it back
+    too and the control settles 12px *lower* under a toast: the same bug, mirrored.
+  - **It is gated on a real toast stack.** The reserve's other occupant is the thinking
+    chip: narrow, centred, floating, no fill to hide anything behind it. Dropping
+    through that lands the chip on the control's label. Thinking alone must keep its
+    lift; thinking *with* toasts is safe, because the chip renders above the band's top.
+  - **One `transform`, composed from vars** (`--show-earlier-drop` + `--show-earlier-press`).
+    A `:active { transform: translateY(1px) }` of its own would overwrite the drop and
+    snap the control up out of the band at the moment of the tap.
+  The trade this accepts: while a toast is up the control is covered, and the band takes
+  its own pointer events, so it is briefly untappable. That is what "overlay, don't push"
+  asks for; toasts clear themselves in seconds. The margin is thin — the shortest band
+  the app can show (one board toast, no `say`) is 63px against a control whose top edge
+  lands 58px off the dock — so **re-measure with the repro script if this control's type
+  or padding grows**, or its rounded top edge will show over the band's separator.
+- **`[data-role='desktop-feed']` is a flex column in every state, with no STATIC bottom
+  pad and one dynamic term.** Both were previously gated on a `data-empty` attribute,
+  which is gone — nothing read it once the anchoring stopped being conditional. Its old
+  `--space-10` bottom pad was reading air for the last card; that moved to
+  `[data-role='desktop-feed-list']`'s `padding-bottom`, where it neither pushes the pinned
+  control off the foot nor vanishes on a feed with nothing earlier to show. A *fixed* pad
+  on the region would only sit under the control and show cards through it. What the
+  region does carry is `padding-bottom: var(--feed-bottom-inset, 0px)` — the band's live
+  height, so the desk can scroll its last card clear of the toasts the same way the phone
+  does. That reserve is for the cards; the control cancels it back out of its own painted
+  position (see the toast-overlay bullet above), so a desk toast covers it rather than
+  moving it.
 - **jsdom sees none of this.** The CSS half is pinned as `?raw` strings
   (`PrimaryScreen.show-earlier.test.ts`, `DesktopScreen.layout.test.ts`) and the DOM half
   — the control being the LAST child of `[data-role='backlog']` / the feed region, which
   is the containing block the anchoring hangs off — in the two view tests. The only thing
   that can see it actually resolve is `tests/desktop-shell-smoke.mjs`, which now measures
   the control at both viewports, with and without cards, and on a deliberately short
-  window so the feed really overflows. What paints over what is a browser question too:
+  window so the feed really overflows — plus a band pass that reads the desk's standoff
+  from the composer region with a toast up against the same number at rest, and hit-tests
+  what paints over the control (`SHOW EARLIER — OVERLAY OK`). What paints over what is a
+  browser question too:
   `tests/show-earlier-skirt-repro.mjs` (hand-run, same stance) puts a toast band and a
   typed draft under the control and screenshots the strip between them at 3×, which is
-  the only way the 2px and 1px artefacts here are visible at all.
+  the only way the 2px and 1px artefacts here are visible at all. That script also
+  measures the control's standoff from the dock across four band states (none / band /
+  shortest band / band + thinking) and prints PASS only if the number is identical in all
+  of them and the band is what hit-tests over the control, top edge included — the check
+  that "toasts overlay, never push", and the one that caught the 12px overshoot above.
 
 ## Potential gotchas
 

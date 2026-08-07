@@ -239,8 +239,8 @@ export function ActivityRow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const word = useMemo(() => pickKilnWord(), [thinking]);
 
-  // Keep the feed's last card — and the "Show earlier" control pinned to its
-  // foot — clear of this band. The activity row is an out-of-flow overlay
+  // Keep the feed's last card clear of this band. The activity row is an
+  // out-of-flow overlay
   // anchored above the dock (PrimaryScreen.css): when it holds a "Kiln is
   // thinking…" spinner or a toast stack it floats UP over the feed's bottom with
   // an opaque fill, occluding whatever ends the feed — and with nothing reserving
@@ -258,6 +258,14 @@ export function ActivityRow({
   // desk with no reserve at all — the band simply covered "Show earlier"
   // whenever a toast was up. `closest` is null outside either shell (isolated
   // tests), where the whole effect is a no-op.
+  //
+  // The reserve is for the CARDS, though, and the control now spends it
+  // differently: it cancels this inset back out of its own position (a
+  // paint-only `transform`, both stylesheets) so a toast OVERLAYS it rather than
+  // pushing it up the screen. That reader assumes exactly what is published here
+  // — THIS ROW's whole height, including the gap it rests at when empty.
+  // Narrowing it to, say, the toast stack alone would quietly move the control
+  // instead of holding it still.
   useEffect(() => {
     const el = rowRef.current;
     const root =

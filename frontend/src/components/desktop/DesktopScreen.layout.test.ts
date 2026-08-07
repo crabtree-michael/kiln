@@ -165,25 +165,31 @@ describe('DesktopScreen.css', () => {
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/\[data-empty/);
   });
 
-  it('reserves the activity band’s height, so a toast cannot cover "Show earlier"', () => {
-    // The regression this pins: the band is an opaque out-of-flow overlay
-    // anchored at the composer region's top edge (`bottom: 100%`,
-    // PrimaryScreen.css), so it floats up over exactly the strip of feed that
-    // the pinned control rests on. With no reserve here the control sat directly
-    // underneath it — hidden, not merely crowded — whenever a toast was up.
-    //
-    // The clearance is applied ONCE, by this padding: the control's sticky
-    // `bottom` stays 0 (asserted above) and rides the band indirectly, because a
-    // sticky box is clamped to its containing block's content box. The phone has
-    // named both overlay vars in its feed padding since they existed; this is
-    // the desk catching up on the one it has (there is no dock here, so no
+  it('reserves the activity band’s height, so the last card can be scrolled clear of it', () => {
+    // The band is an opaque out-of-flow overlay anchored at the composer
+    // region's top edge (`bottom: 100%`, PrimaryScreen.css), so it floats up
+    // over exactly this much of the feed. With no reserve here the desk could
+    // not be scrolled far enough to bring whatever ends the feed out from under
+    // it — the phone has named both overlay vars in its feed padding since they
+    // existed; this is the desk's one (there is no dock here, so no
     // `--dock-overlay-height`).
+    //
+    // It was written to hold the pinned "Show earlier" control clear of the band
+    // as well, which is the half that has since been reversed: a toast is meant
+    // to OVERLAY that control, not push it up the feed, so the control now
+    // cancels this reserve back out of its own painted position (the
+    // `--show-earlier-drop` rule in PrimaryScreen.css, which names both shell
+    // roots). The reserve stays, because the CARDS still need it — that is the
+    // whole reason it is applied here, on the region, and not on the control.
     const region = ruleBody("[data-role='desktop-feed'] {");
     expect(region).toMatch(/padding:[^;]*var\(--feed-bottom-inset,\s*0px\)/);
     // 0px at rest, so an idle desk lays out exactly as it did before.
     expect(region).not.toMatch(/var\(--feed-bottom-inset\)/);
-    // And the reserve must not be applied a second time on the control itself,
-    // which would float it a whole band's height off the composer mid-toast.
+    // And the reserve must not be named a second time on the control itself: as
+    // a `bottom`/`margin` it would move the sticky box and take the reserve with
+    // it. The one thing the control does with this var it does through
+    // `--show-earlier-drop`, in PrimaryScreen.css, where the phone's copy of the
+    // same rule lives and is pinned (PrimaryScreen.show-earlier.test.ts).
     const control = ruleBody("[data-role='desktop-screen'] [data-role='feed-show-earlier'] {");
     expect(control.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/--feed-bottom-inset/);
   });

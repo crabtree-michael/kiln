@@ -165,6 +165,19 @@
   .kiln-landing-2 .kiln-nav__login {
     padding-inline: 14px;
   }
+  /* On a phone the pair reads Log in, then Sign up — the primary CTA sits
+     outermost, under the thumb that reaches the top-right corner. Done with
+     `order` rather than by swapping the markup because this is a phone-width
+     arrangement only: the wider bar keeps its own order, and one source of
+     markup serves both. The two are adjacent links with identical targets, so
+     the reading order the swap leaves behind says the same thing either way.
+     tests/landing-auth-buttons-smoke.mjs measures the order per viewport. */
+  .kiln-landing-2 .kiln-nav__login {
+    order: 1;
+  }
+  .kiln-landing-2 .kiln-nav__signup {
+    order: 2;
+  }
 }
 
 /* ── hero ──────────────────────────────────────────────────────── */

@@ -95,6 +95,14 @@ for (const [name, viewport] of [
     // The ticket's placement: the pair lives at the top RIGHT, brand at the left.
     check('the pair sits right of centre', left > viewport.width / 2, `left ${left.toFixed(1)}`);
 
+    // Left-to-right order, which differs by viewport: a phone puts Log in
+    // first and Sign up outermost (a CSS `order` swap under 720px), the desk
+    // keeps the markup order. Compare x, not the DOM — `order` moves the box
+    // and leaves the tree alone, so only a real layout can tell.
+    const expected = name === 'phone' ? 'Log in then Sign up' : 'Sign up then Log in';
+    const actual = inBox.x < upBox.x ? 'Log in then Sign up' : 'Sign up then Log in';
+    check(`reads ${expected}`, actual === expected, `got ${actual}`);
+
     // Tap targets stay usable on a phone.
     if (name === 'phone') {
       check(

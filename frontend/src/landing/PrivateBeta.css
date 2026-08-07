@@ -1,7 +1,9 @@
-/* Standalone confirmation page (`/beta/thanks`). No app chrome — a single
+/* Standalone private-beta page (`/beta/pending`). No app chrome — a single
    centred reassurance panel. Every value reads a Kiln design token
    (src/styles/tokens.css), so light/dark follows the OS theme for free. Scoped
-   under `.kiln-thanks` so it never touches the app or marketing shells. */
+   under `.kiln-thanks` so it never touches the app or marketing shells — the
+   class keeps its old name because the panel is unchanged; only what it says
+   moved on from the retired email flow. */
 
 .kiln-thanks {
   display: flex;

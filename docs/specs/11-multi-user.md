@@ -55,13 +55,29 @@ dashboard is onboarding + settings only), and any auth provider dependency (§10
   flow** (amended 2026-08-03): signing in and connecting GitHub are the same act, and this
   is its only entry point. `?setup=1` on the same route is the one variation: it redirects
   to the install page instead, for a connected user who wants GitHub's chooser back (below).
+  `?next=dashboard` (amended 2026-08-07) is not a variation of the flow but of its ENDING,
+  for the affordances that live on the dashboard; `setup=1` implies it. It rides home inside
+  the `state` nonce, which is the only thing that survives the trip to GitHub, and it is a
+  name from a closed set rather than a URL — this route must never become an open redirect.
+  The response is `Cache-Control: no-store`: one nonce, one URL carrying it, once.
 - `GET /auth/github/callback` — verifies `state`, exchanges the code
   (`KILN_GITHUB_APP_CLIENT_ID`/`_CLIENT_SECRET`), fetches `GET /user`, then:
   - username on the allowlist → find-or-create the `users` row, resolve the installation,
     store its `installation_id` and the user access token in `user_config`, create a
-    session, redirect to `/dashboard`;
-  - not on the allowlist → a friendly "Kiln is invite-only" page; **no user row is
-    created**.
+    session, redirect **into the app** (`/app`) — amended 2026-08-07. It redirected to
+    `/dashboard` unconditionally until then, which put every completed sign-in one step
+    short of the board; an installed web app hid it (it relaunches at `start_url` and
+    `DefaultRoute` takes it to `/app`), so it presented as a laptop-only bug. `/dashboard`
+    remains the landing for a user with **no project**, whose next step really is onboarding,
+    for one who asked (`next=dashboard`), and for a project listing that failed;
+  - not on the allowlist → the login is recorded on the **private-beta list**
+    (`beta_signups`, keyed on `github_login`) and the browser is redirected to
+    `/beta/pending`, the SPA's "we'll be in touch" screen; **no user row is created**.
+    Recording is best-effort — a failed write is logged and the screen still renders,
+    since a rejected visitor did nothing wrong — and idempotent on the login, so a
+    retried sign-in re-attempts the record without duplicating it. This replaced a
+    static "Kiln is invite-only — ask for your GitHub username to be added" page, which
+    told people to go and find someone rather than leaving us a record they had tried.
   - allowlisted with **no installation anywhere** → the session is created and the browser
     is sent on to the App's install page (`github.com/apps/<slug>/installations/new`), where
     GitHub renders the **"All repositories / Only select repositories" chooser**. That is

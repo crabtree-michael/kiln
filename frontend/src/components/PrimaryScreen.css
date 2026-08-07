@@ -1489,7 +1489,9 @@ button[data-role='feed-card-head']:focus-visible {
    The offset is `0`, and it has to be — even though this is now one of the
    bottom-anchored layers that the top of this file says must ride the LIVE
    height of the transcript and the toast band. It does ride them, just not from
-   here. A sticky box is clamped to its containing block, and this one's
+   here (and the band's share is then given back in paint — see the `:has` rule
+   below, which is what keeps a toast from pushing this control up). A sticky
+   box is clamped to its containing block, and this one's
    (`[data-role='backlog']`) bottom edge is the feed's CONTENT box, which the
    region's `padding-bottom` above already holds clear of both overlays. The
    clearance is therefore applied once, by that padding, and the control comes to
@@ -1538,12 +1540,24 @@ button[data-role='feed-card-head']:focus-visible {
    here. Without one, the control is a positioned box with `z-index: auto`: it
    still paints above every card in the feed (positioned boxes paint after
    in-flow content), and the dock region — a later sibling, and lifted over the
-   feed by its own rule below — paints over the skirt where the two meet. */
+   feed by its own rule below — paints over the skirt where the two meet. That
+   last part is now what the toast overlay rests on, so it is doubly not to be
+   undone: the drop below moves the control INTO the band, and only the region's
+   `z-index: 1` puts the band in front of it. The drop's `transform` makes the
+   control a stacking context but does not move it between layers — a stacking
+   context with `z-index: auto` still paints in the z-0 positioned slot, below
+   the region's 1. */
 [data-role='feed-show-earlier'] {
   position: sticky;
   bottom: 0;
   box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page);
   margin: auto 0 0;
+  /* The one place this control moves, and both terms are paint-only: the drop
+     that holds it still under a toast band (see the `:has` rule below) and the
+     1px press. Composed here, in ONE `transform`, rather than as two rules that
+     would overwrite each other — a `:active` of its own would cancel the drop
+     and snap the control back up out of the band at the moment of the tap. */
+  transform: translateY(calc(var(--show-earlier-drop, 0px) + var(--show-earlier-press, 0px)));
   width: 100%;
   font-family: inherit;
   font-size: 11px;
@@ -1559,7 +1573,65 @@ button[data-role='feed-card-head']:focus-visible {
 }
 
 [data-role='feed-show-earlier']:active {
-  transform: translateY(1px);
+  --show-earlier-press: 1px;
+}
+
+/* Toasts overlay the control; they do not push it up.
+
+   The reserve the control rests on (`[data-role='feed']`'s `padding-bottom`)
+   grows by the band's live height so the newest card can still be scrolled clear
+   of it — and because the control is pinned to the top of that reserve, every
+   toast that arrived also LIFTED it, and every dismissal dropped it back. The
+   control is the fixed thing at the foot of the feed; it should not ride the
+   band's height like a lift, and the band is an opaque full-width surface in the
+   dock layer (`[data-role='dock-region']`'s `z-index: 1`) that can simply cover
+   it, exactly as it covers the last card.
+
+   So the band's share of the reserve is given back HERE, in paint: layout keeps
+   the scroll clearance, and the control is translated back down into the strip
+   the band occupies, landing exactly where it sits with no band at all. A
+   transform is the right instrument for the same reason the dock's keyboard lift
+   uses one — it moves nothing else, so no card reflows and no scroll offset
+   shifts as toasts come and go. Note this leaves the control covered (and, since
+   the band takes its own pointer events, untappable) while a toast is up: that
+   is the trade the overlay asks for, and toasts clear themselves in seconds.
+
+   Gated on the band actually being there, and — when it is — giving back the
+   chip's share of the reserve along with the band's, because the reserve's other
+   occupant, the "Kiln is thinking…" chip, is the opposite kind of object: narrow,
+   centred, floating, with no fill to hide anything behind. Thinking alone must still lift
+   the control clear of it (no band, no drop, the var stays 0). Thinking WITH
+   toasts is safe to drop through, because the chip renders above the band's top
+   edge (`activity-row` is a column with the stack last), which is already above
+   the control's own once the band is taller than the control stands. Measured in
+   Chromium at 390px: the shortest band the app can show — one board toast, no
+   `say` — is 63px, and the dropped control's top edge lands 58px off the dock,
+   so it is covered with 5px to spare. That margin is the one thing to re-measure
+   (with the repro script below) if this control's type or padding grows: past it
+   the control's rounded top edge would show as a hairline over the band's own
+   separator.
+
+   The drop is the band's growth PAST its resting height, not its whole height:
+   an empty activity row is not 0px tall, it is `--activity-rest-gap` (the gap
+   that floats the thinking chip off the dock), and that gap is already in the
+   reserve the control rests on with no toast in sight. Giving it back too would
+   settle the control 12px LOWER under a toast than it sits without one — which
+   is the same bug as the lift, just in the other direction, and the browser
+   measurement in `tests/show-earlier-skirt-repro.mjs` is what caught it (jsdom
+   does no layout, so nothing in the gate can see a 12px drift).
+
+   BOTH shell roots, in one rule, because by now it is one mechanism: the desk
+   grew the same reserve when `--feed-bottom-inset` was taught to reach
+   `[data-role='desktop-screen']` (ActivityRow + DesktopScreen.css), and with it
+   the same lift — a toast there pushed the control up the feed just as it did
+   here. The declaration is identical because the inputs are: the same publisher,
+   the same band, the same control. What differs between the shells is only which
+   region's padding holds the reserve, and neither of those is named here. Stated
+   in this sheet rather than split across two because a second copy in
+   `DesktopScreen.css` is how the two would drift apart. */
+[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'],
+[data-role='desktop-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'] {
+  --show-earlier-drop: calc(var(--feed-bottom-inset, 0px) - var(--activity-rest-gap));
 }
 
 [data-role='feed-show-earlier']:disabled {
@@ -1767,9 +1839,23 @@ button[data-role='feed-card-head']:focus-visible {
 /* Thinking-only (no toast band): lift the floating pill off the dock's top edge
    with a gap so it reads as hovering above the page rather than resting on the
    dock. When a toast band is present the band itself sits flush on the dock, so
-   this gap is suppressed. */
+   this gap is suppressed.
+
+   It is a var because this padding has a second reader. With no toasts the row
+   is empty and this gap IS its whole height — so it is also the band's share of
+   the feed's bottom reserve at rest, and therefore part of where the pinned
+   "Show earlier" control comes to rest. The drop that holds that control still
+   under a band has to give back everything the row grew PAST this number, not
+   the number itself, or the control settles 12px lower under a toast than it
+   sits without one. One declaration, both readers — and both shell roots, since
+   this row and that control are mounted by the desk too. */
+[data-role='primary-screen'],
+[data-role='desktop-screen'] {
+  --activity-rest-gap: 12px;
+}
+
 [data-role='activity-row']:not(:has([data-role='toast-stack'])) {
-  padding-bottom: 12px;
+  padding-bottom: var(--activity-rest-gap);
 }
 
 /* When the toast band rests directly on the dock — no transcript between them —

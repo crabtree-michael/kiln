@@ -1,6 +1,9 @@
 package identity
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrNotFound is returned by stores when the row does not exist.
@@ -27,3 +30,23 @@ var (
 	// install screen for the half still missing.
 	ErrInstallationRequired = errors.New("identity: github app was not installed")
 )
+
+// NotAllowedError is the allowlist rejection, carrying the GitHub login that was
+// turned away. The login is the only thing Kiln learns about someone it refuses
+// — no user row is created, and GitHub's profile gives no email — so it is what
+// the api's callback records on the private-beta list before showing them the
+// "we'll be in touch" screen.
+//
+// It wraps ErrNotAllowed rather than replacing it, so every existing
+// `errors.Is(err, ErrNotAllowed)` check still holds; reach for `errors.As` only
+// when you need the login itself.
+type NotAllowedError struct {
+	// Login is the lower-cased GitHub login, as the allowlist compares it.
+	Login string
+}
+
+func (e *NotAllowedError) Error() string {
+	return fmt.Sprintf("identity: github user %q not on the allowlist", e.Login)
+}
+
+func (e *NotAllowedError) Unwrap() error { return ErrNotAllowed }

@@ -22,7 +22,7 @@ import { KanbanScreen } from '@/components/KanbanScreen';
 import { DefaultRoute } from '@/components/DefaultRoute';
 import { NotFound } from '@/components/NotFound';
 import { Landing2 } from '@/landing/Landing2';
-import { BetaThanks } from '@/landing/BetaThanks';
+import { PrivateBeta } from '@/landing/PrivateBeta';
 import { Guide } from '@/guide/Guide';
 import { Dashboard } from '@/dashboard/Dashboard';
 import { Signup } from '@/signup/Signup';
@@ -95,9 +95,10 @@ if (root === null) {
 // keeps its own existing gate, and `/signup` (the sign-up rehearsal) sits beside
 // it. `/onboarding` is the onboarding guide
 // (docs/onboarding.md) as a standalone, stateless styled page in the same
-// design-system chrome. `/beta/thanks` is the confirmation page the beta-signup
-// form redirects to. The landing, onboarding, and thanks pages stay public (no
-// session gate).
+// design-system chrome. `/beta/pending` is the private-beta screen the GitHub
+// callback redirects to when the allowlist turns a login away. The landing,
+// onboarding, and private-beta pages stay public (no session gate) — the last of
+// those especially, since everyone who reaches it was just refused a session.
 createRoot(root).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
@@ -139,7 +140,7 @@ createRoot(root).render(
             }
           />
           <Route path="/onboarding" element={<Guide />} />
-          <Route path="/beta/thanks" element={<BetaThanks />} />
+          <Route path="/beta/pending" element={<PrivateBeta />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
           {/* `/signup` replays the sign-up experience on demand: the same
               `SignIn`/`Onboarding` components the dashboard mounts, over a

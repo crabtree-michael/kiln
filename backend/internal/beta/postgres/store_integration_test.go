@@ -6,14 +6,15 @@
 //	TEST_DATABASE_URL=postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable \
 //	    go test -tags=integration ./internal/beta/postgres/...
 //
-// kiln_test is shared with other modules, so setup only ever creates beta's own
-// table if missing and only ever truncates beta_signups — never DROPs, never
-// touches tables it doesn't own.
+// kiln_test is shared with other modules, so setup only ever applies beta's own
+// migrations and only ever truncates beta_signups — never DROPs, never touches
+// tables it doesn't own.
 package postgres_test
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 	"sort"
 	"testing"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 
 	"github.com/crabtree-michael/kiln/backend/internal/beta/postgres"
 )
@@ -52,21 +53,28 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// ensureMigrationsApplied applies ./migrations, in filename order, only if
-// beta's own table doesn't already exist — kiln_test is shared, and other
+// alreadyAppliedCodes are the SQLSTATEs a migration raises when its objects are
+// already there — i.e. it ran against this database on an earlier test run.
+// Postgres wraps a multi-statement simple query in one implicit transaction, so
+// a migration file either applies whole or not at all; re-running an applied one
+// therefore fails cleanly on its first statement and changes nothing.
+var alreadyAppliedCodes = map[pq.ErrorCode]bool{
+	"42P07": true, // duplicate_table
+	"42701": true, // duplicate_column
+	"42710": true, // duplicate_object (a constraint)
+}
+
+// ensureMigrationsApplied applies ./migrations in filename order, skipping the
+// ones this database already has — kiln_test is shared and long-lived, and other
 // modules' tables must never be touched here.
+//
+// It cannot short-circuit on "the beta_signups table exists", which is what it
+// used to do: a database created before 0002 has the table but not the
+// github_login column, so the probe passed and the re-key never ran, failing
+// every test below against a stale schema. Per-migration tolerance is what keeps
+// an existing test database current as migrations are added.
 func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
 	t.Helper()
-	var exists bool
-	err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'beta_signups'
-	)`).Scan(&exists)
-	if err != nil {
-		t.Fatalf("check for beta_signups table: %v", err)
-	}
-	if exists {
-		return
-	}
 
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -96,6 +104,10 @@ func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
 			t.Fatalf("read migration %s: %v", name, err)
 		}
 		if _, err := db.ExecContext(ctx, string(b)); err != nil {
+			var pqErr *pq.Error
+			if errors.As(err, &pqErr) && alreadyAppliedCodes[pqErr.Code] {
+				continue
+			}
 			t.Fatalf("apply migration %s: %v", name, err)
 		}
 	}
@@ -120,35 +132,69 @@ func count(ctx context.Context, t *testing.T, db *sql.DB) int {
 	return n
 }
 
-func TestSaveRecordsEmail(t *testing.T) {
+func TestSaveRecordsGitHubLogin(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	if err := store.Save(ctx, "a@example.com"); err != nil {
-		t.Fatalf("Save a: %v", err)
+	if err := store.Save(ctx, "octocat"); err != nil {
+		t.Fatalf("Save octocat: %v", err)
 	}
-	if err := store.Save(ctx, "b@example.com"); err != nil {
-		t.Fatalf("Save b: %v", err)
+	if err := store.Save(ctx, "hubot"); err != nil {
+		t.Fatalf("Save hubot: %v", err)
 	}
 	if got := count(ctx, t, db); got != 2 {
 		t.Fatalf("row count = %d, want 2", got)
 	}
+
+	var login string
+	if err := db.QueryRowContext(ctx,
+		`SELECT github_login FROM beta_signups ORDER BY id LIMIT 1`).Scan(&login); err != nil {
+		t.Fatalf("read back github_login: %v", err)
+	}
+	if login != "octocat" {
+		t.Fatalf("github_login = %q, want octocat", login)
+	}
 }
 
-func TestSaveIsIdempotentOnEmail(t *testing.T) {
+func TestSaveIsIdempotentOnGitHubLogin(t *testing.T) {
 	db := testDB(t)
 	store := postgres.New(db)
 	ctx := context.Background()
 
-	// Same address twice must not duplicate the row or error (ON CONFLICT DO NOTHING).
-	if err := store.Save(ctx, "dup@example.com"); err != nil {
+	// The same login twice must not duplicate the row or error (ON CONFLICT DO
+	// NOTHING) — a rejected user retrying sign-in walks this path every time.
+	if err := store.Save(ctx, "dupuser"); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
-	if err := store.Save(ctx, "dup@example.com"); err != nil {
+	if err := store.Save(ctx, "dupuser"); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
 	if got := count(ctx, t, db); got != 1 {
 		t.Fatalf("idempotent Save produced %d rows, want 1", got)
+	}
+}
+
+// The 0002 migration keeps the retired form's emails rather than dropping them,
+// so an email-only row must still be insertable (nullable login, CHECK satisfied
+// by the address) and must not collide with other email-only rows on the UNIQUE
+// login constraint — Postgres allows repeated NULLs there, and this pins it.
+func TestHistoricalEmailRowsSurviveTheRekey(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	for _, email := range []string{"old-a@example.com", "old-b@example.com"} {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO beta_signups (email) VALUES ($1)`, email); err != nil {
+			t.Fatalf("insert legacy row %s: %v", email, err)
+		}
+	}
+	if got := count(ctx, t, db); got != 2 {
+		t.Fatalf("row count = %d, want 2", got)
+	}
+
+	// And a row with neither identifier is rejected by the CHECK.
+	if _, err := db.ExecContext(ctx, `INSERT INTO beta_signups (id) VALUES (DEFAULT)`); err == nil {
+		t.Fatal("insert with neither email nor github_login succeeded, want CHECK violation")
 	}
 }

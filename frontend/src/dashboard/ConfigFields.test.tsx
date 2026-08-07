@@ -407,10 +407,12 @@ describe('ProjectFields — repo picker', () => {
 
     expect(screen.queryByRole('combobox', { name: 'Repository' })).not.toBeInTheDocument();
     // A backend route, so it must be a real link (full-page navigation), and it
-    // is the shared GITHUB_CONNECT_PATH — the one grant, which always asks for
-    // `repo`, so a round trip through it actually reconnects the picker.
+    // is the shared one grant, which always asks for `repo`, so a round trip
+    // through it actually reconnects the picker. The `next=dashboard` form:
+    // granting is a step in editing this project, and the round trip has to end
+    // back on the form rather than dropping the user into the app.
     const connect = screen.getByRole('link', { name: 'Connect GitHub account' });
-    expect(connect).toHaveAttribute('href', '/auth/github/connect');
+    expect(connect).toHaveAttribute('href', '/auth/github/connect?next=dashboard');
     // Nothing to save: the repo is required and can't be supplied yet.
     expect(screen.getByRole('button', { name: 'Save project' })).toBeDisabled();
   });

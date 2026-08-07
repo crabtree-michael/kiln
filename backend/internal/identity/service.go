@@ -916,7 +916,10 @@ func (s *Service) completeOAuth(ctx context.Context, code, op string) (User, str
 	}
 	login := strings.ToLower(ghUser.Login)
 	if !s.allowed[login] {
-		return User{}, "", ErrNotAllowed
+		// Carry the login out with the rejection: no user row is created for
+		// someone turned away here, so this is the caller's only chance to
+		// record that they asked for a place in the beta.
+		return User{}, "", &NotAllowedError{Login: login}
 	}
 	user, err := s.upsertFromGitHub(ctx, ghUser)
 	if err != nil {

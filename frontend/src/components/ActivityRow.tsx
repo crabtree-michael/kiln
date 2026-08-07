@@ -240,20 +240,37 @@ export function ActivityRow({
   const word = useMemo(() => pickKilnWord(), [thinking]);
 
   // Keep the feed's last card clear of this band. The activity row is an
-  // out-of-flow overlay anchored above the dock (PrimaryScreen.css): when it
-  // holds a "Kiln is thinking…" spinner or a toast stack it floats UP over the
-  // feed's bottom with an opaque fill, occluding the newest card(s) — and with
-  // nothing reserving that space the feed can't be scrolled far enough to reveal
-  // them. Mirror the live transcript's `--dock-overlay-height` trick: publish the
-  // band's current height as `--feed-bottom-inset` on the screen root so the feed
-  // adds exactly that much bottom scroll inset (0px when the band is empty, so the
-  // idle layout is untouched), tracked live via ResizeObserver as toasts stack /
-  // dismiss and the spinner comes and goes. Written on the screen root (not this
-  // row) so it reaches the feed, a distant sibling; a no-op when the row renders
-  // outside a primary screen (isolated tests) since `closest` is null.
+  // out-of-flow overlay
+  // anchored above the dock (PrimaryScreen.css): when it holds a "Kiln is
+  // thinking…" spinner or a toast stack it floats UP over the feed's bottom with
+  // an opaque fill, occluding whatever ends the feed — and with nothing reserving
+  // that space the feed can't be scrolled far enough to reveal it. Mirror the
+  // live transcript's `--dock-overlay-height` trick: publish the band's current
+  // height as `--feed-bottom-inset` on the screen root so the feed adds exactly
+  // that much bottom inset (0px when the band is empty, so the idle layout is
+  // untouched), tracked live via ResizeObserver as toasts stack / dismiss and the
+  // spinner comes and goes. Written on the screen root (not this row) so it
+  // reaches the feed, a distant sibling.
+  //
+  // BOTH shell roots are named, and the desktop one is not an afterthought: this
+  // row is mounted by `DesktopScreenView` too, over a feed whose foot carries the
+  // same pinned control, and a selector that knew only about the phone left the
+  // desk with no reserve at all — the band simply covered "Show earlier"
+  // whenever a toast was up. `closest` is null outside either shell (isolated
+  // tests), where the whole effect is a no-op.
+  //
+  // The reserve is for the CARDS, though, and the control now spends it
+  // differently: it cancels this inset back out of its own position (a
+  // paint-only `transform`, both stylesheets) so a toast OVERLAYS it rather than
+  // pushing it up the screen. That reader assumes exactly what is published here
+  // — THIS ROW's whole height, including the gap it rests at when empty.
+  // Narrowing it to, say, the toast stack alone would quietly move the control
+  // instead of holding it still.
   useEffect(() => {
     const el = rowRef.current;
-    const root = el?.closest<HTMLElement>('[data-role="primary-screen"]') ?? null;
+    const root =
+      el?.closest<HTMLElement>('[data-role="primary-screen"], [data-role="desktop-screen"]') ??
+      null;
     if (root === null) {
       return;
     }

@@ -338,16 +338,38 @@ html:has([data-role='desktop-screen']) body {
      anchoring pins the visual position of what is on screen, so the new card
      lands above the viewport and the read line does not move. */
   overflow-anchor: auto;
-  /* No bottom pad at all, which is a change of job rather than a tightening.
-     It used to be reading air (`--space-10`) standing the last card clear of the
-     composer, and the empty state had to override it because with no cards it
-     only held the control away from the input. That air moved to the list
-     (below). What is left here would do just one thing: sit BENEATH the pinned
-     control, where — a scroll container's content running the full height of its
-     scrollport — it would show a strip of the next card under a control that is
-     supposed to end the feed. The composer region's own top padding is what
-     gives the control air below it. */
-  padding: var(--space-8) var(--space-8) 0;
+  /* No STATIC bottom pad, and one dynamic term. The static half used to be
+     reading air (`--space-10`) standing the last card clear of the composer, and
+     the empty state had to override it because with no cards it only held the
+     control away from the input. That air moved to the list (below); a fixed pad
+     left here would do just one thing — sit BENEATH the pinned control, where (a
+     scroll container's content running the full height of its scrollport) it
+     would show a strip of the next card under the thing that is supposed to end
+     the feed.
+
+     `--feed-bottom-inset` is the other kind of pad entirely: it is the LIVE
+     height of the activity band, which is an opaque out-of-flow overlay anchored
+     at this region's bottom edge (`bottom: 100%` on the composer region below,
+     PrimaryScreen.css) and therefore floats up over exactly this much of the
+     feed. It is 0px at rest — ActivityRow publishes it on the shell root only
+     while there is a band to publish — so the idle layout is untouched, and it
+     grows and shrinks with the toasts.
+
+     This is the desktop half of the layering principle the phone states in
+     PrimaryScreen.css: the pinned control rides the live height of the layers
+     below it, and it does so INDIRECTLY, through this padding. A sticky box is
+     clamped to its containing block, whose bottom edge is this region's CONTENT
+     box — so reserving the band here lands "Show earlier" exactly on top of the
+     band instead of underneath it. The desk had no reserve at all until this
+     line, which is why a toast simply hid the control (the phone was never
+     affected: its feed has named both overlay vars since they existed). Do NOT
+     also name the var on the control's own `bottom` — that applies the clearance
+     twice, floating it a band's height off the composer with the feed showing
+     through the gap.
+
+     The composer region's own top padding (the mic's glow room) is what gives
+     the control air below it at rest. */
+  padding: var(--space-8) var(--space-8) var(--feed-bottom-inset, 0px);
 }
 
 /* The feed region is the keyboard's entry point into the column (13 §9), so it

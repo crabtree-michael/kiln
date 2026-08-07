@@ -214,6 +214,17 @@ const emptyFeed = {
 // route so the swap needs nothing but a reload.
 let feedBody = feed;
 
+// What the SSE stub replays. Empty for every pass but one: an empty body closes
+// the connection at once, which settles the shell into `reconnecting` and gets
+// the disconnected indication (13 §10) into the screenshots for free. The
+// "Show earlier" toast pass below swaps in a `say` and a board `toast` so the
+// activity band is actually up — the one state that used to cover the control.
+let streamBody = '';
+const bandStream = [
+  `event: say\ndata: ${JSON.stringify({ message_id: 1, text: 'Rate-limiting the webhook retry now — backing off on 5xx, capped at five attempts.', at: '2026-08-04T11:55:00Z' })}\n\n`,
+  `event: activity\ndata: ${JSON.stringify({ kind: 'toast', verb: 'started', ticket_title: 'auth refresh', ticket_id: 't1' })}\n\n`,
+].join('');
+
 const browser = await chromium.launch();
 // Opens in dark because the OS says dark — not because the shell forces it
 // (13 D6a). The light pass below flips exactly this and nothing else.
@@ -256,11 +267,11 @@ await page.route('**/api/**', async (route) => {
   if (url.pathname.endsWith('/board')) return json(board ? board[1] : boards.p1);
   if (url.pathname.endsWith('/feed')) return json(feedBody);
   if (url.pathname.endsWith('/activity')) return json({ thinking: false });
-  // An empty body closes the SSE connection at once, so the shell settles into
-  // its `reconnecting` state — which is convenient: the disconnected indication
-  // (13 §10) shows up in the screenshot for free.
+  // Empty by default, which closes the SSE connection at once, so the shell
+  // settles into its `reconnecting` state — convenient: the disconnected
+  // indication (13 §10) shows up in the screenshot for free.
   if (url.pathname.includes('/stream')) {
-    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: streamBody });
   }
   return json({});
 });
@@ -458,8 +469,111 @@ await page.setViewportSize({ width: 1440, height: 520 });
 await page.waitForTimeout(200);
 await page.screenshot({ path: '/tmp/desktop-shell-show-earlier-scrolling.png' });
 console.log('SHOW EARLIER — CARDS, SCROLLING FEED', await readShowEarlier());
+{
+  const box = await page.evaluate(async () => {
+    document.querySelector('[data-role="desktop-feed"]').scrollTop = 0;
+    await new Promise((r) => requestAnimationFrame(r));
+    const b = document.querySelector('[data-role="feed-show-earlier"]').getBoundingClientRect();
+    return { x: b.left, y: b.top - 10, width: b.width, height: b.height + 60 };
+  });
+  await page.screenshot({ path: '/tmp/probe-foot.png', clip: box });
+  console.log(
+    'PROBE',
+    JSON.stringify(
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-role="feed-show-earlier"]');
+        const s = getComputedStyle(el);
+        return {
+          boxShadow: s.boxShadow,
+          height: el.getBoundingClientRect().height,
+          zIndex: s.zIndex,
+          position: s.position,
+        };
+      }),
+    ),
+  );
+}
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.waitForTimeout(200);
+
+// ── "Show earlier" with the activity band up ───────────────────────────────
+// The band is an opaque out-of-flow overlay anchored at the composer region's
+// TOP edge (`bottom: 100%`, PrimaryScreen.css), which is the same edge the
+// pinned control rests on — so it floats up over exactly the strip the control
+// occupies, and the two have to be read against each other.
+//
+// Two things are asserted here, and the second one reverses what this pass first
+// checked. The desk reserves the band's live height as feed padding
+// (`--feed-bottom-inset`, published by ActivityRow on the shell root) so the
+// CARDS can still be scrolled clear of it — a zero in that var means the
+// publisher never found this shell's root, which is the shape of the original
+// bug. But the pinned control must NOT ride that reserve: a toast overlays it
+// and leaves it exactly where it sits, rather than pushing it up the feed. So
+// `standoff` — the control's distance from the composer region's top edge — has
+// to read the same with a band up as without one, and the band has to be what
+// paints over the control, its top edge included.
+const readFoot = () =>
+  page.evaluate(() => {
+    const rect = (selector) => {
+      const el = document.querySelector(selector);
+      return el ? el.getBoundingClientRect() : null;
+    };
+    const roleAt = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el) return null;
+      const named = el.closest('[data-role]');
+      return named ? named.getAttribute('data-role') : el.tagName;
+    };
+    const region = document.querySelector('[data-role="desktop-feed"]');
+    const button = rect('[data-role="feed-show-earlier"]');
+    const band = rect('[data-role="activity-row"]');
+    const stack = rect('[data-role="toast-stack"]');
+    const composer = rect('[data-role="desktop-composer-region"]');
+    const regionBox = region.getBoundingClientRect();
+    const cx = button.left + button.width / 2;
+    return {
+      bandHeight: stack ? Math.round(stack.height) : 0,
+      // The reserve, read off the root the publisher actually wrote to.
+      inset: getComputedStyle(
+        document.querySelector('[data-role="desktop-screen"]'),
+      ).getPropertyValue('--feed-bottom-inset'),
+      regionPadBottom: getComputedStyle(region).paddingBottom,
+      // The whole complaint, in one number: how far the control stands off the
+      // edge the band is anchored to. It must not change when a toast arrives.
+      standoff: Math.round(composer.top - button.bottom),
+      bandGap: band ? Math.round(band.top - button.bottom) : null,
+      // What actually paints where the control stands — mid-box and top edge.
+      over: roleAt(cx, button.top + button.height / 2),
+      overTopEdge: roleAt(cx, button.top + 1),
+      // ...and it is still inside the region, i.e. it never left the feed.
+      onScreen: button.top >= regionBox.top - 1 && button.bottom <= regionBox.bottom + 1,
+    };
+  });
+
+await page.reload();
+await page.waitForSelector('[data-role="feed-show-earlier"]', { timeout: 10_000 });
+await page.waitForTimeout(400);
+const footAtRest = await readFoot();
+console.log('SHOW EARLIER — NO BAND', JSON.stringify(footAtRest, null, 2));
+
+streamBody = bandStream;
+await page.reload();
+await page.waitForSelector('[data-role="toast-stack"]', { timeout: 10_000 });
+await page.waitForTimeout(600);
+await page.screenshot({ path: '/tmp/desktop-shell-show-earlier-toast.png' });
+const footWithBand = await readFoot();
+console.log('SHOW EARLIER — TOAST BAND UP', JSON.stringify(footWithBand, null, 2));
+console.log(
+  footWithBand.standoff === footAtRest.standoff &&
+    footWithBand.over !== 'feed-show-earlier' &&
+    footWithBand.overTopEdge !== 'feed-show-earlier'
+    ? `SHOW EARLIER — OVERLAY OK: holds ${footAtRest.standoff}px off the composer with a ${footWithBand.bandHeight}px band over it`
+    : `SHOW EARLIER — OVERLAY FAILED: rest ${footAtRest.standoff}px vs band ${footWithBand.standoff}px, painting ${footWithBand.over}`,
+);
+streamBody = '';
+await page.reload();
+await page.waitForSelector('[data-role="desktop-screen"]', { timeout: 10_000 });
+await page.waitForTimeout(400);
 
 // ── The narrow desk (1024px, the shell threshold) ──────────────────────────
 // The tightest window that still gets this layout, and the one the in-progress

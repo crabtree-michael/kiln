@@ -248,6 +248,23 @@ describe('DesktopScreenView', () => {
     ).toBeNull();
   });
 
+  it('publishes the activity band’s height on the shell root, so a toast cannot cover it', () => {
+    // The band is an opaque overlay floating up over exactly the strip of feed
+    // the pinned control rests on, and the feed reserves its height as bottom
+    // padding (`--feed-bottom-inset`, DesktopScreen.css). The var is published
+    // by ActivityRow onto the nearest SHELL ROOT — and its selector used to name
+    // only `[data-role='primary-screen']`, so the desk got no reserve at all and
+    // a toast simply hid "Show earlier".
+    //
+    // jsdom lays nothing out, so the height is always 0px here; what this case
+    // can see — and the only thing it needs to — is that the var lands on the
+    // desktop root at all. The geometry is measured in
+    // tests/desktop-shell-smoke.mjs.
+    const { container } = renderShell({ hasEarlier: true, onShowEarlier: vi.fn() });
+    const root = container.querySelector<HTMLElement>('[data-role="desktop-screen"]');
+    expect(root?.style.getPropertyValue('--feed-bottom-inset')).toBe('0px');
+  });
+
   it('resting: the last word is subtext under the count, not bulleted onto it', () => {
     // Joined onto one line the two wrapped on a narrow window; the count is the
     // fact the resting state is about, so the last word sits under it, smaller.

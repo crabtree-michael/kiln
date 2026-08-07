@@ -82,6 +82,18 @@ anchored above the dock's *current* top, not its collapsed top:
   a `z-index` that fights that. Above the feed, below the header's 5, whose dropdowns
   still fall over the dock.
 
+**The reserve is for the CARDS, not for whatever the feed pins into it.** The feed's
+`padding-bottom` grows with `--dock-overlay-height` + `--feed-bottom-inset` so the newest
+card can be scrolled clear of the overlays standing over it. That reserve is a scroll
+allowance and nothing more — it is not a claim that everything in the feed must ride the
+band's height. A toast arriving is not a layout event: it must not move anything the user
+is looking at. "Show earlier" sits at the top of that reserve, so it *did* ride it, and
+every toast lifted the control and every dismissal dropped it back; the fix is a
+paint-only `transform` that gives the band's share back (below), leaving the band to
+overlay the control. **Both shells**, off one rule — the desk grew the same reserve, and
+with it the same lift, the moment `--feed-bottom-inset` was taught to reach
+`[data-role='desktop-screen']`.
+
 **When you add any new bottom-anchored surface** (another dock affordance, a second
 hub, a banner): decide its place in this upward stack and anchor it to the *dynamic*
 height of the layers below it (via the same var / a measured offset), never to a fixed
@@ -125,7 +137,7 @@ first-run project onboarding → settings with credentials + live verify). It ow
 `DashboardProvider`; the primary screen never mounts it. **Phase 2 put the whole app behind a
 session** — `main.tsx` wraps **both `/app` and `/debug`** in `SessionProvider` + `SessionGate`
 (the gate resolves `GET /api/me` before either mounts), because every `/api/*` call is now
-project-scoped. Only the public routes — the landing (`/`), onboarding, and beta-thanks — stay
+project-scoped. Only the public routes — the landing (`/`), onboarding, and private-beta — stay
 session-free. `/signup` sits beside `/dashboard` (its own provider, outside the gate): the
 same sign-up flow, replayable on demand — see the rehearsal section below.
 
@@ -159,12 +171,25 @@ same sign-up flow, replayable on demand — see the rehearsal section below.
 
 There is **one** OAuth flow, **one** registered callback, and **one** path constant:
 `GITHUB_CONNECT_PATH` in `src/auth/github-connect.ts` (`/auth/github/connect`). Import it —
-never restate the literal. Every entry point uses it: `landing/Landing2.tsx` ("Sign in"),
+never restate the literal. Every entry point uses it: `landing/Landing2.tsx` ("Sign up" AND
+"Log in" — see the private-beta section below),
 `components/SessionGate.tsx`, `projects/ProjectsManager.tsx`, `dashboard/SignIn.tsx`,
 `Onboarding`'s step 1, and the `Integrations`/`RepoField` connect affordance. It is **not**
 in `integrations-config.ts` with the other shared credential facts, on purpose: the landing
 page and the app's session gate link to it too, and they must not pull the dashboard's
 provider tables into their bundle to do it.
+
+**Where the flow ends is chosen by which form of the constant you link** (added 2026-08-07).
+Plain `GITHUB_CONNECT_PATH` ends **in the app** (`/app`) — that is what "Sign in" means, and
+the backend only diverts to `/dashboard` when the user has no project and onboarding is
+genuinely next. `GITHUB_DASHBOARD_RETURN_PATH` (`?next=dashboard`) ends on the dashboard, and
+is for the affordances that LIVE there — `dashboard/SignIn.tsx`, `Onboarding`'s step 1,
+`RepoField`'s connect prompt — where the grant is a step in something the user is already
+doing on that screen. `GITHUB_SETUP_PATH` needs no marker: the backend reads `setup=1` as the
+same request, asking for GitHub's chooser being something only the dashboard does. Getting
+this wrong is invisible on a phone — an installed web app relaunches at `start_url` and
+`DefaultRoute` walks it to `/app` regardless — and stops a laptop dead on the wrong screen,
+which is exactly how the callback's old unconditional `/dashboard` survived as long as it did.
 
 The route redirects to the **GitHub App's authorize screen** (as of 2026-08-06), and the
 backend resolves the user's installation behind it, sending anyone without one on to
@@ -174,6 +199,47 @@ scopeless `/auth/github/login` beside a repo-scoped connect — that shipped a s
 pointed at the wrong one. **Never add a second GitHub app, flow, callback, or path constant
 for repo access.** (`/auth/github/login` still 302s here for old bookmarks; nothing in the
 client links to it.)
+
+### Two buttons, one flow — and the private-beta gate behind it
+
+The landing page's nav offers **"Sign up" and "Log in" as two separate buttons**, and they
+point at the **same** `GITHUB_CONNECT_PATH`. The wording is the only difference, and that is
+the design: a visitor knows which of the two they are, and a bar offering only "Sign in"
+reads as closed to newcomers. **Do not give them separate routes or query markers** — 11 D2a
+settled that two GitHub routes differing only invisibly is how a call site ends up pointed at
+the wrong one, and "which button did they press" is not something the backend needs to know.
+Both are plain `<a href>`, never router `Link`s.
+
+**Both survive on mobile.** The bar used to keep one CTA and `display: none` the sign-in link
+under 720px to save width, which left a returning user on a phone with no way in from this
+page at all. Width now comes out of the buttons' padding instead (the section links have
+already collapsed by then). Don't reintroduce a rule that hides either one.
+
+**There is no email capture anywhere on the page.** `BetaSignupForm`, `BetaModal` and
+`POST /api/beta-signup` are all gone, along with the `/beta/thanks` page. Signing up IS the
+GitHub grant, and the beta list is now written server-side from the login (see below) — so
+nobody is asked for an address they have already proved they own. Don't add a form back.
+
+**What happens after GitHub is the backend's call, and there are three endings.** The
+callback checks the allowlist (`KILN_ALLOWED_GITHUB_USERS`, 11 §2) and either lands them in
+the app / on the dashboard as described above, or — if they are not on it — records their
+login on the `beta_signups` list and redirects to **`/beta/pending`** (`landing/PrivateBeta.tsx`).
+That screen is a **public** route, sitting outside `SessionProvider`/`SessionGate` for the
+obvious reason: everyone who reaches it was just refused a session, so a provider fetching
+`/api/me` would only bounce them off the gate again. It is **not an error page** — the person
+did everything right and is early — so it asks them for nothing and offers no next step to
+chase. `PrivateBeta.test.tsx` pins that (no textbox, no button, no link); keep it, since the
+page it replaced told people to go and find an admin.
+
+**`tests/landing-auth-buttons-smoke.mjs` is the only thing that can see the nav actually lay
+out** — hand-run, same harness and stance as `desktop-shell-smoke.mjs` (`cd frontend && pnpm
+build`, then `cd ../tests && node landing-auth-buttons-smoke.mjs`). It measures both buttons at
+390px and 1440px: on one row, inside the viewport, clear of the brand, right of centre, and
+**≥32px tall**. That last one is not padding: `.kiln-btn` has no `height`/`min-height` and
+`line-height: 1`, so its entire height comes from `padding: 11px 20px` — writing the mobile
+override as the `padding` shorthand zeroes the vertical half and collapses both buttons to a
+16px sliver. Every DOM test still passed (the element is present and "visible"), and only the
+browser caught it. Use `padding-inline` for any future per-viewport tightening here.
 
 `GITHUB_SETUP_PATH` (the same route, `?setup=1`) is the **only** sanctioned second link, and
 it is a screen request rather than a second grant: it goes straight to GitHub's chooser, for
@@ -710,7 +776,10 @@ retracted, so this is unrelated to swipe-dismiss above.
   a second time: a sliver of card stranded under the control at rest, and — far worse —
   the control floating a whole transcript's height off the dock mid-utterance. If the
   reserve needs changing, change the padding. (This is the one place the "anchor to the
-  dynamic height of the layers below you" principle is satisfied *indirectly*.)
+  dynamic height of the layers below you" principle is satisfied *indirectly*.) The band
+  half of that clearance is then handed back by a `transform` — see the toast-overlay
+  bullet below — which is not a contradiction: `bottom` moves the sticky box and takes
+  the reserve with it, a transform moves only the paint.
 - **The control needs an opaque fill AND an opaque skirt below it** (`background` +
   `box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page)`). Cards scroll under
   it now, and the reserve beneath it is still scrollable area they pass through — without
@@ -729,23 +798,62 @@ retracted, so this is unrelated to swipe-dismiss above.
   own side: its keyboard-lift `transform` makes it a stacking context, sealing the band's
   `z-index: 6` inside, so only a number on the REGION speaks for the layer. The control
   needs no lift of its own — a positioned box already paints above the in-flow cards.
-- **`[data-role='desktop-feed']` is a flex column in every state and has NO bottom pad.**
-  Both were previously gated on a `data-empty` attribute, which is gone — nothing read it
-  once the anchoring stopped being conditional. Its old `--space-10` bottom pad was
-  reading air for the last card; that moved to `[data-role='desktop-feed-list']`'s
-  `padding-bottom`, where it neither pushes the pinned control off the foot nor vanishes
-  on a feed with nothing earlier to show. A bottom pad on the region would only sit
-  *under* the control and show cards through it.
+- **A toast OVERLAYS the control; it does not push it up.** The reserve still grows with
+  the band (the cards need it), but the control gives that growth back in paint:
+  `:has([data-role='toast-stack'])` on **either shell root** sets `--show-earlier-drop`,
+  a term in the control's one `transform`, so it holds its place — 20px off the dock on
+  the phone, 12px off the composer region on the desk, both measured — and the band,
+  opaque and full-width, covers it. One rule for both roots, in `PrimaryScreen.css`: the
+  publisher, the band and the control are the same objects in both shells, and a second
+  copy in `DesktopScreen.css` is how the two would drift apart. Three things about that
+  rule, each of which was a bug on the way in:
+  - **The drop is `--feed-bottom-inset` MINUS `--activity-rest-gap`**, not the whole
+    inset. An empty activity row is not 0px tall — it is that 12px gap (the same
+    declaration that floats the thinking chip off the dock, which is why it is a var
+    read by both) — and that much is already under the control at rest. Give it back
+    too and the control settles 12px *lower* under a toast: the same bug, mirrored.
+  - **It is gated on a real toast stack.** The reserve's other occupant is the thinking
+    chip: narrow, centred, floating, no fill to hide anything behind it. Dropping
+    through that lands the chip on the control's label. Thinking alone must keep its
+    lift; thinking *with* toasts is safe, because the chip renders above the band's top.
+  - **One `transform`, composed from vars** (`--show-earlier-drop` + `--show-earlier-press`).
+    A `:active { transform: translateY(1px) }` of its own would overwrite the drop and
+    snap the control up out of the band at the moment of the tap.
+  The trade this accepts: while a toast is up the control is covered, and the band takes
+  its own pointer events, so it is briefly untappable. That is what "overlay, don't push"
+  asks for; toasts clear themselves in seconds. The margin is thin — the shortest band
+  the app can show (one board toast, no `say`) is 63px against a control whose top edge
+  lands 58px off the dock — so **re-measure with the repro script if this control's type
+  or padding grows**, or its rounded top edge will show over the band's separator.
+- **`[data-role='desktop-feed']` is a flex column in every state, with no STATIC bottom
+  pad and one dynamic term.** Both were previously gated on a `data-empty` attribute,
+  which is gone — nothing read it once the anchoring stopped being conditional. Its old
+  `--space-10` bottom pad was reading air for the last card; that moved to
+  `[data-role='desktop-feed-list']`'s `padding-bottom`, where it neither pushes the pinned
+  control off the foot nor vanishes on a feed with nothing earlier to show. A *fixed* pad
+  on the region would only sit under the control and show cards through it. What the
+  region does carry is `padding-bottom: var(--feed-bottom-inset, 0px)` — the band's live
+  height, so the desk can scroll its last card clear of the toasts the same way the phone
+  does. That reserve is for the cards; the control cancels it back out of its own painted
+  position (see the toast-overlay bullet above), so a desk toast covers it rather than
+  moving it.
 - **jsdom sees none of this.** The CSS half is pinned as `?raw` strings
   (`PrimaryScreen.show-earlier.test.ts`, `DesktopScreen.layout.test.ts`) and the DOM half
   — the control being the LAST child of `[data-role='backlog']` / the feed region, which
   is the containing block the anchoring hangs off — in the two view tests. The only thing
   that can see it actually resolve is `tests/desktop-shell-smoke.mjs`, which now measures
   the control at both viewports, with and without cards, and on a deliberately short
-  window so the feed really overflows. What paints over what is a browser question too:
+  window so the feed really overflows — plus a band pass that reads the desk's standoff
+  from the composer region with a toast up against the same number at rest, and hit-tests
+  what paints over the control (`SHOW EARLIER — OVERLAY OK`). What paints over what is a
+  browser question too:
   `tests/show-earlier-skirt-repro.mjs` (hand-run, same stance) puts a toast band and a
   typed draft under the control and screenshots the strip between them at 3×, which is
-  the only way the 2px and 1px artefacts here are visible at all.
+  the only way the 2px and 1px artefacts here are visible at all. That script also
+  measures the control's standoff from the dock across four band states (none / band /
+  shortest band / band + thinking) and prints PASS only if the number is identical in all
+  of them and the band is what hit-tests over the control, top edge included — the check
+  that "toasts overlay, never push", and the one that caught the 12px overshoot above.
 
 ## Potential gotchas
 

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -294,25 +293,39 @@ func TestAuthCallbackMissingStateCookie(t *testing.T) {
 	}
 }
 
+// A login that isn't allowlisted lands on the private-beta screen. What it
+// RECORDS on the way there is beta_test.go's subject; this holds the two facts
+// that belong to the callback itself — where it sends them, and that they leave
+// with no session. A bare ErrNotAllowed (no login attached) still has to take
+// this branch, since the callback matches with errors.As over a wrapping error.
 func TestAuthCallbackNotAllowlisted(t *testing.T) {
-	auth := &fakeAuth{completeConnectErr: identity.ErrNotAllowed}
-	ts := newAuthTestServer(auth)
-	defer ts.Close()
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"with the rejected login attached", &identity.NotAllowedError{Login: "outsider"}},
+		{"bare sentinel", identity.ErrNotAllowed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := &fakeAuth{completeConnectErr: tc.err}
+			ts := newAuthTestServer(auth)
+			defer ts.Close()
 
-	resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+testStateValue,
-		//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
-		&http.Cookie{Name: testStateCookie, Value: testStateValue})
-	defer closeBody(t, resp)
+			resp := doAuthRequest(t, http.MethodGet, ts.URL+"/auth/github/callback?code="+testAuthCode+"&state="+testStateValue,
+				//nolint:gosec // G124: an outgoing request cookie the test sends, not a Set-Cookie response.
+				&http.Cookie{Name: testStateCookie, Value: testStateValue})
+			defer closeBody(t, resp)
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403 when the github login isn't allowlisted", resp.StatusCode)
-	}
-	body := readBody(t, resp)
-	if !strings.Contains(body, "invite-only") {
-		t.Errorf("body = %q, want it to contain %q", body, "invite-only")
-	}
-	if sess := cookieNamed(resp, testSessionCookie); sess != nil {
-		t.Errorf("kiln_session cookie set = %+v, want none on a rejected login", sess)
+			if resp.StatusCode != http.StatusFound {
+				t.Fatalf("status = %d, want 302 when the github login isn't allowlisted", resp.StatusCode)
+			}
+			if loc := resp.Header.Get("Location"); loc != testPrivateBetaPath {
+				t.Errorf("Location = %q, want the private-beta screen", loc)
+			}
+			if sess := cookieNamed(resp, testSessionCookie); sess != nil {
+				t.Errorf("kiln_session cookie set = %+v, want none on a rejected login", sess)
+			}
+		})
 	}
 }
 

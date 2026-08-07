@@ -29,6 +29,13 @@ const (
 	dashboardPath = "/dashboard"
 )
 
+// privateBetaPath is where a GitHub identity that is NOT on the allowlist ends
+// up: the SPA's public "you're on the list, we'll be in touch" screen. It is a
+// third landing beside the two above, and deliberately not one of them — the
+// caller has no session and no user row, so both would bounce them straight back
+// to a sign-in they cannot complete.
+const privateBetaPath = "/beta/pending"
+
 // nextParam is how a caller asks for a landing other than the default, and
 // dashboardDest is its one accepted value. A closed set rather than a path,
 // deliberately: a `next` that carried a URL would be an open redirect hanging
@@ -43,13 +50,10 @@ const (
 // settings screen. It rides inside the state nonce — see mintAuthState.
 const dashboardStateSuffix = ".dashboard"
 
-// inviteOnlyPage is the small inline HTML shown when CompleteConnect rejects a
-// GitHub login that isn't on the allowlist (11 §2) — a one-shot error page
-// needs no template/asset dependency.
-const inviteOnlyPage = `<!DOCTYPE html>
-<html><head><title>Kiln</title></head>
-<body><h1>Kiln is invite-only.</h1>
-<p>Ask for your GitHub username to be added.</p></body></html>`
+// (The allowlist rejection used to serve a one-shot inline "Kiln is invite-only —
+// ask for your GitHub username to be added" page from here. It now records the
+// login and redirects to privateBetaPath, so no one has to go and find someone
+// to ask: see rejectToPrivateBeta.)
 
 // installRequiredPage is the end of the second leg for someone who declined it:
 // they authorized, were sent to GitHub's install screen, and came back with no
@@ -199,7 +203,17 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	installMissing := errors.Is(err, identity.ErrInstallationRequired)
 	switch {
 	case errors.Is(err, identity.ErrNotAllowed):
-		writeAuthPage(w, http.StatusForbidden, inviteOnlyPage, "invite-only")
+		// Is for the branch, As for the payload: the branch is owed to every
+		// allowlist rejection, while the login rides only on the typed error.
+		// Matching solely with As would send a bare ErrNotAllowed down the 502
+		// path — a user told "github login failed" for being early rather than
+		// wrong.
+		var notAllowed *identity.NotAllowedError
+		login := ""
+		if errors.As(err, &notAllowed) {
+			login = notAllowed.Login
+		}
+		s.rejectToPrivateBeta(w, r, login)
 		return
 	case err != nil && !installMissing:
 		slog.Error("api: complete github login", "err", err)
@@ -294,6 +308,35 @@ func (s *Server) sendToInstall(w http.ResponseWriter, r *http.Request, toDashboa
 	setCookie(w, r, stateCookie, state, stateCookieTTL)
 	setCookie(w, r, installPromptCookie, "1", stateCookieTTL)
 	http.Redirect(w, r, s.auth.InstallURL(state), http.StatusFound)
+}
+
+// rejectToPrivateBeta ends the flow for a GitHub identity that authenticated
+// fine and simply isn't admitted yet (11 §2 allowlist). Two things happen, in
+// this order:
+//
+//  1. The login is recorded on the private-beta list, so wanting in is a fact we
+//     hold rather than something the user has to go and tell someone. This is
+//     the only moment it can be captured — no user row exists for a rejected
+//     login, and nothing about them survives this request otherwise.
+//  2. The browser is redirected to the SPA's private-beta screen, which says the
+//     product is in private beta and that we will be in touch.
+//
+// A failed record is logged and swallowed on purpose. The screen is the user's
+// half of this and it reads the same either way; failing the sign-in over a
+// bookkeeping write would replace "we'll be in touch" with a 500 for someone who
+// did nothing wrong. The registrar is idempotent on the login, so a retried
+// sign-in retries the record too — the write gets more than one chance.
+//
+// An empty login (a rejection that arrived without one) records nothing and
+// still shows the screen: there is no identity to hold, and a blank row would be
+// a record of nobody.
+func (s *Server) rejectToPrivateBeta(w http.ResponseWriter, r *http.Request, login string) {
+	if s.beta != nil && login != "" {
+		if err := s.beta.Register(r.Context(), login); err != nil {
+			slog.Error("api: record private-beta request", "login", login, "err", err)
+		}
+	}
+	http.Redirect(w, r, privateBetaPath, http.StatusFound)
 }
 
 // handleBareInstall handles the code-less callback: someone installed Kiln from

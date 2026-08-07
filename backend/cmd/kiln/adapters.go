@@ -862,14 +862,15 @@ func (a *pushRegistrarAdapter) SetMode(ctx context.Context, userID, mode string)
 
 var _ api.PushRegistrar = (*pushRegistrarAdapter)(nil)
 
-// betaRegistrarAdapter satisfies api.BetaRegistrar over the beta store: the
-// landing page's POST /api/beta-signup lands one email on the beta_signups
-// table. Idempotent on the address (the store swallows a duplicate).
+// betaRegistrarAdapter satisfies api.BetaRegistrar over the beta store: a GitHub
+// login the allowlist turned away lands on the beta_signups table, so the
+// request to get in is on record. Idempotent on the login (the store swallows a
+// duplicate), which is what lets the callback record on every rejected attempt.
 type betaRegistrarAdapter struct{ store beta.Store }
 
-func (a *betaRegistrarAdapter) Register(ctx context.Context, email string) error {
-	if err := a.store.Save(ctx, email); err != nil {
-		return fmt.Errorf("kiln: save beta signup: %w", err)
+func (a *betaRegistrarAdapter) Register(ctx context.Context, githubLogin string) error {
+	if err := a.store.Save(ctx, githubLogin); err != nil {
+		return fmt.Errorf("kiln: save private-beta request: %w", err)
 	}
 	return nil
 }

@@ -70,8 +70,14 @@ dashboard is onboarding + settings only), and any auth provider dependency (§10
     `DefaultRoute` takes it to `/app`), so it presented as a laptop-only bug. `/dashboard`
     remains the landing for a user with **no project**, whose next step really is onboarding,
     for one who asked (`next=dashboard`), and for a project listing that failed;
-  - not on the allowlist → a friendly "Kiln is invite-only" page; **no user row is
-    created**.
+  - not on the allowlist → the login is recorded on the **private-beta list**
+    (`beta_signups`, keyed on `github_login`) and the browser is redirected to
+    `/beta/pending`, the SPA's "we'll be in touch" screen; **no user row is created**.
+    Recording is best-effort — a failed write is logged and the screen still renders,
+    since a rejected visitor did nothing wrong — and idempotent on the login, so a
+    retried sign-in re-attempts the record without duplicating it. This replaced a
+    static "Kiln is invite-only — ask for your GitHub username to be added" page, which
+    told people to go and find someone rather than leaving us a record they had tried.
   - allowlisted with **no installation anywhere** → the session is created and the browser
     is sent on to the App's install page (`github.com/apps/<slug>/installations/new`), where
     GitHub renders the **"All repositories / Only select repositories" chooser**. That is

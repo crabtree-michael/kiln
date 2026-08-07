@@ -334,8 +334,13 @@ export function DesktopScreenView({
           store behind this column is the live one.
 
           The column is always here, empty or not — see WorkingNow for why the
-          geometry holds still. Breathing, slow and low-contrast; the per-ticket
-          marks are the phone's, unchanged. See DesktopScreen.css. */}
+          geometry holds still. The backlog section under it is not: with an
+          empty queue it renders nothing rather than a heading over a stated
+          absence (see Backlog). That costs no geometry, because the column's
+          width is fixed and the section is the last thing in it — what changes
+          is how far down the panel ends, not where anything beside it sits.
+          Breathing, slow and low-contrast; the per-ticket marks are the
+          phone's, unchanged. See DesktopScreen.css. */}
       <div data-role="desktop-working-panel">
         <WorkingNow
           tickets={inProgress}

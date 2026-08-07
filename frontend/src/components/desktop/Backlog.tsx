@@ -17,6 +17,13 @@
 // What it deliberately is NOT (13 §8, same list the working strip is held to): a
 // count, a queue-depth meter, a "3 waiting" badge. The panel lists; the kanban
 // board at /kanban is where depth is a number.
+//
+// With an empty backlog the section is not drawn at all — head included. It
+// exists to name what is queued, and with nothing queued there is nothing to
+// name: a permanent heading over a permanent "Nothing waiting." is a region the
+// eye keeps returning to for an answer it already has. The working section above
+// it still states its own absence, because "nothing is running" is news about a
+// project; "nothing is waiting" is just the backlog's resting size.
 import type { JSX } from 'react';
 import { relativeAge } from '@/components/feed-format';
 import { backlogStateNote, type BacklogTicket } from '@/components/desktop/backlog';
@@ -43,7 +50,15 @@ function waitPhrase(since: string, now: number): string {
   return age === 'now' ? 'just added' : `waiting for ${age}`;
 }
 
-export function Backlog({ tickets, onOpenTicket, now }: BacklogProps): JSX.Element {
+export function Backlog({ tickets, onOpenTicket, now }: BacklogProps): JSX.Element | null {
+  // Nothing queued, nothing drawn. Also covers the pre-snapshot case, where
+  // `backlogTickets` returns [] for a null board: the section staying away until
+  // the board lands is right for the same reason it stays away when the queue is
+  // genuinely empty — better silent than asserting an empty backlog we have not
+  // been told about yet.
+  if (tickets.length === 0) {
+    return null;
+  }
   return (
     <section data-role="desktop-backlog" aria-label="Backlog">
       {/* No dot and no `role="status"`, unlike the working head above it.
@@ -52,55 +67,48 @@ export function Backlog({ tickets, onOpenTicket, now }: BacklogProps): JSX.Eleme
           queue that has not changed on every unrelated re-render. The head is a
           label, and it stays one. */}
       <div data-role="desktop-backlog-head">backlog</div>
-      {tickets.length > 0 ? (
-        <ul data-role="desktop-backlog-list">
-          {tickets.map((ticket) => {
-            const note = backlogStateNote(ticket.state);
-            return (
-              <li key={ticket.id}>
-                <button
-                  type="button"
-                  data-role="desktop-backlog-ticket"
-                  data-state={ticket.state}
-                  // Spelled out rather than left to the row's text content, so
-                  // the bare "12m" becomes a sentence and the ticket's reading
-                  // is stated even when the visible note is empty.
-                  aria-label={`Open backlog ticket: ${ticket.title} — ${
-                    note === '' ? 'ready' : note
-                  }, ${waitPhrase(ticket.since, now)}`}
-                  onClick={() => {
-                    onOpenTicket(ticket.id);
-                  }}
-                >
-                  {/* The SAME mark the phone's ticket list and the working rows
-                      above use, from the same unscoped rules in
-                      PrimaryScreen.css. `data-state` is the ticket's own
-                      lifecycle state and picks the ink — shaping and ready are
-                      the two states the detail sheet gives no badge either, so
-                      both land on the mark's flat, faint default, which is
-                      exactly right for a ticket nothing is happening to.
+      <ul data-role="desktop-backlog-list">
+        {tickets.map((ticket) => {
+          const note = backlogStateNote(ticket.state);
+          return (
+            <li key={ticket.id}>
+              <button
+                type="button"
+                data-role="desktop-backlog-ticket"
+                data-state={ticket.state}
+                // Spelled out rather than left to the row's text content, so
+                // the bare "12m" becomes a sentence and the ticket's reading
+                // is stated even when the visible note is empty.
+                aria-label={`Open backlog ticket: ${ticket.title} — ${
+                  note === '' ? 'ready' : note
+                }, ${waitPhrase(ticket.since, now)}`}
+                onClick={() => {
+                  onOpenTicket(ticket.id);
+                }}
+              >
+                {/* The SAME mark the phone's ticket list and the working rows
+                    above use, from the same unscoped rules in
+                    PrimaryScreen.css. `data-state` is the ticket's own
+                    lifecycle state and picks the ink — shaping and ready are
+                    the two states the detail sheet gives no badge either, so
+                    both land on the mark's flat, faint default, which is
+                    exactly right for a ticket nothing is happening to.
 
-                      No `data-status`: that attribute is the bound session's,
-                      and a backlog ticket has no worker. Inventing one here
-                      (`idle`, say) would texture the mark with a session that
-                      does not exist. */}
-                  <span data-role="status-dot" data-state={ticket.state} aria-hidden="true" />
-                  <span data-role="desktop-backlog-title">{ticket.title}</span>
-                  <span data-role="desktop-backlog-meta">
-                    {note !== '' && <span data-role="desktop-backlog-note">{note}</span>}
-                    <span data-role="desktop-backlog-age">{relativeAge(ticket.since, now)}</span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        // The resting state is the real state (13 §1). One flat line in the
-        // faintest ink on the screen — an empty backlog is a good state, not a
-        // region waiting to be dealt with.
-        <p data-role="desktop-backlog-empty">Nothing waiting.</p>
-      )}
+                    No `data-status`: that attribute is the bound session's,
+                    and a backlog ticket has no worker. Inventing one here
+                    (`idle`, say) would texture the mark with a session that
+                    does not exist. */}
+                <span data-role="status-dot" data-state={ticket.state} aria-hidden="true" />
+                <span data-role="desktop-backlog-title">{ticket.title}</span>
+                <span data-role="desktop-backlog-meta">
+                  {note !== '' && <span data-role="desktop-backlog-note">{note}</span>}
+                  <span data-role="desktop-backlog-age">{relativeAge(ticket.since, now)}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

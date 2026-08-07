@@ -762,16 +762,36 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-feed"]')).not.toBeNull();
   });
 
-  it('backlog: at rest it stays put, states the absence, and nothing about it is live', () => {
-    // The section is permanent for the same reason the working list is: a block
-    // that appeared and vanished with the queue would move the feed sideways
-    // every time a ticket was accepted. And nothing here is running, so there is
-    // no breathing mark and no live region re-announcing an unchanged queue.
+  it('backlog: with nothing queued the whole section is gone, heading and all', () => {
+    // The section names what is waiting; with nothing waiting there is nothing
+    // to name, and a permanent heading over a permanent "Nothing waiting." is a
+    // region the eye keeps rechecking for an answer it already has.
     const { container } = renderShell();
+    expect(container.querySelector('[data-role="desktop-backlog"]')).toBeNull();
+    expect(container.querySelector('[data-role="desktop-backlog-head"]')).toBeNull();
+    expect(container.querySelector('[data-role="desktop-backlog-list"]')).toBeNull();
+    expect(screen.queryByText('Nothing waiting.')).toBeNull();
+  });
+
+  it('backlog: the working section above it still states its own absence', () => {
+    // Only the backlog goes away. "Nothing is running" is news about a project
+    // and stays on screen; "nothing is waiting" is just the queue's resting
+    // size. The panel itself is untouched either way.
+    const { container } = renderShell();
+    const panel = container.querySelector('[data-role="desktop-working-panel"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.querySelector('[data-role="desktop-working"]')).not.toBeNull();
+    expect(screen.getByText('Nothing in progress.')).toBeInTheDocument();
+  });
+
+  it('backlog: once something is queued it comes back, and nothing about it is live', () => {
+    // Nothing here is running, so there is no breathing mark and no live region
+    // re-announcing an unchanged queue.
+    const { container } = renderShell({
+      board: makeBoard({ ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')] }),
+    });
     const backlog = container.querySelector('[data-role="desktop-backlog"]');
     expect(backlog).not.toBeNull();
-    expect(container.querySelector('[data-role="desktop-backlog-list"]')).toBeNull();
-    expect(screen.getByText('Nothing waiting.')).toBeInTheDocument();
     expect(backlog?.querySelector('[data-role="desktop-working-dot"]')).toBeNull();
     expect(container.querySelector('[data-role="desktop-backlog-head"]')).not.toHaveAttribute(
       'role',

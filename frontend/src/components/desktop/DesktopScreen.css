@@ -667,13 +667,9 @@ html:has([data-role='desktop-screen']) body {
   text-transform: uppercase;
 }
 
-/* The resting reading, matching the working section's word for word in weight:
-   an empty backlog is a good state, not a region waiting to be dealt with. */
-[data-role='desktop-backlog-empty'] {
-  margin: var(--space-3) 0 0;
-  color: var(--text-faint);
-  font: var(--type-small);
-}
+/* There is no resting rule here, unlike the working section above: an empty
+   backlog draws nothing at all — head included — so there is no line to style.
+   See Backlog.tsx. */
 
 /* Stated separately from the working list rather than grouped with it: the
    assertions in DesktopScreen.layout.test.ts pin that rule by its exact

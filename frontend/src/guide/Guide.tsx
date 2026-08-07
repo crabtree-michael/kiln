@@ -54,7 +54,7 @@ const CHECKLIST: { need: string; forWhat: string; where: JSX.Element }[] = [
   {
     need: 'A GitHub account (allowlisted)',
     forWhat: 'Signing in; connecting your repo',
-    where: <>You already have it — ask your admin to be added to the allowlist</>,
+    where: <>You already have it — sign up with GitHub and you’re added to the list</>,
   },
   {
     need: 'An Anthropic API key',
@@ -341,8 +341,9 @@ export function Guide(): JSX.Element {
                   <p>
                     Click <strong>Continue with GitHub</strong>. The browser leaves the app, you
                     authorize with GitHub, and you’re returned to the dashboard. (If your account
-                    isn’t on the allowlist, sign-in won’t complete — contact whoever runs your Kiln
-                    instance.)
+                    isn’t on the allowlist, sign-in won’t complete — you’ll land on the private-beta
+                    screen instead, which adds you to the list. There’s nothing else to do; whoever
+                    runs your Kiln instance will be in touch.)
                   </p>
                 </div>
               </li>

@@ -148,11 +148,22 @@
   }
   .kiln-landing-2 .kiln-nav__actions {
     margin-left: auto;
+    gap: var(--space-2);
   }
-  /* On a phone the beta CTA carries the page; the sign-in link would crowd the
-     bar, so it collapses out and returning users use the in-app gate. */
-  .kiln-landing-2 .kiln-nav__signin {
-    display: none;
+  /* BOTH auth buttons stay on a phone. The old bar kept one CTA and dropped the
+     sign-in link to save width, which left a returning user on a phone with no
+     way in from this page at all. Two buttons is the requirement now, so the
+     width comes out of their HORIZONTAL padding instead — the section links
+     above have already collapsed, so the row has room.
+     `padding-inline`, never the `padding` shorthand: the base .kiln-btn takes
+     its whole HEIGHT from `padding: 11px 20px` (it has no height/min-height and
+     `line-height: 1`), so a shorthand here zeroes the vertical half and
+     collapses both buttons to a 16px sliver — a tap target barely half the size
+     a finger needs, and invisible to every DOM test since the element is still
+     "visible". tests/landing-auth-buttons-smoke.mjs measures it. */
+  .kiln-landing-2 .kiln-nav__signup,
+  .kiln-landing-2 .kiln-nav__login {
+    padding-inline: 14px;
   }
 }
 
@@ -190,66 +201,23 @@
   gap: 12px;
 }
 
-/* The "See it anywhere" ghost button sits below the signup form in the hero
-   (the form owns the primary action), not beside it. */
+/* The two hero buttons sit side by side and wrap together. They used to be a
+   full-width signup form with the ghost button stacked beneath it; with the form
+   gone the primary action is a button the same size as its neighbour, so the row
+   lays them out normally. */
+.kiln-landing-2 .kiln-hero__primary,
 .kiln-landing-2 .kiln-hero__secondary {
   align-self: flex-start;
 }
 
-/* ── beta signup form ──────────────────────────────────────────────
-   Reused by the hero and the closing CTA (BetaSignupForm). The row lays the
-   email field beside the submit button and wraps to a stack on narrow screens;
-   the input matches the pill buttons in height and radius so the pairing reads
-   as one control. */
-.kiln-landing-2 .kiln-beta-form {
-  width: 100%;
+/* The private-beta caveat, directly under the hero buttons. It is the one place
+   the page states the gate up front — better here than discovered at the end of
+   a GitHub round trip. */
+.kiln-landing-2 .kiln-hero__gate {
+  margin: 14px 0 0;
   max-width: 30rem;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.kiln-landing-2 .kiln-beta-form__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.kiln-landing-2 .kiln-beta-form__input {
-  flex: 1 1 12rem;
-  min-width: 0;
-  font-family: inherit;
-  font-size: 15px;
-  color: var(--text-body);
-  background: var(--surface-card);
-  border: 1.5px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  padding: 14px 20px;
-  transition:
-    border-color var(--duration-fast) ease,
-    box-shadow var(--duration-fast) ease;
-}
-
-.kiln-landing-2 .kiln-beta-form__input::placeholder {
-  color: var(--text-muted);
-}
-
-.kiln-landing-2 .kiln-beta-form__input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-faint);
-}
-
-.kiln-landing-2 .kiln-beta-form__input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.kiln-landing-2 .kiln-beta-form__error {
-  margin: 0;
-  font-size: 13.5px;
-  font-weight: 550;
-  color: var(--danger);
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 .kiln-landing-2 .kiln-hero__chips {

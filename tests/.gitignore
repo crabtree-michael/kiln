@@ -2,3 +2,5 @@ node_modules/
 test-results/
 playwright-report/
 .playwright/
+# Screenshots the hand-run smoke scripts drop beside themselves.
+*.png

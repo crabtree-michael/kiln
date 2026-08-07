@@ -500,51 +500,75 @@ await page.waitForTimeout(200);
 // The band is an opaque out-of-flow overlay anchored at the composer region's
 // TOP edge (`bottom: 100%`, PrimaryScreen.css), which is the same edge the
 // pinned control rests on — so it floats up over exactly the strip the control
-// occupies. The desk reserved none of it, and a toast simply hid the control:
-// present in the DOM, correct in every CSS-string assertion, invisible on
-// screen. The fix is the feed region's `--feed-bottom-inset` bottom pad, which
-// ActivityRow publishes on the shell root; the control then rides it indirectly,
-// via the containing block a sticky box is clamped to.
+// occupies, and the two have to be read against each other.
 //
-// So this pass reads the two boxes against each other. `bandGap` is the number:
-// at or above zero the control sits clear of the band, below zero it is under
-// it. The var is read back too, because a zero there means the publisher never
-// found this shell's root — the actual shape of the original bug.
+// Two things are asserted here, and the second one reverses what this pass first
+// checked. The desk reserves the band's live height as feed padding
+// (`--feed-bottom-inset`, published by ActivityRow on the shell root) so the
+// CARDS can still be scrolled clear of it — a zero in that var means the
+// publisher never found this shell's root, which is the shape of the original
+// bug. But the pinned control must NOT ride that reserve: a toast overlays it
+// and leaves it exactly where it sits, rather than pushing it up the feed. So
+// `standoff` — the control's distance from the composer region's top edge — has
+// to read the same with a band up as without one, and the band has to be what
+// paints over the control, its top edge included.
+const readFoot = () =>
+  page.evaluate(() => {
+    const rect = (selector) => {
+      const el = document.querySelector(selector);
+      return el ? el.getBoundingClientRect() : null;
+    };
+    const roleAt = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el) return null;
+      const named = el.closest('[data-role]');
+      return named ? named.getAttribute('data-role') : el.tagName;
+    };
+    const region = document.querySelector('[data-role="desktop-feed"]');
+    const button = rect('[data-role="feed-show-earlier"]');
+    const band = rect('[data-role="activity-row"]');
+    const stack = rect('[data-role="toast-stack"]');
+    const composer = rect('[data-role="desktop-composer-region"]');
+    const regionBox = region.getBoundingClientRect();
+    const cx = button.left + button.width / 2;
+    return {
+      bandHeight: stack ? Math.round(stack.height) : 0,
+      // The reserve, read off the root the publisher actually wrote to.
+      inset: getComputedStyle(
+        document.querySelector('[data-role="desktop-screen"]'),
+      ).getPropertyValue('--feed-bottom-inset'),
+      regionPadBottom: getComputedStyle(region).paddingBottom,
+      // The whole complaint, in one number: how far the control stands off the
+      // edge the band is anchored to. It must not change when a toast arrives.
+      standoff: Math.round(composer.top - button.bottom),
+      bandGap: band ? Math.round(band.top - button.bottom) : null,
+      // What actually paints where the control stands — mid-box and top edge.
+      over: roleAt(cx, button.top + button.height / 2),
+      overTopEdge: roleAt(cx, button.top + 1),
+      // ...and it is still inside the region, i.e. it never left the feed.
+      onScreen: button.top >= regionBox.top - 1 && button.bottom <= regionBox.bottom + 1,
+    };
+  });
+
+await page.reload();
+await page.waitForSelector('[data-role="feed-show-earlier"]', { timeout: 10_000 });
+await page.waitForTimeout(400);
+const footAtRest = await readFoot();
+console.log('SHOW EARLIER — NO BAND', JSON.stringify(footAtRest, null, 2));
+
 streamBody = bandStream;
 await page.reload();
 await page.waitForSelector('[data-role="toast-stack"]', { timeout: 10_000 });
 await page.waitForTimeout(600);
 await page.screenshot({ path: '/tmp/desktop-shell-show-earlier-toast.png' });
+const footWithBand = await readFoot();
+console.log('SHOW EARLIER — TOAST BAND UP', JSON.stringify(footWithBand, null, 2));
 console.log(
-  'SHOW EARLIER — TOAST BAND UP',
-  JSON.stringify(
-    await page.evaluate(() => {
-      const rect = (selector) => {
-        const el = document.querySelector(selector);
-        return el ? el.getBoundingClientRect() : null;
-      };
-      const region = document.querySelector('[data-role="desktop-feed"]');
-      const button = rect('[data-role="feed-show-earlier"]');
-      const band = rect('[data-role="activity-row"]');
-      const regionBox = region.getBoundingClientRect();
-      return {
-        bandHeight: Math.round(band.height),
-        // The reserve, read off the root the publisher actually wrote to. `0px`
-        // (or empty) is the bug: the desk shell root went unrecognised.
-        inset: getComputedStyle(
-          document.querySelector('[data-role="desktop-screen"]'),
-        ).getPropertyValue('--feed-bottom-inset'),
-        regionPadBottom: getComputedStyle(region).paddingBottom,
-        // The whole complaint, in one number.
-        bandGap: Math.round(band.top - button.bottom),
-        clearOfBand: button.bottom <= band.top + 1,
-        // ...and still inside the region, i.e. reachable without scrolling.
-        onScreen: button.top >= regionBox.top - 1 && button.bottom <= regionBox.bottom + 1,
-      };
-    }),
-    null,
-    2,
-  ),
+  footWithBand.standoff === footAtRest.standoff &&
+    footWithBand.over !== 'feed-show-earlier' &&
+    footWithBand.overTopEdge !== 'feed-show-earlier'
+    ? `SHOW EARLIER — OVERLAY OK: holds ${footAtRest.standoff}px off the composer with a ${footWithBand.bandHeight}px band over it`
+    : `SHOW EARLIER — OVERLAY FAILED: rest ${footAtRest.standoff}px vs band ${footWithBand.standoff}px, painting ${footWithBand.over}`,
 );
 streamBody = '';
 await page.reload();

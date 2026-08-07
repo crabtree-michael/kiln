@@ -90,7 +90,9 @@ band's height. A toast arriving is not a layout event: it must not move anything
 is looking at. "Show earlier" sits at the top of that reserve, so it *did* ride it, and
 every toast lifted the control and every dismissal dropped it back; the fix is a
 paint-only `transform` that gives the band's share back (below), leaving the band to
-overlay the control the way the desktop shell has always done it.
+overlay the control. **Both shells**, off one rule — the desk grew the same reserve, and
+with it the same lift, the moment `--feed-bottom-inset` was taught to reach
+`[data-role='desktop-screen']`.
 
 **When you add any new bottom-anchored surface** (another dock affordance, a second
 hub, a banner): decide its place in this upward stack and anchor it to the *dynamic*
@@ -756,10 +758,13 @@ retracted, so this is unrelated to swipe-dismiss above.
   needs no lift of its own — a positioned box already paints above the in-flow cards.
 - **A toast OVERLAYS the control; it does not push it up.** The reserve still grows with
   the band (the cards need it), but the control gives that growth back in paint:
-  `[data-role='primary-screen']:has([data-role='toast-stack'])` sets
-  `--show-earlier-drop`, a term in the control's one `transform`, so it holds its place
-  (20px off the dock, measured) and the band — opaque, full-width, in the dock layer —
-  covers it. Three things about that rule, each of which was a bug on the way in:
+  `:has([data-role='toast-stack'])` on **either shell root** sets `--show-earlier-drop`,
+  a term in the control's one `transform`, so it holds its place — 20px off the dock on
+  the phone, 12px off the composer region on the desk, both measured — and the band,
+  opaque and full-width, covers it. One rule for both roots, in `PrimaryScreen.css`: the
+  publisher, the band and the control are the same objects in both shells, and a second
+  copy in `DesktopScreen.css` is how the two would drift apart. Three things about that
+  rule, each of which was a bug on the way in:
   - **The drop is `--feed-bottom-inset` MINUS `--activity-rest-gap`**, not the whole
     inset. An empty activity row is not 0px tall — it is that 12px gap (the same
     declaration that floats the thinking chip off the dock, which is why it is a var
@@ -778,20 +783,28 @@ retracted, so this is unrelated to swipe-dismiss above.
   the app can show (one board toast, no `say`) is 63px against a control whose top edge
   lands 58px off the dock — so **re-measure with the repro script if this control's type
   or padding grows**, or its rounded top edge will show over the band's separator.
-- **`[data-role='desktop-feed']` is a flex column in every state and has NO bottom pad.**
-  Both were previously gated on a `data-empty` attribute, which is gone — nothing read it
-  once the anchoring stopped being conditional. Its old `--space-10` bottom pad was
-  reading air for the last card; that moved to `[data-role='desktop-feed-list']`'s
-  `padding-bottom`, where it neither pushes the pinned control off the foot nor vanishes
-  on a feed with nothing earlier to show. A bottom pad on the region would only sit
-  *under* the control and show cards through it.
+- **`[data-role='desktop-feed']` is a flex column in every state, with no STATIC bottom
+  pad and one dynamic term.** Both were previously gated on a `data-empty` attribute,
+  which is gone — nothing read it once the anchoring stopped being conditional. Its old
+  `--space-10` bottom pad was reading air for the last card; that moved to
+  `[data-role='desktop-feed-list']`'s `padding-bottom`, where it neither pushes the pinned
+  control off the foot nor vanishes on a feed with nothing earlier to show. A *fixed* pad
+  on the region would only sit under the control and show cards through it. What the
+  region does carry is `padding-bottom: var(--feed-bottom-inset, 0px)` — the band's live
+  height, so the desk can scroll its last card clear of the toasts the same way the phone
+  does. That reserve is for the cards; the control cancels it back out of its own painted
+  position (see the toast-overlay bullet above), so a desk toast covers it rather than
+  moving it.
 - **jsdom sees none of this.** The CSS half is pinned as `?raw` strings
   (`PrimaryScreen.show-earlier.test.ts`, `DesktopScreen.layout.test.ts`) and the DOM half
   — the control being the LAST child of `[data-role='backlog']` / the feed region, which
   is the containing block the anchoring hangs off — in the two view tests. The only thing
   that can see it actually resolve is `tests/desktop-shell-smoke.mjs`, which now measures
   the control at both viewports, with and without cards, and on a deliberately short
-  window so the feed really overflows. What paints over what is a browser question too:
+  window so the feed really overflows — plus a band pass that reads the desk's standoff
+  from the composer region with a toast up against the same number at rest, and hit-tests
+  what paints over the control (`SHOW EARLIER — OVERLAY OK`). What paints over what is a
+  browser question too:
   `tests/show-earlier-skirt-repro.mjs` (hand-run, same stance) puts a toast band and a
   typed draft under the control and screenshots the strip between them at 3×, which is
   the only way the 2px and 1px artefacts here are visible at all. That script also

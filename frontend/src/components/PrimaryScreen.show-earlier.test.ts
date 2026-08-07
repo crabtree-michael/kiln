@@ -88,7 +88,7 @@ describe('feed "Show earlier" anchoring', () => {
     // under a toast than it sits without one — the same bug as the lift, in the
     // other direction. Both readers of that gap are pinned below.
     const drop = ruleBody(
-      "[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'] {",
+      "[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'],",
     );
     expect(drop).toMatch(
       /--show-earlier-drop:\s*calc\(var\(--feed-bottom-inset,\s*0px\)\s*-\s*var\(--activity-rest-gap\)\)/,
@@ -114,6 +114,21 @@ describe('feed "Show earlier" anchoring', () => {
     // rule may only READ the var — giving it a value there would drop the
     // control through the reserve in every state, chip included.
     expect(ruleBody("[data-role='feed-show-earlier'] {")).not.toMatch(/--show-earlier-drop:/);
+  });
+
+  it('holds the DESK’s control still too, off the same rule', () => {
+    // The desk grew the same reserve (`--feed-bottom-inset` reaches
+    // `[data-role='desktop-screen']`, and `[data-role='desktop-feed']` spends it
+    // — DesktopScreen.css) and with it the same lift. One mechanism, one
+    // declaration: a second copy in the desktop sheet is how the two shells
+    // would drift apart, so the rule names both roots and this pins that.
+    expect(css).toMatch(
+      /\[data-role='desktop-screen']:has\(\[data-role='toast-stack']\)\s+\[data-role='feed-show-earlier']\s*\{/,
+    );
+    // Both roots also carry the gap the drop subtracts — an unset var there
+    // would make the whole `calc()` invalid and silently drop nothing.
+    expect(ruleBody("[data-role='primary-screen'],")).toMatch(/--activity-rest-gap:\s*12px/);
+    expect(css).toMatch(/\[data-role='desktop-screen']\s*\{\s*--activity-rest-gap/);
   });
 
   it('presses without undoing the drop — one transform, two terms', () => {

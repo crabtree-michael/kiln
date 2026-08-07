@@ -1585,8 +1585,7 @@ button[data-role='feed-card-head']:focus-visible {
    control is the fixed thing at the foot of the feed; it should not ride the
    band's height like a lift, and the band is an opaque full-width surface in the
    dock layer (`[data-role='dock-region']`'s `z-index: 1`) that can simply cover
-   it — the desktop shell has always worked this way, its feed carrying no
-   reserve at all and its band hiding the last card behind it.
+   it, exactly as it covers the last card.
 
    So the band's share of the reserve is given back HERE, in paint: layout keeps
    the scroll clearance, and the control is translated back down into the strip
@@ -1621,10 +1620,17 @@ button[data-role='feed-card-head']:focus-visible {
    measurement in `tests/show-earlier-skirt-repro.mjs` is what caught it (jsdom
    does no layout, so nothing in the gate can see a 12px drift).
 
-   Scoped to `[data-role='primary-screen']`: the desktop shell is a sibling root
-   (`[data-role='desktop-screen']`), it publishes no `--feed-bottom-inset` at all,
-   and it needs no drop because it never had the lift. */
-[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'] {
+   BOTH shell roots, in one rule, because by now it is one mechanism: the desk
+   grew the same reserve when `--feed-bottom-inset` was taught to reach
+   `[data-role='desktop-screen']` (ActivityRow + DesktopScreen.css), and with it
+   the same lift — a toast there pushed the control up the feed just as it did
+   here. The declaration is identical because the inputs are: the same publisher,
+   the same band, the same control. What differs between the shells is only which
+   region's padding holds the reserve, and neither of those is named here. Stated
+   in this sheet rather than split across two because a second copy in
+   `DesktopScreen.css` is how the two would drift apart. */
+[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'],
+[data-role='desktop-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'] {
   --show-earlier-drop: calc(var(--feed-bottom-inset, 0px) - var(--activity-rest-gap));
 }
 
@@ -1841,8 +1847,10 @@ button[data-role='feed-card-head']:focus-visible {
    "Show earlier" control comes to rest. The drop that holds that control still
    under a band has to give back everything the row grew PAST this number, not
    the number itself, or the control settles 12px lower under a toast than it
-   sits without one. One declaration, both readers. */
-[data-role='primary-screen'] {
+   sits without one. One declaration, both readers — and both shell roots, since
+   this row and that control are mounted by the desk too. */
+[data-role='primary-screen'],
+[data-role='desktop-screen'] {
   --activity-rest-gap: 12px;
 }
 

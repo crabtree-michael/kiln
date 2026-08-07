@@ -72,6 +72,62 @@ describe('feed "Show earlier" anchoring', () => {
     expect(padding).toMatch(/padding:[^;]*var\(--feed-bottom-inset,\s*0px\)/);
   });
 
+  it('holds its place under a toast band — the band overlays it, it is not pushed up', () => {
+    // The reserve above still grows with the band (the assertion above), because
+    // the newest card must stay scrollable clear of it. What changed is that the
+    // control no longer RIDES that growth: it is translated back down by the
+    // band's own height, so it lands where it sits with no band at all and the
+    // band — opaque, full-width, in the dock layer — simply covers it. Paint
+    // only: nothing reflows, no card moves and no scroll offset shifts as toasts
+    // come and go.
+    //
+    // The reserve MINUS the row's resting height, not the whole reserve: an
+    // empty activity row is `--activity-rest-gap` tall (the gap that floats the
+    // thinking chip off the dock), and that much is already under the control
+    // with no toast in sight. Giving it back too settles the control 12px lower
+    // under a toast than it sits without one — the same bug as the lift, in the
+    // other direction. Both readers of that gap are pinned below.
+    const drop = ruleBody(
+      "[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'] {",
+    );
+    expect(drop).toMatch(
+      /--show-earlier-drop:\s*calc\(var\(--feed-bottom-inset,\s*0px\)\s*-\s*var\(--activity-rest-gap\)\)/,
+    );
+    expect(ruleBody("[data-role='activity-row']:not(:has([data-role='toast-stack'])) {")).toMatch(
+      /padding-bottom:\s*var\(--activity-rest-gap\)/,
+    );
+    // Layout is untouched by the drop — a margin or a `bottom` here would move
+    // the sticky box itself and take the reserve (and the cards in it) with it.
+    expect(drop).not.toMatch(/^\s*(margin|padding|bottom|top)[\w-]*\s*:/m);
+
+    const body = ruleBody("[data-role='feed-show-earlier'] {");
+    expect(body).toMatch(/transform:\s*translateY\(calc\(var\(--show-earlier-drop,\s*0px\)/);
+  });
+
+  it('only drops when the band is really there — the thinking chip still lifts it', () => {
+    // The gate is the whole reason the drop is a separate rule. The reserve's
+    // other occupant is the "Kiln is thinking…" chip: narrow, centred, floating,
+    // with no fill to hide anything behind it. Dropping through THAT would land
+    // the chip on the control's label. So the drop is conditional on a toast
+    // stack being on screen; thinking alone leaves `--show-earlier-drop` unset
+    // and the control lifts clear of the chip exactly as before. So the base
+    // rule may only READ the var — giving it a value there would drop the
+    // control through the reserve in every state, chip included.
+    expect(ruleBody("[data-role='feed-show-earlier'] {")).not.toMatch(/--show-earlier-drop:/);
+  });
+
+  it('presses without undoing the drop — one transform, two terms', () => {
+    // A `transform` of its own on `:active` would overwrite the drop, snapping
+    // the control up out of the band at the moment of the tap. The press is a
+    // term in the one transform instead.
+    const active = ruleBody("[data-role='feed-show-earlier']:active {");
+    expect(active).toMatch(/--show-earlier-press:\s*1px/);
+    expect(active).not.toMatch(/transform/);
+    expect(ruleBody("[data-role='feed-show-earlier'] {")).toMatch(
+      /transform:\s*translateY\(calc\([^)]*var\(--show-earlier-drop,\s*0px\)\s*\+\s*var\(--show-earlier-press,\s*0px\)\)\)/,
+    );
+  });
+
   it('carries its fill BELOW itself, so the reserve underneath shows no cards', () => {
     // `bottom: 0` pins the control to the feed's content box, but the reserve
     // beneath it (the region's `padding-bottom`) is still scrollable area that

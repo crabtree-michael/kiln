@@ -251,6 +251,13 @@ export function ActivityRow({
   // dismiss and the spinner comes and goes. Written on the screen root (not this
   // row) so it reaches the feed, a distant sibling; a no-op when the row renders
   // outside a primary screen (isolated tests) since `closest` is null.
+  //
+  // It has a second reader now: the feed's pinned "Show earlier" control cancels
+  // this inset out of its own position (a paint-only `transform`, PrimaryScreen.css)
+  // so a toast overlays the control instead of pushing it up. That reader assumes
+  // exactly what is published here — THIS ROW's whole height, including the 12px
+  // it rests at when empty. Narrowing it to, say, the toast stack alone would
+  // quietly move the control instead of holding it still.
   useEffect(() => {
     const el = rowRef.current;
     const root = el?.closest<HTMLElement>('[data-role="primary-screen"]') ?? null;

@@ -27,7 +27,7 @@ in one pass:
 
 | You'll need | What it's for | Where to get it |
 | --- | --- | --- |
-| A **GitHub account** (allowlisted) | Signing in, and connecting your repos | You already have it — ask your admin to be added to the allowlist |
+| A **GitHub account** (allowlisted) | Signing in, and connecting your repos | You already have it — sign up with GitHub and you're added to the list |
 | A **provider API key** | Runs your agents — an **Amika** key or a **Devin** key, depending on which you pick during setup | Your Amika or Devin console |
 
 You do **not** need a repository URL or a GitHub personal access token. Signing in

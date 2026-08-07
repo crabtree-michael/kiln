@@ -825,9 +825,10 @@ func enableServerRoutes(
 	// store always exists); the VAPID public key is served only when configured,
 	// else GET /api/push/key 404s and the client hides the notifications toggle.
 	server.EnablePush(&pushRegistrarAdapter{store: pushStore}, cfg.VAPIDPublicKey)
-	// Beta-signup collection: the pre-launch landing page's "Join the beta" form
-	// posts an email to POST /api/beta-signup, always mounted (the store always
-	// exists) since the marketing page depends on it.
+	// Private-beta list: the GitHub callback records a login the allowlist turned
+	// away, so someone who tried to get in is on record rather than lost. Always
+	// wired (the store always exists) — it mounts no route, it only gives the
+	// callback's rejection path somewhere to write.
 	server.EnableBeta(&betaRegistrarAdapter{store: betaStore})
 	// The two client-driven board writes, both satisfied directly by the board
 	// service and both always mounted, since the ticket detail sheet depends on

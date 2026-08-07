@@ -1,12 +1,12 @@
 // Smoke coverage for the marketing landing page (the default `/` route, also at
 // `/landing`): it renders standalone (no stores/providers), states the product,
-// funnels its beta CTAs to the beta-signup modal, offers a GitHub sign-in beside
-// them, points its "How it works" CTAs at the How It Works (#how) section, and
-// embeds the captured app screenshots (frontend/public/shots) as themed
-// <picture>/<img>.
-import { fireEvent, render, screen, within } from '@testing-library/react';
+// offers Sign up and Log in as two buttons through the one GitHub flow, points
+// its "How it works" CTAs at the How It Works (#how) section, and embeds the
+// captured app screenshots (frontend/public/shots) as themed <picture>/<img>.
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Landing2 } from '@/landing/Landing2';
+import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
 
 function renderLanding(): void {
   render(
@@ -17,55 +17,54 @@ function renderLanding(): void {
 }
 
 describe('Landing2', () => {
-  it('states the product and collects beta emails', () => {
+  it('states the product and names the private beta up front', () => {
     renderLanding();
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       /Orchestrate a team of coding agents from anywhere you are/i,
     );
 
-    // The hero embeds the signup form inline; the closing banner is gone, so its
-    // "Notify me" submit now lives in the beta modal and is absent until a CTA
-    // opens it.
-    expect(screen.getAllByLabelText('Email address').length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: /notify me/i })).not.toBeInTheDocument();
-
-    // Opening a CTA reveals the modal dialog with the signup form.
-    fireEvent.click(
-      within(screen.getByRole('banner')).getByRole('button', { name: /join the beta/i }),
-    );
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByLabelText('Email address')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /notify me/i })).toBeInTheDocument();
+    // The gate is stated on the page rather than discovered at the end of a
+    // GitHub round trip.
+    expect(screen.getByText(/Kiln is in private beta/i)).toBeInTheDocument();
   });
 
-  it('funnels beta CTAs to the signup modal and offers a GitHub sign-in', () => {
+  it('offers Sign up and Log in as two separate buttons in the nav', () => {
     renderLanding();
 
-    // The modal is closed until a CTA opens it — no dialog up front.
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const nav = within(screen.getByRole('banner'));
+    const signUp = nav.getByRole('link', { name: 'Sign up' });
+    const logIn = nav.getByRole('link', { name: 'Log in' });
 
-    // Nav / voice / footer "Join the beta" CTAs are buttons (they open the
-    // modal), not links into the app.
-    const betaCtas = screen.getAllByRole('button', { name: /join the beta/i });
-    expect(betaCtas.length).toBeGreaterThan(0);
+    // Two distinct affordances...
+    expect(signUp).not.toBe(logIn);
+    // ...through ONE flow (11 D2a): same backend route, differing in wording
+    // only. A second GitHub path here is the exact mistake that decision closed.
+    expect(signUp).toHaveAttribute('href', GITHUB_CONNECT_PATH);
+    expect(logIn).toHaveAttribute('href', GITHUB_CONNECT_PATH);
+  });
+
+  it('sends every auth CTA through the one GitHub route, as full-page anchors', () => {
+    renderLanding();
+
+    // Nav, hero and voice/footer CTAs alike. They must be links (a real
+    // navigation to a backend route the SPA does not own), never buttons — a
+    // router Link or an onClick handler would keep the SPA mounted and never
+    // reach the OAuth start.
+    const authLinks = screen
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('href') === GITHUB_CONNECT_PATH);
+    expect(authLinks.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('no longer collects an email anywhere — signing up IS the GitHub grant', () => {
+    renderLanding();
+
+    // The old form + modal are gone: no email field, no "Join the beta" trigger,
+    // and nothing that opens a dialog.
+    expect(screen.queryByLabelText('Email address')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /join the beta/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /join the beta/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /open the app/i })).not.toBeInTheDocument();
-
-    // The sign-in affordance sits beside the beta CTA and is a plain full-page
-    // anchor to the backend-owned GitHub OAuth start (not a router Link into the
-    // SPA), mirroring SessionGate / dashboard SignIn. It is the ONE grant — the
-    // same route the dashboard's Connect card uses, so signing in here already
-    // authorizes repo access.
-    const signIn = screen.getByRole('link', { name: /sign in/i });
-    expect(signIn).toHaveAttribute('href', '/auth/github/connect');
-
-    // Closing the opened modal returns to the page.
-    fireEvent.click(
-      within(screen.getByRole('banner')).getByRole('button', { name: /join the beta/i }),
-    );
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

@@ -22,14 +22,15 @@ var _ beta.Store = (*Store)(nil)
 // startup (mirrors push/postgres.New).
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-// Save inserts the email, treating a repeat as a no-op: a visitor who submits
-// the same address twice must not duplicate the row or surface an error, so the
-// unique-email conflict is swallowed (mirrors push's upsert idempotence).
-func (s *Store) Save(ctx context.Context, email string) error {
+// Save records the GitHub login, treating a repeat as a no-op: someone turned
+// away at the allowlist who tries signing in again must not duplicate the row or
+// surface an error, so the unique-login conflict is swallowed (mirrors push's
+// upsert idempotence).
+func (s *Store) Save(ctx context.Context, githubLogin string) error {
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO beta_signups (email)
+		INSERT INTO beta_signups (github_login)
 		VALUES ($1)
-		ON CONFLICT (email) DO NOTHING`, email); err != nil {
+		ON CONFLICT (github_login) DO NOTHING`, githubLogin); err != nil {
 		return fmt.Errorf("beta/postgres: save signup: %w", err)
 	}
 	return nil

@@ -1,7 +1,9 @@
 // Signed-out view (11 §5): a single, centered card whose only affordance is
-// the GitHub OAuth start link — `GITHUB_CONNECT_PATH`, the one flow. This is a
-// plain full-page navigation — NOT a router `Link` — because that is a backend
-// route the SPA itself does not own; the browser must actually leave the app.
+// the GitHub OAuth start link — the one flow, asking to come back here rather
+// than into the app, because this card is only ever met by someone who came to
+// the dashboard. This is a plain full-page navigation — NOT a router `Link` —
+// because that is a backend route the SPA itself does not own; the browser must
+// actually leave the app.
 //
 // When the store landed here because the initial `GET /api/me` failed
 // outright (a 500, a network blip, an unconfigured deployment — final review,
@@ -10,7 +12,7 @@
 // instead of a card that looks identical to an ordinary signed-out state.
 import type { JSX } from 'react';
 import { useDashboardStore } from '@/dashboard/dashboard-context';
-import { GITHUB_CONNECT_PATH } from '@/auth/github-connect';
+import { GITHUB_DASHBOARD_RETURN_PATH } from '@/auth/github-connect';
 
 export interface SignInProps {
   /** Simulate the sign-in instead of running it. Absent everywhere in the real
@@ -32,7 +34,7 @@ export function SignIn({ onStart }: SignInProps = {}): JSX.Element {
         <div data-role="dashboard-wordmark">Kiln</div>
         {error !== null && <p data-role="dashboard-error">{error}</p>}
         {onStart === undefined ? (
-          <a href={GITHUB_CONNECT_PATH} data-role="sign-in-link">
+          <a href={GITHUB_DASHBOARD_RETURN_PATH} data-role="sign-in-link">
             Continue with GitHub
           </a>
         ) : (

@@ -200,6 +200,20 @@ backend/internal/api/
   existing session instead; no session means a redirect to connect. The install hop is
   bounded by the `kiln_gh_install` marker cookie: a declined install looks exactly like never
   having been offered one, so without it the browser would ping-pong forever.
+- **A completed sign-in lands in the app** (`postAuthPath`, added 2026-08-07), not on
+  `/dashboard`, which is where it used to land unconditionally. Two exceptions: a caller with
+  no project (onboarding lives on `/dashboard`), and one that ASKED for the dashboard because
+  the affordance lives there — `?next=dashboard` on the connect route, which `?setup=1`
+  implies. A failed project listing takes the dashboard too, being the screen that works for
+  either kind of user. The request has to survive a round trip through GitHub, so it rides in
+  the **state nonce** (a `.dashboard` suffix) rather than in a second cookie: GitHub echoes
+  state back verbatim, the callback has already compared it against the cookie before reading
+  it, and the install hop re-mints it carrying the same marker. `next` is a closed set of
+  names, never a URL — an open redirect on this route is the last thing anyone wants. The bug
+  it fixes reads as desktop-only and is not: a phone's installed web app relaunches at
+  `start_url` and finds `/app` on its own, so only a browser tab ever sat on the settings
+  screen it was sent to. The connect redirect is also `Cache-Control: no-store` — one nonce,
+  one URL carrying it, and this entry point has now moved twice.
 - **Sign-in needs ONE public origin (`KILN_PUBLIC_URL`, `api/canonical.go`, added 2026-08-06).**
   A cookie belongs to a host; the App's callback URL is a fixed string in GitHub's settings and
   has no idea which host the user started on. A deployment answering on both its platform

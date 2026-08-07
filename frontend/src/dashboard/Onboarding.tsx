@@ -12,9 +12,10 @@
 // that moment and nothing else — worker count, merge gate and sandbox snapshot
 // all keep their server defaults and are tuned later in Settings.
 //
-// Step 1 sends the browser to `GITHUB_CONNECT_PATH` — the one GitHub grant
-// (11 §2, amended 2026-08-03), the same route the Integrations card and every
-// sign-in link use. The repo picker is settings' `RepoField` and the
+// Step 1 sends the browser to `GITHUB_DASHBOARD_RETURN_PATH` — the one GitHub
+// grant (11 §2, amended 2026-08-03), the same route the Integrations card and
+// every sign-in link use, asking to come back to this half-finished form rather
+// than into the app. The repo picker is settings' `RepoField` and the
 // provider/credential vocabulary comes from `integrations-config`, so there is
 // one definition of each shared fact.
 //
@@ -34,7 +35,7 @@ import {
   updateBodyFor,
   type ApiKeyProvider,
 } from '@/dashboard/integrations-config';
-import { GITHUB_CONNECT_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
+import { GITHUB_DASHBOARD_RETURN_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
 import { BotIcon, BoxIcon, CheckIcon, FolderIcon, GitHubIcon, SparkIcon } from '@/dashboard/icons';
 import type { ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
@@ -148,9 +149,11 @@ function GitHubStep({ github, login, onConnect }: GitHubStepProps): JSX.Element 
         {/* The one grant, and a backend route — so a real navigation, never a
             router Link. It carries the user through authorize and, if they have
             not installed Kiln yet, on to the repository chooser, so clearing it
-            lands them back here connected. */}
+            lands them back here connected — here being the point of the
+            dashboard-return form: this step is the middle of onboarding, not a
+            way into the app. */}
         {onConnect === undefined ? (
-          <a href={GITHUB_CONNECT_PATH} data-role="connect-github">
+          <a href={GITHUB_DASHBOARD_RETURN_PATH} data-role="connect-github">
             Connect GitHub
           </a>
         ) : (

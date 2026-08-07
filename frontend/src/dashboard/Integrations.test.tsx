@@ -80,7 +80,7 @@ describe('Integrations', () => {
       document.querySelector('[data-role="integration-card"][data-provider="github"]'),
     ).toBeNull();
     expect(screen.queryByLabelText('GitHub token')).toBeNull();
-    expect(document.querySelector('a[href="/auth/github/connect"]')).toBeNull();
+    expect(document.querySelector('a[href^="/auth/github/connect"]')).toBeNull();
   });
 
   it('each row carries the provider’s brand mark and nothing under it', () => {

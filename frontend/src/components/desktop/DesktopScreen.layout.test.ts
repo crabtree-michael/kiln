@@ -99,6 +99,37 @@ describe('DesktopScreen.css', () => {
     expect(body).toMatch(/overflow-anchor:\s*auto/);
   });
 
+  it('keeps a short feed scrollable on touch, so it bounces instead of sitting dead', () => {
+    // A scroller whose content fits has nothing to scroll and no rubber-band to
+    // give, so on a tablet — landscape ≥1024px, which is THIS shell — a quiet
+    // feed stopped answering the finger entirely. The phone has answered it since
+    // its feed was built, with one wrapper held a pixel past the scrollport
+    // (`[data-role='feed-scroll']`, PrimaryScreen.css); this is the desk's copy of
+    // the same trick, and jsdom does no layout, so the string is all the gate can
+    // see of it.
+    const scroll = ruleBody("[data-role='desktop-feed-scroll'] {");
+    // The wrapper hands the region's free height on to what it wraps — the
+    // resting block's own `flex: 1 0 auto`, the control's `margin-top: auto`,
+    // which only bites inside a flex column. Turning it into a plain block would
+    // silently return the control to the end of the cards.
+    expect(scroll).toMatch(/flex:\s*1 0 auto/);
+    expect(scroll).toMatch(/display:\s*flex/);
+    expect(scroll).toMatch(/flex-direction:\s*column/);
+
+    // The pixel itself, and only where there is a rubber-band to unlock: with a
+    // mouse it would buy a permanent scrollbar and nothing else.
+    const touch = css.slice(css.indexOf('@media (hover: none) and (pointer: coarse)'));
+    expect(touch).toMatch(/\[data-role='desktop-feed-scroll'\]/);
+    expect(touch).toMatch(/min-height:\s*calc\(100% \+ 1px\)/);
+
+    // And the pixel is worth nothing if the bounce is suppressed: iOS WebKit
+    // reads `overscroll-behavior: contain|none` as "no elastic bounce either", so
+    // the feed must keep the default. Chaining is dead-ended at the document
+    // instead (html/body locked here, `overscroll-behavior: none` in tokens.css).
+    expect(ruleBody("[data-role='desktop-feed'] {")).not.toMatch(/overscroll-behavior/);
+    expect(tokens).toMatch(/overscroll-behavior:\s*none/);
+  });
+
   it('caps the feed at one readable column rather than spending width on more', () => {
     const body = ruleBody("[data-role='desktop-feed-list'] {");
     expect(body).toMatch(/max-width:\s*\d+px/);

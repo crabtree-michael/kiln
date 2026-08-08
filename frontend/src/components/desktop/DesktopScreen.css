@@ -382,6 +382,56 @@ html:has([data-role='desktop-screen']) body {
   border-radius: var(--radius-lg);
 }
 
+/* One sizing wrapper around everything the feed scrolls — the cards or the
+   resting block, and the pinned control under them. It is the desk's copy of the
+   phone's `[data-role='feed-scroll']` (PrimaryScreen.css), and it exists for the
+   same one reason: it is a single box whose height can be stated as a fraction of
+   the SCROLLPORT, which is what the touch rule below needs.
+
+   `flex: 1 0 auto` on its own changes nothing about the layout it wraps. The
+   wrapper takes the region's free height and hands it straight on to whichever
+   block asks for it — the resting state's own `flex: 1 0 auto`, "Show earlier"'s
+   `margin-top: auto` — exactly as the region did before it was here. Which is
+   also why it has to be a flex column: `margin-top: auto` only bites inside one,
+   and turning this back into a plain block would quietly return the control to
+   the end of the cards. It is the control's containing block now, so the sticky
+   half of that anchoring hangs off it; it runs the full scrolled height, so
+   `bottom: 0` still pins the control to the region's floor. */
+[data-role='desktop-feed-scroll'] {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A short feed still has to feel like a surface you can move. A scroll container
+   whose content fits has nothing to scroll AND no rubber-band to give, so on a
+   touch screen a quiet feed reads as a dead panel rather than as a feed that
+   happens to be short — the app stops answering the finger at exactly the moment
+   there is least on screen to reassure the user it is alive.
+
+   Holding the wrapper one pixel past the scrollport keeps `scrollHeight >
+   clientHeight` at all times, which is all iOS/Android need to treat the region
+   as scrollable and hand back the elastic bounce. The pixel is imperceptible and
+   nothing else about the layout moves. The phone has had this since its own feed
+   was built; the desk shell never got it, and a tablet in landscape — ≥1024px, so
+   THIS shell (use-desktop-layout) — is exactly where that gap is felt, since it
+   is the one place the desk layout is driven by a finger.
+
+   Coarse pointer only, like the phone's: with a mouse there is no bounce to earn
+   back, and the pixel would surface a permanent scrollbar on every window.
+
+   Do NOT pair this with `overscroll-behavior` on the feed. iOS WebKit reads
+   `contain`/`none` as "no elastic bounce either" and would suppress the very
+   thing this unlocks (the phone's rule says the same, at length). Chaining is
+   already dead-ended above: html/body are locked at the top of this file and
+   carry `overscroll-behavior: none` in tokens.css, so an overscroll that
+   propagates out of the feed finds nothing to move. */
+@media (hover: none) and (pointer: coarse) {
+  [data-role='desktop-feed-scroll'] {
+    min-height: calc(100% + 1px);
+  }
+}
+
 [data-role='desktop-feed-list'] {
   list-style: none;
   /* The room a desk earns goes to legibility, not to more (13 §6): one column,

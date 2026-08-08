@@ -238,7 +238,11 @@ const page = await browser.newPage({
 // enough to look at (12 §4.1's loading indication).
 let apiDelayMs = 0;
 
-await page.route('**/api/**', async (route) => {
+// Named rather than inlined into the `page.route` below, because the tablet pass
+// at the end of this file opens a SECOND page (touch emulation is a context
+// option, not a viewport) and has to be answered by exactly the same stubs — a
+// copy would drift the moment one of these bodies changes.
+const apiStub = async (route) => {
   const url = new URL(route.request().url());
   const json = async (body) => {
     if (apiDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, apiDelayMs));
@@ -274,7 +278,9 @@ await page.route('**/api/**', async (route) => {
     return route.fulfill({ status: 200, contentType: 'text/event-stream', body: streamBody });
   }
   return json({});
-});
+};
+
+await page.route('**/api/**', apiStub);
 
 const errors = [];
 page.on('pageerror', (error) => errors.push(String(error)));
@@ -1089,6 +1095,113 @@ await page.setViewportSize({ width: 480, height: 520 });
 await page.waitForTimeout(400);
 await page.screenshot({ path: '/tmp/mobile-shell-show-earlier-scrolling.png' });
 console.log('MOBILE SHOW EARLIER — SCROLLING FEED', await readMobileShowEarlier());
+
+// ── The desk under a finger: a short feed still has to move ──────────────────
+// A tablet in landscape is ≥1024px, so it gets THIS shell (use-desktop-layout is
+// width-only, deliberately) — and it is the one place the desk layout is driven
+// by a finger rather than a mouse. A scroll container whose content fits has
+// nothing to scroll AND no rubber-band to give, so a quiet feed there simply
+// stopped answering: the panel read as dead rather than as a feed that happens
+// to be short. The wrapper inside the region is held a pixel past the scrollport
+// on coarse pointers to keep it always scrollable, which is what hands the
+// native bounce back.
+//
+// Touch is a CONTEXT option, not a viewport, so this needs its own page —
+// answered by the same `apiStub`, watched by the same error array. The pass
+// prints `coarsePointer` first because everything under it is meaningless if the
+// emulation didn't take: the rule is behind `(hover: none) and (pointer: coarse)`.
+const tablet = await browser.newPage({
+  viewport: { width: 1194, height: 834 },
+  colorScheme: 'dark',
+  hasTouch: true,
+  isMobile: true,
+});
+await tablet.route('**/api/**', apiStub);
+tablet.on('pageerror', (error) => errors.push(`tablet: ${String(error)}`));
+tablet.on('console', (message) => {
+  if (message.type() === 'error') errors.push(`tablet: ${message.text()}`);
+});
+
+const readTabletFeed = async () =>
+  JSON.stringify(
+    await tablet.evaluate(() => {
+      const region = document.querySelector('[data-role="desktop-feed"]');
+      const scroll = document.querySelector('[data-role="desktop-feed-scroll"]');
+      const composer = document.querySelector('[data-role="desktop-composer-region"]');
+      const button = document.querySelector('[data-role="feed-show-earlier"]');
+      if (!region || !scroll) return 'missing';
+      const b = button?.getBoundingClientRect();
+      const c = composer?.getBoundingClientRect();
+      return {
+        coarsePointer: matchMedia('(hover: none) and (pointer: coarse)').matches,
+        desktopShell: document.querySelector('[data-role="desktop-screen"]') !== null,
+        // The whole point: room to move, in a feed with less in it than the
+        // window. One pixel is all it takes and all it should ever be.
+        scrollable: region.scrollHeight > region.clientHeight,
+        overflowPx: region.scrollHeight - region.clientHeight,
+        // …and the wrapper is what provides it, rather than something above
+        // having grown a scrollbar's worth of content. Measured against the
+        // region's CONTENT box, which is what a percentage height resolves
+        // against: the number to see here is 1.
+        wrapperPastContentBox: (() => {
+          const style = getComputedStyle(region);
+          const contentBox =
+            region.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+          return Math.round(scroll.getBoundingClientRect().height - contentBox);
+        })(),
+        // The default is load-bearing: iOS WebKit reads `contain`/`none` as "no
+        // elastic bounce either", which would suppress the thing the pixel
+        // unlocks. Chaining dead-ends at the locked document instead.
+        feedOverscroll: getComputedStyle(region).overscrollBehaviorY,
+        documentScrollable: document.documentElement.scrollHeight > window.innerHeight,
+        // And nothing the pixel touches has moved the control off the foot.
+        showEarlier:
+          b && c
+            ? {
+                onScreen: b.bottom <= region.getBoundingClientRect().bottom + 1,
+                gapToComposer: Math.round(c.top - b.bottom),
+              }
+            : 'absent',
+      };
+    }),
+    null,
+    2,
+  );
+
+feedBody = emptyFeed;
+await tablet.goto('http://localhost:4173/app');
+await tablet.waitForSelector('[data-role="desktop-rest"]', { timeout: 10_000 });
+await tablet.waitForTimeout(600);
+await tablet.screenshot({ path: '/tmp/desktop-shell-tablet-resting.png' });
+console.log('TABLET — RESTING FEED', await readTabletFeed());
+
+// The other short reading: a handful of cards, still nowhere near the window's
+// height. Same answer required — "short" is not "empty".
+feedBody = feed;
+await tablet.reload();
+await tablet.waitForSelector('[data-role="desktop-feed-row"]', { timeout: 10_000 });
+await tablet.waitForTimeout(600);
+console.log('TABLET — SHORT FEED', await readTabletFeed());
+
+// The mouse is deliberately NOT given the pixel: with no bounce to earn back it
+// would buy a permanently scrollable region and a scrollbar to match. This is
+// the same 1440px page every pass above used, so `scrollable: false` here is the
+// desk at rest reading exactly as it did before the rule existed.
+await page.setViewportSize({ width: 1440, height: 900 });
+await page.reload();
+await page.waitForSelector('[data-role="desktop-feed-row"]', { timeout: 10_000 });
+await page.waitForTimeout(600);
+console.log(
+  'DESK, POINTER — SHORT FEED',
+  await page.evaluate(() => {
+    const region = document.querySelector('[data-role="desktop-feed"]');
+    return {
+      coarsePointer: matchMedia('(hover: none) and (pointer: coarse)').matches,
+      scrollable: region.scrollHeight > region.clientHeight,
+      overflowPx: region.scrollHeight - region.clientHeight,
+    };
+  }),
+);
 
 console.log('PAGE ERRORS', errors.length === 0 ? 'none' : errors);
 

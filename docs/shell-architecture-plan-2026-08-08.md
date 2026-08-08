@@ -1,17 +1,17 @@
 # Shell architecture — how mobile and desktop stop being copies of each other
 
 **Date:** 2026-08-08 (revised same day)
-**Status:** **approved, blocked on one open decision** — see §7. Everything else is settled and
-implementation can start the moment §7 is answered. No implementation code has been written.
+**Status:** **ready for review — no open decisions.** Every question this plan raised has been
+answered; the ticket chain in §6 can start on approval. No implementation code has been written.
 **Answers:** `docs/dev-velocity-review-2026-08-08.md` D1 (and absorbs D9), and spec `13` §13 Q4.
 
-**Decisions taken (2026-08-08):**
+**Decisions taken (2026-08-08), both settled:**
 
 - **`KanbanScreenView` is IN SCOPE**, per §5's recommendation — it joins at **T3/T4**, not T1/T2.
   That settles the "one genuinely arguable call" §5 flagged.
-- **Still open:** how the two feed shells' optimistic card hides reach the shared ticket
-  intents — *injection* or *ambient lookup*. Laid out for a decision in **§7**. This is the only
-  thing blocking the chain.
+- **The feed's optimistic card hides are INJECTED**, not looked up ambiently — the shared ticket
+  intents take the hide as an input rather than reaching for a feed store. §7 is the record of
+  that decision, including the case for the alternative that was not taken.
 
 ---
 
@@ -145,10 +145,11 @@ useTicketActions({ onAcceptOptimistic?: (id) => void, onDeleteOptimistic?: (id) 
 passes nothing. This is deliberate: `/kanban` does not mount `FeedProvider` (by design — a board
 view costs no `GET /api/feed`), so the hook must not have a feed dependency.
 
-**This is the plan's one open decision, and it is written up in full in §7.** The alternative is
-a `useOptionalFeedStore()` that returns `null` outside a provider. The recommendation is
-injection; §7 lays out both options in plain language so the call can be made without reading
-the code.
+**Decided (2026-08-08): injection.** The alternative — a `useOptionalFeedStore()` returning `null`
+outside a provider — hides the coupling and makes "does this route have a feed?" invisible at the
+call site, which is the failure mode this whole plan exists to reverse. §7 is the full record of
+the choice, including the honest case for the option not taken and the conditions that would
+justify revisiting it.
 
 ### L2 — Reading model: `readFeed()` → `FeedRow[]`
 
@@ -324,10 +325,10 @@ revertable, and small enough to review against the snapshot rule above.
 **Sequence:** T0 → (T1 → T2 → T3) with T4 running in parallel → T5.
 **Rough size:** about a week of focused work for one agent; two to three days with T4 parallelised.
 
-**Status of the table (2026-08-08).** The kanban scope decision is now locked in above: T3's
-"three views" and T4's "both containers" are settled, not proposals. **T4 is the one ticket
-blocked on §7** — its shape depends on which option is chosen, though its size (S) does not.
-T0, T1, T2, T3 and T5 are unblocked and could start the moment the chain is approved to run.
+**Status of the table (2026-08-08).** Both decisions are locked in above: T3's "three views" and
+T4's "both containers" are settled rather than proposed, and T4's shape is fixed by §7's
+injection decision — it takes `onAcceptOptimistic` / `onDeleteOptimistic` as inputs. **No ticket
+is blocked on an open question.** The chain runs on approval.
 
 Consistent with the review's own "Medium complexity, weeks 2–3" placement, and with its note that
 D1 is the thing to do first if only one thing gets done.
@@ -343,11 +344,13 @@ finding from the audit unrelated to the feed screen.
 
 ---
 
-## 7. The one open decision — how the "card vanishes instantly" reaches shared code
+## 7. Decision record — how the "card vanishes instantly" reaches shared code
 
-**This is the only thing blocking the work.** It is a small, reversible engineering choice, but it
-sets a habit the rest of the plan leans on, so it is worth a deliberate answer rather than a
-default. Written below to be decidable without reading any code.
+**DECIDED 2026-08-08: Option A, injection.** Kept in full below as the record of *why*, because
+the reasoning matters more than the outcome: this is a small, reversible engineering choice that
+nonetheless sets a habit the rest of the plan leans on, and a future reader deserves the argument
+rather than the verdict. §7.5 preserves the honest case for the option not taken, and names the
+condition under which revisiting it would be right.
 
 ### 7.1 What the thing actually is
 
@@ -368,7 +371,7 @@ shared code know whether this screen has a feed with a card to hide?**
 
 ### 7.2 The two options
 
-**Option A — Injection ("each screen says what it needs").**
+**Option A — Injection ("each screen says what it needs"). ← CHOSEN**
 The shared code doesn't look for a feed. It accepts a hide-the-card instruction as an *input*.
 The feed screen hands it one. The board screen hands it nothing, and the shared code simply
 skips that step.
@@ -382,7 +385,7 @@ entirely in what a future developer — or a future agent — can tell at a glan
 
 ### 7.3 Side by side
 
-| | **A — Injection** *(recommended)* | **B — Ambient lookup** |
+| | **A — Injection** *(CHOSEN)* | **B — Ambient lookup** *(not taken)* |
 |---|---|---|
 | What each screen writes | One extra line on the feed screen; the board screen deliberately writes nothing | Nothing on either screen |
 | Reading the board screen, can you tell it has no feed? | **Yes** — the omission is right there, and can carry a comment saying why | **No** — you must open the shared file and reason about it |
@@ -393,7 +396,7 @@ entirely in what a future developer — or a future agent — can tell at a glan
 | Testing the shared code | Straightforward — hand it a fake, or nothing | Needs a fake "surroundings" to test the no-feed case |
 | Cost to switch to the other later | **Low.** One file, two call sites, an afternoon. Fully reversible either direction. | Same |
 
-### 7.4 Why the recommendation is A
+### 7.4 Why A was chosen
 
 Three reasons, in order of weight:
 
@@ -422,11 +425,23 @@ Today there are **two** screens, and the plan adds none. So the condition that w
 does not hold yet — and because switching costs an afternoon, adopting A now costs nothing if
 that changes later.
 
-### 7.6 What to reply
+### 7.6 What this binds, and when to reopen it
 
-- **"Go with injection"** → the recommendation; T4 proceeds as written and the chain unblocks.
-- **"Go with the ambient lookup"** → equally implementable; §2's L1 paragraph and T4 get
-  rewritten accordingly. No other ticket changes.
-- **"You decide"** → injection, and this section stands as the record of why.
+**Binding on T4:** `useTicketActions()` takes `onAcceptOptimistic` and `onDeleteOptimistic` as
+optional inputs. `PrimaryScreen` passes the feed store's `acceptProposal` / `deleteTicketCard`;
+`KanbanScreen` passes neither, with a comment saying why. There is to be **no
+`useOptionalFeedStore()`**, and no other route by which shared ticket code reaches for a feed
+store — that is the whole content of this decision, and a later "small convenience" that
+reintroduces one is this decision being reversed by accident rather than on purpose.
 
-Either answer unblocks the whole chain. Nothing else in this plan is waiting on anything.
+**Not binding on anything else.** No other ticket changes shape either way.
+
+**Reopen it when — and only when — §7.5's condition actually arrives:** five or six screens
+each wiring the same two hides by hand. At that point the repetition has become noise and B is
+the better answer. Reopening costs an afternoon (§7.3, last row), so there is no need to
+pre-empt it; the trigger is a count, not a feeling.
+
+**One rule that survives either option**, worth stating because it is the thing actually at
+stake: *whether a route has a feed must be visible at that route.* Injection achieves it by
+making the screen say so. If B is ever adopted, it has to achieve the same thing some other
+way — a comment at the screen, a named type, something — rather than simply dropping the fact.

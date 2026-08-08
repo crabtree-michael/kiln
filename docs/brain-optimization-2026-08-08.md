@@ -5,6 +5,20 @@
 measured window in [`brain-optimization-2026-08-05.md`](brain-optimization-2026-08-05.md)
 **Status:** investigation + proposal. Nothing here is implemented.
 
+> **Now sized against production in
+> [`brain-optimization-2026-08-08-validation.md`](brain-optimization-2026-08-08-validation.md).**
+> That measurement pass **refutes §1, §2, §3 and §4** on current traffic (respectively: 1 capped
+> round in 4,701; max pass 92 s against a 10-minute timeout; 0.94× per-round cost once controlled
+> for pass length; 3 output-cap truncations in 666 shell runs), **confirms §5, §6 and §7**, and
+> **reframes §8** — the brain's `list_agents` is 2.2/h against the liveness loop's ~360/h per
+> project. §6 is the only finding with a measured double-digit share of spend. §1's "currently
+> unmeasurable" is also wrong: the collapse hides `stop_reason`, not `output_tokens`.
+>
+> It also adds **two findings this pass could not see**: 4.1% of all tool calls are exact
+> duplicates within a single pass, and `update_ticket` still fails an illegal transition on 10.3%
+> of calls — down from 39.5% before recommendation B, which is part of the evidence that A–D
+> together cut the tool-call error rate from 7.82% to 1.90%.
+
 > **This pass is a code read, not a log study.** The 2026-08-05 document was reconstructed
 > from 17.9k structured log records and its numbers are ground truth. This one walks
 > `internal/brain`, `internal/runtime`, `internal/agent`, `internal/repo` and the `cmd/kiln`

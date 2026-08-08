@@ -54,10 +54,10 @@ function startAnimation(el: Element, animationName: string): void {
 describe('sharesPulsePhase', () => {
   it('reads the opt-in off the element, not off a list of animation names', () => {
     // The decision lives in CSS beside the `animation` it qualifies. Nothing in
-    // this module names a keyframe: `kiln-breathe` is run by BOTH the desk's
-    // in-progress head (on the ticket list's tempo, shared) and the rail's
-    // project dot (on its own slower one, alone in its column) — a name list
-    // could not tell those two apart.
+    // this module names a keyframe, because a name cannot separate the marks that
+    // want the sync from the ones that don't: the rail's project dot breathes on
+    // a deliberately slower tempo, alone in a column with nothing to keep time
+    // against, and would be swept into a sync it never asked for.
     expect(sharesPulsePhase(mark({ shared: true, animations: [] }))).toBe(true);
     expect(sharesPulsePhase(mark({ shared: false, animations: [] }))).toBe(false);
   });
@@ -76,18 +76,18 @@ describe('installPulsePhase', () => {
 
   it('puts marks that started minutes apart on the same phase', () => {
     // The bug this pins down. The desk's in-progress head and the status marks
-    // listed under it already declare the same duration and the same curve, and
-    // still drifted: a CSS animation's clock starts when its own element starts
-    // animating, so the head (live from the panel's first pass) and a row (live
-    // from when that ticket was picked up) ran the same tempo from arbitrary
-    // starts and crossed in and out of step forever. Pinned to one origin,
-    // progress is `timelineTime % duration` — identical for both, whenever they
-    // appeared.
+    // listed under it are the same element on the same rule — one animation,
+    // `kiln-status-pulse` — and still drifted: a CSS animation's clock starts
+    // when its own element starts animating, so the head (live from the panel's
+    // first pass) and a row (live from when that ticket was picked up) ran that
+    // one animation from arbitrary starts and crossed in and out of step forever.
+    // Pinned to one origin, progress is `timelineTime % duration` — identical for
+    // both, whenever they appeared.
     install();
-    const head = fakeAnimation('kiln-breathe', 1_000);
+    const head = fakeAnimation('kiln-status-pulse', 1_000);
     const rowPickedUpLater = fakeAnimation('kiln-status-pulse', 214_000);
 
-    startAnimation(mark({ shared: true, animations: [head] }), 'kiln-breathe');
+    startAnimation(mark({ shared: true, animations: [head] }), 'kiln-status-pulse');
     startAnimation(mark({ shared: true, animations: [rowPickedUpLater] }), 'kiln-status-pulse');
 
     expect(head.startTime).toBe(rowPickedUpLater.startTime);
@@ -95,8 +95,8 @@ describe('installPulsePhase', () => {
   });
 
   it('leaves a mark whose rule did not opt in on its own clock', () => {
-    // The rail's project dot is the live case: same `kiln-breathe` keyframes at a
-    // deliberately slower tempo, in a column with nothing to keep time against.
+    // The rail's project dot is the live case: `kiln-breathe` at a deliberately
+    // slower tempo, in a column with nothing to keep time against.
     install();
     const railDot = fakeAnimation('kiln-breathe', 4_500);
 

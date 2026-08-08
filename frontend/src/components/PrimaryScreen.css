@@ -828,12 +828,15 @@
    draws the eye.
 
    `--pulse-phase: shared` puts every one of these on a single clock instead of
-   each on its own. Two rows whose tickets were picked up a minute apart run the
-   same tempo from different starts, so their halos peak apart — a list that
-   shimmers row by row rather than breathing as one reading, with the desk's
-   in-progress head (which follows this rule's cadence) drifting against all of
-   them. See pulse-phase.ts: the marks are pinned to the document timeline, so
-   phase is a function of the clock rather than of when each row mounted. */
+   each on its own — and it is this rule that has to say so, because this rule is
+   the only thing the marks have in common. One declaration does not give them one
+   clock: a CSS animation's timeline starts when ITS OWN element starts animating,
+   so two rows whose tickets were picked up a minute apart run this very animation
+   from different starts and their halos peak apart. A list that shimmers row by
+   row rather than breathing as one reading — and the desk's in-progress head,
+   which is literally one of these marks, drifting against all of them. See
+   pulse-phase.ts: the marks are pinned to the document timeline, so phase is a
+   function of the clock rather than of when each element mounted. */
 [data-role='status-dot'][data-status='building'] {
   --pulse-phase: shared;
   animation: kiln-status-pulse var(--pulse-duration) ease-in-out infinite;

@@ -59,6 +59,13 @@ function primaryRuleBody(selector: string): string {
  * head renders the shared mark itself now, so there is one animation and nothing
  * left to hold in sync — see "gives the in-progress head the ROWS' mark". */
 
+/** The stylesheet with its comments removed, for the absence assertions. What a
+ * rule DECLARES and what a comment explains are different claims: this file has
+ * to state no cadence of its own while still being free to say, in prose, which
+ * cadence the shared mark keeps and why. Asserting over the raw text conflates
+ * the two and makes the explanation itself the failure. */
+const declarations: string = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
 /** The token a declaration paints with — `background: var(--warn)` → `--warn`.
  * Comparing token NAMES rather than literal colours is the point: the two
  * surfaces have to reach for the same entry in the palette, not merely land on
@@ -343,6 +350,46 @@ describe('DesktopScreen.css', () => {
     // renaming them there must fail here rather than silently unlight the head.
     const frames = primaryCss.slice(primaryCss.indexOf('@keyframes kiln-status-pulse'));
     expect(frames.slice(0, frames.indexOf('}\n}') + 3)).toMatch(/var\(--dot-ring,/);
+  });
+
+  it('keeps time with the ticket list, not merely the same tempo as it', () => {
+    // The bug this pins down, and the last one left after the head took the rows'
+    // own mark: sharing a RULE gives the head and the rows one tempo, one curve
+    // and one shape, and they still drift. A CSS animation's clock starts when
+    // its own element starts animating — the head from the panel's first live
+    // pass, each row's mark from when that ticket was picked up — so the same
+    // rule painting both still peaks at different moments, and identical marks
+    // peaking apart is a shimmer the eye tracks instead of either reading.
+    //
+    // `--pulse-phase: shared` is the opt-in that puts them on one clock
+    // (pulse-phase.ts pins it to the document timeline). It belongs to the rule
+    // that declares the `animation`, which is now the single rule both surfaces
+    // render — so there is exactly one place to state it and none to forget.
+    const mark = primaryRuleBody("[data-role='status-dot'][data-status='building'] {");
+    expect(mark).toMatch(/--pulse-phase:\s*shared/);
+    expect(mark).toMatch(/animation:\s*kiln-status-pulse/);
+
+    // And this file DECLARES no phase of its own — the same absence the head's
+    // geometry, ink and cadence are asserted for above. A second opt-in here
+    // would be a second place for the two to disagree, which is the whole shape
+    // of the bug that keeps coming back to this column. Over `declarations`, not
+    // the raw text: the head's rule explains where its phase comes from in prose,
+    // right where it would otherwise restate it.
+    expect(declarations).not.toMatch(/--pulse-phase/);
+  });
+
+  it('leaves the rail’s project dot on a clock of its own', () => {
+    // The counter-case, and why the opt-in is a CSS property rather than a list
+    // of animation names in the sync module: the rail dot runs the SAME
+    // `kiln-breathe` keyframes as the in-progress head, deliberately at
+    // `--breathe-duration` instead of the list's tempo, alone in a column with no
+    // ticket marks beside it to keep time against. Matching on the keyframe name
+    // would sweep it into a sync it never asked for.
+    const rail = ruleBody(
+      "[data-role='rail-project-state'][data-state='working'] [data-role='rail-project-dot'] {",
+    );
+    expect(rail).toMatch(/animation:\s*kiln-breathe\s+var\(--breathe-duration/);
+    expect(rail).not.toMatch(/--pulse-phase/);
   });
 
   it('gives the in-progress head the colour the TICKET wears, not one of its own', () => {

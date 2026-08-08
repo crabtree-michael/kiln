@@ -25,6 +25,7 @@ import { SessionProvider } from '@/stores/session';
 import { CurrentProjectProvider } from '@/stores/current-project';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
 import { installAssetRecovery } from '@/asset-recovery';
+import { installPulsePhase } from '@/pulse-phase';
 
 // Every screen below is loaded on demand rather than bundled into the entry
 // chunk. The routes here are mutually exclusive whole *pages* — a visitor on the
@@ -64,6 +65,13 @@ const ProjectsManager = lazy(async () => ({
 // force one full reload onto the current build's shell instead of rendering
 // unstyled/blank. See asset-recovery.ts for the full rationale.
 installAssetRecovery();
+
+// Put every mark that shares a cadence on one clock, before anything renders, so
+// the first mark to animate is already pinned. Marks declaring
+// `--pulse-phase: shared` — the status mark, wherever it is rendered — otherwise
+// run their one shared animation from whenever each element happened to mount,
+// and drift against each other permanently. See pulse-phase.ts.
+installPulsePhase();
 
 // Frontend error + trace reporting (spec-10 §3). The DSN is baked in at build
 // time (`VITE_SENTRY_DSN`, a public value). When it is unset — local `pnpm dev`,

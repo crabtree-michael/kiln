@@ -825,8 +825,20 @@
 /* building — an agent is mid-turn. The one status that MOVES, and the only thing
    separating it from a starting session: the same ink, with the ring breathing
    in and out. Nothing else pulses, so the actively-worked ticket is the one that
-   draws the eye. */
+   draws the eye.
+
+   `--pulse-phase: shared` puts every one of these on a single clock instead of
+   each on its own — and it is this rule that has to say so, because this rule is
+   the only thing the marks have in common. One declaration does not give them one
+   clock: a CSS animation's timeline starts when ITS OWN element starts animating,
+   so two rows whose tickets were picked up a minute apart run this very animation
+   from different starts and their halos peak apart. A list that shimmers row by
+   row rather than breathing as one reading — and the desk's in-progress head,
+   which is literally one of these marks, drifting against all of them. See
+   pulse-phase.ts: the marks are pinned to the document timeline, so phase is a
+   function of the clock rather than of when each element mounted. */
 [data-role='status-dot'][data-status='building'] {
+  --pulse-phase: shared;
   animation: kiln-status-pulse var(--pulse-duration) ease-in-out infinite;
 }
 

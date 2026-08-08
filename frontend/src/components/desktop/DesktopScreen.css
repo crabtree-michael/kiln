@@ -596,7 +596,16 @@ html:has([data-role='desktop-screen']) body {
 
    Neutral on purpose: this is liveness with nothing to name, and 13 §8.2 gives
    the working strip "no accent" — an ink here is for a state with a ticket
-   behind it. */
+   behind it.
+
+   Nothing about the CADENCE is stated here either, phase included. The head runs
+   the shared mark's own `animation`, and with it the `--pulse-phase: shared`
+   opt-in that pins every one of these marks to a single clock (PrimaryScreen.css,
+   and pulse-phase.ts for why). That is the second half of what "the same breath
+   as the rows" has to mean: sharing a rule gives the head and the rows one tempo,
+   but a CSS animation's clock starts when its own element starts animating, so
+   the head — live from the panel's first pass — and a row — live from when that
+   ticket was picked up — would still peak apart. */
 [data-role='desktop-working-head'][data-active='true'] [data-role='status-dot']:not([data-state]) {
   --dot-ink: var(--text-muted);
   --dot-ring: var(--border-default);

@@ -136,6 +136,24 @@ function feedRegion(container: HTMLElement): HTMLElement {
   return node;
 }
 
+/** The one wrapper inside the feed region holding everything it scrolls — the
+ * cards or the resting block, and the pinned control under them. Everything the
+ * region used to hold directly now hangs off this, because on a touch screen it
+ * is what is held a hair taller than the scrollport so the feed always has a
+ * rubber-band to give (DesktopScreen.css). Asserting it is the region's ONLY
+ * element child is the half that matters here: a block that drifts out to sit
+ * beside it would escape both the height it publishes and the flex column the
+ * control's `margin-top: auto` needs. */
+function feedScroll(container: HTMLElement): HTMLElement {
+  const region = feedRegion(container);
+  const node = region.querySelector<HTMLElement>(':scope > [data-role="desktop-feed-scroll"]');
+  if (node === null) {
+    throw new Error('desktop-feed-scroll not found');
+  }
+  expect(region.children).toHaveLength(1);
+  return node;
+}
+
 function renderShell(overrides: Partial<React.ComponentProps<typeof DesktopScreenView>> = {}) {
   const onSelectProject = vi.fn();
   const onAccept = vi.fn();
@@ -247,10 +265,14 @@ describe('DesktopScreenView', () => {
     // this is the one that regressed: the control is the last thing in the feed
     // region whatever is above it, so the next thing under it is the input. The
     // CSS pins it to that edge; this pins the order that makes the pinning mean
-    // what it says.
+    // what it says. Last thing in the SCROLL WRAPPER, which is the region's only
+    // child — that wrapper is the containing block the sticky half hangs off, so
+    // a control lifted out beside it would stick to a box it isn't in.
     const { container } = renderShell({ hasEarlier: true, onShowEarlier: vi.fn() });
-    const region = feedRegion(container);
-    expect(region.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
+    expect(feedScroll(container).lastElementChild).toHaveAttribute(
+      'data-role',
+      'feed-show-earlier',
+    );
     // And it is a SIBLING of the card list, not the last row inside it — which
     // is what lets it outlive a feed whose cards have all collapsed away.
     expect(
@@ -1067,10 +1089,10 @@ describe('DesktopScreenView', () => {
     // lines — the last thing in the feed region, so the next thing under it is
     // the input. (The CSS is what pins it to the bottom edge; this pins the
     // order it has to be in for that to mean anything.)
-    const region = feedRegion(container);
-    expect(region.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
+    const scroll = feedScroll(container);
+    expect(scroll.lastElementChild).toHaveAttribute('data-role', 'feed-show-earlier');
     const rest = container.querySelector('[data-role="desktop-rest"]');
-    const button = region.lastElementChild;
+    const button = scroll.lastElementChild;
     expect(rest?.compareDocumentPosition(button ?? rest)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 

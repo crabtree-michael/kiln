@@ -1030,6 +1030,36 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   per-card dismiss and the bulk clear (13 §6 + open Q3 — the brain curates, 08 D1),
   pull-to-refresh (a touch gesture), and the header's ticket dropdown (board mechanism,
   13 D2). Don't "restore parity" without reopening those questions.
+- **The desk shell is ALSO a touch shell, and a short feed has to bounce.** The breakpoint is
+  width-only (13 §11), so a tablet in landscape is ≥1024px and gets *this* layout driven by a
+  finger — which is where "the feed doesn't move when there's little in it" was reported. A
+  scroller whose content fits has nothing to scroll *and no rubber-band to give*, so the desk
+  now carries the phone's answer: one wrapper, `[data-role='desktop-feed-scroll']`, holding
+  everything the region scrolls (the cards or the resting block, **and** the pinned "Show
+  earlier"), held `min-height: calc(100% + 1px)` under `@media (hover: none) and (pointer:
+  coarse)`. Four things to keep:
+  - **The control must stay INSIDE the wrapper.** The wrapper is its containing block now, so
+    the sticky half of its anchoring hangs off it; lifted out to sit beside the wrapper it
+    would stick to a box it isn't in, and the wrapper's extra height would become scrollable
+    slack the size of the control.
+  - **The wrapper must stay a flex column with `flex: 1 0 auto`** — it takes the region's free
+    height and hands it straight on to the resting block's own `flex: 1 0 auto` and the
+    control's `margin-top: auto`, which only bites inside a flex column.
+  - **Coarse pointer only.** With a mouse there is no bounce to earn back and the pixel buys a
+    permanent scrollbar on every window.
+  - **Never pair it with `overscroll-behavior` on the feed** — iOS WebKit reads `contain`/`none`
+    as "no elastic bounce either" and would suppress exactly what the pixel unlocks. Chaining is
+    dead-ended at the document instead (html/body locked + `overscroll-behavior: none` in
+    tokens.css). Same reasoning, at length, in the phone's `[data-role='feed']` rule.
+  `desktop-shell-smoke.mjs`'s tablet pass is the only thing that can see any of it — a second
+  page (touch is a *context* option, not a viewport, so it cannot be a `setViewportSize` on the
+  page every other pass uses) at 1194×834 with `hasTouch`, reading `coarsePointer` first because
+  everything under it is meaningless if the emulation didn't take, then the region's overflow
+  (1px), the wrapper's height past the region's **content** box (what a percentage resolves
+  against), the feed's `overscroll-behavior`, and the control's gap to the composer — against
+  the same numbers the 1440px mouse pass prints with no overflow at all. The gate can only see
+  the rule's text (`DesktopScreen.layout.test.ts`) and the DOM shape
+  (`DesktopScreenView.test.tsx`, which pins the wrapper as the region's only child).
 - **The desktop composer does not use the voice store's `keyboardMode`.** That toggle is
   modal (entering stops the mic) because a phone has room for one input at a time; a desk
   doesn't have that constraint, so the field and the mic coexist and the user picks

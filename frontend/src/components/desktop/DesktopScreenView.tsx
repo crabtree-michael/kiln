@@ -383,82 +383,104 @@ export function DesktopScreenView({
           tabIndex={0}
           onKeyDown={onFeedKeyDown}
         >
-          {cards.length === 0 ? (
-            // The resting state is the real state (13 §1): composed, not empty,
-            // and not apologised for. The bell mark over one honest line, no
-            // "nothing here yet!" — this is the state the design is optimised
-            // for, so it should look like the app at rest. It is the same mark,
-            // in the same reading, as the phone's all-clear state: the two
-            // shells are one app, and the resting view is where that matters
-            // most, since it is what a window left open all day shows.
-            //
-            // Withheld while `loading`, because it is a STATEMENT: "All quiet"
-            // asserts we asked and there was nothing, and mid-fetch we haven't
-            // asked yet. Saying it and then replacing it a beat later with three
-            // blockers is worse than saying nothing — it teaches the user not to
-            // believe the one line this screen most needs them to believe. The
-            // loading line above stands in until the answer is actually known.
-            !loading && (
-              <div data-role="desktop-rest">
-                <img data-role="desktop-rest-mark" src="/kiln-mark.svg" alt="" aria-hidden="true" />
-                <p data-role="desktop-rest-line">All quiet.</p>
-                <p data-role="desktop-rest-detail">{streamDetail(summary)}</p>
-                {lastWord !== null && <p data-role="desktop-rest-subtext">{lastWord}</p>}
-              </div>
-            )
-          ) : (
-            <ol data-role="desktop-feed-list">
-              {cards.map((card, index) => (
-                <li key={card.id}>
-                  {index === divider && (
-                    <div data-role="feed-divider" data-variant="last-seen">
-                      Earlier
+          {/* One sizing wrapper around everything this region scrolls, the pinned
+              control included — the phone's `[data-role='feed-scroll']`, now on
+              the desk (see DesktopScreen.css). On a touch screen it is held a
+              hair taller than the scrollport so the feed is ALWAYS scrollable and
+              the native rubber-band engages even when there is little in it; a
+              tablet in landscape gets this shell, and without the pixel a short
+              feed there simply doesn't answer the finger. It changes no geometry:
+              the free height it takes is handed straight on to the resting block
+              and to "Show earlier" below it. */}
+          <div data-role="desktop-feed-scroll">
+            {cards.length === 0 ? (
+              // The resting state is the real state (13 §1): composed, not empty,
+              // and not apologised for. The bell mark over one honest line, no
+              // "nothing here yet!" — this is the state the design is optimised
+              // for, so it should look like the app at rest. It is the same mark,
+              // in the same reading, as the phone's all-clear state: the two
+              // shells are one app, and the resting view is where that matters
+              // most, since it is what a window left open all day shows.
+              //
+              // Withheld while `loading`, because it is a STATEMENT: "All quiet"
+              // asserts we asked and there was nothing, and mid-fetch we haven't
+              // asked yet. Saying it and then replacing it a beat later with three
+              // blockers is worse than saying nothing — it teaches the user not to
+              // believe the one line this screen most needs them to believe. The
+              // loading line above stands in until the answer is actually known.
+              !loading && (
+                <div data-role="desktop-rest">
+                  <img
+                    data-role="desktop-rest-mark"
+                    src="/kiln-mark.svg"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <p data-role="desktop-rest-line">All quiet.</p>
+                  <p data-role="desktop-rest-detail">{streamDetail(summary)}</p>
+                  {lastWord !== null && <p data-role="desktop-rest-subtext">{lastWord}</p>}
+                </div>
+              )
+            ) : (
+              <ol data-role="desktop-feed-list">
+                {cards.map((card, index) => (
+                  <li key={card.id}>
+                    {index === divider && (
+                      <div data-role="feed-divider" data-variant="last-seen">
+                        Earlier
+                      </div>
+                    )}
+                    {/* The roving-focus target. `tabIndex={-1}` keeps it out of the
+                        Tab order (Tab still walks the card's own controls); the
+                        feed region's Arrow handling focuses it. */}
+                    <div data-role="desktop-feed-row" data-kind={card.kind} tabIndex={-1}>
+                      <FeedCardItem
+                        card={card}
+                        now={now}
+                        onAccept={onAccept}
+                        seen={isSeen(card, lastSeenId)}
+                        onOpenDetail={setOpenTicketId}
+                        // "tap" is a phone word. The card is the same card — same
+                        // clamp, same cue, same target — but a window that tells
+                        // you to tap is the mobile-stretched reading this shell
+                        // exists to replace (13 §4).
+                        moreLabel="more"
+                      />
                     </div>
-                  )}
-                  {/* The roving-focus target. `tabIndex={-1}` keeps it out of the
-                      Tab order (Tab still walks the card's own controls); the
-                      feed region's Arrow handling focuses it. */}
-                  <div data-role="desktop-feed-row" data-kind={card.kind} tabIndex={-1}>
-                    <FeedCardItem
-                      card={card}
-                      now={now}
-                      onAccept={onAccept}
-                      seen={isSeen(card, lastSeenId)}
-                      onOpenDetail={setOpenTicketId}
-                      // "tap" is a phone word. The card is the same card — same
-                      // clamp, same cue, same target — but a window that tells
-                      // you to tap is the mobile-stretched reading this shell
-                      // exists to replace (13 §4).
-                      moreLabel="more"
-                    />
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-          {/* Outside the empty/non-empty branch for the same reason as the phone:
-              a feed whose cards have all collapsed away renders the resting
-              state, and that is precisely where the way back has to stay. One
-              control, one label — the desk collapses seen cards exactly like the
-              phone does, so it gets exactly the same affordance (08 D2‴).
+                  </li>
+                ))}
+              </ol>
+            )}
+            {/* Outside the empty/non-empty branch for the same reason as the phone:
+                a feed whose cards have all collapsed away renders the resting
+                state, and that is precisely where the way back has to stay. One
+                control, one label — the desk collapses seen cards exactly like the
+                phone does, so it gets exactly the same affordance (08 D2‴).
 
-              Its placement is the phone's too, by the same two declarations
-              (`margin-top: auto` + `position: sticky`, DesktopScreen.css over
-              PrimaryScreen.css): the foot of the feed region in every state. The
-              region used to say which state it was in — a `data-empty` attribute
-              — because only the empty one put the control above the input; with
-              the anchoring unconditional there was nothing left reading it. */}
-          {hasEarlier && onShowEarlier !== undefined && (
-            <button
-              type="button"
-              data-role="feed-show-earlier"
-              onClick={onShowEarlier}
-              disabled={loadingEarlier}
-              aria-busy={loadingEarlier || undefined}
-            >
-              Show earlier
-            </button>
-          )}
+                Its placement is the phone's too, by the same two declarations
+                (`margin-top: auto` + `position: sticky`, DesktopScreen.css over
+                PrimaryScreen.css): the foot of the feed region in every state. The
+                region used to say which state it was in — a `data-empty` attribute
+                — because only the empty one put the control above the input; with
+                the anchoring unconditional there was nothing left reading it.
+
+                Last inside the scroll wrapper, not a sibling of it, and for the
+                same reason it is last in the phone's backlog: that wrapper is the
+                containing block its `position: sticky` hangs off. Lifted out to sit
+                beside the wrapper it would stick to a box it no longer belongs to
+                and stop being the foot of the region. */}
+            {hasEarlier && onShowEarlier !== undefined && (
+              <button
+                type="button"
+                data-role="feed-show-earlier"
+                onClick={onShowEarlier}
+                disabled={loadingEarlier}
+                aria-busy={loadingEarlier || undefined}
+              >
+                Show earlier
+              </button>
+            )}
+          </div>
         </section>
 
         {/* The input region. `position: relative` (CSS) makes it the containing

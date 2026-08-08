@@ -37,7 +37,8 @@
 // cards. It type-checks, and nothing else in the gate would notice. Hence two
 // names, and the first describe block of `feed-model.test.ts`, which exists
 // solely to fail if the two sets are ever made to agree.
-import type { Board, FeedCard, FeedSummary, Ticket } from '@/transport/transport';
+import type { Board, FeedCard, FeedSnapshot, FeedSummary, Ticket } from '@/transport/transport';
+import { lastWordDetail } from '@/components/feed-format';
 
 /** The summary a shell renders before any feed snapshot has landed. Shared so
  * the two shells cannot drift on what "nothing yet" counts as. */
@@ -168,4 +169,73 @@ export function findTicket(board: Board | null, id: string | null): Ticket | nul
     ...board.done,
   ];
   return all.find((ticket) => ticket.id === id) ?? null;
+}
+
+/** One card, with every decision about it already made. A shell's card loop
+ * chooses the element type and nothing else. */
+export interface FeedRow {
+  card: FeedCard;
+  /** Already-seen history, rendered de-emphasized (08 D2′). */
+  seen: boolean;
+  /** The notification id to retract if the user clears this card, or null when
+   * it is board state that cannot be cleared. A shell that offers no clear
+   * gesture (the desk — 13 §6, and §13 Q3 is open) simply ignores this; having
+   * the field does not grow the affordance. */
+  dismissId: number | null;
+  /** Whether the "Earlier" divider falls immediately before this row. WHERE it
+   * falls is shared; the element it is wrapped in is not — mobile puts it inside
+   * the `backlog-slot`, desktop inside the `<li>` above the row. */
+  dividerBefore: boolean;
+}
+
+/** The whole feed, already decided. Membership, order, the divider position,
+ * seen-ness and dismissability are settled here so they cannot be settled
+ * differently in two shells — which is the "same conceptual bug fixed five
+ * times, alternating shells" failure this layer exists to make impossible. */
+export interface FeedReading {
+  summary: FeedSummary;
+  rows: FeedRow[];
+  /** Nothing to show. A FACT, not an instruction: each shell decides what to do
+   * with it. The phone always renders its all-clear block; the desk withholds
+   * "All quiet." while it is still loading, because that line asserts we asked
+   * and there was nothing (§4.2 of the plan). Deliberately not gated here. */
+  isEmpty: boolean;
+  /** The resting-state subtext, null when the brain has never spoken. */
+  lastWord: string | null;
+  /** Whether "clear all" has anything to clear (mobile's trash affordance). */
+  hasClearable: boolean;
+}
+
+/** Read a feed snapshot into the shape a shell renders.
+ *
+ * `now` stays injectable — both shells default it to `Date.now()` and the
+ * deterministic snapshot tests depend on being able to pin it.
+ *
+ * What this deliberately does NOT decide: anything a shell should. There is no
+ * `loading` here (it is desktop-only), no resting-state copy (the two shells
+ * word it differently, on purpose), and no opinion about where "Show earlier"
+ * goes — that control must stay last INSIDE each shell's own scroll wrapper,
+ * because its `position: sticky` hangs off that containing block. Hoisting it
+ * to a shared parent is the regression this whole plan is most exposed to; the
+ * browser-measured layout gate (`tests/layout/`) is what catches it. */
+export function readFeed(
+  feed: FeedSnapshot | null,
+  lastSeenId: number | null,
+  now: number,
+): FeedReading {
+  const summary = feed?.summary ?? EMPTY_SUMMARY;
+  const cards = feed?.cards ?? [];
+  const divider = dividerIndex(cards, lastSeenId);
+  return {
+    summary,
+    rows: cards.map((card, index) => ({
+      card,
+      seen: isSeen(card, lastSeenId),
+      dismissId: notificationId(card),
+      dividerBefore: index === divider,
+    })),
+    isEmpty: cards.length === 0,
+    lastWord: lastWordDetail(summary, now),
+    hasClearable: hasClearableCards(cards),
+  };
 }

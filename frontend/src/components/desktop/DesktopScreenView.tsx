@@ -48,8 +48,8 @@ import { Backlog } from '@/components/desktop/Backlog';
 import { backlogTickets } from '@/components/desktop/backlog';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
-import { lastWordDetail, streamDetail } from '@/components/feed-format';
-import { EMPTY_SUMMARY, dividerIndex, findTicket, isSeen } from '@/components/feed-model';
+import { streamDetail } from '@/components/feed-format';
+import { findTicket, readFeed } from '@/components/feed-model';
 import '@/components/PrimaryScreen.css';
 import '@/components/desktop/DesktopScreen.css';
 
@@ -129,11 +129,12 @@ export function DesktopScreenView({
   composer,
   now = Date.now(),
 }: DesktopScreenViewProps): JSX.Element {
-  const summary = feed?.summary ?? EMPTY_SUMMARY;
-  const cards = feed?.cards ?? [];
-  // The resting-state subtext, null when the brain has never spoken.
-  const lastWord = lastWordDetail(summary, now);
-  const divider = dividerIndex(cards, lastSeenId);
+  // The same reading the phone gets, off the same function (see feed-model.ts):
+  // the rows, which are seen, and where the "Earlier" divider falls. Two fields
+  // this shell does NOT spend: `hasClearable` (no bulk clear on a desk) and each
+  // row's `dismissId` (no swipe — 13 §6, and §13 Q3 is open). Having them in the
+  // reading is not an invitation to grow either affordance here.
+  const { summary, rows, isEmpty, lastWord } = readFeed(feed, lastSeenId, now);
   // "Working" for the *selected* project: the brain mid-pass, or agents mid-turn
   // (13 §8.2). Drives the breathing indication — the one thing on this screen
   // permitted to animate on its own. Never a progress bar: there is no progress
@@ -329,7 +330,7 @@ export function DesktopScreenView({
               the free height it takes is handed straight on to the resting block
               and to "Show earlier" below it. */}
           <div data-role="desktop-feed-scroll">
-            {cards.length === 0 ? (
+            {isEmpty ? (
               // The resting state is the real state (13 §1): composed, not empty,
               // and not apologised for. The bell mark over one honest line, no
               // "nothing here yet!" — this is the state the design is optimised
@@ -359,9 +360,9 @@ export function DesktopScreenView({
               )
             ) : (
               <ol data-role="desktop-feed-list">
-                {cards.map((card, index) => (
+                {rows.map(({ card, seen, dividerBefore }) => (
                   <li key={card.id}>
-                    {index === divider && (
+                    {dividerBefore && (
                       <div data-role="feed-divider" data-variant="last-seen">
                         Earlier
                       </div>
@@ -374,7 +375,7 @@ export function DesktopScreenView({
                         card={card}
                         now={now}
                         onAccept={onAccept}
-                        seen={isSeen(card, lastSeenId)}
+                        seen={seen}
                         onOpenDetail={setOpenTicketId}
                         // "tap" is a phone word. The card is the same card — same
                         // clamp, same cue, same target — but a window that tells

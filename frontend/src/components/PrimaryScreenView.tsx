@@ -20,15 +20,8 @@ import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
-import { lastWordDetail, streamDetail } from '@/components/feed-format';
-import {
-  EMPTY_SUMMARY,
-  dividerIndex,
-  findTicket,
-  hasClearableCards,
-  isSeen,
-  notificationId,
-} from '@/components/feed-model';
+import { streamDetail } from '@/components/feed-format';
+import { findTicket, readFeed } from '@/components/feed-model';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { usePullToRefresh } from '@/components/use-pull-to-refresh';
 import '@/components/PrimaryScreen.css';
@@ -173,16 +166,12 @@ export function PrimaryScreenView({
   onDisablePush,
   now = Date.now(),
 }: PrimaryScreenViewProps): JSX.Element {
-  const summary = feed?.summary ?? EMPTY_SUMMARY;
-  const cards = feed?.cards ?? [];
-  const isEmpty = cards.length === 0;
-  // The all-clear subtext, null when the brain has never spoken (no line at all).
-  const lastWord = lastWordDetail(summary, now);
-  const divider = dividerIndex(cards, lastSeenId);
-  // Whether any notification-backed card is present — the trash affordance clears
-  // those (blockers/proposals are board state, untouched), so it's disabled when
-  // there is nothing to clear.
-  const hasClearable = hasClearableCards(cards);
+  // The feed, already decided (see feed-model.ts): which rows there are, which
+  // are seen, which can be swiped away, and where the "Earlier" divider falls.
+  // This shell chooses the elements and nothing else. `hasClearable` gates the
+  // trash affordance — blockers/proposals are board state a clear doesn't touch,
+  // so a feed of only those leaves it disabled.
+  const { summary, rows, isEmpty, lastWord, hasClearable } = readFeed(feed, lastSeenId, now);
 
   // Which proposal's full ticket is open in the click-through detail overlay
   // (08 §5). View-only state held here, mirroring how Board owns its selected
@@ -353,30 +342,28 @@ export function PrimaryScreenView({
               </div>
             ) : (
               <>
-                {cards.map((card, index) => {
-                  // Every notification-backed card can be cleared: update/
-                  // preview, the runtime's "done" notice, and the steward's
-                  // "poke" nudge. Blockers/proposals (board state the brain
-                  // owns) carry no notification_id and stay static — a blocker
-                  // needs an explicit decision, not a swipe. NOT the divider's
-                  // narrower taxonomy — see feed-model.ts's header.
-                  const dismissId = notificationId(card);
+                {rows.map(({ card, seen, dismissId, dividerBefore }) => {
                   const item = (
                     <FeedCardItem
                       card={card}
                       now={now}
                       onAccept={onAccept}
-                      seen={isSeen(card, lastSeenId)}
+                      seen={seen}
                       onOpenDetail={setOpenTicketId}
                     />
                   );
                   return (
                     <div key={card.id} data-role="backlog-slot">
-                      {index === divider && (
+                      {dividerBefore && (
                         <div data-role="feed-divider" data-variant="last-seen">
                           Earlier
                         </div>
                       )}
+                      {/* The swipe wrapper is gated on BOTH the callback being
+                          wired and the card being notification-backed: a
+                          blocker demands an explicit decision, not a swipe, and
+                          a presentational test that omits the callback must see
+                          no wrapper at all (the DOM/snapshots depend on it). */}
                       {onDismissCard !== undefined && dismissId !== null ? (
                         <SwipeToDismiss
                           onDismiss={() => {

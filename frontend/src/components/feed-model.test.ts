@@ -1,4 +1,5 @@
-// Unit tests for the shared feed reading model (shell-architecture plan, T1).
+// Unit tests for the shared feed reading model (shell-architecture plan, T1 for
+// the predicates, T2 for `readFeed`).
 //
 // The first describe block is the point of this file. `notificationId` and
 // `authoredUpdateId` are near-identical functions over the same argument, and
@@ -21,8 +22,15 @@ import {
   isNotificationCard,
   isSeen,
   notificationId,
+  readFeed,
 } from '@/components/feed-model';
-import { makeBoard, makeFeedCard, makeTicket } from '@/test/fixtures';
+import {
+  makeBoard,
+  makeFeedCard,
+  makeFeedSnapshot,
+  makeFeedSummary,
+  makeTicket,
+} from '@/test/fixtures';
 import type { FeedCard } from '@/transport/transport';
 
 const ALL_KINDS: FeedCard['kind'][] = ['blocker', 'proposal', 'update', 'preview', 'poke', 'done'];
@@ -198,5 +206,77 @@ describe('findTicket', () => {
 
   it('is null for an id that has left the board', () => {
     expect(findTicket(makeBoard({ shaping: [ticket('t1', 'shaping')] }), 'gone')).toBeNull();
+  });
+});
+
+describe('readFeed', () => {
+  const NOW = Date.parse('2026-08-08T12:00:00Z');
+
+  it('reads a null feed as empty, with the shared empty summary', () => {
+    // What a shell shows before the first snapshot lands. `isEmpty` being a fact
+    // here is what lets the desk withhold "All quiet." while it is still loading
+    // without the phone's all-clear block changing at all.
+    const reading = readFeed(null, null, NOW);
+    expect(reading.isEmpty).toBe(true);
+    expect(reading.rows).toEqual([]);
+    expect(reading.summary).toEqual(makeFeedSummary());
+    expect(reading.lastWord).toBeNull();
+    expect(reading.hasClearable).toBe(false);
+  });
+
+  it('keeps the snapshot’s card order untouched', () => {
+    // Order is the server's (blockers, proposals, then updates newest-first —
+    // the feed store's merge). This layer decides ABOUT each card; it never
+    // re-sorts them.
+    const cards = [card('blocker', null), card('proposal', null), card('update', 9)];
+    const reading = readFeed(makeFeedSnapshot({ cards }), null, NOW);
+    expect(reading.rows.map((row) => row.card.id)).toEqual(cards.map((c) => c.id));
+  });
+
+  it('decides seen-ness, dismissability and the divider for every row at once', () => {
+    const cards = [
+      card('update', 9), // new since the visit
+      card('done', 8), // notification-backed, but not something Kiln said
+      card('update', 2), // older history — the divider falls here
+      card('blocker', null), // board state: never seen, never dismissable
+    ];
+    const reading = readFeed(makeFeedSnapshot({ cards }), 3, NOW);
+    expect(
+      reading.rows.map((row) => ({
+        seen: row.seen,
+        dismissId: row.dismissId,
+        dividerBefore: row.dividerBefore,
+      })),
+    ).toEqual([
+      { seen: false, dismissId: 9, dividerBefore: false },
+      { seen: false, dismissId: 8, dividerBefore: false },
+      { seen: true, dismissId: 2, dividerBefore: true },
+      { seen: false, dismissId: null, dividerBefore: false },
+    ]);
+  });
+
+  it('marks at most one row with the divider, and none when there is none to draw', () => {
+    const cards = [card('update', 9), card('update', 2), card('update', 1)];
+    expect(
+      readFeed(makeFeedSnapshot({ cards }), 3, NOW).rows.filter((r) => r.dividerBefore),
+    ).toHaveLength(1);
+    expect(readFeed(makeFeedSnapshot({ cards }), null, NOW).rows.some((r) => r.dividerBefore)).toBe(
+      false,
+    );
+  });
+
+  it('takes `now` as an argument, so the resting subtext is deterministic', () => {
+    // Both shells default `now` to Date.now(); the snapshot tests pin it, and
+    // that only works while this stays injected rather than read here.
+    const feed = makeFeedSnapshot({ summary: { last_word_at: '2026-08-08T11:54:00Z' } });
+    expect(readFeed(feed, null, NOW).lastWord).toBe('last word 6m ago');
+    expect(readFeed(feed, null, NOW + 60 * 60 * 1000).lastWord).toBe('last word 1h ago');
+  });
+
+  it('reports a feed of only board state as having nothing to clear', () => {
+    const feed = makeFeedSnapshot({ cards: [card('blocker', null), card('proposal', null)] });
+    const reading = readFeed(feed, null, NOW);
+    expect(reading.isEmpty).toBe(false);
+    expect(reading.hasClearable).toBe(false);
   });
 });

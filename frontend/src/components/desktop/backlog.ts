@@ -14,6 +14,7 @@
 // time without the brain having anything to say about it.
 import type { Board } from '@/transport/transport';
 import type { Ticket } from '@/components/TicketCard';
+import { waitingOnLabel } from '@/components/feed-format';
 
 /** The two states that make up the backlog. This is the board's own vocabulary
  * — the same pair `shape_ticket`'s precondition names, and the same pair the
@@ -65,14 +66,16 @@ const STATE_NOTE: Record<BacklogState, string> = {
  * what that budget is for.
  *
  * The count, not just "waiting", because the number is the part that changes as
- * the blocking work lands — a row going "waiting on 3" → "waiting on 1" is
- * visible progress on a ticket where nothing else moves.
+ * the blocking work lands — a row going "Waiting on 3 tickets" → "Waiting on 1
+ * ticket" is visible progress on a ticket where nothing else moves. The wording
+ * itself is `waitingOnLabel`, shared with the phone's ticket dropdown so the two
+ * surfaces cannot drift into two phrasings of one fact.
  */
 export function backlogStateNote(
   ticket: Pick<BacklogTicket, 'state' | 'waitingOnDependencies' | 'unmetDependencies'>,
 ): string {
   if (ticket.waitingOnDependencies) {
-    return `waiting on ${ticket.unmetDependencies.toString()}`;
+    return waitingOnLabel(ticket.unmetDependencies);
   }
   return STATE_NOTE[ticket.state];
 }

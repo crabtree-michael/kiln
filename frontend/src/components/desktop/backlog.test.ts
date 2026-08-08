@@ -6,6 +6,7 @@
 // order carries.
 import { describe, it, expect } from 'vitest';
 import { backlogStateNote, backlogTickets } from '@/components/desktop/backlog';
+import { waitingOnLabel } from '@/components/feed-format';
 import { makeBoard, makeTicket } from '@/test/fixtures';
 import type { Ticket } from '@/components/TicketCard';
 
@@ -108,10 +109,13 @@ describe('backlogStateNote', () => {
   });
 
   it('names the unlanded dependencies holding a queued ticket, which otherwise reads as a stuck queue', () => {
-    expect(note('ready', true, 2)).toBe('waiting on 2');
+    expect(note('ready', true, 2)).toBe('Waiting on 2 tickets');
   });
 
   it('lets the dependency note outrank the state word — why it is waiting beats what it is', () => {
-    expect(note('shaping', true, 1)).toBe('waiting on 1');
+    // Singular, and it comes from the same helper the phone's dropdown uses: the
+    // desk and the phone state this fact in one wording or they drift.
+    expect(note('shaping', true, 1)).toBe('Waiting on 1 ticket');
+    expect(note('shaping', true, 1)).toBe(waitingOnLabel(1));
   });
 });

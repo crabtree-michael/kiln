@@ -40,6 +40,31 @@ export function relativeAge(iso: string, now: number = Date.now()): string {
   return `${days.toString()}d`;
 }
 
+/** The dependency label a compact row carries when unlanded work is holding a
+ * ticket back (0013): "Waiting on 2 tickets".
+ *
+ * It lives here, above both shells, because the phone's ticket dropdown and the
+ * desk backlog say it in the same breath and there is no reason for them to say
+ * it in two different ways. The count is the part that moves as the blocking
+ * work lands, so it is spelled out rather than left as a bare "waiting"; the
+ * noun is what makes the number mean something on a row that also carries an
+ * age, where a lone "2" beside a "3h" reads as a second duration. */
+export function waitingOnLabel(count: number): string {
+  return `Waiting on ${count.toString()} ticket${count === 1 ? '' : 's'}`;
+}
+
+/** A compact row's subtitle: the note that explains the row, then its age,
+ * joined by the separator dot the app already uses for this ("configured · …",
+ * "shaping · 4"). One line rather than two — a note stacked on its own row
+ * reads as an unrelated third fact about the ticket instead of a qualifier on
+ * the time beside it, which is exactly how the dependency label first landed.
+ *
+ * The note leads because it is the news; the age is the constant every row
+ * carries. With no note the line is the bare age, unchanged. */
+export function rowSubtitle(note: string, age: string): string {
+  return note === '' ? age : `${note} · ${age}`;
+}
+
 /** The all-clear detail line (08 §2 / 4d): "3 building". Only the building count
  * is shown — the idle count is deliberately omitted so the all-clear state stays
  * focused on what's actively moving. The last word rides underneath it as

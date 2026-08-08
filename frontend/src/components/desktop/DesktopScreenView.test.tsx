@@ -821,6 +821,51 @@ describe('DesktopScreenView', () => {
     ).toBeInTheDocument();
   });
 
+  it('backlog: states a held ticket as "<dependency> · <age>", the way the phone does', () => {
+    // The desk's half of the one formatting rule (the phone's is asserted in
+    // HeaderStatusMenu.test.tsx): the dependency label leads, the dot joins, the
+    // time in status closes — one subtitle line under the title rather than the
+    // label sitting apart from the metadata it qualifies. The wording is
+    // `waitingOnLabel`, shared, so the two shells cannot drift.
+    const { container } = renderShell({
+      board: makeBoard({
+        ready: [
+          makeTicket({
+            id: 'r1',
+            title: 'poller',
+            body: 'the full record',
+            state: 'ready',
+            priority: 1,
+            createdAt: '2026-08-04T09:00:00Z',
+            updatedAt: '2026-08-04T09:00:00Z',
+            statusChangedAt: '2026-08-04T09:00:00Z',
+            dependsOn: ['b1', 'b2'],
+          }),
+        ],
+      }),
+    });
+    const meta = container.querySelector('[data-role="desktop-backlog-meta"]');
+    expect(meta?.textContent).toBe('Waiting on 2 tickets·3h');
+    expect(Array.from(meta?.children ?? []).map((node) => node.getAttribute('data-role'))).toEqual([
+      'desktop-backlog-note',
+      'desktop-backlog-sep',
+      'desktop-backlog-age',
+    ]);
+  });
+
+  it('backlog: a row waiting on nothing keeps the bare age, with no separator', () => {
+    // The dot exists to join a note to the age. With no note there is nothing to
+    // join, and an ordinary queued row is left exactly as it was.
+    const { container } = renderShell({
+      board: makeBoard({
+        ready: [waitingTicket('r1', 'poller', 'ready', '2026-08-04T11:00:00Z')],
+      }),
+    });
+    const meta = container.querySelector('[data-role="desktop-backlog-meta"]');
+    expect(meta?.textContent).toBe('1h');
+    expect(meta?.querySelector('[data-role="desktop-backlog-sep"]')).toBeNull();
+  });
+
   it('backlog: each row carries the SAME status mark, coloured by the ticket itself', () => {
     // The shared vocabulary, exactly as the working rows use it: `data-state` is
     // the ticket's own lifecycle state and picks the ink. Shaping and ready are

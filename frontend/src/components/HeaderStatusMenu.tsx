@@ -7,7 +7,13 @@
 // open/close is local UI state. The panel stays mounted so it animates both ways.
 import { useEffect, useRef, useState, type HTMLAttributes, type JSX } from 'react';
 import type { Board, FeedSummary } from '@/transport/transport';
-import { feedStatus, relativeAge, ticketStatuses } from '@/components/feed-format';
+import {
+  feedStatus,
+  relativeAge,
+  rowSubtitle,
+  ticketStatuses,
+  waitingOnLabel,
+} from '@/components/feed-format';
 
 export interface HeaderStatusMenuProps {
   summary: FeedSummary;
@@ -155,14 +161,25 @@ export function HeaderStatusMenu({
                     aria-hidden="true"
                   />
                   <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
-                  <span data-role="header-status-age">{relativeAge(ticket.statusSince)}</span>
-                  {/* A queued ticket held by unlanded work. Shown instead of
-                      nothing because "ready" at the top of the list, not
-                      starting, otherwise reads as a stalled queue; the count is
-                      the part that visibly moves as the blocking work lands. */}
-                  {ticket.waitingOn > 0 && (
-                    <span data-role="header-status-waiting">waiting on {ticket.waitingOn}</span>
-                  )}
+                  {/* The subtitle line: the dependency label, when unlanded work
+                      is holding a queued ticket, then the time in status. It
+                      rides IN the age span rather than beside it — the label
+                      arrived as a sibling with no rule of its own, which the
+                      row's grid auto-placed onto a third line at the row's own
+                      size and ink, reading as a separate fact rather than as the
+                      qualifier on the time it belongs to. Sharing the span makes
+                      the existing 11px/faint subtext rule the only styling
+                      either half needs.
+
+                      A row can never carry both this and a blocked reason: the
+                      server only derives `waiting_on_dependencies` for a ready
+                      ticket, and `blocked_reason` is set iff blocked. */}
+                  <span data-role="header-status-age">
+                    {rowSubtitle(
+                      ticket.waitingOn > 0 ? waitingOnLabel(ticket.waitingOn) : '',
+                      relativeAge(ticket.statusSince),
+                    )}
+                  </span>
                   {ticket.reason !== null && (
                     <span data-role="header-status-reason">{ticket.reason}</span>
                   )}

@@ -822,6 +822,23 @@ html:has([data-role='desktop-screen']) body {
   font: var(--type-caption);
 }
 
+/* The backlog's note and age are joined by a dot (see Backlog.tsx), and a dot
+   needs to bind tighter than the whitespace it replaces — at the shared 8px it
+   floats between the two words instead of tying them together. Scoped to the
+   backlog: the working strip's meta has no separator and keeps its own rhythm. */
+[data-role='desktop-backlog-meta'] {
+  gap: var(--space-1);
+}
+
+/* The separator itself, in the age's ink rather than the note's: it belongs to
+   the join, and the louder of the two inks would make the punctuation the most
+   legible thing on the line. */
+[data-role='desktop-backlog-sep'] {
+  flex: none;
+  color: var(--text-faint);
+  font: var(--type-caption);
+}
+
 /* Time in status. Faint at rest and firm under the pointer, exactly as a feed
    card's timestamp behaves — secondary detail stays off the screen until asked
    for (13 §6). */

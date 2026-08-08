@@ -6,7 +6,7 @@
 // session status from board.agents by ticket id, falling back to the column
 // default before a status has arrived.
 import { describe, expect, it } from 'vitest';
-import { ticketStatuses } from '@/components/feed-format';
+import { rowSubtitle, ticketStatuses, waitingOnLabel } from '@/components/feed-format';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
 
 const baseFields = { createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' };
@@ -211,5 +211,33 @@ describe('ticketStatuses — waiting on dependencies', () => {
       ],
     });
     expect(ticketStatuses(board)[0]?.waitingOn).toBe(0);
+  });
+});
+
+// The wording and the shape of the subtitle line both shells render. These are
+// asserted here, once, rather than in each shell's own tests: the whole point of
+// hoisting them out of the two components was that the phone and the desk cannot
+// state this fact two different ways.
+describe('waitingOnLabel', () => {
+  it('names the count and the noun, so a bare number cannot read as a second duration', () => {
+    expect(waitingOnLabel(2)).toBe('Waiting on 2 tickets');
+  });
+
+  it('says "1 ticket", not "1 tickets"', () => {
+    expect(waitingOnLabel(1)).toBe('Waiting on 1 ticket');
+  });
+});
+
+describe('rowSubtitle', () => {
+  it('leads with the note, then the dot, then the age — the news before the constant', () => {
+    expect(rowSubtitle(waitingOnLabel(2), '3h')).toBe('Waiting on 2 tickets · 3h');
+  });
+
+  it('is the bare age when there is no note, leaving an ordinary row untouched', () => {
+    expect(rowSubtitle('', '3h')).toBe('3h');
+  });
+
+  it('joins any note, not just a dependency one — the desk backlog passes its state word', () => {
+    expect(rowSubtitle('proposal', 'now')).toBe('proposal · now');
   });
 });

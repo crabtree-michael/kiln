@@ -306,3 +306,65 @@ describe('HeaderStatusMenu', () => {
     expect(screen.queryByRole('button', { name: /^Open ticket:/ })).not.toBeInTheDocument();
   });
 });
+
+// The dependency label's place on the row. It first shipped as a span of its own
+// with no rule to its name, which the row's grid auto-placed onto a third line
+// at the row's own size and ink — a fact floating under the ticket rather than a
+// qualifier on the time it belongs to. What these assert is that it is now part
+// of the one subtitle line, ahead of the age, in the age's own styling.
+describe('HeaderStatusMenu — the dependency subtitle', () => {
+  // The row reads the real clock (`relativeAge` defaults to `Date.now()`), so
+  // the fixture is dated from it: three hours before whenever this runs is "3h"
+  // however long the suite takes to get here. No fake timers — the component
+  // has none of its own, and pinning the clock for a pure formatting assertion
+  // would be a heavier tool than the claim needs.
+  const threeHoursAgo = () => new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+
+  const queuedBoard = (dependsOn: string[]) =>
+    makeBoard({
+      ready: [
+        makeTicket({
+          ...baseFields,
+          id: 'r1',
+          title: 'Ship the column',
+          body: '',
+          state: 'ready',
+          priority: 0,
+          statusChangedAt: threeHoursAgo(),
+          dependsOn,
+        }),
+      ],
+    });
+
+  const openPanel = (dependsOn: string[]) => {
+    render(<HeaderStatusMenu summary={summary} board={queuedBoard(dependsOn)} />);
+    fireEvent.click(screen.getByRole('button'));
+    const row = screen.getByText('Ship the column').closest('li');
+    if (row === null) {
+      throw new Error('expected the queued ticket to have a row');
+    }
+    return row;
+  };
+
+  it('states the dependency, the dot and the age as one line, in that order', () => {
+    const subtitle = within(openPanel(['b1', 'b2'])).getByText(/Waiting on/);
+    expect(subtitle).toHaveTextContent('Waiting on 2 tickets · 3h');
+  });
+
+  it('puts that line in the age element, so it inherits the subtext styling', () => {
+    // The whole fix: one subtitle element, styled by the existing
+    // `header-status-age` rule (11px, --text-faint). A second span here is the
+    // bug — it had no rule of its own and landed on its own line.
+    const row = openPanel(['b1', 'b2']);
+    const subtitle = within(row).getByText(/Waiting on/);
+    expect(subtitle).toHaveAttribute('data-role', 'header-status-age');
+    expect(row.querySelectorAll("[data-role='header-status-age']")).toHaveLength(1);
+    expect(row.querySelector("[data-role='header-status-waiting']")).toBeNull();
+  });
+
+  it('leaves a ticket that waits on nothing with the bare age it always had', () => {
+    const row = openPanel([]);
+    expect(within(row).getByText('3h')).toHaveAttribute('data-role', 'header-status-age');
+    expect(within(row).queryByText(/Waiting on/)).not.toBeInTheDocument();
+  });
+});

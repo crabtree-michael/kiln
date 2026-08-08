@@ -100,8 +100,24 @@ export function Backlog({ tickets, onOpenTicket, now }: BacklogProps): JSX.Eleme
                     does not exist. */}
                 <span data-role="status-dot" data-state={ticket.state} aria-hidden="true" />
                 <span data-role="desktop-backlog-title">{ticket.title}</span>
+                {/* The subtitle line, in the same order the phone's ticket
+                    dropdown states it (`rowSubtitle`): the note — a dependency
+                    label, or the state word — then the dot, then the time in
+                    status. The dot is the separator here rather than the flex
+                    gap alone, so the note reads as bound to the age instead of
+                    merely sitting near it, and so the desk says this the way the
+                    phone does. Two spans rather than one string, unlike the
+                    phone: the age is faint-and-firming under the pointer here
+                    (13 §6) and the note is not, which one text node cannot do. */}
                 <span data-role="desktop-backlog-meta">
-                  {note !== '' && <span data-role="desktop-backlog-note">{note}</span>}
+                  {note !== '' && (
+                    <>
+                      <span data-role="desktop-backlog-note">{note}</span>
+                      <span data-role="desktop-backlog-sep" aria-hidden="true">
+                        ·
+                      </span>
+                    </>
+                  )}
                   <span data-role="desktop-backlog-age">{relativeAge(ticket.since, now)}</span>
                 </span>
               </button>

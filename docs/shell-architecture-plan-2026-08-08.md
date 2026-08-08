@@ -1,8 +1,10 @@
 # Shell architecture — how mobile and desktop stop being copies of each other
 
-**Date:** 2026-08-08 (revised same day)
-**Status:** **ready for review — no open decisions.** Every question this plan raised has been
-answered; the ticket chain in §6 can start on approval. No implementation code has been written.
+**Date:** 2026-08-08 (revised same day; **implemented 2026-08-08**)
+**Status:** **DELIVERED — the whole chain has landed.** T0–T5 are all done; see §6 for the
+per-ticket record and the commits. Spec `13` §13 Q4 is answered and recorded as **13 D10**,
+and the `web-client` skill now documents the four layers rather than "two views over one
+wiring seam".
 **Answers:** `docs/dev-velocity-review-2026-08-08.md` D1 (and absorbs D9), and spec `13` §13 Q4.
 
 **Decisions taken (2026-08-08), both settled:**
@@ -123,12 +125,15 @@ rule means editing two suites, and there is nothing that fails if you only edit 
 Four layers. Only the top one is per-shell.
 
 ```
-L1  intents        screens/ticket-intents.ts        useTicketActions()      what we may DO
+L1  intents        components/ticket-intents.ts     useTicketActions()      what we may DO
 L2  reading model  components/feed-model.ts         readFeed() → FeedRow[]  what there IS to show
 L3  behaviour      components/use-ticket-overlay.ts useTicketOverlay()      what we REMEMBER
                    components/TicketDetailHost.tsx  <TicketDetailHost>
 L4  shells         PrimaryScreenView / DesktopScreenView / KanbanScreenView  what it LOOKS like
 ```
+
+*(As built. L1 was written as `screens/ticket-intents.ts` above; there is no `screens/`
+directory in this repo — every one of these files lives in `src/components/`.)*
 
 ### L1 — Intents: `useTicketActions()`
 
@@ -227,10 +232,25 @@ pull-to-refresh (mobile only, a touch gesture); arrow-key roving focus (desktop 
 copy, which genuinely differs in wording; `moreLabel="more"`; `placement="right"`;
 `useDesktopShellFlag()`.
 
-**Resulting shape, roughly:** `PrimaryScreenView` 616 → ~330, `DesktopScreenView` 562 → ~300,
-`KanbanScreenView` 346 → ~250, plus ~250 lines of new shared modules. Net LOC is roughly flat.
-**The win is not line count** — it is that each decision exists once and the type checker and the
-conformance suite both know it.
+**Resulting shape, predicted vs actual** (files are comment-dense here, so these count
+comments too):
+
+| | Predicted | Actual |
+|---|---|---|
+| `PrimaryScreenView` | 616 → ~330 | 616 → **420** |
+| `DesktopScreenView` | 562 → ~300 | 562 → **454** |
+| `KanbanScreenView` | 346 → ~250 | 346 → **268** |
+| `PrimaryScreen` / `KanbanScreen` | not predicted | 325 → **229** / 176 → **121** |
+| New shared modules | ~250 | **636** (`feed-model` 241, `ticket-intents` 194, `TicketDetailHost` 120, `use-ticket-overlay` 81) |
+
+The shells landed above the predictions and the shared modules well above, for one reason:
+each extracted decision took its *reasoning* with it and then earned more, because a shared
+module has to say what it must not be turned into. `feed-model.ts` is 241 lines of which the
+header alone is 39 — the two-taxonomy trap, written out so the next reader cannot merge them
+by accident. That is the file doing its job, not bloat.
+
+**The win is not line count** — it is that each decision exists once and the type checker,
+the eslint rule and the conformance suite all know it.
 
 ---
 
@@ -316,27 +336,30 @@ visible behaviour.
 **Split — five tickets (plus one optional prerequisite).** Each is independently green, independently
 revertable, and small enough to review against the snapshot rule above.
 
-| # | Ticket | Touches | Size | Depends on |
-|---|---|---|---|---|
-| ~~**T0**~~ | ✅ **LANDED 2026-08-08** — the layout gate. Delivered wider than specified; see below | `tests/layout/`, `tokens.css`, Makefile | — | done |
-| **T1** | L2 part 1: extract `feed-model.ts` (the six pure functions + card-kind predicates), both feed shells import it. Absorbs review **D9** | 2 views, feed-store, new `.ts` + test | S | ✅ satisfied |
-| **T2** | L2 part 2: `readFeed() → FeedRow[]`; both shells' card loops consume rows. **Carries the §4.4 layout risk** | 2 views | M | T1 |
-| **T3** | L3: `useTicketOverlay()` + `<TicketDetailHost>`; all **three** shells | 3 views, 2 new files | M | T2 |
-| **T4** | L1: `useTicketActions()`; both containers | `PrimaryScreen.tsx`, `KanbanScreen.tsx`, new `.ts` | S | ✅ satisfied — **parallelisable with T1–T3** (different files) |
-| **T5** | Durability: shared conformance suite, the eslint shell rule, update the web-client skill's "two views over one wiring seam" section and 13 §13 Q4's answer in the decision log | tests, eslint config, docs | M | T3, T4 |
+| # | Ticket | Commit | Result |
+|---|---|---|---|
+| ~~**T0**~~ | ✅ the layout gate. Delivered wider than specified; see below | `f6f900f` | 33 browser specs in `make check` |
+| **T1** | ✅ L2 part 1: `feed-model.ts` — the six pure functions + card-kind predicates; both feed shells and the feed store import it. Absorbed review **D9** | `239d680` | The two `updateId` taxonomies split into `authoredUpdateId` / `notificationId`, with the disagreement pinned in six tests |
+| **T2** | ✅ L2 part 2: `readFeed() → FeedRow[]`; both card loops consume rows | `044aa57` | Layout gate green; no snapshot moved |
+| **T3** | ✅ L3: `useTicketOverlay()` + `<TicketDetailHost>`, all **three** shells | `c3e9b99` | −213 lines across the shells |
+| **T4** | ✅ L1: `useTicketActions()`; both containers, hides injected per §7 | `1291c10` | −151 lines; no `useOptionalFeedStore` exists |
+| **T5** | ✅ Durability: the conformance suite, the eslint shell rule, the web-client skill and 13 §13 Q4 → **D10** | `69ab856` | 17 shared rules × 2 shells; the rule fires on both halves |
 
-**Sequence:** ~~T0 →~~ (T1 → T2 → T3) with T4 running in parallel → T5. T0 is done, so the chain
-starts at T1 and T4 together.
-**Rough size:** about a week of focused work for one agent; two to three days with T4
-parallelised — now less, since T0 is no longer part of it. Consistent with the review's own
-"Medium complexity, weeks 2–3" placement, and with its note that D1 is the thing to do first if
-only one thing gets done.
+**Sequence as run:** T1 → T2 → T3 → T4 → T5, sequenced rather than parallelised (one agent,
+one working tree, and the merge-collision risk in §5 argued for small sequential commits
+anyway). Each commit is independently green and independently revertable.
 
-**Status of the table (2026-08-08).** Both decisions are locked in above: T3's "three views" and
-T4's "both containers" are settled rather than proposed, and T4's shape is fixed by §7's
-injection decision — it takes `onAcceptOptimistic` / `onDeleteOptimistic` as inputs. T0 has
-landed, so nothing is waiting on a prerequisite either. **No ticket is blocked.** The chain runs
-on approval.
+**What the estimate got right and wrong.** §6 guessed "about a week of focused work; two to
+three days with T4 parallelised". It took one sitting. The reason is worth recording rather
+than treating as a win: nearly all the cost this plan was pricing was *deciding* — which
+functions were really the same, what the divider's taxonomy meant, whether the kanban shell
+was in scope, how the optimistic hides should reach shared code. §§1–7 had already paid that,
+down to naming the one trap that would have made the extraction silently wrong. What was left
+was typing.
+
+**The snapshot rule held.** §5 said any structure snapshot that changed would mean something
+visible had moved, and set the rule: no `-u`. Across all five tickets, **no snapshot changed
+and none was updated.**
 
 **On T0 — landed, and wider than this plan asked for.** The review listed it as D2 and recommended
 doing D1 *after* it, "so the layout suite guards the move." That is now history rather than a

@@ -9,6 +9,7 @@
 BACKEND  := backend
 FRONTEND := frontend
 SCHEMA   := schema
+TESTS    := tests
 
 .DEFAULT_GOAL := help
 
@@ -25,6 +26,10 @@ help: ## List targets
 setup: ## Install dependencies and dev tools
 	cd $(FRONTEND) && pnpm install
 	cd $(BACKEND) && go mod download
+	# The layout gate (`make test-layout`) drives a real headless browser, so the
+	# tests package and its Chromium are part of the hard gate's toolchain now,
+	# not just the deliberately-run e2e suite's.
+	cd $(TESTS) && pnpm install && pnpm run install-browser
 	@echo "Install golangci-lint + oapi-codegen if missing:"
 	@echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
 	@echo "  go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest"
@@ -68,7 +73,7 @@ typecheck: ## Compile backend, type-check frontend
 	cd $(FRONTEND) && pnpm run typecheck
 
 .PHONY: test
-test: test-backend test-frontend ## Unit + integration tests both surfaces
+test: test-backend test-frontend test-layout ## Unit + integration tests both surfaces, plus the layout gate
 
 .PHONY: test-backend
 test-backend:
@@ -90,6 +95,18 @@ test-backend:
 .PHONY: test-frontend
 test-frontend:
 	cd $(FRONTEND) && pnpm run test
+
+.PHONY: test-layout
+test-layout: ## Layout gate: computed geometry of both shells in a real headless browser
+	# jsdom performs no layout, so `test-frontend` above can see which elements
+	# render and never where they end up — which is how the same "Show earlier" /
+	# toast overlap shipped five times with the unit gate green throughout. This
+	# suite measures boxes and asks the browser what paints at a point.
+	#
+	# It is in the gate, unlike `e2e` below, because it needs no stack and no
+	# keys: it serves the client from its own dev server and fulfils every /api
+	# call from fixtures. ~20s. See tests/layout/harness.ts.
+	cd $(TESTS) && pnpm run test:layout
 
 .PHONY: e2e
 e2e: ## End-to-end test: drive the real web client against a running stack (02 §4a; hits real services)

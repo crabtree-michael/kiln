@@ -160,7 +160,7 @@
      `line-height: 1`), so a shorthand here zeroes the vertical half and
      collapses both buttons to a 16px sliver — a tap target barely half the size
      a finger needs, and invisible to every DOM test since the element is still
-     "visible". tests/landing-auth-buttons-smoke.mjs measures it. */
+     "visible". tests/layout/other-shells.spec.ts measures it. */
   .kiln-landing-2 .kiln-nav__signup,
   .kiln-landing-2 .kiln-nav__login {
     padding-inline: 14px;
@@ -171,7 +171,7 @@
      arrangement only: the wider bar keeps its own order, and one source of
      markup serves both. The two are adjacent links with identical targets, so
      the reading order the swap leaves behind says the same thing either way.
-     tests/landing-auth-buttons-smoke.mjs measures the order per viewport. */
+     tests/layout/other-shells.spec.ts measures the order per viewport. */
   .kiln-landing-2 .kiln-nav__login {
     order: 1;
   }

@@ -164,7 +164,7 @@ describe('HeaderStatusMenu', () => {
   it('marks each row with the ticket’s own state, so the row and its sheet agree', () => {
     // The mark's colour comes from `data-state` (the TICKET) and its texture
     // from `data-status` (the session) — see the shared status mark in
-    // PrimaryScreen.css, and status-mark.test.ts for the tokens. Without the
+    // PrimaryScreen.css, which is where the shared mark's tokens live. Without the
     // state on the dot a working ticket took the accent from `building` and read
     // as blocked, contradicting the detail sheet the row opens.
     render(<HeaderStatusMenu summary={summary} board={board} />);

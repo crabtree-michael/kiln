@@ -11,9 +11,13 @@
    that differs, and everything below keys off it or off the board's own roles.
 
    The rules that govern the layers below govern this one too, and both are
-   asserted in Kanban.layout.test.ts: every colour is a semantic token (no hex,
-   no rgb — a literal would fork the palette instead of re-pointing it), and no
-   rule names a theme, because the desktop shell follows the OS (13 D6a).
+   asserted in src/styles/stylesheet-discipline.test.ts: every colour is a
+   semantic token (no hex, no rgb — a literal would fork the palette instead of
+   re-pointing it), and no rule names a theme, because the desktop shell follows
+   the OS (13 D6a). Those two are claims about this file's TEXT, which is why
+   they stayed behind when the layout assertions moved to tests/layout/ — you
+   cannot observe the absence of a colour in a rendering. The board's own
+   geometry is measured there, in other-shells.spec.ts.
 
    The accent budget: this file spends it exactly once, on BLOCKED. That is not
    a second budget alongside DesktopScreen.css's `needs-you` — it is the same

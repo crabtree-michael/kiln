@@ -6,6 +6,25 @@ against fakes in the commit gate. **These e2e tests are different**: they drive 
 **real web client** against a **running stack** and exercise the live loop — no fakes,
 so the brain hits the **real LLM** (02 §4a, §1).
 
+## Two suites in this directory
+
+This package holds **two** Playwright suites with separate configs, and the difference
+is what they need to run:
+
+|         | `playwright.config.ts` (`tests/`)        | `playwright.layout.config.ts` (`layout/`) |
+| ------- | ---------------------------------------- | ----------------------------------------- |
+| Drives  | the real client against a **live stack** | the real client, `/api` **stubbed**       |
+| Needs   | docker-compose up, provider keys         | nothing — it starts its own dev server    |
+| Runs    | deliberately (`make e2e`)                | **in the gate** (`make check`), ~35s      |
+| Asserts | the live loop end to end                 | **computed geometry** of the shells       |
+
+`layout/` exists because jsdom performs no layout, so the unit gate can see which
+elements render and never where they end up — which is how the same "Show earlier" /
+toast overlap shipped five times with everything green. It replaced eleven test files
+(~2000 lines) that asserted layout by matching the _text_ of the stylesheets, plus six
+hand-run `.mjs` scripts that lived outside the gate and rotted there. Run it with
+`make test-layout` or `pnpm run test:layout`; see `layout/harness.ts` for the stance.
+
 ## Two lanes: real-service and keyless
 
 The specs split into two lanes:
@@ -170,7 +189,7 @@ Playwright's `baseURL` is the frontend under test:
   timeouts are generous and each run is single-worker. A failure here is a signal
   about the running system — investigate the stack, don't loosen the assertion.
 - `say-creates-ticket` never pulls a ticket into a sandbox, so it needs no Amika
-  cleanup. Any e2e that *does* reach Developing must destroy the sandboxes it touches
+  cleanup. Any e2e that _does_ reach Developing must destroy the sandboxes it touches
   (`auto_delete` is off by design — 05 D6).
 - **Amika cleanup is automatic** via `global-teardown.ts`: after the suite it lists the
   account's sandboxes, filters to this stack's own pool (`KILN_WORKER_PREFIX`, default

@@ -6,6 +6,7 @@
   "description": "Kiln end-to-end tests — drive the real web client against a running stack (docs/specs/01 §2, 02 §4).",
   "scripts": {
     "test": "playwright test",
+    "test:layout": "playwright test --config playwright.layout.config.ts",
     "install-browser": "playwright install chromium"
   },
   "devDependencies": {

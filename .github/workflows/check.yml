@@ -73,5 +73,14 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 
+      # The layout gate (`make test-layout`, part of `make check`) drives a real
+      # headless browser: it renders both shells and asserts computed geometry,
+      # which is the only thing in the gate that can see a layout bug at all.
+      # Needs no stack and no keys — every /api call is fulfilled from fixtures —
+      # so unlike the e2e suites it belongs on every push. `--with-deps` installs
+      # Chromium's shared libraries, which a bare ubuntu-latest runner lacks.
+      - name: Install layout-gate browser
+        run: cd tests && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium
+
       - name: make check
         run: make check

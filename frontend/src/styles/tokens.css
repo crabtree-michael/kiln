@@ -126,6 +126,40 @@
   --marketing-max: 1120px; /* marketing content column */
   --touch-target: 44px; /* minimum hit area */
 
+  /* ── Layer scale — the app shell's stacking order, stated once ──
+     Two scales, not one, because [data-role='dock-region'] carries a
+     transform (the keyboard lift) and is therefore its own stacking
+     context: the numbers sealed inside it order the dock's own
+     overlays and say nothing about the dock versus the feed.
+
+       screen:  detail-panel > detail-scrim > popover > header
+                > dock > feed
+       in dock: hub > transcript > (the dock surface itself)
+
+     Read these rather than writing a number: a literal z-index is how
+     a new surface lands between two layers that were meant to be
+     adjacent. The order is checked as real paint order in
+     tests/layout/, not as the text of this file.
+
+     --layer-feed is deliberately never applied. The feed layer is
+     `z-index: auto`, and anything the feed pins into the bottom
+     reserve ("Show earlier" and its skirt) must carry no z-index at
+     all — a number there lifts it out of its own layer and over the
+     dock's overlays, which is the bug this scale exists to name. It
+     is here as the floor of the scale, so the rung is legible.
+
+     Scope is the app shell + the ticket sheet. The marketing routes
+     (landing, guide) stack against nothing and keep their own local
+     numbers. */
+  --layer-feed: 0;
+  --layer-dock: 1;
+  --layer-header: 5;
+  --layer-popover: 30;
+  --layer-detail-scrim: 40;
+  --layer-detail-panel: 41;
+  --layer-dock-transcript: 5;
+  --layer-dock-hub: 6;
+
   /* ── Radii — round and humanist. Controls are pills; surfaces are soft. ── */
   --radius-sm: 8px; /* inputs, small chips */
   --radius-md: 12px; /* list rows, toasts */

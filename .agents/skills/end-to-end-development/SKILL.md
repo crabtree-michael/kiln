@@ -46,9 +46,14 @@ The three levels run in two places. **Unit + component-integration are the commi
 run offline against fakes; **e2e is separate** and needs a live stack.
 
 - **The gate (offline, fakes):** `make check` — the wall (`lint → typecheck → test`). `make test`
-  alone runs both surfaces' unit + integration:
+  alone runs both surfaces' unit + integration, plus the layout gate:
   - Backend: `cd backend && go test ./...` then `go test -tags=integration ./...`.
   - Frontend: `cd frontend && pnpm test` (Vitest).
+  - Layout: `make test-layout` (`cd tests && pnpm run test:layout`) — Playwright over the real
+    client, every `/api` call stubbed, asserting **computed geometry**. It is in the gate and
+    not in the e2e lane below because it needs no stack and no keys (~20s). jsdom performs no
+    layout, so this is the only level that can see a layout bug at all; the first time, run
+    `cd tests && pnpm install && pnpm run install-browser`.
   Green before you commit. Never `-skip`/`xit` a check to get there.
 
 - **End-to-end (live stack, real services):** the suite lives in **`/tests`** (Playwright) and

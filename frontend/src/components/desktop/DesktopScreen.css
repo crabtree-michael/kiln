@@ -719,12 +719,11 @@ html:has([data-role='desktop-screen']) body {
    backlog draws nothing at all — head included — so there is no line to style.
    See Backlog.tsx. */
 
-/* Stated separately from the working list rather than grouped with it: the
-   assertions in DesktopScreen.layout.test.ts pin that rule by its exact
-   selector (it is where "the feed's reading measure never leaks into this
-   column" is checked), and a comma-joined selector would take that pin with
-   it. The declarations are the same on purpose — see the shared row rules
-   below, which ARE grouped. */
+/* Stated separately from the working list rather than grouped with it, so that
+   "the feed's reading measure never leaks into this column" has a rule of its
+   own to fail on: tests/layout/desktop-shell.spec.ts measures this list against
+   its column's content box. The declarations are the same on purpose — see the
+   shared row rules below, which ARE grouped. */
 [data-role='desktop-backlog-list'] {
   list-style: none;
   margin: var(--space-3) 0 0;

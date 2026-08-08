@@ -291,7 +291,7 @@ describe('DesktopScreenView', () => {
     // jsdom lays nothing out, so the height is always 0px here; what this case
     // can see — and the only thing it needs to — is that the var lands on the
     // desktop root at all. The geometry is measured in
-    // tests/desktop-shell-smoke.mjs.
+    // tests/layout/desktop-shell.spec.ts.
     const { container } = renderShell({ hasEarlier: true, onShowEarlier: vi.fn() });
     const root = container.querySelector<HTMLElement>('[data-role="desktop-screen"]');
     expect(root?.style.getPropertyValue('--feed-bottom-inset')).toBe('0px');
@@ -430,7 +430,7 @@ describe('DesktopScreenView', () => {
     // Same rule as the head above, applied one level down: every row here is a
     // ticket in Working, so every mark says `working` and takes the ember the
     // detail sheet's IN PROGRESS badge wears (tokens pinned in
-    // status-mark.test.ts). The session is still stated — it textures the mark
+    // the shared mark, PrimaryScreen.css). The session is still stated — it textures the mark
     // and writes the row's word — but it no longer picks the colour, which is
     // what used to put a fire mark beside a perfectly healthy ticket.
     const { container } = renderShell({
@@ -456,7 +456,7 @@ describe('DesktopScreenView', () => {
     // Every row under the head is a ticket in Working, so the head says
     // `working` — the same value the detail sheet's badge is keyed on — and the
     // two agree on colour by construction (the tokens are pinned in
-    // DesktopScreen.layout.test.ts). A failing session behind the top row is a
+    // DesktopScreen.css). A failing session behind the top row is a
     // fact about that row, stated there; it must not repaint the head.
     const { container } = renderShell({
       board: makeBoard({
@@ -562,7 +562,7 @@ describe('DesktopScreenView', () => {
     // The fix is that there is now ONE mark: the head renders the same
     // `status-dot` element the rows do, keyed on the same two attributes, so size,
     // shape, ink and breath cannot diverge again — they are one rule
-    // (PrimaryScreen.css, pinned in status-mark.test.ts).
+    // (PrimaryScreen.css, where the shared mark is declared).
     const { container } = renderShell({
       board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
       thinking: true,
@@ -669,7 +669,7 @@ describe('DesktopScreenView', () => {
     expect(head).toHaveTextContent('blocked');
     // …and it wears the ticket's own BLOCKED reading, the same state value the
     // detail sheet's badge is keyed on (the tokens are pinned in
-    // DesktopScreen.layout.test.ts).
+    // DesktopScreen.css).
     expect(head).toHaveAttribute('data-state', 'blocked');
     // The cause is said in words too — the head's one word cannot carry the
     // difference between "nothing to run" and "nothing it may run".

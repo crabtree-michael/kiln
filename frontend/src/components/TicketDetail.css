@@ -9,12 +9,13 @@
  * the slide-up transform (direction="bottom") + rubber-band drag itself, keyed to
  * Radix's data-state=open|closed; these rules only supply the appearance and the
  * bottom-anchored, full-width geometry. The sheet sits above every in-page layer
- * (the app tops out at z-index 30). */
+ * — the top two rungs of the layer scale in tokens.css, above the popovers the
+ * app otherwise tops out at. */
 
 [data-role='ticket-detail-backdrop'] {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--layer-detail-scrim);
   background: var(--scrim);
 }
 
@@ -23,7 +24,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 41; /* above its own scrim */
+  z-index: var(--layer-detail-panel); /* above its own scrim */
   width: 100%;
   max-height: 85dvh;
   /* Flex column that clips: the grabber, header, top metadata and (pinned)
@@ -811,9 +812,9 @@
  *
  * The numbers mirror `[data-role='dock-mic']` in PrimaryScreen.css, which is
  * where the mic is dressed (unscoped, so it renders identically wherever it is
- * placed — this footer included). Nothing in the gate would notice the two
- * drifting apart, since jsdom does no layout, so `TicketDetail.action-icons.test.ts`
- * holds them in step as a CSS string.
+ * placed — this footer included). Nothing in the DOM couples the two files, so
+ * `tests/layout/ticket-detail.spec.ts` holds them in step by measuring: it
+ * opens the sheet and asserts each disc is the mic's own box, on one line.
  *
  * Like the mic they carry no `:hover` rule at all: the press IS the feedback,
  * which also keeps a touch device's emulated hover from painting a state nobody

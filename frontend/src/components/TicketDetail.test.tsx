@@ -151,7 +151,7 @@ describe('TicketDetail', () => {
 
   it('draws Accept as a glyph and keeps the word only as its name', () => {
     // Accept is an icon button now — the check, on the mic's disc (see
-    // TicketDetail.action-icons.test.ts), with nothing spelled out beside it. The
+    // TicketDetail.css, dressed off the mic's own rules), with nothing spelled out beside it. The
     // aria-label is therefore the ONLY place the word survives: lose it and the
     // one headline decision on the sheet goes unnamed to a screen reader, and
     // every `getByRole('button', { name: 'Accept' })` in this file stops matching.
@@ -828,7 +828,7 @@ describe('TicketDetail — sandbox menu', () => {
     // The gear comes last in the row — that (plus the `margin-left: auto` that
     // pushes it to the row's far end) is what right-aligns it. jsdom does no
     // layout, so DOM order is what there is to assert; the geometry rides on the
-    // CSS assertion in TicketDetail.header-layout.test.ts.
+    // geometry check in tests/layout/ticket-detail.spec.ts.
     expect(row?.lastElementChild?.getAttribute('data-role')).toBe('detail-sandbox-menu');
   });
 

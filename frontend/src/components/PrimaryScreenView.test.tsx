@@ -324,7 +324,7 @@ describe('PrimaryScreenView', () => {
 
   it('leaves the control last in the backlog whether or not there are cards', () => {
     // The DOM half of "always at the foot of the feed, above the dock". The
-    // anchoring itself is CSS (PrimaryScreen.show-earlier.test.ts) and it hangs
+    // anchoring itself is CSS (measured in tests/layout/bottom-stack.spec.ts) and it hangs
     // off this order plus this parent: the control has to be the last child of
     // the backlog — the flex column that spans the scrollport and is the sticky
     // element's containing block. Moving it out to sit beside the dock, or down

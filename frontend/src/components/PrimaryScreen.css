@@ -154,7 +154,7 @@
      below the bar over the feed) paints above the scrolling cards, matching the
      dock/transcript occluders. */
   position: relative;
-  z-index: 5;
+  z-index: var(--layer-header);
   /* Opaque page tone so the bar reads as the app's own background — same fill the
      dock + live transcript use — and occludes the feed edge beneath it. */
   background: var(--surface-page);
@@ -243,7 +243,7 @@
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 30;
+  z-index: var(--layer-popover);
   display: flex;
   flex-direction: column;
   width: 240px;
@@ -486,7 +486,7 @@
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 30;
+  z-index: var(--layer-popover);
   display: flex;
   flex-direction: column;
   width: 264px;
@@ -671,7 +671,7 @@
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 30;
+  z-index: var(--layer-popover);
   /* Span the full feed content width: the panel stays right-anchored (its right
    * edge already sits at the cards' right edge), and this width carries its left
    * edge out to the cards' left edge — flush with the feed content rather than
@@ -1628,9 +1628,10 @@ button[data-role='feed-card-head']:focus-visible {
    that floats the thinking chip off the dock), and that gap is already in the
    reserve the control rests on with no toast in sight. Giving it back too would
    settle the control 12px LOWER under a toast than it sits without one — which
-   is the same bug as the lift, just in the other direction, and the browser
-   measurement in `tests/show-earlier-skirt-repro.mjs` is what caught it (jsdom
-   does no layout, so nothing in the gate can see a 12px drift).
+   is the same bug as the lift, just in the other direction. A browser
+   measurement is what caught it and what holds it now: `tests/layout/`
+   compares the control's standoff from the dock across every band state, and a
+   12px drift in either direction fails there. Nothing in jsdom can see it.
 
    BOTH shell roots, in one rule, because by now it is one mechanism: the desk
    grew the same reserve when `--feed-bottom-inset` was taught to reach
@@ -1721,13 +1722,14 @@ button[data-role='feed-card-head']:focus-visible {
      which float over the feed's bottom reserve rather than inside the dock's own
      box. Nothing the feed pins down there may paint over them: "Show earlier" is
      sticky at the foot of the scrollport with an opaque skirt below it (see its
-     rule above), and while that skirt sat at `z-index: 1` it covered the band's
-     separator hairline and the top of every toast. Stated here rather than left
-     to tree order because the region's transform below makes it a stacking
-     context, sealing the band's `z-index: 6` inside it — this number is the only
-     one that speaks for the whole layer. Below the header's 5, so the status /
-     project / notification dropdowns still drop over the dock as before. */
-  z-index: 1;
+     rule above), and while that skirt carried a layer of its own it covered the
+     band's separator hairline and the top of every toast. Stated here rather
+     than left to tree order because the region's transform below makes it a
+     stacking context, sealing `--layer-dock-hub` inside it — this rung is the
+     only one that speaks for the whole layer. Below `--layer-header`, so the
+     status / project / notification dropdowns still drop over the dock as
+     before. The whole order is the layer scale in tokens.css. */
+  z-index: var(--layer-dock);
   flex-shrink: 0;
   /* Ride the on-screen keyboard: `use-keyboard-viewport` publishes the keyboard's
      overlap of the bottom edge as `--keyboard-inset` (0px when closed), frame-synced
@@ -1822,9 +1824,9 @@ button[data-role='feed-card-head']:focus-visible {
      both layers (z-index 6) its fill simply covers the top pixel — no gap. */
   bottom: calc(100% + var(--dock-overlay-height, 0px) - 1px);
   /* Belt-and-braces with the geometry above: also sit above the dock transcript
-     (z-index 5) so that even mid-resize (before the offset settles) a toast still
-     renders in front of, never behind, the transcript box. */
-  z-index: 6;
+     (`--layer-dock-transcript`) so that even mid-resize (before the offset
+     settles) a toast still renders in front of, never behind, the transcript. */
+  z-index: var(--layer-dock-hub);
   display: flex;
   /* Column so the thinking indicator and the toast stack stack vertically on the
      one layer: the thinking pill renders first → floating at the top, clear of
@@ -2113,7 +2115,7 @@ button[data-role='toast-open']:focus-visible {
   left: 0;
   right: 0;
   bottom: 100%;
-  z-index: 5;
+  z-index: var(--layer-dock-transcript);
   max-height: 28vh;
   overflow-y: auto;
   padding: 14px 26px 12px;
@@ -2266,7 +2268,7 @@ button[data-role='toast-open']:focus-visible {
   bottom: 100%;
   transform: translateX(-50%);
   margin-bottom: 10px;
-  z-index: 6;
+  z-index: var(--layer-dock-hub);
   display: flex;
   align-items: center;
   justify-content: center;

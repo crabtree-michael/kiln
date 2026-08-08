@@ -57,47 +57,41 @@ _(Accumulate: how to run the frontend locally, build/test commands, the boundary
 
 ## Bottom-anchored UI layering (standing principle)
 
+*Intent, not enforcement. The rules below are checked as computed geometry in
+`tests/layout/` (part of `make check`) and the stacking order is published as a single
+scale in `styles/tokens.css`. This section says what the arrangement is FOR; it is not
+where the arrangement is defined, and amending it fixes nothing.*
+
 The bottom of the primary screen is a stack of layers that all grow **upward** over
 the feed: the dock (mic controls, in flow) is the base; the live transcript overlays
 just above it; the notification hub (toast stack / "Kiln is thinking") sits on top.
 
-**Rule: the notification hub must never overlap the dock, and the dock is not a fixed
-height** — it expands upward as the transcript grows (bounded to 28vh). So the hub is
-anchored above the dock's *current* top, not its collapsed top:
-
-- The dock publishes its transcript overlay's live height as `--dock-overlay-height`
-  on the screen root (`[data-role='primary-screen']`), tracked via `ResizeObserver`
-  so it updates as words stream in. It defaults to `0px` (collapsed dock).
-- The hub (`[data-role='activity-row']`) offsets its `bottom` by that var:
-  `bottom: calc(100% + var(--dock-overlay-height, 0px))` — `100%` clears the collapsed
-  controls row, the var clears the transcript. Collapsed and expanded both stay clear.
-- z-index (hub 6 > transcript 5) is only a belt-and-braces backstop for mid-resize
-  frames; the geometry, not the z-order, is what keeps them from overlapping.
-- **Those numbers are sealed inside the dock region** — its keyboard-lift `transform`
-  makes it a stacking context — so they order the layers *within* the dock and say
-  nothing about the dock versus the feed. That is `[data-role='dock-region']`'s own
-  `z-index: 1`, and it is the whole of it: **the dock layer is above the feed layer**.
-  Anything the feed pins into the bottom reserve (today, "Show earlier" + its skirt)
-  paints under the toast band and the transcript, and nothing in the feed should carry
-  a `z-index` that fights that. Above the feed, below the header's 5, whose dropdowns
-  still fall over the dock.
+**The dock is not a fixed height.** It expands upward as the transcript grows, so
+anything anchored above it must be anchored to the dock's *current* top, not to its
+collapsed one — the dock publishes its overlay's live height as `--dock-overlay-height`
+and the hub offsets its `bottom` by that. Geometry is what keeps the layers apart; the
+z-order is only a backstop for mid-resize frames.
 
 **The reserve is for the CARDS, not for whatever the feed pins into it.** The feed's
-`padding-bottom` grows with `--dock-overlay-height` + `--feed-bottom-inset` so the newest
-card can be scrolled clear of the overlays standing over it. That reserve is a scroll
-allowance and nothing more — it is not a claim that everything in the feed must ride the
-band's height. A toast arriving is not a layout event: it must not move anything the user
-is looking at. "Show earlier" sits at the top of that reserve, so it *did* ride it, and
-every toast lifted the control and every dismissal dropped it back; the fix is a
-paint-only `transform` that gives the band's share back (below), leaving the band to
-overlay the control. **Both shells**, off one rule — the desk grew the same reserve, and
-with it the same lift, the moment `--feed-bottom-inset` was taught to reach
-`[data-role='desktop-screen']`.
+`padding-bottom` grows with the overlays so the newest card can be scrolled clear of
+them. That is a scroll allowance and nothing more. **A toast arriving is not a layout
+event** — it must not move anything the user is looking at. "Show earlier" sits at the
+top of that reserve, so it has to give the band's share back in paint and let the band
+overlay it, rather than riding the growth like a lift.
+
+**The layer order is a lookup, not a paragraph.** `--layer-*` in `styles/tokens.css`
+states it once: on screen, `detail-panel > detail-scrim > popover > header > dock >
+feed`; inside the dock region (which is its own stacking context, because of the
+keyboard-lift transform), `hub > transcript`. Read a rung; do not write a number. The
+feed's rung exists to be named, never applied — anything the feed pins into the bottom
+reserve must carry no `z-index` at all, or it lifts itself over the dock's overlays.
+That single mistake is the "Show earlier" / toast overlap that was fixed five times.
 
 **When you add any new bottom-anchored surface** (another dock affordance, a second
-hub, a banner): decide its place in this upward stack and anchor it to the *dynamic*
-height of the layers below it (via the same var / a measured offset), never to a fixed
-collapsed height that only happens to look right until the dock expands.
+hub, a banner): decide its place in this upward stack, anchor it to the *dynamic* height
+of the layers below it, take its rung from the scale, and add the assertion to
+`tests/layout/bottom-stack.spec.ts`. A rule written down here and nowhere else is not
+a rule.
 
 **Permanent error band vs. toasts (`SystemAlertBand`).** The dock region hosts one
 *persistent* surface that is the deliberate opposite of the toast overlay: a permanent
@@ -231,10 +225,8 @@ did everything right and is early — so it asks them for nothing and offers no 
 chase. `PrivateBeta.test.tsx` pins that (no textbox, no button, no link); keep it, since the
 page it replaced told people to go and find an admin.
 
-**`tests/landing-auth-buttons-smoke.mjs` is the only thing that can see the nav actually lay
-out** — hand-run, same harness and stance as `desktop-shell-smoke.mjs` (`cd frontend && pnpm
-build`, then `cd ../tests && node landing-auth-buttons-smoke.mjs`). It measures both buttons at
-390px and 1440px: on one row, inside the viewport, clear of the brand, right of centre, and
+**`tests/layout/other-shells.spec.ts` is what can see the nav actually lay out** — in the
+gate, at 390px and 1440px: on one row, inside the viewport, clear of the brand, right of centre, and
 **≥32px tall**. That last one is not padding: `.kiln-btn` has no `height`/`min-height` and
 `line-height: 1`, so its entire height comes from `padding: 11px 20px` — writing the mobile
 override as the `padding` shorthand zeroes the vertical half and collapses both buttons to a
@@ -313,8 +305,9 @@ key), then "Finish setup". It replaces the single crammed project form that used
   **dropped entirely** and `agent_provider` is omitted, so the project keeps resolving to
   `AGENT_MODE`. Two steps, not an empty third one.
 - **Onboarding needs its OWN `svg[data-icon]` sizing rule** — the settings one is scoped under
-  `[data-role='settings']`. Without it every glyph renders at the SVG default 300×150. Asserted
-  in `Dashboard.desktop-layout.test.ts`, along with the rail/actions geometry.
+  `[data-role='settings']`. Without it every glyph renders at the SVG default 300×150 — with
+  every DOM test still green, since the elements are all present at the wrong size. Measured in
+  `tests/layout/other-shells.spec.ts`, along with the settings page's two-column geometry.
 - The provider radios are wired `htmlFor`/`id` with the hint text **outside** the `<label>` —
   a wrapping label would absorb "Needs your Amika API key." into the radio's accessible name.
   Same trap as the credential rows' validity glyph.
@@ -403,9 +396,9 @@ inputs, a 2–3-column project-form grid and a 2-column credential grid.
   hex in one theme. Consequences: any later rule touching a select must use `background-color`,
   never the `background` shorthand (it resets the chevron), and the `padding-right` that keeps a
   long option label out from under the glyph travels with it.
-- **Layout-critical CSS is asserted as a string** (`Dashboard.desktop-layout.test.ts`, the
-  `?raw` technique) — jsdom does no layout, so without it the page could silently revert to one
-  mobile-style column and every DOM test would still pass.
+- **Layout is measured, not string-matched** (`tests/layout/other-shells.spec.ts`) — jsdom
+  does no layout, so without it the page could silently revert to one mobile-style column and
+  every DOM test would still pass.
 
 ### Projects: a panel list over a detail modal
 
@@ -513,8 +506,8 @@ All three share the two consequences below. The text edit adds three of its own:
 - **The `<Drawer.Title>` stays mounted while editing**, visually hidden by a *clip* rule
   (`[data-editing='true']`), because Radix names the dialog by it. `display: none` is the one
   hiding style an accessible-name computation may skip — don't "simplify" it to that.
-  Asserted in `TicketDetail.edit-visibility.test.ts` (jsdom does no layout, so nothing else
-  in the gate would catch a duplicated on-screen title).
+  Measured in `tests/layout/ticket-detail.spec.ts` (jsdom does no layout, so nothing else in
+  the gate would catch a duplicated on-screen title).
 - **Save sends only the fields that changed**, so editing the title can't clobber a body the
   brain rewrote while the sheet was open; an unchanged draft sends nothing at all. Edit mode
   also replaces the dock's state actions (Accept/Delete/Poke/mic) wholesale with Cancel/Save.
@@ -560,9 +553,8 @@ the sheet's **status row** (under the title, on the sheet's right edge, after th
   hidden` in both shells — the desktop panel needs no re-anchoring (unlike the bell, above).
   **The anchor tracks the trigger:** it hung `left: 0` while the gear led the row,
   and moving the gear without moving the anchor would clip the panel off the sheet's edge.
-  `desktop-shell-smoke.mjs` measures exactly
-  that (`SANDBOX MENU`: inside the sheet, panel on top, Escape closes the menu and not the
-  sheet); `TicketDetail.header-layout.test.ts` pins the CSS in the gate.
+  `tests/layout/ticket-detail.spec.ts` measures exactly that: the gear on the sheet's right
+  edge, and its panel opening back INTO the sheet rather than off the edge.
 - **A closed panel stays mounted** (so it animates both ways) and is taken out of the page by
   `aria-hidden`. Consequence for tests: a closed menu's items are *absent* from role queries,
   so every test opens the gear first.
@@ -601,9 +593,9 @@ the state actions (Poke, Delete, Accept) withdraw *as a group* and the cluster's
 - **`MicButton` is never re-parented and never re-ordered**, which is what keeps it from being
   unmounted and remounted mid-utterance (that would take its `setTicketContext` registration
   and its volume-glow rAF loop with it). It is rendered unconditionally as the cluster's first
-  child. Pinned in the gate as a CSS string (`TicketDetail.voice-actions-layout.test.ts`)
-  since jsdom does no layout, plus a DOM assertion that the cluster element is *identical*
-  across the flip.
+  child. Held by a DOM assertion that the cluster element is *identical* across the flip
+  (`TicketDetail.test.tsx`) — the arrangement itself is CSS, so if the mic starts travelling
+  again the assertion to add is a geometry one in `tests/layout/ticket-detail.spec.ts`.
 - **`TicketDetail` still knows nothing about the voice store**, and that is what shapes the
   seam. `TicketDetailVoiceActions` (a `useVoice()` consumer, like `TicketDetailTranscript`)
   reports `onActiveChange(boolean)` up to `PrimaryScreenView` / `DesktopScreenView`, which
@@ -642,9 +634,9 @@ a touch device emulates hover, and a primary-surface override at higher specific
 how the row drifts apart on the one surface the app renders. Poke was the last holdout — a
 2.1rem outlined circle beside three 54px discs, plus a `13px` ghost-pill skin with a `:hover`
 — and it read as a different *kind* of control rather than a quieter one.
-`TicketDetail.action-icons.test.ts` holds all of it in step by reading both stylesheets as
-strings (jsdom does no layout, and the mic is dressed in the *other* file). If the mic is
-restyled, that test fails, and the fix is to restyle these with it.
+The mic is dressed in the *other* stylesheet (`PrimaryScreen.css`, unscoped, so the sheet's
+footer picks it up wherever it is placed), which is exactly the kind of seam an edit to one
+side walks past. If you restyle the mic, restyle these with it.
 
 ### Poke is offered on every working ticket, idle session or not
 
@@ -837,23 +829,14 @@ retracted, so this is unrelated to swipe-dismiss above.
   does. That reserve is for the cards; the control cancels it back out of its own painted
   position (see the toast-overlay bullet above), so a desk toast covers it rather than
   moving it.
-- **jsdom sees none of this.** The CSS half is pinned as `?raw` strings
-  (`PrimaryScreen.show-earlier.test.ts`, `DesktopScreen.layout.test.ts`) and the DOM half
-  — the control being the LAST child of `[data-role='backlog']` / the feed region, which
-  is the containing block the anchoring hangs off — in the two view tests. The only thing
-  that can see it actually resolve is `tests/desktop-shell-smoke.mjs`, which now measures
-  the control at both viewports, with and without cards, and on a deliberately short
-  window so the feed really overflows — plus a band pass that reads the desk's standoff
-  from the composer region with a toast up against the same number at rest, and hit-tests
-  what paints over the control (`SHOW EARLIER — OVERLAY OK`). What paints over what is a
-  browser question too:
-  `tests/show-earlier-skirt-repro.mjs` (hand-run, same stance) puts a toast band and a
-  typed draft under the control and screenshots the strip between them at 3×, which is
-  the only way the 2px and 1px artefacts here are visible at all. That script also
-  measures the control's standoff from the dock across four band states (none / band /
-  shortest band / band + thinking) and prints PASS only if the number is identical in all
-  of them and the band is what hit-tests over the control, top edge included — the check
-  that "toasts overlay, never push", and the one that caught the 12px overshoot above.
+- **jsdom sees none of this, so it is measured instead.** `tests/layout/` renders both
+  shells and asserts the geometry directly: the control's standoff from the dock is the
+  same number with a band up as at rest (the "toasts overlay, never push" claim, in both
+  shells), the band is what hit-tests over the control — top edge included — and the
+  control still ends the feed at every card count and on a viewport too short to spare the
+  room. The DOM half — the control being the LAST child of `[data-role='backlog']` / the
+  feed region, which is the containing block the anchoring hangs off — stays in the two
+  view tests. Add to `tests/layout/bottom-stack.spec.ts` when you touch this.
 
 ## Potential gotchas
 
@@ -887,8 +870,8 @@ retracted, so this is unrelated to swipe-dismiss above.
   with one too — wait a beat first), and it must come off on `pointercancel`, which is how the
   browser ends a touch that turned into a scroll. `TicketDetail.tsx`'s
   `beginPress`/`trackPress`/`abandonPress` is the worked example; jsdom matches no media
-  queries, so the gate can only catch the CSS half as a `?raw` string assertion
-  (`TicketDetail.edit-visibility.test.ts`).
+  queries, so the hover half of the wash is not asserted at all; the press half is DOM and
+  is.
 
 - **Sending pointer events into the vaul sheet hits two jsdom gaps in vaul itself**, which
   surface as uncaught `TypeError`s that fail the run even when every test passes (vitest exits
@@ -933,12 +916,18 @@ retracted, so this is unrelated to swipe-dismiss above.
   `flex-shrink` (`flex: 1 100 auto`) so it yields first, while the dock keeps
   `flex-shrink: 1` + `min-height: 0` as a last-resort valve so its controls can't be
   clipped off a very short viewport. Same trap applies to any other capped sheet.
-  Regression-tested in `TicketDetail.transcript-space.test.ts`.
+  Measured in `tests/layout/ticket-detail.spec.ts`, on a ticket long enough to cap the
+  sheet: the dock renders at its intrinsic height and the body is the region that yields.
 
-- **Assert layout-critical CSS by importing the stylesheet as a string** (`?raw`, typed via
-  `vite/client`) and matching the rule body — jsdom does no layout, so nothing else in the
-  gate can catch a geometry regression. See `TicketDetail.safe-area.test.ts` and
-  `TicketDetail.transcript-space.test.ts`.
+- **Assert layout as geometry, in a browser — never as the text of the stylesheet.**
+  `tests/layout/` (in `make check`) renders the real client with every `/api` call stubbed
+  and measures boxes and paint order. The repo used to slice rule bodies out of stylesheets
+  with `?raw` and match them as strings; a string test passes when the rule is present and
+  the layout is still broken, which is exactly how the same "Show earlier"/toast overlap
+  shipped five times. The one thing still asserted about CSS *text* is what a sheet may not
+  CONTAIN — no colour literals, no second theme switch, no literal z-index where the layer
+  scale has a rung (`styles/stylesheet-discipline.test.ts`) — because you cannot observe
+  the absence of a colour in a rendering. Anything positional goes in `tests/layout/`.
 
 - **Viewport units: match the unit the container already uses.** On mobile Safari `vh` is
   the *large* viewport (browser chrome hidden), so a `45vh` child inside an `85dvh` parent
@@ -959,7 +948,7 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
 
 - **`useIsDesktop()` (`desktop/use-desktop-layout.ts`) is the only breakpoint.** The CSS
   deliberately carries **no** `min-width` media query for the shell — a second threshold
-  could silently disagree with the JS one. Asserted in `DesktopScreen.layout.test.ts`.
+  could silently disagree with the JS one. Asserted in `styles/stylesheet-discipline.test.ts`.
   `useState<boolean>(false)` is explicit on purpose: `useState(false)` infers the literal
   `false`, and then every `if (isDesktop)` downstream trips `no-unnecessary-condition`.
 - **`DesktopScreen.css` layers on top of `PrimaryScreen.css`** (the shell imports both, in
@@ -1024,7 +1013,7 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   is a single composed statement with nothing to line up with. It is also the only accent on
   screen besides the rail's `needs-you` dot, and it gets there without touching the CSS accent
   budget (the red is baked into the asset, not a `var(--accent)` rule) — so
-  `DesktopScreen.layout.test.ts`'s "exactly one accent rule" case still holds. If a future
+  `stylesheet-discipline.test.ts`'s "exactly one accent rule" case still holds. If a future
   ticket wants the resting view quieter, retint the mark, don't add a second accent rule.
 - **Deliberately NOT ported to the desk** (all four are spec calls, not omissions): swipe /
   per-card dismiss and the bulk clear (13 §6 + open Q3 — the brain curates, 08 D1),
@@ -1051,15 +1040,13 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
     as "no elastic bounce either" and would suppress exactly what the pixel unlocks. Chaining is
     dead-ended at the document instead (html/body locked + `overscroll-behavior: none` in
     tokens.css). Same reasoning, at length, in the phone's `[data-role='feed']` rule.
-  `desktop-shell-smoke.mjs`'s tablet pass is the only thing that can see any of it — a second
-  page (touch is a *context* option, not a viewport, so it cannot be a `setViewportSize` on the
-  page every other pass uses) at 1194×834 with `hasTouch`, reading `coarsePointer` first because
-  everything under it is meaningless if the emulation didn't take, then the region's overflow
-  (1px), the wrapper's height past the region's **content** box (what a percentage resolves
-  against), the feed's `overscroll-behavior`, and the control's gap to the composer — against
-  the same numbers the 1440px mouse pass prints with no overflow at all. The gate can only see
-  the rule's text (`DesktopScreen.layout.test.ts`) and the DOM shape
-  (`DesktopScreenView.test.tsx`, which pins the wrapper as the region's only child).
+  None of this is currently measured: touch is a *context* option in Playwright, not a
+  viewport, so a coarse-pointer pass needs its own context rather than a `setViewportSize`
+  on the shared page. Today the gate sees only the DOM shape (`DesktopScreenView.test.tsx`,
+  which pins the wrapper as the region's only child). If you touch it, the assertion to add
+  is a `hasTouch` project in `tests/playwright.layout.config.ts` reading the region's
+  overflow and the wrapper's height past the region's **content** box (what a percentage
+  resolves against).
 - **The desktop composer does not use the voice store's `keyboardMode`.** That toggle is
   modal (entering stops the mic) because a phone has room for one input at a time; a desk
   doesn't have that constraint, so the field and the mic coexist and the user picks
@@ -1080,11 +1067,12 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   `startedEditRef` and only the surface that was tapped takes the caret. The sheet's line
   also ends the edit on unmount (closing a sheet over a focused field fires no blur, and a
   stuck `editing` freezes the auto-send forever).
-- **jsdom does no layout, so the desktop geometry is asserted as a CSS string** (`?raw`,
-  same technique as `TicketDetail.safe-area.test.ts`) — two-column grid, the feed's
-  `overflow-anchor: auto` (the "arrivals land in place" property, 13 §6), the one-column
-  max-width, the blocker/proposal unclamp, reduced-motion suppression, and no hex/rgb
-  literals (which would fork the palette instead of re-pointing tokens).
+- **jsdom does no layout, so the desktop geometry is measured in a browser** — the
+  three-column shell, the feed's reading measure at the
+  narrowest desk window, the composer's mic-glow reserve and the toast's cap are all in
+  `tests/layout/desktop-shell.spec.ts`; reduced-motion suppression and no hex/rgb literals
+  (which would fork the palette instead of re-pointing tokens) stay in
+  `styles/stylesheet-discipline.test.ts`, because they are claims about the source.
 - **Ticket detail is a RIGHT-SIDE panel at a desk, a bottom sheet on a phone** (13 D7a
   amending D7), and the split is one prop plus one attribute:
   - **`placement` (`'bottom' | 'right'`, default `'bottom'`) is the JS half.** It is handed
@@ -1104,9 +1092,10 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
     dimming them takes back what moving it to the edge just bought. The rule must not
     declare `bottom` (that is the edge vaul translates away from) and must drop
     `border-top`/`border-right` rather than writing `border: none` + a new `border-left`,
-    which would out-specify and erase a blocked ticket's tinted border. All pinned by
-    `DesktopScreen.layout.test.ts`; the mobile sheet is untouched because omitting the
-    prop changes no DOM at all.
+    which would out-specify and erase a blocked ticket's tinted border. The resting
+    geometry — right edge, full height, narrower than the window — is measured in
+    `tests/layout/desktop-shell.spec.ts`; the mobile sheet is untouched because omitting
+    the prop changes no DOM at all.
 - **`FeedCardItem` takes a `moreLabel`**, defaulting to the mobile "tap to see more"; the
   desktop shell passes `"more"`. Only the text node changes, so every mobile DOM/image
   snapshot stays byte-identical — which is the pattern to follow for any other copy that is
@@ -1152,23 +1141,15 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   blocked and building reads only as `needs-you`, so without the hint the running work
   vanishes. `useProjectsStatus` therefore returns `ProjectStatus` objects (`{state,
   working}`), not bare state strings — the module-level cross-remount cache holds those too.
-- **`tests/desktop-shell-smoke.mjs` is the only thing that can see the layout.** A
-  hand-run script (not part of the Playwright suite, no stack needed): it serves
-  `frontend/dist`, stubs every `/api` call, and screenshots + measures the shell at 1440px
-  and at 480px. `pnpm build` in `/frontend`, then `node desktop-shell-smoke.mjs` from
-  `/tests`. It is what catches the class of bug the CSS-string assertions can't — regions
-  that render but lay out wrong. Run it after any change to `DesktopScreen.css`. It also
-  holds the board/feed reads open (`apiDelayMs`) across one project switch, which is the only
-  way to observe the loading line's real geometry and to prove the previous project's cards
-  are still under it rather than the window having gone blank again. It also swaps the `/feed`
-  stub to an empty snapshot (`feedBody = emptyFeed`) for a resting-state pass — the mark and
-  the lines on the region's axis, and "Show earlier" at the foot rather than under the text.
-  **Prettier it with the frontend's config STATED EXPLICITLY** — `cd frontend && pnpm exec
-  prettier --config .prettierrc.json --write ../tests/<script>.mjs`. `/tests` has no prettier
-  config, and prettier resolves config from the FILE's directory rather than the cwd, so
-  merely *running* it from `/frontend` is not enough: the plain invocation reformats the whole
-  file to defaults (double quotes). The same goes for every other hand-run script on this
-  path, `toast-mic-glow-repro.mjs` and `kanban-smoke.mjs` included.
+- **`tests/layout/desktop-shell.spec.ts` is what can see the layout**, and it is in the
+  gate: it serves the client from its own dev server, stubs every `/api` call, and measures
+  the shell at a desk viewport and at the 1024px threshold. It catches the class of bug a
+  CSS-string assertion cannot — regions that render but lay out wrong. It also
+  covers the resting state (`cards: 0`) — "Show earlier" at the foot rather than under the
+  resting text. Two things it does NOT cover, both of which the retired hand-run script did:
+  the loading line's geometry mid project-switch (it needs the board/feed reads held open),
+  and the read that the previous project's cards are still under it rather than the window
+  having gone blank. Add those to the harness if you touch that path.
 - **Sharing a rule is not sharing a clock — marks that must pulse together also need
   `--pulse-phase: shared`.** This column has now been fixed three times, each fix real and
   each one revealing the next layer: matching the *tempo* (`e078df2`), then giving the head
@@ -1186,9 +1167,8 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   wants the sync. Costs one frame — a new mark paints once at progress 0 before joining the
   clock, which the keyframes put at their quiet end. Because the opt-in sits on the shared
   `[data-status='building']` rule, the phone's list, header menu and kanban cards come along.
-  `DesktopScreen.layout.test.ts` pins that the shared rule carries it and that `DesktopScreen.css`
-  *declares* none of its own (asserted over a comment-stripped copy, so the head's rule stays
-  free to explain in prose which clock it keeps); jsdom has neither `AnimationEvent` nor
+The opt-in lives on the one rule both surfaces render, so there is exactly one place to
+  state it and none to forget; jsdom has neither `AnimationEvent` nor
   `getAnimations`, so the module is inert under the DOM tests and `pulse-phase.test.ts` fakes
   both seams. Verified in real Chromium: 0.38 of a cycle apart before, 0.000 after.
   **When you unify two animated marks, check the phase as well as the look** — a CSS-string
@@ -1204,10 +1184,9 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   padding), never a z-index that lifts the mic *over* the band — that just moves the collision
   and paints the halo across the pills. **When you anchor anything to the edge of a region
   holding the mic, budget the glow's reach, not the button's box.**
-  `tests/toast-mic-glow-repro.mjs` is the hand-run check (same harness and stance as the
-  smoke script): it drives a real `say` + `toast` over the stubbed stream, forces the
-  listening reading, parks the pulse at its widest frame, and prints how much of the glow the
-  band covers in both themes and on the phone.
+  `tests/layout/desktop-shell.spec.ts` measures the reserve directly: the composer's top
+  edge stands at least the glow's reach below the region's top, which is the edge the band
+  anchors to.
 
 ## `/kanban` — the second desktop shell (board view)
 
@@ -1222,7 +1201,7 @@ the pure `desktop/kanban-board.ts`.
   from `DesktopScreenView` for this and is mounted by both. The brief was "identical to the
   desktop app's sidebar", and a second `<aside>` agrees on the day it is written and drifts on
   the first change to either screen. Its markup is unchanged from when it was inlined, so the
-  existing DOM tests, the CSS, and `desktop-shell-smoke.mjs` all still find it.
+  existing DOM tests, the CSS, and `tests/layout/other-shells.spec.ts` all still find it.
 - **The kanban root wears `data-role='desktop-screen'` with `data-view='kanban'`**, rather than
   a role of its own. That is what makes it the same shell: the `html:has(...)` viewport lock,
   the `*` box model, the visually-hidden helper and — easiest to miss — the notification bell's
@@ -1250,14 +1229,14 @@ the pure `desktop/kanban-board.ts`.
 - **The accent budget is spent once here too, on BLOCKED** (a 2px left edge). That is not a
   second budget beside `DesktopScreen.css`'s `needs-you`; it is the same rule — "a person is
   needed for a decision" — applied to the one thing on this board that qualifies. Asserted in
-  `Kanban.layout.test.ts`, along with no-hex/no-rgb, no theme selector, and no animation.
+  `styles/stylesheet-discipline.test.ts`, along with no-hex/no-rgb, no theme selector, and
+  no animation.
 - **The count in a column head is the one number this shell allows itself.** 13 §8 rules out
   badges in the *resting* screen, whose premise is that there is nothing to manage; a board's
   premise is the opposite, and a column's depth is the fact it exists to report. Faintest ink,
   never tinted, tabular figures.
-- **`tests/kanban-smoke.mjs` is the only thing that can see this layout** — hand-run, same
-  harness and stance as `desktop-shell-smoke.mjs`. Run it after any change to `Kanban.css`
-  (`cd frontend && pnpm build`, then `cd ../tests && node kanban-smoke.mjs`). It measures the
-  five columns on one row, that a deep column scrolls on its own while the other four headings
-  hold still, that both clamps bite, that the accent is on ONE edge and not four, and that the
-  detail panel lands at the right edge — none of which jsdom or a CSS-string assertion can see.
+- **`tests/layout/other-shells.spec.ts` is what can see this layout**, and it is in the gate:
+  the columns on one row, each heading held at its column's top, and the overflow belonging to
+  the LIST rather than the column — none of which jsdom or a CSS-string assertion can see. The
+  clamps and the accent's single edge are not measured; if you touch either, that spec is where
+  the assertion goes.

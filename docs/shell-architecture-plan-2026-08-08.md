@@ -282,11 +282,14 @@ visible behaviour.
   structure snapshots for 4a/4b/4c/4d and the proposal card. The extraction is prop-shape-only, so
   **any snapshot that changes means something visible moved.** Rule for the implementation tickets:
   no `-u`. If a snapshot needs updating, stop and explain why.
-- **jsdom cannot see the layout risk in §4.4.** The CSS-as-string tests
-  (`PrimaryScreen.show-earlier.test.ts`, `desktop/DesktopScreen.layout.test.ts`) catch the
-  declarations; only `tests/desktop-shell-smoke.mjs` and `tests/show-earlier-skirt-repro.mjs`
-  measure real geometry, and both are **hand-run, outside the gate**. Mitigation: capture their
-  measurements before the work and diff after. Better: land review D2 first (below).
+- ~~**jsdom cannot see the layout risk in §4.4.**~~ **RESOLVED by T0, which has landed** (see §6).
+  When this was written the only things measuring real geometry were two hand-run `.mjs` scripts
+  outside the gate, and the mitigation on offer was "capture their measurements before the work
+  and diff after". That is no longer the situation: `tests/layout/` now drives a real browser in
+  `make check` and asserts §4.4's invariant directly — the control's standoff from the dock is
+  identical in every toast-band state, and the band paints *over* the control rather than moving
+  it. The six `.mjs` scripts are deleted. **T2 is now guarded rather than merely careful**, which
+  is the single biggest change to this plan's risk profile since it was written.
 - **Per-action optionality is a test seam, not an accident.** Every `on*?` prop is optional so
   presentational tests can omit it and assert the affordance is *absent*. A `TicketDetailHost`
   taking one `actions` object must preserve that, or roughly ten tests quietly change meaning.
@@ -315,28 +318,60 @@ revertable, and small enough to review against the snapshot rule above.
 
 | # | Ticket | Touches | Size | Depends on |
 |---|---|---|---|---|
-| **T0** | *(optional, recommended)* Put the two geometry smokes in the gate; retire the hand-run `.mjs` scripts into it | `tests/`, Makefile | S | — |
-| **T1** | L2 part 1: extract `feed-model.ts` (the six pure functions + card-kind predicates), both feed shells import it. Absorbs review **D9** | 2 views, feed-store, new `.ts` + test | S | T0 |
+| ~~**T0**~~ | ✅ **LANDED 2026-08-08** — the layout gate. Delivered wider than specified; see below | `tests/layout/`, `tokens.css`, Makefile | — | done |
+| **T1** | L2 part 1: extract `feed-model.ts` (the six pure functions + card-kind predicates), both feed shells import it. Absorbs review **D9** | 2 views, feed-store, new `.ts` + test | S | ✅ satisfied |
 | **T2** | L2 part 2: `readFeed() → FeedRow[]`; both shells' card loops consume rows. **Carries the §4.4 layout risk** | 2 views | M | T1 |
 | **T3** | L3: `useTicketOverlay()` + `<TicketDetailHost>`; all **three** shells | 3 views, 2 new files | M | T2 |
-| **T4** | L1: `useTicketActions()`; both containers | `PrimaryScreen.tsx`, `KanbanScreen.tsx`, new `.ts` | S | T0 — **parallelisable with T1–T3** (different files) |
+| **T4** | L1: `useTicketActions()`; both containers | `PrimaryScreen.tsx`, `KanbanScreen.tsx`, new `.ts` | S | ✅ satisfied — **parallelisable with T1–T3** (different files) |
 | **T5** | Durability: shared conformance suite, the eslint shell rule, update the web-client skill's "two views over one wiring seam" section and 13 §13 Q4's answer in the decision log | tests, eslint config, docs | M | T3, T4 |
 
-**Sequence:** T0 → (T1 → T2 → T3) with T4 running in parallel → T5.
-**Rough size:** about a week of focused work for one agent; two to three days with T4 parallelised.
+**Sequence:** ~~T0 →~~ (T1 → T2 → T3) with T4 running in parallel → T5. T0 is done, so the chain
+starts at T1 and T4 together.
+**Rough size:** about a week of focused work for one agent; two to three days with T4
+parallelised — now less, since T0 is no longer part of it. Consistent with the review's own
+"Medium complexity, weeks 2–3" placement, and with its note that D1 is the thing to do first if
+only one thing gets done.
 
 **Status of the table (2026-08-08).** Both decisions are locked in above: T3's "three views" and
 T4's "both containers" are settled rather than proposed, and T4's shape is fixed by §7's
-injection decision — it takes `onAcceptOptimistic` / `onDeleteOptimistic` as inputs. **No ticket
-is blocked on an open question.** The chain runs on approval.
+injection decision — it takes `onAcceptOptimistic` / `onDeleteOptimistic` as inputs. T0 has
+landed, so nothing is waiting on a prerequisite either. **No ticket is blocked.** The chain runs
+on approval.
 
-Consistent with the review's own "Medium complexity, weeks 2–3" placement, and with its note that
-D1 is the thing to do first if only one thing gets done.
+**On T0 — landed, and wider than this plan asked for.** The review listed it as D2 and recommended
+doing D1 *after* it, "so the layout suite guards the move." That is now history rather than a
+recommendation: the gate exists, in
+`f6f900f` (merge) / `4985f18` (the suite) / `cb4711b` + `922537d` (the notes).
 
-**On T0.** The review lists it as D2 and recommends doing D1 *after* it, "so the layout suite guards
-the move." I agree, and T2 is the specific reason. If T0 is declined, T2 should be sequenced last
-and its before/after geometry measured by hand — that is a real reduction in safety, not a
-formality.
+What shipped goes beyond the row above, which asked only for the two geometry smokes to be
+gated:
+
+- **`tests/layout/` — 32 specs across five files, real browser, every `/api` call stubbed.** No
+  stack and no keys, so it runs inside the hard gate (`make check` → `test` → `test-layout`,
+  ~1 min) rather than beside the e2e suite.
+- **The eleven `?raw` string-matching test files (~2000 lines) are gone**, replaced by measured
+  geometry. This plan never asked for that; it is the review's D2 taken to its conclusion. What
+  is genuinely about a file's *text* survives in `stylesheet-discipline.test.ts` — you cannot
+  observe the absence of a colour in a rendering.
+- **The six hand-run `.mjs` scripts are deleted.** §5's risk bullet about them is struck through.
+- **The stacking order is now one `--layer-*` scale in `tokens.css`**, asserted as real paint
+  order.
+
+**Three consequences for this plan, all favourable:**
+
+1. **§4.4 — the highest regression risk named here — is now covered by an assertion**, not by
+   care. The gate checks both halves of the recurring bug: the control's standoff from the dock
+   is identical in every band state, and the band paints over the control rather than moving it.
+2. **T2 loses its "sequence it last and measure by hand" caveat entirely.** It is now an ordinary
+   ticket with a gate behind it.
+3. **T5 shrinks.** It no longer needs to reason about which `?raw` assertions the extraction made
+   redundant; that cleanup already happened.
+
+One caution that survives, and is now the *only* thing jsdom-blindness costs this plan: the
+layout gate measures the shells as they render, so it protects §4.4 against a **structural**
+mistake (hoisting the control out of its scroll wrapper). It says nothing about the DOM-snapshot
+tripwire in §5 — that remains the check that the extraction moved no markup, and it is still the
+one to watch during T2 and T5.
 
 **What is deliberately not in any ticket:** splitting `PrimaryScreen.css` (review D3), any visual or
 layout change to either shell, opening 13 §13 Q3 (desktop dismissal), and every other duplication

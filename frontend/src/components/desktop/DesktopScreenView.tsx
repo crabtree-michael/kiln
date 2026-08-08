@@ -26,7 +26,7 @@
 // only thing allowed to animate on its own is the working indication, and
 // arrivals fade rather than slide. Spending any of that elsewhere is what breaks
 // the one loud moment when it comes.
-import { useCallback, useRef, useState, type JSX, type KeyboardEvent } from 'react';
+import { useRef, type JSX, type KeyboardEvent } from 'react';
 import type {
   Board,
   ConnectionState,
@@ -36,9 +36,8 @@ import type {
 import type { ActivityToast } from '@/stores/activity-context';
 import type { WebPushStatus } from '@/stores/use-web-push';
 import { FeedCardItem } from '@/components/FeedCardItem';
-import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
-import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
-import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
+import type { TicketTextEdit } from '@/components/TicketDetail';
+import { TicketDetailHost } from '@/components/TicketDetailHost';
 import { ActivityRow } from '@/components/ActivityRow';
 import { DesktopRail } from '@/components/desktop/DesktopRail';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
@@ -47,9 +46,9 @@ import { blockedCount, workingTickets } from '@/components/desktop/working-now';
 import { Backlog } from '@/components/desktop/Backlog';
 import { backlogTickets } from '@/components/desktop/backlog';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
-import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { useTicketOverlay } from '@/components/use-ticket-overlay';
 import { streamDetail } from '@/components/feed-format';
-import { findTicket, readFeed } from '@/components/feed-model';
+import { readFeed } from '@/components/feed-model';
 import '@/components/PrimaryScreen.css';
 import '@/components/desktop/DesktopScreen.css';
 
@@ -156,26 +155,12 @@ export function DesktopScreenView({
   // accent, which is reserved for things needing a decision.
   const disconnected = connectionState === 'reconnecting';
 
-  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
-  const closeTicket = useCallback((): void => {
-    setOpenTicketId(null);
-  }, []);
-  // A tapped push notification deep-links here exactly as it does on mobile
-  // (02 §10 / 12 §6.3) — desktop being open changes nothing about being found.
-  useDeepLinkTicket(setOpenTicketId);
-  // A live voice session inside the open panel, reported up from its voice cluster
-  // — the same seam and the same reason as the mobile shell's (this view is not a
-  // voice consumer either). The rearrangement it drives is the sheet's own, so both
-  // shells get it from one place: the mic joins Send and × at the panel's trailing
-  // end and Accept stands down while the user is speaking.
-  const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
-  const openTicket = findTicket(board, openTicketId);
-  // The open ticket's bound session, for the panel's gear menu status line only —
-  // Poke is no longer gated on it reading `idle` (see TicketDetail's onPoke).
-  const openAgentStatus =
-    openTicket === null
-      ? undefined
-      : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
+  // The detail overlay's whole state cluster, shared with the phone and with
+  // `/kanban` (see `use-ticket-overlay.ts`) — including the push deep link, which
+  // works here exactly as it does on mobile (02 §10 / 12 §6.3): desktop being open
+  // changes nothing about being found.
+  const overlay = useTicketOverlay(board);
+  const { setOpenTicketId } = overlay;
 
   const feedRef = useRef<HTMLElement>(null);
 
@@ -438,62 +423,32 @@ export function DesktopScreenView({
         </div>
       </main>
 
-      {openTicket !== null && (
-        // Detail opens OVER the feed and gets out of the way when you're done
-        // (13 D7) — no third pane, no inspector. The same sheet the mobile screen
-        // opens, with the same actions wired the same way; a permanent detail
-        // pane would double the resting complexity to serve something looked at
-        // rarely, and re-create the two-pane console this design avoids.
-        //
-        // What the desk changes is the EDGE it comes from (13 D7a). A bottom
-        // sheet is a phone's answer: it rises into the middle of the window and
-        // covers the feed and the working strip — exactly the ongoing work the
-        // user opened a ticket to read *against*. `placement="right"` anchors it
-        // to the right edge at full height instead, so it reads as a panel
-        // beside the work rather than a pop-up over it. Still an overlay, not a
-        // third column: it takes no width from the feed while closed, and
-        // closing it returns the window to its two regions untouched.
-        <TicketDetail
-          ticket={openTicket}
-          surface="primary"
-          placement="right"
-          voiceControl={
-            <TicketDetailVoiceActions
-              ticketTitle={openTicket.title}
-              onActiveChange={setTicketVoiceActive}
-            />
-          }
-          voiceActive={ticketVoiceActive}
-          transcript={<TicketDetailTranscript />}
-          onClose={closeTicket}
-          onAccept={(ticketId) => {
-            onAccept(ticketId);
-            closeTicket();
-          }}
-          onDelete={
-            onDelete === undefined
-              ? undefined
-              : (ticketId) => {
-                  onDelete(ticketId);
-                  closeTicket();
-                }
-          }
-          onPoke={
-            onPoke === undefined
-              ? undefined
-              : (ticketId) => {
-                  onPoke(ticketId);
-                  closeTicket();
-                }
-          }
-          onSetKeepSandbox={onSetKeepSandbox}
-          onKillSandbox={onKillSandbox}
-          onReassignSandbox={onReassignSandbox}
-          sandboxStatus={openAgentStatus}
-          canReassign={(board?.worker_free ?? 0) > 0}
-          onEditText={onEditText}
-        />
-      )}
+      {/* Detail opens OVER the feed and gets out of the way when you're done
+          (13 D7) — no third pane, no inspector. The same sheet the mobile screen
+          opens, with the same actions wired the same way, from the same host; a
+          permanent detail pane would double the resting complexity to serve
+          something looked at rarely, and re-create the two-pane console this
+          design avoids.
+
+          What the desk changes is the EDGE it comes from (13 D7a). A bottom
+          sheet is a phone's answer: it rises into the middle of the window and
+          covers the feed and the working strip — exactly the ongoing work the
+          user opened a ticket to read *against*. `placement="right"` anchors it
+          to the right edge at full height instead, so it reads as a panel beside
+          the work rather than a pop-up over it. Still an overlay, not a third
+          column: it takes no width from the feed while closed, and closing it
+          returns the window to its two regions untouched. */}
+      <TicketDetailHost
+        overlay={overlay}
+        placement="right"
+        onAccept={onAccept}
+        onDelete={onDelete}
+        onPoke={onPoke}
+        onSetKeepSandbox={onSetKeepSandbox}
+        onKillSandbox={onKillSandbox}
+        onReassignSandbox={onReassignSandbox}
+        onEditText={onEditText}
+      />
     </div>
   );
 }

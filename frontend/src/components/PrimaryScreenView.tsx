@@ -2,7 +2,7 @@
 // selector surface out, so the DOM-snapshot tests render it directly with
 // fixture data and never touch the live stores. `PrimaryScreen` (the composing
 // wrapper) bridges the feed + activity stores into these props.
-import { useCallback, useRef, useState, type JSX } from 'react';
+import { useRef, type JSX } from 'react';
 import type {
   Board,
   ConnectionState,
@@ -13,16 +13,15 @@ import type { ActivityToast } from '@/stores/activity-context';
 import type { WebPushStatus } from '@/stores/use-web-push';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
-import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
-import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
-import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
+import type { TicketTextEdit } from '@/components/TicketDetail';
+import { TicketDetailHost } from '@/components/TicketDetailHost';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { streamDetail } from '@/components/feed-format';
-import { findTicket, readFeed } from '@/components/feed-model';
-import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { readFeed } from '@/components/feed-model';
+import { useTicketOverlay } from '@/components/use-ticket-overlay';
 import { usePullToRefresh } from '@/components/use-pull-to-refresh';
 import '@/components/PrimaryScreen.css';
 
@@ -173,41 +172,13 @@ export function PrimaryScreenView({
   // so a feed of only those leaves it disabled.
   const { summary, rows, isEmpty, lastWord, hasClearable } = readFeed(feed, lastSeenId, now);
 
-  // Which proposal's full ticket is open in the click-through detail overlay
-  // (08 §5). View-only state held here, mirroring how Board owns its selected
-  // ticket. The id is resolved against the live board each render, so the overlay
-  // drains on its own if the ticket leaves the board (e.g. after Accept).
-  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
-  // The ticket detail overlay is opened from a feed card, the header menu, a
-  // push-notification deep link, or a tapped board `toast` on the activity row
-  // (08 §4) — the toast dismisses itself through its own auto-dismiss/`onDismiss`
-  // path, so opening the overlay is a plain setter with no toast state to
-  // reconcile here. `closeTicket` is a stable callback because the sheet + several
-  // in-sheet actions all close through it.
-  const closeTicket = useCallback((): void => {
-    setOpenTicketId(null);
-  }, []);
-  // A tapped push notification deep-links here (02 §10): open the ticket it names,
-  // whether we were opened fresh at `/app?ticket=<id>` or handed the tap live by the
-  // service worker. The id resolves against the board below like any other open.
-  useDeepLinkTicket(setOpenTicketId);
-  // Whether the open sheet has a live voice session in it, reported up from the
-  // sheet's voice cluster (`TicketDetailVoiceActions`). It rearranges the sheet's
-  // footer — the mic crosses to the trailing group to sit beside Send and ×, and
-  // Accept stands down for the duration. Held here rather than read from the voice
-  // store because this screen is not a voice consumer: the cluster hands up a
-  // *boolean*, so this re-renders when the footer's shape changes rather than once
-  // a spoken word.
-  const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
-  const openTicket = findTicket(board, openTicketId);
-  // The open ticket's bound agent, looked up in the board snapshot's `agents`
-  // join (keyed by ticket_id). It reaches the sheet as the gear menu's status
-  // line and nothing else — Poke used to be gated on it reading `idle`, which hid
-  // the button on exactly the in-progress tickets the user wanted to nudge.
-  const openAgentStatus =
-    openTicket === null
-      ? undefined
-      : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
+  // The click-through detail overlay (08 §5) — which ticket is open, how it
+  // closes, the push deep-link, and whether a voice session is live inside it.
+  // Shared with both desktop shells; see `use-ticket-overlay.ts`. It is opened
+  // from a feed card, the header dropdown, a deep link, or a tapped board `toast`
+  // on the activity row, all through the same setter.
+  const overlay = useTicketOverlay(board);
+  const { setOpenTicketId } = overlay;
   // Pull-to-refresh: the feed section is the scroll container, so the gesture
   // reads its scrollTop off this ref. Only wired when `onRefreshFeed` is provided
   // (the composing screen passes it; presentational tests omit it, leaving the
@@ -434,91 +405,16 @@ export function PrimaryScreenView({
         <Dock alerts={board?.alerts ?? []} />
       </div>
 
-      {openTicket !== null && (
-        <TicketDetail
-          ticket={openTicket}
-          surface="primary"
-          // The sheet's voice cluster, shown on every ticket state — the unified
-          // communication surface (08 §5) that replaces the old blocked-only "Talk
-          // to unblock" button, so the user can start talking to the brain directly
-          // from any ticket. At rest it is the same dock orb at the footer's
-          // bottom-left, tapped to start a session without leaving the sheet; while
-          // one is live it brings Send and a discard (×) with it across to the
-          // row's trailing end, and reports that up through `onActiveChange` so the
-          // sheet can stand Accept down for the duration. Safe to always pass — it
-          // only mounts (and touches the voice store) when the sheet renders it.
-          // `ticketTitle` registers this ticket with the voice store so whatever the
-          // user sends from the sheet is prefixed with it, giving the brain the
-          // context of what they're commenting on (08 §5).
-          voiceControl={
-            <TicketDetailVoiceActions
-              ticketTitle={openTicket.title}
-              onActiveChange={setTicketVoiceActive}
-            />
-          }
-          voiceActive={ticketVoiceActive}
-          // The live transcript for that mic, shown in the sheet's dock above the
-          // controls so the user watches their words land without leaving the sheet
-          // (08 §5). Self-gating (renders nothing until there is text) and rides the
-          // same gate as the mic (any state), so it is safe to always pass — it only
-          // touches the voice store while the sheet renders it.
-          transcript={<TicketDetailTranscript />}
-          onClose={closeTicket}
-          // Accept is a proposal action; TicketDetail only surfaces it while the
-          // ticket is still shaping, so it's safe to always wire — the sheet decides.
-          onAccept={(ticketId) => {
-            onAccept(ticketId);
-            closeTicket();
-          }}
-          // Delete only surfaces on a shaping proposal (TicketDetail gates it):
-          // route the deletion through the brain, then close the sheet like Accept
-          // — the proposal's removal comes back over the stream. Omitted when the
-          // composing screen didn't wire it, so no button shows (presentational).
-          onDelete={
-            onDelete === undefined
-              ? undefined
-              : (ticketId) => {
-                  onDelete(ticketId);
-                  closeTicket();
-                }
-          }
-          // Poke surfaces on working/blocked tickets (TicketDetail gates it):
-          // route the "continue" intent through the brain, then close the sheet
-          // like Accept — the resulting agent activity comes back over the stream.
-          // Omitted when the composing screen didn't wire it, so no button shows.
-          onPoke={
-            onPoke === undefined
-              ? undefined
-              : (ticketId) => {
-                  onPoke(ticketId);
-                  closeTicket();
-                }
-          }
-          // The sandbox switch shows on every ticket state. Passed straight
-          // through — unlike Accept/Delete/Poke it does NOT close the sheet: it
-          // is a setting the user flips while reading, not an action that ends
-          // the visit, and the new value arrives on the next board snapshot.
-          onSetKeepSandbox={onSetKeepSandbox}
-          // The manual sandbox overrides, shown only on a working/blocked ticket
-          // (TicketDetail gates them) and, like the switch above, leaving the
-          // sheet open — the user is dealing with a broken sandbox and wants to
-          // watch what happens to it, not be thrown back to the feed.
-          onKillSandbox={onKillSandbox}
-          onReassignSandbox={onReassignSandbox}
-          // The sandbox's own session status, and whether there is a free one to
-          // move to. Both come from the board snapshot the sheet is already
-          // rendering, so the controls describe the real sandbox rather than
-          // guessing from the ticket's column.
-          sandboxStatus={openAgentStatus}
-          canReassign={(board?.worker_free ?? 0) > 0}
-          // The body is pressable only on a backlog ticket (TicketDetail gates it).
-          // Passed straight through — like the sandbox switch, and unlike
-          // Accept/Delete/Poke, saving an edit does NOT close the sheet: the
-          // user corrected the wording and should see the corrected ticket, not
-          // be thrown back to the feed.
-          onEditText={onEditText}
-        />
-      )}
+      <TicketDetailHost
+        overlay={overlay}
+        onAccept={onAccept}
+        onDelete={onDelete}
+        onPoke={onPoke}
+        onSetKeepSandbox={onSetKeepSandbox}
+        onKillSandbox={onKillSandbox}
+        onReassignSandbox={onReassignSandbox}
+        onEditText={onEditText}
+      />
     </div>
   );
 }

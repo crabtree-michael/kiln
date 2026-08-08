@@ -26,19 +26,17 @@
 // The register is the desktop shell's (13 §1): the columns hold still, the only
 // thing permitted to move on its own is the building mark, and the accent means
 // a person is needed — which on this screen is Blocked and nothing else.
-import { useCallback, useState, type JSX } from 'react';
+import type { JSX } from 'react';
 import type { Board, ConnectionState, NotificationModeValue } from '@/transport/transport';
 import type { WebPushStatus } from '@/stores/use-web-push';
-import type { Ticket } from '@/components/TicketCard';
-import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
-import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
-import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
+import type { TicketTextEdit } from '@/components/TicketDetail';
+import { TicketDetailHost } from '@/components/TicketDetailHost';
 import { DesktopRail } from '@/components/desktop/DesktopRail';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
 import { kanbanColumns, type KanbanCard } from '@/components/desktop/kanban-board';
 import { workingStatusNote } from '@/components/desktop/working-now';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
-import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { useTicketOverlay } from '@/components/use-ticket-overlay';
 import { relativeAge } from '@/components/feed-format';
 import '@/components/PrimaryScreen.css';
 import '@/components/desktop/DesktopScreen.css';
@@ -73,24 +71,6 @@ export interface KanbanScreenViewProps {
   onDisablePush?: (() => void) | undefined;
   /** Injected "now" for deterministic relative-age rendering. */
   now?: number;
-}
-
-/** The full ticket a card id points at, resolved against the live snapshot.
- * Every bucket is scanned so a ticket that changes state between the click and
- * the render still resolves — on this screen more than anywhere, since the whole
- * board is on display while the sheet is open. */
-function findTicket(board: Board | null, id: string | null): Ticket | null {
-  if (board === null || id === null) {
-    return null;
-  }
-  const all: Ticket[] = [
-    ...board.shaping,
-    ...board.ready,
-    ...board.blocked,
-    ...board.working,
-    ...board.done,
-  ];
-  return all.find((ticket) => ticket.id === id) ?? null;
 }
 
 /** A card's accessible name: everything the card shows, as a sentence. The
@@ -135,26 +115,12 @@ export function KanbanScreenView({
   const columns = kanbanColumns(board);
   const disconnected = connectionState === 'reconnecting';
 
-  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
-  const closeTicket = useCallback((): void => {
-    setOpenTicketId(null);
-  }, []);
-  // A tapped push notification deep-links to a ticket from whichever desktop
-  // view happens to be open — being found is not a property of the layout.
-  useDeepLinkTicket(setOpenTicketId);
-  // A live voice session inside the open sheet, reported up from its voice
-  // cluster — the same seam and the same reason as the feed shell's (this view
-  // is not a voice consumer either). The rearrangement it drives is the sheet's
-  // own, so both desktop views get it from one place.
-  const [ticketVoiceActive, setTicketVoiceActive] = useState(false);
-
-  const openTicket = findTicket(board, openTicketId);
-  // The open ticket's bound session, for the sheet's gear menu status line only —
-  // Poke is no longer gated on it reading `idle` (see TicketDetail's onPoke).
-  const openAgentStatus =
-    openTicket === null
-      ? undefined
-      : board?.agents.find((agent) => agent.ticket_id === openTicket.id)?.status;
+  // The detail overlay's state, from the same hook the two feed shells use (see
+  // `use-ticket-overlay.ts`). A tapped push notification deep-links to a ticket
+  // from whichever desktop view happens to be open — being found is not a
+  // property of the layout, so this view subscribes exactly as they do.
+  const overlay = useTicketOverlay(board);
+  const { setOpenTicketId } = overlay;
 
   return (
     // The root wears `data-role="desktop-screen"`, not a role of its own: this
@@ -295,52 +261,22 @@ export function KanbanScreenView({
         </div>
       </main>
 
-      {openTicket !== null && (
-        // The same sheet the feed opens, wired the same way, at the same edge
-        // (13 D7a). Opening a card here must not be a different act from opening
-        // one there — a board view that grew its own detail pane would be a
-        // second place to learn, and a second place to keep in step.
-        <TicketDetail
-          ticket={openTicket}
-          surface="primary"
-          placement="right"
-          voiceControl={
-            <TicketDetailVoiceActions
-              ticketTitle={openTicket.title}
-              onActiveChange={setTicketVoiceActive}
-            />
-          }
-          voiceActive={ticketVoiceActive}
-          transcript={<TicketDetailTranscript />}
-          onClose={closeTicket}
-          onAccept={(ticketId) => {
-            onAccept(ticketId);
-            closeTicket();
-          }}
-          onDelete={
-            onDelete === undefined
-              ? undefined
-              : (ticketId) => {
-                  onDelete(ticketId);
-                  closeTicket();
-                }
-          }
-          onPoke={
-            onPoke === undefined
-              ? undefined
-              : (ticketId) => {
-                  onPoke(ticketId);
-                  closeTicket();
-                }
-          }
-          onSetKeepSandbox={onSetKeepSandbox}
-          onKillSandbox={onKillSandbox}
-          onReassignSandbox={onReassignSandbox}
-          sandboxStatus={openAgentStatus}
-          canReassign={(board?.worker_free ?? 0) > 0}
-          onEditText={onEditText}
-        />
-      )}
+      {/* The same sheet the feed opens, wired the same way, at the same edge
+          (13 D7a) — literally the same host component now. Opening a card here
+          must not be a different act from opening one there: a board view that
+          grew its own detail pane would be a second place to learn, and a second
+          place to keep in step. */}
+      <TicketDetailHost
+        overlay={overlay}
+        placement="right"
+        onAccept={onAccept}
+        onDelete={onDelete}
+        onPoke={onPoke}
+        onSetKeepSandbox={onSetKeepSandbox}
+        onKillSandbox={onKillSandbox}
+        onReassignSandbox={onReassignSandbox}
+        onEditText={onEditText}
+      />
     </div>
   );
 }

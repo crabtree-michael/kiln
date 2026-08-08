@@ -397,8 +397,9 @@ the 5m rate. If some of that was 1h-TTL, the true cost is slightly higher than $
 Bounding conditions:
 
 - **7-day retention** caps every count. Nothing before 2026-08-01T14:55Z is knowable.
-- **One active project, one user.** §8 in particular scales with project count and cannot be
-  extrapolated from this window.
+- **Four projects, one user**, and traffic heavily concentrated in one of them (751 of 1,159
+  events). §8 in particular scales linearly with project count and cannot be extrapolated from
+  this window.
 - **Volume varied 8×** across the window. Per-round and per-pass costs are stable and should be
   planned against; 30-day projections should not.
 - **§3 and §1 are payload-shape-dependent.** Both could re-rate under heavier or differently

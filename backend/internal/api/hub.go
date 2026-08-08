@@ -146,7 +146,21 @@ func (h *Hub) ServeStream(w http.ResponseWriter, r *http.Request, projectID stri
 
 // PushBoard implements runtime.SnapshotPusher (04 §2): read one fresh
 // snapshot, send it to every connected stream.
+//
+// Nothing is read when the project has no connected stream. Assembling the
+// snapshot is not free — it is a board query plus an `agentJoin`, and that join
+// costs a provider round-trip (ListWorkers) and one turn lookup per worker — and
+// every one of those is spent on a frame that `broadcast` would then drop on the
+// floor, because a project with no clients matches none. This is the common case
+// for a backgrounded project: the board keeps mutating (agents working, the
+// steward poking) and emits board.updated the whole time with nobody watching.
+// Safe to skip because the frame carries no state: board events are absolute
+// snapshots (04 D7), so a client that connects later is sent a fresh one by
+// writeInitialSnapshot rather than replayed anything it missed.
 func (h *Hub) PushBoard(ctx context.Context, projectID string) error {
+	if !h.hasClients(projectID) {
+		return nil
+	}
 	bw, err := h.boardWire(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("api: push board: %w", err)
@@ -262,6 +276,20 @@ func (h *Hub) remove(c *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, c)
+}
+
+// hasClients reports whether any connected stream is scoped to projectID — the
+// same predicate broadcast fans out on, asked before doing the work of building
+// a frame rather than after.
+func (h *Hub) hasClients(projectID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.clients {
+		if c.projectID == projectID {
+			return true
+		}
+	}
+	return false
 }
 
 // broadcast enqueues a frame to every client scoped to projectID, non-blocking:

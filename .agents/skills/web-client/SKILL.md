@@ -1139,24 +1139,30 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
   merely *running* it from `/frontend` is not enough: the plain invocation reformats the whole
   file to defaults (double quotes). The same goes for every other hand-run script on this
   path, `toast-mic-glow-repro.mjs` and `kanban-smoke.mjs` included.
-- **Matching a duration is not sharing a clock — two marks that must pulse together need
-  `--pulse-phase: shared`.** A CSS animation's timeline starts when *its own element* starts
-  animating, so the in-progress head (live from the panel's first pass) and the status marks
-  listed under it (live from when each ticket was picked up) ran the same
-  `--pulse-duration` and the same curve from arbitrary starts, and crossed in and out of step
-  forever. This reads as worse than a plain mismatch: identical marks peaking apart is a
-  shimmer the eye tracks instead of either reading. `src/pulse-phase.ts` (installed once in
-  `main.tsx`) pins every opted-in animation's `startTime` to the document timeline, so phase
-  becomes `timelineTime % duration` — a function of the clock, not of mount order. **The
-  opt-in is a CSS custom property on the rule that declares the `animation`**, not a list of
-  keyframe names in the module: `kiln-breathe` is run by both the head (shared, ticket-list
-  tempo) and the rail's project dot (its own slower `--breathe-duration`, alone in its
-  column), and a name list could not tell those two apart. Costs one frame — a new mark paints
-  once at progress 0 before joining the clock, which both keyframe sets put at their quiet
-  end. `DesktopScreen.layout.test.ts` pins that head and list both carry the opt-in and that
-  the rail dot does not; jsdom has neither `AnimationEvent` nor `getAnimations`, so the module
-  is inert there and `pulse-phase.test.ts` fakes both seams. Verified in real Chromium: an
-  0.375-of-a-cycle gap before, 0.000 after.
+- **Sharing a rule is not sharing a clock — marks that must pulse together also need
+  `--pulse-phase: shared`.** This column has now been fixed three times, each fix real and
+  each one revealing the next layer: matching the *tempo* (`e078df2`), then giving the head
+  the rows' actual `status-dot` so one rule paints both (`ddafd67`), and they *still* drifted.
+  A CSS animation's timeline starts when **its own element** starts animating, so one shared
+  declaration still runs from a different start per element — the head live from the panel's
+  first pass, each row live from when that ticket was picked up. Identical marks peaking apart
+  is the worst of the three readings: the eye tracks the shimmer between them instead of
+  either mark. `src/pulse-phase.ts` (installed once in `main.tsx`) pins every opted-in
+  animation's `startTime` to the document timeline, so phase becomes `timelineTime % duration`
+  — a function of the clock, not of mount order. **The opt-in is a CSS custom property on the
+  rule that declares the `animation`**, not a list of keyframe names in the module: the rail's
+  project dot runs `kiln-breathe` at its own slower `--breathe-duration`, alone in a column
+  with nothing to keep time against, and a name list could not tell it apart from a mark that
+  wants the sync. Costs one frame — a new mark paints once at progress 0 before joining the
+  clock, which the keyframes put at their quiet end. Because the opt-in sits on the shared
+  `[data-status='building']` rule, the phone's list, header menu and kanban cards come along.
+  `DesktopScreen.layout.test.ts` pins that the shared rule carries it and that `DesktopScreen.css`
+  *declares* none of its own (asserted over a comment-stripped copy, so the head's rule stays
+  free to explain in prose which clock it keeps); jsdom has neither `AnimationEvent` nor
+  `getAnimations`, so the module is inert under the DOM tests and `pulse-phase.test.ts` fakes
+  both seams. Verified in real Chromium: 0.38 of a cycle apart before, 0.000 after.
+  **When you unify two animated marks, check the phase as well as the look** — a CSS-string
+  test can prove they share a declaration and tell you nothing about whether they peak together.
 - **A glow is geometry too — an opaque band anchored to a region's edge will cut it.** The
   listening mic radiates a box-shadow ring ~20px past the button's edge (`kiln-mic-glow`),
   and the activity row is anchored to the composer region's *top* edge carrying an opaque

@@ -1,16 +1,19 @@
 // One clock for every mark that shares a cadence.
 //
-// The in-progress panel's head and the status marks listed directly under it
-// already declare the same tempo and the same curve (`--pulse-duration`,
-// `ease-in-out`, symmetric 0/50/100 keyframes — see DesktopScreen.css and
-// PrimaryScreen.css). That made them look alike and still let them drift, because
-// matching a duration is not the same as sharing a clock: a CSS animation's
-// timeline starts when its own element starts animating. The head begins
-// breathing when the panel first goes live; each row's mark begins when that
-// ticket is picked up, seconds or minutes later. Same tempo, arbitrary phase — so
-// the two crossed in and out of step forever, which is the drift the eye actually
-// tracks. Two marks reporting one thing must peak together, not merely at the
-// same rate.
+// The in-progress panel's head and the status marks listed directly under it are
+// now the SAME element painted by the SAME declaration — one `status-dot`, one
+// `kiln-status-pulse` rule in PrimaryScreen.css. They still drifted, because
+// sharing a rule is not sharing a clock: a CSS animation's timeline starts when
+// its own element starts animating. The head begins breathing when the panel
+// first goes live; each row's mark begins when that ticket is picked up, seconds
+// or minutes later. One animation, arbitrary phase per element — so the marks
+// crossed in and out of step forever.
+//
+// That is the worst of the readings this column has had. Marks that differ in
+// look are two things; marks that are identical and peak apart are one thing
+// visibly failing to agree with itself, and the eye tracks the shimmer between
+// them rather than either mark. Two marks reporting one thing have to peak
+// together, not merely at the same rate.
 //
 // There is no CSS for this. `animation-delay` is the only phase control, and the
 // offset each element needs depends on when it happened to mount, which the
@@ -22,11 +25,11 @@
 // WHICH marks share the clock stays a CSS decision, declared by the rule that
 // declares the animation (`--pulse-phase: shared`). Listing animation names here
 // would restate a motion decision in a second place and go stale the first time
-// one is retuned — and it could not tell the two `kiln-breathe` users apart
-// anyway: the rail's project dot runs those keyframes at `--breathe-duration` on
-// purpose, alone in its column with nothing to keep time against, while the
-// in-progress head runs them at the ticket list's `--pulse-duration`. The
-// property lets the rules that mean "keep time with the others" say so.
+// one is retuned — and it could not pick out the marks that want the sync from
+// the ones that don't: the rail's project dot breathes at `--breathe-duration` on
+// purpose, alone in its column with nothing to keep time against. The property
+// lets the rules that mean "keep time with the others" say so, and lets that one
+// stay silent.
 
 /** The opt-in a rule declares to have its animation pinned to the shared clock. */
 export const PULSE_PHASE_PROPERTY = '--pulse-phase';

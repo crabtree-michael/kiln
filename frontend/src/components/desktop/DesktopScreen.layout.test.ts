@@ -54,16 +54,17 @@ function primaryRuleBody(selector: string): string {
   return primaryCss.slice(open + 1, close);
 }
 
-/** An `animation` shorthand's timing — everything except which keyframes it
- * runs. `kiln-breathe var(--pulse-duration) ease-in-out infinite` →
- * `var(--pulse-duration) ease-in-out infinite`. Comparing this rather than the
- * whole declaration is the point: two marks of different shapes animate
- * different properties, and it is the CADENCE they have to agree on. */
-function animationCadence(body: string): string {
-  const match = /animation:\s*[\w-]+\s+([^;]+);/.exec(body);
-  expect(match, `no animation shorthand in: ${body}`).not.toBeNull();
-  return (match?.[1] ?? '').replace(/\s+/g, ' ').trim();
-}
+/* There used to be an `animationCadence` helper here, comparing the head mark's
+ * tempo against the ticket marks' while the two stayed different elements. The
+ * head renders the shared mark itself now, so there is one animation and nothing
+ * left to hold in sync — see "gives the in-progress head the ROWS' mark". */
+
+/** The stylesheet with its comments removed, for the absence assertions. What a
+ * rule DECLARES and what a comment explains are different claims: this file has
+ * to state no cadence of its own while still being free to say, in prose, which
+ * cadence the shared mark keeps and why. Asserting over the raw text conflates
+ * the two and makes the explanation itself the failure. */
+const declarations: string = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The token a declaration paints with — `background: var(--warn)` → `--warn`.
  * Comparing token NAMES rather than literal colours is the point: the two
@@ -289,54 +290,92 @@ describe('DesktopScreen.css', () => {
     expect(block).not.toMatch(/translate/);
   });
 
-  it('the working indication breathes — slow, shallow, and never a progress bar', () => {
+  it('breathes — slow, shallow, and never a progress bar', () => {
     const breathe = css.slice(css.indexOf('@keyframes kiln-breathe'));
     const block = breathe.slice(0, breathe.indexOf('}\n}') + 3);
     expect(block).toMatch(/opacity/);
     expect(block).not.toMatch(/width/);
-    // Only the LIVE reading breathes. The panel is permanent now, so a bare
-    // `[data-role='desktop-working-dot']` animation would be a mark looping all
-    // day in a column with nothing in it — manufactured activity (13 §1).
-    expect(ruleBody("[data-role='desktop-working-dot'] {")).not.toMatch(/animation/);
-    const live = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
-    expect(live).toMatch(/animation:\s*kiln-breathe/);
+    // Only a LIVE reading breathes: the rail's dot animates on the `working`
+    // state and nothing in this file animates unconditionally, which would be a
+    // mark looping all day beside a project at rest — manufactured activity
+    // (13 §1).
+    expect(ruleBody("[data-role='rail-project-dot'] {")).not.toMatch(/animation/);
+    expect(
+      ruleBody(
+        "[data-role='rail-project-state'][data-state='working'] [data-role='rail-project-dot'] {",
+      ),
+    ).toMatch(/animation:\s*kiln-breathe/);
   });
 
-  it('breathes on the ticket list’s cadence, not one of the panel’s own', () => {
+  it('gives the in-progress head the ROWS’ mark, not a second dot of its own', () => {
     // The bug this pins down: the head's mark and the status marks listed
-    // directly under it ran on two different tempos, so a column reporting one
-    // thing looked like it was reporting two, and the eye tracked the drift
-    // between them instead of either reading. The ticket list is the reference,
-    // so its timing is read out of PrimaryScreen.css here rather than written
-    // down a second time — retune the marks and this fails until the head
-    // follows.
-    const mark = primaryRuleBody("[data-role='status-dot'][data-status='building'] {");
-    const head = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
-    expect(animationCadence(head)).toBe(animationCadence(mark));
-    // Only the tempo is shared. WHAT breathes stays each mark's own — opacity on
-    // the head's flat dot, the halo on a status mark — because a halo on a 6px
-    // dot with no ring to expand into would read as a size change, not a pulse.
-    expect(head).toMatch(/animation:\s*kiln-breathe/);
-    expect(mark).toMatch(/animation:\s*kiln-status-pulse/);
+    // directly under it were two different elements — 6px against 7px, a fill
+    // against an ink-and-halo, opacity breathing against a breathing halo — so a
+    // column reporting one thing looked like it was reporting two. Matching the
+    // tempo alone (the previous fix) left the rest of the mismatch in place.
+    //
+    // The fix is structural, so this asserts an ABSENCE: the head renders
+    // `[data-role='status-dot']` (WorkingNow.tsx, pinned in the DOM tests) and
+    // this file states no look for it. Anything that reappears here is a second
+    // design for one element, which is how the two drifted apart to begin with.
+    expect(css).not.toMatch(/desktop-working-dot/);
+    const mark = ruleBody("[data-role='desktop-working-head'] [data-role='status-dot'] {");
+    // Layout only — it stops the head's flex row from squeezing the circle into
+    // an oval, which the rows' grid column cannot do to it.
+    expect(mark).toMatch(/flex:\s*none/);
+    for (const property of ['width', 'height', 'border-radius', 'background', 'animation']) {
+      expect(mark, `the head must not restate ${property}`).not.toMatch(new RegExp(`${property}:`));
+    }
+    // …and the shared mark is the one that moves, on its own cadence, in
+    // PrimaryScreen.css. Read here so this file can be checked against it.
+    expect(primaryRuleBody("[data-role='status-dot'][data-status='building'] {")).toMatch(
+      /animation:\s*kiln-status-pulse/,
+    );
+  });
+
+  it('lights the head’s mark when the brain is mid-pass over an empty board', () => {
+    // The one reading the shared mark cannot supply. With nothing in Working
+    // there is no ticket state on the mark, so it falls back to a flat faint fill
+    // with a TRANSPARENT halo — and the pulse expands a halo, so a live head
+    // would breathe invisibly. The ink and the ring are named for that case, in
+    // the shared mark's own variables (so the geometry and the cadence still come
+    // from PrimaryScreen.css) and in neutrals (13 §8.2: no accent here).
+    const live = ruleBody(
+      "[data-role='desktop-working-head'][data-active='true'] [data-role='status-dot']:not([data-state]) {",
+    );
+    expect(live).toMatch(/--dot-ink:\s*var\(--text-muted\)/);
+    expect(live).toMatch(/--dot-ring:\s*var\(--border-default\)/);
+    expect(live).not.toMatch(/var\(--(accent|danger|warn)/);
+    // The variables it writes are the ones the shared pulse actually reads —
+    // renaming them there must fail here rather than silently unlight the head.
+    const frames = primaryCss.slice(primaryCss.indexOf('@keyframes kiln-status-pulse'));
+    expect(frames.slice(0, frames.indexOf('}\n}') + 3)).toMatch(/var\(--dot-ring,/);
   });
 
   it('keeps time with the ticket list, not merely the same tempo as it', () => {
-    // The bug this pins down, and the one the cadence test above could not catch:
-    // the head and the rows agreed on duration and curve and STILL drifted,
-    // because a CSS animation's clock starts when its own element starts
-    // animating. The head begins breathing when the panel first goes live, each
-    // row's mark when that ticket is picked up — same tempo, arbitrary phase, so
-    // they cross in and out of step forever. Matching a rate is not sharing a
-    // clock, and the eye tracks the difference.
+    // The bug this pins down, and the last one left after the head took the rows'
+    // own mark: sharing a RULE gives the head and the rows one tempo, one curve
+    // and one shape, and they still drift. A CSS animation's clock starts when
+    // its own element starts animating — the head from the panel's first live
+    // pass, each row's mark from when that ticket was picked up — so the same
+    // rule painting both still peaks at different moments, and identical marks
+    // peaking apart is a shimmer the eye tracks instead of either reading.
     //
-    // `--pulse-phase: shared` is the opt-in that puts both on one clock
-    // (pulse-phase.ts pins them to the document timeline). Both marks have to
-    // carry it: one alone is pinned to an origin the other is not reading, which
-    // is exactly the state this started in.
+    // `--pulse-phase: shared` is the opt-in that puts them on one clock
+    // (pulse-phase.ts pins it to the document timeline). It belongs to the rule
+    // that declares the `animation`, which is now the single rule both surfaces
+    // render — so there is exactly one place to state it and none to forget.
     const mark = primaryRuleBody("[data-role='status-dot'][data-status='building'] {");
-    const head = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
     expect(mark).toMatch(/--pulse-phase:\s*shared/);
-    expect(head).toMatch(/--pulse-phase:\s*shared/);
+    expect(mark).toMatch(/animation:\s*kiln-status-pulse/);
+
+    // And this file DECLARES no phase of its own — the same absence the head's
+    // geometry, ink and cadence are asserted for above. A second opt-in here
+    // would be a second place for the two to disagree, which is the whole shape
+    // of the bug that keeps coming back to this column. Over `declarations`, not
+    // the raw text: the head's rule explains where its phase comes from in prose,
+    // right where it would otherwise restate it.
+    expect(declarations).not.toMatch(/--pulse-phase/);
   });
 
   it('leaves the rail’s project dot on a clock of its own', () => {
@@ -365,32 +404,28 @@ describe('DesktopScreen.css', () => {
       "[data-role='ticket-detail-status'][data-state='working'] [data-role='ticket-detail-status-dot'] {",
     );
     const head = ruleBody("[data-role='desktop-working-head'][data-state='working'] {");
-    // The word, then the mark's fill, then its halo.
+    // The WORD's ink is the badge's word. The MARK's is not stated here at all
+    // any more: the head wears the shared status mark, which is pinned to the same
+    // badge dot in status-mark.test.ts — one rule painting the head and every row
+    // under it, so there is no second copy of the palette to drift.
     expect(head).toMatch(new RegExp(`--working-ink:\\s*var\\(${tokenOf(badge, 'color')}\\)`));
-    expect(head).toMatch(
-      new RegExp(`--working-mark:\\s*var\\(${tokenOf(badgeDot, 'background')}\\)`),
-    );
-    expect(head).toMatch(
-      new RegExp(`--working-mark-soft:\\s*var\\(${tokenOf(badgeDot, 'box-shadow')}\\)`),
+    expect(head).not.toMatch(/--working-mark/);
+    expect(primaryRuleBody("[data-role='status-dot'][data-state='working'] {")).toMatch(
+      new RegExp(`--dot-ink:\\s*var\\(${tokenOf(badgeDot, 'background')}\\)`),
     );
     // And the head is keyed on the ticket's lifecycle state alone. The bound
     // session's status (`building`/`starting`/`errored`) is a different axis,
     // spoken per row by the shared status mark; letting it reach the head is
     // exactly how the head came to contradict the tickets under it.
     expect(css).not.toMatch(/desktop-working-head'\]\[data-status=/);
-    // With nothing listed there is no ticket to take a colour from, so both the
-    // word and the mark fall back to the neutral resting reading.
+    // With nothing listed there is no ticket to take a colour from, so the word
+    // falls back to the neutral resting reading — and so does the mark, by way of
+    // the shared mark's own stateless default.
     expect(ruleBody("[data-role='desktop-working-head'] {")).toMatch(
       /color:\s*var\(--working-ink,\s*var\(--text-faint\)\)/,
     );
-    expect(ruleBody("[data-role='desktop-working-dot'] {")).toMatch(
-      /background:\s*var\(--working-mark,\s*var\(--text-faint\)\)/,
-    );
-    // The live reading too — the brain can be mid-pass with an empty Working
-    // bucket, and that dot breathes in the old muted grey rather than borrowing
-    // a colour from tickets that aren't there.
-    expect(ruleBody("[data-role='desktop-working-dot'][data-active='true'] {")).toMatch(
-      /background:\s*var\(--working-mark,\s*var\(--text-muted\)\)/,
+    expect(primaryRuleBody("[data-role='status-dot'] {")).toMatch(
+      /--dot-ink:\s*var\(--text-faint\)/,
     );
   });
 
@@ -405,21 +440,18 @@ describe('DesktopScreen.css', () => {
     );
     const head = ruleBody("[data-role='desktop-working-head'][data-state='blocked'] {");
     expect(head).toMatch(new RegExp(`--working-ink:\\s*var\\(${tokenOf(badge, 'color')}\\)`));
-    expect(head).toMatch(
-      new RegExp(`--working-mark:\\s*var\\(${tokenOf(badgeDot, 'background')}\\)`),
-    );
-    expect(head).toMatch(
-      new RegExp(`--working-mark-soft:\\s*var\\(${tokenOf(badgeDot, 'box-shadow')}\\)`),
+    expect(head).not.toMatch(/--working-mark/);
+    expect(primaryRuleBody("[data-role='status-dot'][data-state='blocked'] {")).toMatch(
+      new RegExp(`--dot-ink:\\s*var\\(${tokenOf(badgeDot, 'background')}\\)`),
     );
     // Blocked does not breathe, even when the brain happens to be mid-pass
     // behind it: the badge's own rule is "stuck, not moving", and a pulsing mark
     // in the alarm colour is more than one ticket needing a decision is worth.
-    // This has to out-weigh `[data-active='true']` (0,2,0) to get there.
-    expect(
-      ruleBody(
-        "[data-role='desktop-working-head'][data-state='blocked'] [data-role='desktop-working-dot'] {",
-      ),
-    ).toMatch(/animation:\s*none/);
+    // It used to take an `animation: none` override here to beat the head's own
+    // breathing rule; with the shared mark there is nothing to override — the
+    // blocked head is rendered with no session status and `building` is the only
+    // status that mark moves for (asserted in status-mark.test.ts, and in the DOM
+    // by DesktopScreenView.test.tsx).
     expect(badgeDot).not.toMatch(/animation:/);
   });
 
@@ -513,11 +545,12 @@ describe('DesktopScreen.css', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '');
     expect(strip).not.toMatch(/@keyframes/);
     expect(strip).not.toMatch(/progress/);
-    // The one thing in the region that MOVES is the head's breathing dot,
-    // declared once — the rows themselves are still. `animation: none` doesn't
-    // count against that (it's the blocked head switching the breathing off),
-    // so the count is of animations that actually run.
-    expect(strip.match(/animation:(?!\s*none)/g)).toHaveLength(1);
+    // The region declares NO motion of its own, not even for its head: the only
+    // thing that moves in this column is the shared status mark, which breathes on
+    // `building` and on nothing else (status-mark.test.ts). This used to allow one
+    // animation here — the head's own breathing dot — and that allowance was the
+    // second design the head has since given up.
+    expect(strip).not.toMatch(/animation:/);
   });
 
   it('keeps the loading line in the feed’s reading column, and off the accent', () => {
@@ -542,9 +575,22 @@ describe('DesktopScreen.css', () => {
   it('suppresses every self-starting animation under prefers-reduced-motion', () => {
     const query = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(query).toMatch(/\[data-role='desktop-feed-row'\]/);
-    expect(query).toMatch(/desktop-working-dot/);
     expect(query).toMatch(/rail-project-dot/);
     expect(query).toMatch(/desktop-loading-mark/);
+    // The in-progress head's mark is covered where it is DEFINED rather than
+    // again here: it is the shared status mark, and PrimaryScreen.css stops it
+    // under the same query. A copy in this file would be a second opinion about
+    // one element, and the kind that rots — only one of the two gets found when
+    // the mark is retuned.
+    const primaryQuery = primaryCss.slice(
+      primaryCss.indexOf('@media (prefers-reduced-motion: reduce)'),
+    );
+    expect(primaryQuery).toMatch(/\[data-role='status-dot'\]\[data-status='building'\]/);
+    // …and it has to sit AFTER the rule that starts the animation, since the two
+    // weigh the same (0,2,0) and order is all that separates them.
+    expect(primaryCss.indexOf("[data-role='status-dot'][data-status='building'] {")).toBeLessThan(
+      primaryCss.indexOf('@media (prefers-reduced-motion: reduce)'),
+    );
   });
 
   it('uses desktop density in the rail — no thumb-sized targets', () => {

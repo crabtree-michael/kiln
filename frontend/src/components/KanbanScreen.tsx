@@ -20,7 +20,7 @@
 // screen, and it comes back over the stream). What they express is identical:
 // accept/delete/poke route through the brain (D5), the sandbox option, the two
 // sandbox overrides and the text edit are direct writes (see TicketDetail).
-import { useCallback, type JSX } from 'react';
+import { type JSX } from 'react';
 import { BoardProvider } from '@/stores/board-store';
 import { ActivityProvider } from '@/stores/activity-store';
 import { VoiceProvider } from '@/voice/voice-store';
@@ -30,16 +30,7 @@ import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
 import { usePresence } from '@/stores/use-presence';
 import { useProjectsStatus } from '@/stores/use-projects-status';
-import {
-  acceptTicket,
-  deleteTicket,
-  editTicketText,
-  killTicketSandbox,
-  postMessage,
-  reassignTicketSandbox,
-  setTicketSandbox,
-} from '@/transport/transport';
-import type { TicketTextEdit } from '@/components/TicketDetail';
+import { useTicketActions } from '@/components/ticket-intents';
 import { KanbanScreenView } from '@/components/desktop/KanbanScreenView';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
 
@@ -69,71 +60,25 @@ function KanbanScreenBody(): JSX.Element {
     };
   });
 
-  const onAccept = useCallback((ticketId: string): void => {
-    // Straight to the accept endpoint (08 §5 / D6); the resulting board
-    // transition comes back over the stream and re-columns the card itself.
-    void acceptTicket(ticketId);
-  }, []);
-
-  const onDelete = useCallback((ticketId: string): void => {
-    // Routed through the brain (delete_ticket, D5). A blocked delete also
-    // releases the ticket's worker board-side. Fire-and-forget: the board's
-    // next snapshot is the confirmation.
-    void deleteTicket(ticketId);
-  }, []);
-
-  const onPoke = useCallback((ticketId: string): void => {
-    // The client can't (and by D5 mustn't) command an agent directly —
-    // send_to_agent is a brain tool — so a poke is expressed as a human message
-    // naming the ticket and the brain resolves it.
-    void postMessage(`Poke the agent on ticket ${ticketId} to continue.`);
-  }, []);
-
-  const onSetKeepSandbox = useCallback(
-    (ticketId: string, keep: boolean): void => {
-      // A setting on the ticket rather than a board transition, so it writes
-      // directly and the board.updated it emits brings the value back. Refresh
-      // on failure so the sheet snaps back to the truth at once rather than on
-      // its optimistic time-box.
-      void setTicketSandbox(ticketId, keep).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
-
-  const onKillSandbox = useCallback(
-    (ticketId: string): void => {
-      // A manual override for a wedged sandbox — direct, because the whole
-      // reason it exists is that waiting for the orchestrator to notice is the
-      // problem.
-      void killTicketSandbox(ticketId).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
-
-  const onReassignSandbox = useCallback(
-    (ticketId: string): void => {
-      void reassignTicketSandbox(ticketId).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
-
-  const onEditText = useCallback(
-    (ticketId: string, patch: TicketTextEdit): void => {
-      // The one place the user's own words must land on the board untouched, so
-      // it skips the brain: routing a correction through an LLM pass is exactly
-      // the drift the affordance exists to remove.
-      void editTicketText(ticketId, patch).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
+  // The same seven ticket intents `/app` wires, from the same hook — see
+  // `ticket-intents.ts`.
+  //
+  // NO optimistic card hides are passed, and that omission is the point rather
+  // than an oversight: this route mounts no `FeedProvider` (see the header —
+  // a board view costs no `GET /api/feed`), so there is no feed card to hide.
+  // Accepting here just re-columns the ticket, which the next board snapshot
+  // does on its own. Wiring a hide in would require reintroducing the feed to
+  // this route; leaving it out is what keeps that decision visible here instead
+  // of buried in shared code (plan §7).
+  const {
+    onAccept,
+    onDelete,
+    onPoke,
+    onSetKeepSandbox,
+    onKillSandbox,
+    onReassignSandbox,
+    onEditText,
+  } = useTicketActions({ refreshBoard });
 
   return (
     <KanbanScreenView

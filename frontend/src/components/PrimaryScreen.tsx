@@ -10,7 +10,7 @@
 // every store read, every optimistic hide and every transport call above the
 // switch is written once. The shells differ in shape, not in truth: a desktop
 // Accept is the same `MarkReady` a mobile one is (13 §7).
-import { useCallback, type JSX } from 'react';
+import { type JSX } from 'react';
 import { BoardProvider } from '@/stores/board-store';
 import { FeedProvider } from '@/stores/feed-store';
 import { ActivityProvider } from '@/stores/activity-store';
@@ -21,17 +21,8 @@ import { useActivityStore } from '@/stores/activity-context';
 import { useNotificationMode } from '@/stores/use-notification-mode';
 import { useWebPush } from '@/stores/use-web-push';
 import { usePresence } from '@/stores/use-presence';
-import {
-  acceptTicket,
-  deleteTicket,
-  editTicketText,
-  killTicketSandbox,
-  postMessage,
-  reassignTicketSandbox,
-  setTicketSandbox,
-  type MeProject,
-} from '@/transport/transport';
-import type { TicketTextEdit } from '@/components/TicketDetail';
+import { type MeProject } from '@/transport/transport';
+import { useTicketActions } from '@/components/ticket-intents';
 import { PrimaryScreenView } from '@/components/PrimaryScreenView';
 import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
@@ -111,111 +102,24 @@ function PrimaryScreenBody(): JSX.Element {
     };
   });
 
-  const onAccept = useCallback(
-    (ticketId: string): void => {
-      // Optimistically drop the proposal card so the tap feels instant; the hide
-      // is time-boxed and self-heals if the accept never lands (feed store).
-      acceptProposal(ticketId);
-      // Tap-accept routes straight to the accept endpoint (08 §5 / D6); the
-      // resulting board + feed transitions come back over the stream.
-      void acceptTicket(ticketId);
-    },
-    [acceptProposal],
-  );
-
-  const onDelete = useCallback(
-    (ticketId: string): void => {
-      // Optimistically drop the ticket's board-derived card (a proposal, or a
-      // blocked ticket's blocker card) so the tap feels instant; the hide is
-      // time-boxed and self-heals if the delete never lands (feed store). The
-      // blocked-delete confirm (D4) happens in the detail sheet, which knows the
-      // ticket's state — by the time we're called the user has confirmed.
-      deleteTicketCard(ticketId);
-      // Deleting routes through the brain (delete_ticket, D5), same as accept; the
-      // resulting board + feed removal comes back over the stream. A blocked
-      // delete also releases the ticket's worker board-side. Fire-and-forget.
-      void deleteTicket(ticketId);
-    },
-    [deleteTicketCard],
-  );
-
-  const onPoke = useCallback((ticketId: string): void => {
-    // A manual poke nudges a stalled agent to continue. The client can't (and by
-    // D5 mustn't) command the agent directly — send_to_agent is a brain tool — so
-    // the poke is expressed as a human message naming the ticket. The brain, which
-    // loads full board state per event, resolves the ticket and decides to
-    // send_to_agent(id, "continue"); the resulting activity returns over the
-    // stream. Fire-and-forget like accept: a dropped poke just means the nudge
-    // didn't land, and the user can tap again.
-    void postMessage(`Poke the agent on ticket ${ticketId} to continue.`);
-  }, []);
-
-  const onSetKeepSandbox = useCallback(
-    (ticketId: string, keep: boolean): void => {
-      // The per-ticket sandbox option is a setting on the ticket, not a board
-      // transition, so — unlike accept/delete/poke — it does not go through the
-      // brain: it writes the flag directly and the board.updated that write emits
-      // brings the new value back over the stream. Fire-and-forget: the sheet
-      // shows the choice at once and time-boxes it, so a dropped write just means
-      // the checkmark clears and the user can tap again. Refresh the board on
-      // failure so it snaps back to the truth immediately rather than on the
-      // time-box.
-      void setTicketSandbox(ticketId, keep).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
-
-  const onKillSandbox = useCallback(
-    (ticketId: string): void => {
-      // The manual override for a wedged or corrupted sandbox. Like the sandbox
-      // option — and unlike accept/delete/poke — it does not go through the
-      // brain: the whole reason it exists is that waiting for the orchestrator
-      // to notice is the problem, so routing it through an LLM turn would put
-      // that wait straight back. The board's agent.release does the work and the
-      // resulting board.updated brings the slot's new status over the stream.
-      // Refresh on failure so a refused kill (409 — the ticket lost its sandbox
-      // while the sheet was open) snaps the sheet back to the truth at once.
-      void killTicketSandbox(ticketId).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
-
-  const onReassignSandbox = useCallback(
-    (ticketId: string): void => {
-      // The recovery counterpart to the kill, and a direct write for the same
-      // reason. The board rebinds the ticket and re-briefs the new agent itself,
-      // so there is nothing to send here. A refusal (409 — every slot went busy
-      // between the render and the tap) refreshes the board, which is also what
-      // drops the item from the menu.
-      void reassignTicketSandbox(ticketId).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
-
-  const onEditText = useCallback(
-    (ticketId: string, patch: TicketTextEdit): void => {
-      // A direct text edit is the one place the user's own words must land on
-      // the board untouched, so — like the sandbox option and unlike
-      // accept/delete/poke — it does not go through the brain: routing a
-      // correction through an LLM pass is exactly the drift this affordance
-      // exists to remove. Fire-and-forget: the sheet shows the typed text at
-      // once and time-boxes it, so a dropped write just means the old wording
-      // comes back and the user can edit again. Refresh the board on failure so
-      // it snaps back to the truth immediately rather than on the time-box —
-      // including the 409 the server returns if the ticket left the backlog
-      // while the sheet was open.
-      void editTicketText(ticketId, patch).catch(() => {
-        refreshBoard();
-      });
-    },
-    [refreshBoard],
-  );
+  // The seven ticket intents, shared verbatim with `/kanban` (see
+  // `ticket-intents.ts` for why each one does or does not go through the brain).
+  // This screen HAS a feed, so it hands the hook the feed store's two optimistic
+  // card hides — the one thing that differs between the two containers, injected
+  // rather than looked up (plan §7).
+  const {
+    onAccept,
+    onDelete,
+    onPoke,
+    onSetKeepSandbox,
+    onKillSandbox,
+    onReassignSandbox,
+    onEditText,
+  } = useTicketActions({
+    refreshBoard,
+    onAcceptOptimistic: acceptProposal,
+    onDeleteOptimistic: deleteTicketCard,
+  });
 
   // The switch. Everything above is shared; only the shape below differs.
   //

@@ -15,7 +15,7 @@ is what they need to run:
 | ------- | ---------------------------------------- | ----------------------------------------- |
 | Drives  | the real client against a **live stack** | the real client, `/api` **stubbed**       |
 | Needs   | docker-compose up, provider keys         | nothing — it starts its own dev server    |
-| Runs    | deliberately (`make e2e`)                | **in the gate** (`make check`), ~35s      |
+| Runs    | deliberately (`make e2e`)                | **in the gate** (`make check`), ~1 min    |
 | Asserts | the live loop end to end                 | **computed geometry** of the shells       |
 
 `layout/` exists because jsdom performs no layout, so the unit gate can see which

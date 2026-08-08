@@ -105,7 +105,7 @@ test-layout: ## Layout gate: computed geometry of both shells in a real headless
 	#
 	# It is in the gate, unlike `e2e` below, because it needs no stack and no
 	# keys: it serves the client from its own dev server and fulfils every /api
-	# call from fixtures. ~20s. See tests/layout/harness.ts.
+	# call from fixtures. ~1 min. See tests/layout/harness.ts.
 	cd $(TESTS) && pnpm run test:layout
 
 .PHONY: e2e

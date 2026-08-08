@@ -1,8 +1,17 @@
 # Shell architecture — how mobile and desktop stop being copies of each other
 
-**Date:** 2026-08-08
-**Status:** plan, for approval. No implementation code has been written.
+**Date:** 2026-08-08 (revised same day)
+**Status:** **approved, blocked on one open decision** — see §7. Everything else is settled and
+implementation can start the moment §7 is answered. No implementation code has been written.
 **Answers:** `docs/dev-velocity-review-2026-08-08.md` D1 (and absorbs D9), and spec `13` §13 Q4.
+
+**Decisions taken (2026-08-08):**
+
+- **`KanbanScreenView` is IN SCOPE**, per §5's recommendation — it joins at **T3/T4**, not T1/T2.
+  That settles the "one genuinely arguable call" §5 flagged.
+- **Still open:** how the two feed shells' optimistic card hides reach the shared ticket
+  intents — *injection* or *ambient lookup*. Laid out for a decision in **§7**. This is the only
+  thing blocking the chain.
 
 ---
 
@@ -43,6 +52,20 @@ will appear.
 
 `dismissableId` is mobile-only but is the *same taxonomy* as `stores/feed-store.tsx:54-57`'s
 `hidden()` predicate, spelled differently — that is review D9 showing up inside D1.
+
+> **The trap inside that table, and the single most important thing for whoever implements T1.**
+> `updateId` is defined **three times meaning two different things**. In both feed shells it is
+> `update|preview` — the last-seen divider boundary, which is a claim about what Kiln has *said*,
+> so the mechanical `poke`/`done` notices are deliberately excluded. In `feed-store.tsx:63` a
+> function of the *same name* covers all four notification-backed kinds
+> (`update|preview|poke|done`) — the history cursor and the swipe's retract id.
+>
+> An extraction that unifies them by name — which is exactly what "these look identical, merge
+> them" produces — silently slides the divider onto the poke and done cards. Nothing in the gate
+> would catch it: it type-checks, and no test asserts the two sets differ, because until they
+> share a module there is no place to write that assertion. **T1 must give them two names and
+> pin the disagreement in a test.** (Confirmed by building T1 on a scratch branch, since
+> discarded; this finding is the part worth keeping.)
 
 **Derivation prologue, identical in both feed shells:**
 `summary = feed?.summary ?? EMPTY_SUMMARY`, `cards = feed?.cards ?? []`,
@@ -120,9 +143,12 @@ useTicketActions({ onAcceptOptimistic?: (id) => void, onDeleteOptimistic?: (id) 
 
 `PrimaryScreen` passes the feed store's `acceptProposal` / `deleteTicketCard`; `KanbanScreen`
 passes nothing. This is deliberate: `/kanban` does not mount `FeedProvider` (by design — a board
-view costs no `GET /api/feed`), so the hook must not have a feed dependency. The alternative
-— a `useOptionalFeedStore()` that returns `null` outside a provider — hides the coupling and makes
-"does this route have a feed?" invisible at the call site. **Decision worth confirming: injection.**
+view costs no `GET /api/feed`), so the hook must not have a feed dependency.
+
+**This is the plan's one open decision, and it is written up in full in §7.** The alternative is
+a `useOptionalFeedStore()` that returns `null` outside a provider. The recommendation is
+injection; §7 lays out both options in plain language so the call can be made without reading
+the code.
 
 ### L2 — Reading model: `readFeed()` → `FeedRow[]`
 
@@ -271,10 +297,13 @@ visible behaviour.
 - **The lint rule will occasionally be wrong.** `KanbanScreenView`'s `cardLabel` is a legitimate
   shell-local formatter. Either move it to L2 or accept a short documented allowlist — don't let the
   rule's purity push presentation logic into shared modules.
-- **One genuinely arguable call, flagged rather than decided:** whether `KanbanScreenView` is in
-  scope. It shares the overlay and the intents but no feed. Including it triples the payoff of L1
-  and L3 for little extra work; excluding it leaves a third live copy of `findTicket` and of the
-  `TicketDetail` block. **Recommendation: include it, in T3/T4 rather than T1/T2.**
+- ~~**One genuinely arguable call, flagged rather than decided:** whether `KanbanScreenView` is
+  in scope.~~ **DECIDED 2026-08-08: in scope, joining at T3/T4.** It shares the overlay and the
+  intents but no feed. Including it triples the payoff of L1 and L3 for little extra work;
+  excluding it would have left a third live copy of `findTicket` and of the `TicketDetail` block.
+  Two consequences for the tickets below: T3 covers **three** shells rather than two, and T4
+  covers **both** containers. T1/T2 stay feed-shells-only, since the kanban shell has no feed —
+  its only T1-era duplicate is `findTicket`, which T3 removes when it adopts the overlay hook.
 
 ---
 
@@ -294,6 +323,12 @@ revertable, and small enough to review against the snapshot rule above.
 
 **Sequence:** T0 → (T1 → T2 → T3) with T4 running in parallel → T5.
 **Rough size:** about a week of focused work for one agent; two to three days with T4 parallelised.
+
+**Status of the table (2026-08-08).** The kanban scope decision is now locked in above: T3's
+"three views" and T4's "both containers" are settled, not proposals. **T4 is the one ticket
+blocked on §7** — its shape depends on which option is chosen, though its size (S) does not.
+T0, T1, T2, T3 and T5 are unblocked and could start the moment the chain is approved to run.
+
 Consistent with the review's own "Medium complexity, weeks 2–3" placement, and with its note that
 D1 is the thing to do first if only one thing gets done.
 
@@ -305,3 +340,93 @@ formality.
 **What is deliberately not in any ticket:** splitting `PrimaryScreen.css` (review D3), any visual or
 layout change to either shell, opening 13 §13 Q3 (desktop dismissal), and every other duplication
 finding from the audit unrelated to the feed screen.
+
+---
+
+## 7. The one open decision — how the "card vanishes instantly" reaches shared code
+
+**This is the only thing blocking the work.** It is a small, reversible engineering choice, but it
+sets a habit the rest of the plan leans on, so it is worth a deliberate answer rather than a
+default. Written below to be decidable without reading any code.
+
+### 7.1 What the thing actually is
+
+When you tap **Accept** on a proposal card in the feed, the card disappears **immediately** —
+before the server has confirmed anything. That instant disappearance is what makes the tap feel
+responsive instead of laggy. The server confirms a moment later over the live connection, and if
+the accept somehow fails, the card comes back on its own. Internally that instant-vanish is
+called the *optimistic hide*.
+
+The important fact: **the board view at `/kanban` has no feed and therefore no cards to vanish.**
+It shows columns of tickets, not a feed. Accepting a ticket there just moves it between columns,
+which happens on its own when the server confirms. So the optimistic hide is a thing that exists
+on *some* screens and not others.
+
+The plan puts "accept a ticket" (and delete, poke, and four more) into **one shared piece of code
+used by every screen** — that is the whole point of layer L1. The question is: **how does that
+shared code know whether this screen has a feed with a card to hide?**
+
+### 7.2 The two options
+
+**Option A — Injection ("each screen says what it needs").**
+The shared code doesn't look for a feed. It accepts a hide-the-card instruction as an *input*.
+The feed screen hands it one. The board screen hands it nothing, and the shared code simply
+skips that step.
+
+**Option B — Ambient lookup ("the shared code looks around for a feed").**
+The shared code asks its surroundings "is there a feed on this screen?" It gets back either a
+feed or a "no feed here", and hides the card only in the first case. Screens pass nothing.
+
+Both produce **identical behaviour today**. Nothing a user sees differs. The difference is
+entirely in what a future developer — or a future agent — can tell at a glance.
+
+### 7.3 Side by side
+
+| | **A — Injection** *(recommended)* | **B — Ambient lookup** |
+|---|---|---|
+| What each screen writes | One extra line on the feed screen; the board screen deliberately writes nothing | Nothing on either screen |
+| Reading the board screen, can you tell it has no feed? | **Yes** — the omission is right there, and can carry a comment saying why | **No** — you must open the shared file and reason about it |
+| A new screen that forgets to set up its feed | Author is forced to decide, because the input is staring at them | Silently gets no card-hide. No error, no failing test — just a tap that feels sluggish, found by a user |
+| Where the "does this route have a feed?" fact lives | At each screen, visibly | Implied, in shared code, invisibly |
+| Risk of quietly re-coupling the board view to the feed | Low — a feed dependency would have to be typed out | Higher — the shared code now knows how to find a feed, so reaching for one becomes the easy path |
+| Lines of code | ~2 more, total | ~2 fewer |
+| Testing the shared code | Straightforward — hand it a fake, or nothing | Needs a fake "surroundings" to test the no-feed case |
+| Cost to switch to the other later | **Low.** One file, two call sites, an afternoon. Fully reversible either direction. | Same |
+
+### 7.4 Why the recommendation is A
+
+Three reasons, in order of weight:
+
+1. **The whole premise of this plan is that decisions go wrong when they become invisible.** §1
+   documents three shells that drifted apart precisely because each copy's reasoning lived
+   nowhere the next author would look. Option B takes one decision that is currently visible —
+   "this route has no feed, on purpose" — and hides it again, inside the very code being written
+   to stop that happening. That is a small step in the direction the plan exists to reverse.
+2. **`/kanban` not loading the feed is a deliberate performance choice, and a fragile one.** It
+   saves a network request on every visit to the board view. It is the kind of thing that gets
+   undone by accident. Option A makes undoing it require typing something; Option B makes the
+   machinery for undoing it already present.
+3. **Option B's failure mode is silent, and silent is the expensive kind.** A screen that
+   forgets its feed under Option B produces no error and no failing test — just a tap that feels
+   slightly wrong, which someone eventually reports as a vague bug. Under Option A the same
+   mistake is visible while the code is being written.
+
+### 7.5 The honest case for B
+
+Not a strawman — it wins under one condition. **If the number of screens needing the optimistic
+hide grows to five or six, the repeated wiring becomes noise**, and noise is its own kind of
+invisibility: people stop reading lines they see everywhere. At that point B's brevity is worth
+more than A's explicitness.
+
+Today there are **two** screens, and the plan adds none. So the condition that would favour B
+does not hold yet — and because switching costs an afternoon, adopting A now costs nothing if
+that changes later.
+
+### 7.6 What to reply
+
+- **"Go with injection"** → the recommendation; T4 proceeds as written and the chain unblocks.
+- **"Go with the ambient lookup"** → equally implementable; §2's L1 paragraph and T4 get
+  rewritten accordingly. No other ticket changes.
+- **"You decide"** → injection, and this section stands as the record of why.
+
+Either answer unblocks the whole chain. Nothing else in this plan is waiting on anything.

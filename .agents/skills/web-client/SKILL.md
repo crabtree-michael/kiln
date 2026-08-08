@@ -1040,13 +1040,13 @@ forcing one to be both is how the mobile screen's layering gets broken by a desk
     as "no elastic bounce either" and would suppress exactly what the pixel unlocks. Chaining is
     dead-ended at the document instead (html/body locked + `overscroll-behavior: none` in
     tokens.css). Same reasoning, at length, in the phone's `[data-role='feed']` rule.
-  None of this is currently measured: touch is a *context* option in Playwright, not a
-  viewport, so a coarse-pointer pass needs its own context rather than a `setViewportSize`
-  on the shared page. Today the gate sees only the DOM shape (`DesktopScreenView.test.tsx`,
-  which pins the wrapper as the region's only child). If you touch it, the assertion to add
-  is a `hasTouch` project in `tests/playwright.layout.config.ts` reading the region's
-  overflow and the wrapper's height past the region's **content** box (what a percentage
-  resolves against).
+  This IS measured now, in `tests/layout/desktop-shell.spec.ts`. Touch is a *context* option
+  in Playwright, not a viewport, so the coarse-pointer pass is its own `test.describe` with
+  `test.use({ hasTouch: true, isMobile: true })` — a `setViewportSize` on the shared page
+  cannot get there. It asserts the media query actually matched **first** (everything under
+  it passes trivially against a plain desk window), then the region's overflow: >0 on a
+  resting feed at 1194×834, exactly 0 on a 1280px mouse window, `overscroll-behavior-y`
+  still `auto`, and "Show earlier" still inside the wrapper.
 - **The desktop composer does not use the voice store's `keyboardMode`.** That toggle is
   modal (entering stops the mic) because a phone has room for one input at a time; a desk
   doesn't have that constraint, so the field and the mic coexist and the user picks
@@ -1173,6 +1173,13 @@ The opt-in lives on the one rule both surfaces render, so there is exactly one p
   both seams. Verified in real Chromium: 0.38 of a cycle apart before, 0.000 after.
   **When you unify two animated marks, check the phase as well as the look** — a CSS-string
   test can prove they share a declaration and tell you nothing about whether they peak together.
+  That check is in the gate now: `tests/layout/status-mark.spec.ts` reads every breathing
+  mark's live animation and asserts one `startTime` (0, the timeline origin) and one
+  `currentTime` across all of them, in a single `evaluate` so it is one instant rather than
+  two. The same file holds the mark to the sheet it summarises — the desk head, its row, and
+  the ticket's own detail badge compared as **resolved colours**, which is the claim the old
+  `status-mark.test.ts` could only approximate by matching two token *names* across two
+  stylesheets.
 - **A glow is geometry too — an opaque band anchored to a region's edge will cut it.** The
   listening mic radiates a box-shadow ring ~20px past the button's edge (`kiln-mic-glow`),
   and the activity row is anchored to the composer region's *top* edge carrying an opaque

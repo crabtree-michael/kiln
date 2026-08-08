@@ -12,7 +12,8 @@
 // board view exists to show.
 import type { Board } from '@/transport/transport';
 import type { Ticket } from '@/components/TicketCard';
-import type { StreamState } from '@/components/feed-format';
+import { relativeAge, type StreamState } from '@/components/feed-format';
+import { workingStatusNote } from '@/components/desktop/working-now';
 
 /** A column's key IS the ticket state it holds (03 §2.1) — the board snapshot
  * is already grouped by these, so there is no mapping step and no way for a
@@ -86,4 +87,24 @@ export function kanbanColumns(board: Board | null): KanbanColumn[] {
       status: byTicket.get(ticket.id) ?? null,
     })),
   }));
+}
+
+/** A card's accessible name: everything the card shows, as a sentence. The
+ * visible row is fragments (a mark, a title, a bare "12m") which read as a list
+ * of unrelated words out loud; this is the same information said properly.
+ *
+ * It lives here rather than in the shell because a shell computes nothing (the
+ * plan's L4 rule, enforced by the eslint rule over these three files) — and it
+ * lives in THIS module rather than a cross-shell one because it is the kanban
+ * card's own copy. Purity is not a reason to push presentation into shared
+ * modules; it is a reason to give a view its own. */
+export function kanbanCardLabel(card: KanbanCard, columnLabel: string, now: number): string {
+  const note = card.status === null ? '' : workingStatusNote(card.status);
+  const parts = [card.ticket.title, columnLabel.toLowerCase()];
+  if (note !== '') {
+    parts.push(note);
+  }
+  const age = relativeAge(card.ticket.state_changed_at, now);
+  parts.push(age === 'now' ? 'just now' : `for ${age}`);
+  return `Open ticket: ${parts.join(' — ')}`;
 }

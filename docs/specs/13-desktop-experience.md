@@ -382,8 +382,9 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
   semantics, and project scoping all exist server-side already (`08` §7, `12` §3). This is
   overwhelmingly a client-side design landing on top of contracts that are already there.
 - **The mobile screen is not being replaced.** Mobile-first remains the product's stance
-  (`02` §11); this is an additional expression of the same app — the same client, widened —
-  and exactly how the two shells share that client is left open (§13 Q4).
+  (`02` §11); this is an additional expression of the same app — the same client, widened.
+  How the shells share that client is settled in D10: they share stores, intents, the feed
+  reading model and overlay behaviour, and differ only in DOM shape and CSS.
 - **`/debug` stays where it is** (`08` §6). Every "shouldn't desktop show raw state?"
   impulse has an existing home, and letting it into the primary screen is how the ambient
   quality dies.
@@ -410,9 +411,13 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 3. **Is any card dismissible by hand on desktop?** (§6). Mobile has swipe; desktop has no
    automatic equivalent, and the curated-feed model (`08` D1) argues the brain should be
    removing things, not the user.
-4. **How mobile and desktop share one client.** One responsive tree, two shells over shared
-   stores, or something else — an implementation question, but one with enough design
-   consequence to name.
+4. ~~**How mobile and desktop share one client.**~~ **ANSWERED — see D10 (2026-08-08).**
+   One responsive tree, **shells over shared stores, intents, feed reading model and overlay
+   behaviour**, differing only in DOM shape and CSS. The first half of that answer shipped
+   with the desktop shell itself; the second half — everything between the stores and the DOM
+   — landed as the shell-architecture chain, because sharing only the stores turned out to
+   leave 187 hand-copied lines between the two feed shells and a third partial copy in
+   `/kanban`.
 5. **What "kind of invisible" means for the window at rest** — whether there is anything
    between "open and quiet" and "closed" (a compact state, a minimal mode). Only worth
    asking once the resting state exists to look at.
@@ -434,3 +439,4 @@ Not a build plan — a map, so a later scoping pass knows where it is working.
 | D7b | **Amends D7a (2026-08-05): the scrim comes back.** With the panel open, everything left of it — rail, working strip, feed — is dimmed by the same `--scrim` the phone's sheet uses; closing the panel lifts it. The edge, the width and the overlay-not-a-column stance from D7a are untouched. | Keeping D7a's fully undimmed feed; a desktop-only, lighter dim value; dimming only the feed and leaving the rail lit. | D7a treated "dimmed" and "out of sight" as the same thing. They are not, once the panel is a 460px strip at one edge rather than a centred sheet: the left of the window is still fully laid out and readable, just held back a register. What D7a actually shipped was a window with no focused surface — an open ticket read as one more panel among several, and the panel's hairline is too quiet a boundary to say otherwise across a wide screen. The dim is what makes the open ticket the lit thing. It reuses `--scrim` rather than inventing a desktop dim so both themes stay in one token, and it changes nothing about dismissal: the backdrop already spanned the window and already closed on an outside click while it was invisible. |
 | D8 | **Desktop is the responsive web app widening out, not a separate installable application.** | An installable/packaged desktop app; leaving the question open until later. | Directed, and it costs the design nothing: every behavior above works in a browser window, and the client holds no authoritative state (`02` §11), so "a window you leave open" is already just a tab you leave open. Packaging, auto-update, and window-chrome work would buy no part of the experience described here. |
 | D9 | **The working indication names the tickets being worked** (§8.2), as a strip above the feed — and the rail still marks a project with a dot, never a count. | A status chip on each ticket wherever it appears; a "2 working" badge per rail row; leaving the bare one-word indication and letting the feed imply the rest. | A per-card chip was unreachable in practice: a working ticket usually has no card, so the state with the fewest cards is exactly the one that needed showing. A rail badge is the numeral §8 rules out by name, on the surface least able to carry it — but the count is not thrown away either, since the rail's precedence hides "also building" behind `needs-you`: it rides in the row's hover tooltip and assistive text, where it costs no pixels at rest. |
+| D10 | **Answers §13 Q4 (2026-08-08): shells share stores, intents, the feed reading model and overlay behaviour, and differ only in DOM shape and CSS.** A shell file is a `return (…)` — it computes nothing, remembers nothing, and writes nothing to the server. Four layers under it: ticket intents (`ticket-intents.ts`), the feed reading model (`feed-model.ts`), overlay behaviour (`use-ticket-overlay.ts` + `TicketDetailHost.tsx`), then the shells. | Sharing only the stores, which is what the desktop shell originally shipped as; one `<FeedScreen variant="mobile"\|"desktop">` with internal branches; a compound/slot API; one shell restyled by media queries (already rejected as D8). | Store-sharing alone was tried for real and drifted: 187 hand-copied lines between the two feed shells, a third partial copy in `/kanban`, and the same conceptual layout bug fixed five times in alternating shells. The variant-with-branches option is worse than the drift it replaces — it moves the duplication *inside* one file as conditionals, where two readings can diverge with no second file to notice. What makes this durable is not the layering but the two enforcements under it: an eslint rule over the three shell files banning top-level functions and `useState`, so it fires on the FOURTH shell before review, and a conformance suite that asserts each shared rule once against both DOMs through an adapter — so a fix to a shared rule can no longer be applied to one shell and forgotten in the other. |

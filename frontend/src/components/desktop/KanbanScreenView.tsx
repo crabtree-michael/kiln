@@ -33,7 +33,7 @@ import type { TicketTextEdit } from '@/components/TicketDetail';
 import { TicketDetailHost } from '@/components/TicketDetailHost';
 import { DesktopRail } from '@/components/desktop/DesktopRail';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
-import { kanbanColumns, type KanbanCard } from '@/components/desktop/kanban-board';
+import { kanbanCardLabel, kanbanColumns } from '@/components/desktop/kanban-board';
 import { workingStatusNote } from '@/components/desktop/working-now';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
 import { useTicketOverlay } from '@/components/use-ticket-overlay';
@@ -71,20 +71,6 @@ export interface KanbanScreenViewProps {
   onDisablePush?: (() => void) | undefined;
   /** Injected "now" for deterministic relative-age rendering. */
   now?: number;
-}
-
-/** A card's accessible name: everything the card shows, as a sentence. The
- * visible row is fragments (a mark, a title, a bare "12m") which read as a list
- * of unrelated words out loud; this is the same information said properly. */
-function cardLabel(card: KanbanCard, columnLabel: string, now: number): string {
-  const note = card.status === null ? '' : workingStatusNote(card.status);
-  const parts = [card.ticket.title, columnLabel.toLowerCase()];
-  if (note !== '') {
-    parts.push(note);
-  }
-  const age = relativeAge(card.ticket.state_changed_at, now);
-  parts.push(age === 'now' ? 'just now' : `for ${age}`);
-  return `Open ticket: ${parts.join(' — ')}`;
 }
 
 export function KanbanScreenView({
@@ -200,7 +186,7 @@ export function KanbanScreenView({
                           data-ticket-id={card.ticket.id}
                           data-state={card.ticket.state}
                           data-status={card.status ?? undefined}
-                          aria-label={cardLabel(card, column.label, now)}
+                          aria-label={kanbanCardLabel(card, column.label, now)}
                           onClick={() => {
                             setOpenTicketId(card.ticket.id);
                           }}

@@ -935,16 +935,64 @@ retracted, so this is unrelated to swipe-dismiss above.
 
 _(Accumulate: non-obvious traps and edge cases.)_
 
-## The desktop shell (spec 13) — two views over one wiring seam
+## The desktop shell (spec 13) — shells over four shared layers
 
-`/app` now renders **one of two presentational shells** depending on viewport width, and
-`PrimaryScreen.tsx` is the switch. That is 13 §13 Q4's answer (**one responsive tree, two
-shells over shared stores**), and the shape matters: every store read, optimistic hide and
-transport call lives *above* the switch and is written once — `PrimaryScreenView` (mobile,
-08) and `desktop/DesktopScreenView` (13) differ in DOM shape, never in truth. The rejected
-alternative was one tree restyled by media queries; the two layouts don't share a DOM (a
-header/feed/dock column with a bottom-anchored overlay stack vs. a rail beside a feed), and
-forcing one to be both is how the mobile screen's layering gets broken by a desk rule.
+`/app` renders **one of two presentational shells** depending on viewport width, and
+`PrimaryScreen.tsx` is the switch. `/kanban` is a third shell over the same machinery. That
+is 13 §13 Q4's answer, now settled as **D10**: one responsive tree, and the shells share
+**stores, intents, the feed reading model and overlay behaviour — differing only in DOM
+shape and CSS.** The rejected alternative was one tree restyled by media queries; the two
+layouts don't share a DOM (a header/feed/dock column with a bottom-anchored overlay stack
+vs. a rail beside a feed), and forcing one to be both is how the mobile screen's layering
+gets broken by a desk rule.
+
+**Sharing only the stores was tried, and it drifted.** That is what shipped first, and it
+left 187 hand-copied lines between the two feed shells plus a third partial copy in
+`/kanban` — and the same conceptual layout bug fixed five times, in alternating shells. Four
+layers now sit under the shells; work belongs in the lowest one that fits:
+
+| | Module | What it owns |
+|---|---|---|
+| **L1** intents | `components/ticket-intents.ts` → `useTicketActions()` | What the client may DO to a ticket, and how a failed write recovers |
+| **L2** reading model | `components/feed-model.ts` → `readFeed()` | What there IS to show — membership, order, divider position, seen-ness, dismissability |
+| **L3** behaviour | `components/use-ticket-overlay.ts` + `TicketDetailHost.tsx` | What a shell REMEMBERS — the open ticket, the deep link, the voice-active flag, the sheet's wiring |
+| **L4** shells | `PrimaryScreenView` / `desktop/DesktopScreenView` / `desktop/KanbanScreenView` | What it LOOKS like. Markup, CSS, platform-only affordances |
+
+**The rule: a shell file contains no `function` declaration and no `useState` above its
+component body.** If it computes what to show → L2. If it remembers something → L3. If it
+writes to the server → L1. Two things enforce it, because a documented convention is exactly
+what these files already had:
+
+- **An eslint rule** (`no-restricted-syntax`, scoped to the three shell files in
+  `eslint.config.js`) banning program-level function declarations and `useState`/`useReducer`.
+  It fires on the *fourth* shell before anyone reviews it. When purity pushes back — it did
+  once, on the kanban card's accessible-name formatter — the answer is to give that view its
+  **own** model module (`desktop/kanban-board.ts`), never to push presentation copy into a
+  module the other shells share.
+- **`feed-shell-conformance.test.tsx`** — a `describe.each` over shell adapters
+  (`{ render, rowSelector, seenSelector, scrollSelector }`) asserting each *shared* rule once
+  against both DOMs. A new shell joins by adding a row to `SHELLS`. It does not replace the
+  per-shell suites, which still own what is genuinely one shell's (the phone's swipe,
+  pull-to-refresh and bulk clear; the desk's loading line, roving focus and withheld resting
+  state).
+
+**Two card taxonomies, and they must never be merged.** `notificationId()` covers all four
+notification-backed kinds (update/preview/poke/done) — the store's accumulation, the history
+cursor, the swipe's retract id. `authoredUpdateId()` covers only update/preview — the
+last-seen divider and the seen de-emphasis, which are claims about what Kiln *said*. Both
+were once called `updateId`, in three places. Merging them by name type-checks and silently
+slides the "Earlier" divider onto the mechanical poke and done cards; `feed-model.ts`'s
+header explains it at length and `feed-model.test.ts` opens with the cases that fail if the
+two sets ever agree.
+
+**What shared code must NOT decide.** `loading` is desktop-only — it is not in `FeedReading`
+at all, so no shared code can start rendering a line on the phone. `isEmpty` is a *fact*: the
+desk withholds "All quiet." while loading (that line asserts we asked and there was nothing),
+the phone always renders its all-clear block, and that gating stays in each shell. The
+divider's *index* is shared, its wrapper element is not. And "Show earlier" must stay last
+**inside each shell's own scroll wrapper** — its `position: sticky` hangs off that containing
+block, which is the bug that was fixed five times; the conformance suite pins the structure
+and `tests/layout/` measures the geometry.
 
 - **`useIsDesktop()` (`desktop/use-desktop-layout.ts`) is the only breakpoint.** The CSS
   deliberately carries **no** `min-width` media query for the shell — a second threshold

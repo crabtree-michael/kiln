@@ -57,6 +57,46 @@ export default tseslint.config(
     },
   },
   {
+    // --- The shell rule (shell-architecture plan, L4) ---
+    //
+    // A shell file is markup. It contains no `function` declaration and no state
+    // above its component body: if it computes what to show that belongs in the
+    // feed model (L2), if it remembers something in the overlay hook (L3), and if
+    // it writes to the server in the ticket intents (L1).
+    //
+    // This is here rather than in a comment because a documented convention is
+    // exactly what these three files already had, and it is how they came to hold
+    // 187 hand-copied lines between them. The point of a lint rule is that it
+    // fires on the FOURTH shell before anybody reviews it.
+    //
+    // Scope note: `Program > FunctionDeclaration` catches un-exported top-level
+    // helpers — the thing that actually gets copied — and deliberately not the
+    // exported component itself, which sits under an `ExportNamedDeclaration`.
+    // If purity ever pushes back (it did once, on `KanbanScreenView`'s
+    // `cardLabel`), the answer is to give that view its own model module, NOT to
+    // push presentation copy into a module the other shells share.
+    files: [
+      'src/components/PrimaryScreenView.tsx',
+      'src/components/desktop/DesktopScreenView.tsx',
+      'src/components/desktop/KanbanScreenView.tsx',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program > FunctionDeclaration',
+          message:
+            'A shell computes nothing. Move this into the feed model (components/feed-model.ts) or into this view’s own model module — see the shell-architecture plan, L2/L4.',
+        },
+        {
+          selector: 'CallExpression[callee.name=/^(useState|useReducer)$/]',
+          message:
+            'A shell remembers nothing. Overlay state belongs in useTicketOverlay() (components/use-ticket-overlay.ts) — see the shell-architecture plan, L3.',
+        },
+      ],
+    },
+  },
+  {
     // Test files may assert against the DOM in ways strict rules over-flag.
     files: ['**/*.test.ts', '**/*.test.tsx', 'vitest.setup.ts'],
     rules: {

@@ -518,10 +518,11 @@ html:has([data-role='desktop-screen']) body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  /* The word and the mark read one ink, set by the state rule below and falling
-     back to the neutral reading when there is nothing listed to take a colour
-     from. Declared as variables rather than restated per element so the two can
-     never disagree with each other. */
+  /* The WORD's ink, set by the state rules below and falling back to the neutral
+     reading when there is nothing listed to take a colour from. The mark beside
+     it is not painted from here — it is the shared status mark and is keyed on
+     the same `data-state`, so the two land on the same family without either
+     restating the other's palette. */
   color: var(--working-ink, var(--text-faint));
   font: var(--type-caption);
   letter-spacing: var(--tracking-caps);
@@ -542,12 +543,11 @@ html:has([data-role='desktop-screen']) body {
    note. Painting the head with it would have made the head agree with one row's
    session while disagreeing with every listed ticket's own colour.
 
-   The mark's geometry, halo and breathing stay the head's own; only the hue is
-   shared, which is the one thing the two surfaces have to agree on. */
+   Only the WORD's ink is set here. The mark is the shared status mark and takes
+   its own ink from `data-state` in PrimaryScreen.css — the same rule, and the
+   same tokens, that paints every row listed underneath. */
 [data-role='desktop-working-head'][data-state='working'] {
   --working-ink: var(--warn-strong);
-  --working-mark: var(--warn);
-  --working-mark-soft: var(--warn-soft);
 }
 
 /* Blocked — the same fire the ticket's own BLOCKED badge burns (TicketDetail.css,
@@ -555,62 +555,51 @@ html:has([data-role='desktop-screen']) body {
    for the dot), for the same reason the working head borrows ember: the ticket's
    reading is the source of truth and the head follows it.
 
-   It does not breathe. Blocked is the state where nothing is moving, so the mark
-   sits still and lit — the detail sheet's "stuck, not moving" rule, and the one
-   place on this screen where the loudest ink is correct, because it is the state
-   that wants the user. */
+   It does not breathe either, which is now the component's doing rather than a
+   rule here: a blocked head is rendered with no session status on its mark, and
+   `building` is the only status the shared mark moves for. See WorkingNow.tsx. */
 [data-role='desktop-working-head'][data-state='blocked'] {
   --working-ink: var(--danger);
-  --working-mark: var(--danger);
-  --working-mark-soft: var(--danger-soft);
 }
 
-[data-role='desktop-working-dot'] {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  /* Dimmer while nothing is running: the panel is permanent now, so its heading
-     mark has to be able to say "not right now" without going away. */
-  background: var(--working-mark, var(--text-faint));
+/* ---- the head's mark
+   There are no geometry, colour or animation rules for it, and that absence is
+   the design: the head renders `[data-role='status-dot']` — the same element,
+   the same size, the same halo, the same breath as every row listed under it
+   (PrimaryScreen.css, "the shared status mark"). It used to be a 6px dot of the
+   panel's own that breathed in opacity while the rows breathed in their halos;
+   matching only the tempo left a head that still read as a different kind of
+   thing from the rows it summarises.
+
+   Two things this head does have to say about it, neither of them a look of its
+   own. First: hold the box. The head is a flex row and the mark is a flex child,
+   so without this a long word beside it would take its pixels before wrapping,
+   and a squeezed circle is an oval — the rows never risk it because they lay the
+   mark out in a grid column instead. */
+[data-role='desktop-working-head'] [data-role='status-dot'] {
+  flex: none;
 }
 
-/* Breathing is reserved for the live reading — an always-animating mark in a
-   permanently-present column would be exactly the manufactured activity 13 §1
-   rules out.
+/* Second: the one reading the shared mark cannot know — this head's NEUTRAL LIVE
+   state, the brain mid-pass over an empty Working bucket. There is no ticket to
+   take a hue from, so the stateless mark falls back to a flat faint fill with a
+   transparent halo, and a transparent halo breathing is a breath nobody can see.
+   So the ink lifts to muted and the ring becomes the faintest neutral in the
+   palette — written into the shared mark's OWN two variables, so the geometry and
+   the cadence still come from the one place that defines them.
 
-   The CADENCE is the ticket list's, not one of this panel's own: the same
-   `--pulse-duration` and the same easing that `[data-role='status-dot']
-   [data-status='building']` breathes on in PrimaryScreen.css. Those marks are
-   listed directly under this head — one of them per row — so two tempos in one
-   column read as two different things being reported, and the eye tracks the
-   drift between them rather than either reading. The head follows the rows for
-   the same reason it takes their colour: the ticket's own reading is the source
-   of truth (see the head rule above).
+   Scoped to the LIVE head (`data-active`) and to a mark with no ticket state on
+   it: the resting head keeps the shared mark's stateless default — flat, faint,
+   no halo — because a permanent column reporting an absence should be the
+   quietest thing on the screen, and a head with a ticket behind it already has
+   that ticket's ink.
 
-   The desktop's slower `--breathe-duration` still governs the RAIL's project
-   dot, which sits in a different column with no ticket marks beside it to
-   disagree with. Only WHAT breathes stays this panel's own — opacity here, the
-   halo on a status mark — because the two marks are different shapes; the
-   tempo is the part they have to share. */
-[data-role='desktop-working-dot'][data-active='true'] {
-  background: var(--working-mark, var(--text-muted));
-  box-shadow: 0 0 0 3px var(--working-mark-soft, transparent);
-  animation: kiln-breathe var(--pulse-duration) ease-in-out infinite;
-}
-
-/* …except when the head reads blocked, which takes a rule of its own because
-   the mark can be LIVE while the board is stuck: the brain takes a pass with
-   nothing in Working and a ticket waiting on the user, and the rule above
-   (0,2,0) would breathe that dot — in fire. A pulsing alarm is more than "one
-   ticket needs a decision" is worth, and the badge this head borrows from is
-   explicitly "stuck, not moving". Weighs (0,3,0), so it wins; the colour still
-   says blocked and the transient pass simply goes unpulsed.
-
-   It must sit AFTER the plain dot rules: the layout test finds a rule by the
-   first occurrence of its selector text, and this one ends with the same
-   `[data-role='desktop-working-dot'] {` the base rule is looked up by. */
-[data-role='desktop-working-head'][data-state='blocked'] [data-role='desktop-working-dot'] {
-  animation: none;
+   Neutral on purpose: this is liveness with nothing to name, and 13 §8.2 gives
+   the working strip "no accent" — an ink here is for a state with a ticket
+   behind it. */
+[data-role='desktop-working-head'][data-active='true'] [data-role='status-dot']:not([data-state]) {
+  --dot-ink: var(--text-muted);
+  --dot-ring: var(--border-default);
 }
 
 /* The resting reading. One flat line in the faintest ink on the screen: it
@@ -1230,12 +1219,13 @@ body[data-shell='desktop']
     animation: none;
   }
 
-  /* `[data-active='true']` is restated, not dropped: the breathing rule weighs
-     (0,2,0) and a bare `[data-role='desktop-working-dot']` here would weigh
-     (0,1,0) and lose, leaving the dot animating for exactly the people who asked
-     it not to. */
-  [data-role='rail-project-state'][data-state='working'] [data-role='rail-project-dot'],
-  [data-role='desktop-working-dot'][data-active='true'] {
+  /* The in-progress head's mark is NOT listed here, and must not be: it is the
+     shared status mark now, and PrimaryScreen.css already stops
+     `[data-role='status-dot'][data-status='building']` under this same query.
+     Restating it here would be a second opinion about one element — and the kind
+     that rots, since only one of the two copies gets found when the mark is
+     retuned. What is left is this file's own marks. */
+  [data-role='rail-project-state'][data-state='working'] [data-role='rail-project-dot'] {
     animation: none;
     /* Still legible as "present" without the loop — the breathing carries the
        liveness, the mark carries the state. */

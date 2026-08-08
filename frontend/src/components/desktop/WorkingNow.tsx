@@ -103,6 +103,21 @@ export function WorkingNow({
   // land on where there is nothing to do.
   const headState = state === 'idle' ? undefined : state;
 
+  // The head's mark is the SAME element as the rows' (see the mark below), so
+  // its liveness is spelled in the same vocabulary: `building` is the one status
+  // the shared mark breathes on, and the head breathes exactly when something is
+  // running. Blocked is the deliberate hole in that — the state where nothing is
+  // moving holds still even while the brain takes a pass behind it, because a
+  // pulsing mark in the alarm ink is more than "one ticket needs a decision" is
+  // worth, and the badge this head borrows from is "stuck, not moving".
+  //
+  // It is the session vocabulary on a mark that summarises tickets, which is a
+  // small stretch: with a lone idle worker in Working the head breathes where its
+  // one row sits flat. That is the reading the panel has always given (its head
+  // breathes on `live`), and the alternative — a head that went still while work
+  // was assigned — would drop the liveness signal the column exists to carry.
+  const headStatus = live && state !== 'blocked' ? 'building' : undefined;
+
   return (
     // The region's name is fixed while the head's word is not: a landmark that
     // renamed itself as the project moved would shuffle under anyone navigating
@@ -117,9 +132,25 @@ export function WorkingNow({
         data-state={headState}
         role={live ? 'status' : undefined}
       >
+        {/* The head wears the SAME MARK as the rows under it — literally the
+            shared `status-dot` from PrimaryScreen.css, keyed on the same two
+            attributes, not a second dot of the panel's own.
+
+            It used to be its own 6px element with its own fill and its own
+            opacity breath. That matched the rows' tempo but nothing else: a
+            slightly smaller mark, breathing a different property, with a halo
+            only while live — three small disagreements in a column where the
+            head and the first row sit eight pixels apart, which read as two
+            different kinds of thing being reported rather than one reading
+            summarising the others.
+
+            The hue still comes from `data-state` — the ticket's lifecycle state,
+            which is what keeps the summary honest: the head's ink is the ink of
+            every row beneath it, because it is the same rule painting both. */}
         <span
-          data-role="desktop-working-dot"
-          data-active={live ? 'true' : 'false'}
+          data-role="status-dot"
+          data-state={headState}
+          data-status={headStatus}
           aria-hidden="true"
         />
         <span>{workingPanelLabel(state)}</span>
@@ -144,11 +175,12 @@ export function WorkingNow({
                     onOpenTicket(ticket.id);
                   }}
                 >
-                  {/* The SAME mark the phone's ticket list uses, from the same
-                      unscoped rules in PrimaryScreen.css — the ticket's ember
-                      while it is worked (breathing while a session builds, flat
-                      while it is idle, hollow once it has stopped), fire only
-                      when the session has failed. Reusing the element rather
+                  {/* The SAME mark the phone's ticket list uses — and the one
+                      the head above wears too, all three from the same unscoped
+                      rules in PrimaryScreen.css: the ticket's ember while it is
+                      worked (breathing while a session builds, flat while it is
+                      idle, hollow once it has stopped), fire only when the
+                      session has failed. Reusing the element rather
                       than restating the palette here is what keeps "in progress"
                       looking identical on both platforms; a second set of
                       colours would drift the moment either is tuned.

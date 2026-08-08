@@ -30,14 +30,11 @@ import { useCallback, useRef, useState, type JSX, type KeyboardEvent } from 'rea
 import type {
   Board,
   ConnectionState,
-  FeedCard,
   FeedSnapshot,
-  FeedSummary,
   NotificationModeValue,
 } from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
 import type { WebPushStatus } from '@/stores/use-web-push';
-import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
 import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
@@ -52,16 +49,9 @@ import { backlogTickets } from '@/components/desktop/backlog';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { lastWordDetail, streamDetail } from '@/components/feed-format';
+import { EMPTY_SUMMARY, dividerIndex, findTicket, isSeen } from '@/components/feed-model';
 import '@/components/PrimaryScreen.css';
 import '@/components/desktop/DesktopScreen.css';
-
-const EMPTY_SUMMARY: FeedSummary = {
-  blocker_count: 0,
-  update_count: 0,
-  stream_count: 0,
-  building: 0,
-  idle: 0,
-};
 
 export interface DesktopScreenViewProps {
   /** The rail's rows, in a stable order with each one's ambient state (13 §5). */
@@ -106,60 +96,6 @@ export interface DesktopScreenViewProps {
   composer?: JSX.Element | undefined;
   /** Injected "now" for deterministic relative-age rendering. */
   now?: number;
-}
-
-/** An update/preview card's numeric notification_id, or null for board cards —
- * the last-seen divider boundary (08 D2′). Identical rule to the mobile view;
- * the divider means the same thing on a desk, it just gets scrolled past more. */
-function updateId(card: FeedCard): number | null {
-  const isUpdate = card.kind === 'update' || card.kind === 'preview';
-  return isUpdate && typeof card.notification_id === 'number' ? card.notification_id : null;
-}
-
-/** Index of the first card at/below the last-seen boundary, or -1 when there is
- * no divider to draw (08 D2′). */
-function dividerIndex(cards: FeedCard[], lastSeenId: number | null): number {
-  if (lastSeenId === null) {
-    return -1;
-  }
-  const firstOld = cards.findIndex((card) => {
-    const id = updateId(card);
-    return id !== null && id <= lastSeenId;
-  });
-  if (firstOld === -1) {
-    return -1;
-  }
-  const hasNewerAbove = cards.slice(0, firstOld).some((card) => {
-    const id = updateId(card);
-    return id !== null && id > lastSeenId;
-  });
-  return hasNewerAbove ? firstOld : -1;
-}
-
-/** Whether a card is already-seen history, rendered de-emphasized (08 D2′). */
-function isSeen(card: FeedCard, lastSeenId: number | null): boolean {
-  if (lastSeenId === null) {
-    return false;
-  }
-  const id = updateId(card);
-  return id !== null && id <= lastSeenId;
-}
-
-/** The full ticket a card points at, resolved against the live board snapshot.
- * Every bucket is scanned so a ticket that moves state between the click and the
- * render still resolves. */
-function findTicket(board: Board | null, id: string | null): Ticket | null {
-  if (board === null || id === null) {
-    return null;
-  }
-  const all: Ticket[] = [
-    ...board.shaping,
-    ...board.ready,
-    ...board.blocked,
-    ...board.working,
-    ...board.done,
-  ];
-  return all.find((ticket) => ticket.id === id) ?? null;
 }
 
 export function DesktopScreenView({

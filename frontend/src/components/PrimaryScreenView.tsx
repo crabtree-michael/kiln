@@ -6,14 +6,11 @@ import { useCallback, useRef, useState, type JSX } from 'react';
 import type {
   Board,
   ConnectionState,
-  FeedCard,
   FeedSnapshot,
-  FeedSummary,
   NotificationModeValue,
 } from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
 import type { WebPushStatus } from '@/stores/use-web-push';
-import type { Ticket } from '@/components/TicketCard';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
@@ -24,17 +21,17 @@ import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
 import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { lastWordDetail, streamDetail } from '@/components/feed-format';
+import {
+  EMPTY_SUMMARY,
+  dividerIndex,
+  findTicket,
+  hasClearableCards,
+  isSeen,
+  notificationId,
+} from '@/components/feed-model';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
 import { usePullToRefresh } from '@/components/use-pull-to-refresh';
 import '@/components/PrimaryScreen.css';
-
-const EMPTY_SUMMARY: FeedSummary = {
-  blocker_count: 0,
-  update_count: 0,
-  stream_count: 0,
-  building: 0,
-  idle: 0,
-};
 
 export interface PrimaryScreenViewProps {
   feed: FeedSnapshot | null;
@@ -144,83 +141,6 @@ export interface PrimaryScreenViewProps {
   now?: number;
 }
 
-/** An update/preview card's numeric notification_id, or null for board cards.
- * Drives the last-seen divider — the "new since last visit" boundary is about
- * brain-authored update/preview history, so the mechanical poke/done notices
- * stay out of it. */
-function updateId(card: FeedCard): number | null {
-  const isUpdate = card.kind === 'update' || card.kind === 'preview';
-  return isUpdate && typeof card.notification_id === 'number' ? card.notification_id : null;
-}
-
-/** The numeric notification_id of a card the user can swipe to clear, or null.
- * Every notification-backed card — the brain-authored update/preview cards, the
- * runtime's "done" completion notice, and the steward's "poke" stall nudge — is
- * a stray notification the user can wave off once read. Only blockers stay put:
- * a blocker demands an explicit decision, not a swipe. Board cards
- * (blocker/proposal) carry no notification_id, so they never gain the gesture. */
-function dismissableId(card: FeedCard): number | null {
-  const isDismissable =
-    card.kind === 'update' ||
-    card.kind === 'preview' ||
-    card.kind === 'done' ||
-    card.kind === 'poke';
-  return isDismissable && typeof card.notification_id === 'number' ? card.notification_id : null;
-}
-
-/** The index of the first update card at/below the last-seen boundary — the
- * "last seen" divider position (08 D2′), separating new-since-last-visit updates
- * above from older history below. Shown only when there is at least one newer
- * update above the boundary AND `lastSeenId` is known. Returns -1 otherwise. */
-function dividerIndex(cards: FeedCard[], lastSeenId: number | null): number {
-  if (lastSeenId === null) {
-    return -1;
-  }
-  const firstOld = cards.findIndex((card) => {
-    const id = updateId(card);
-    return id !== null && id <= lastSeenId;
-  });
-  if (firstOld === -1) {
-    return -1;
-  }
-  const hasNewerAbove = cards.slice(0, firstOld).some((card) => {
-    const id = updateId(card);
-    return id !== null && id > lastSeenId;
-  });
-  return hasNewerAbove ? firstOld : -1;
-}
-
-/** Whether a card sits at/below the last-seen boundary — already-seen history
- * that renders de-emphasized (unbolded title, body collapsed tighter) so the
- * new-since-last-visit cards above stay the feed's focus (08 D2′). Board cards
- * (blocker/proposal, no `notification_id`) never recede — they still need the
- * user. Returns false when no boundary is known (fresh visit / nothing seen). */
-function isSeen(card: FeedCard, lastSeenId: number | null): boolean {
-  if (lastSeenId === null) {
-    return false;
-  }
-  const id = updateId(card);
-  return id !== null && id <= lastSeenId;
-}
-
-/** The full ticket a proposal card points at, looked up in the board snapshot by
- * id (08 §5). Proposals are Shaping tickets, but every bucket is scanned so a
- * ticket that moves state between the click and the render still resolves.
- * Returns null before the first board snapshot lands or if the id is gone. */
-function findTicket(board: Board | null, id: string | null): Ticket | null {
-  if (board === null || id === null) {
-    return null;
-  }
-  const all: Ticket[] = [
-    ...board.shaping,
-    ...board.ready,
-    ...board.blocked,
-    ...board.working,
-    ...board.done,
-  ];
-  return all.find((ticket) => ticket.id === id) ?? null;
-}
-
 export function PrimaryScreenView({
   feed,
   brand,
@@ -262,7 +182,7 @@ export function PrimaryScreenView({
   // Whether any notification-backed card is present — the trash affordance clears
   // those (blockers/proposals are board state, untouched), so it's disabled when
   // there is nothing to clear.
-  const hasClearable = cards.some((card) => card.kind !== 'blocker' && card.kind !== 'proposal');
+  const hasClearable = hasClearableCards(cards);
 
   // Which proposal's full ticket is open in the click-through detail overlay
   // (08 §5). View-only state held here, mirroring how Board owns its selected
@@ -438,8 +358,9 @@ export function PrimaryScreenView({
                   // preview, the runtime's "done" notice, and the steward's
                   // "poke" nudge. Blockers/proposals (board state the brain
                   // owns) carry no notification_id and stay static — a blocker
-                  // needs an explicit decision, not a swipe.
-                  const dismissId = dismissableId(card);
+                  // needs an explicit decision, not a swipe. NOT the divider's
+                  // narrower taxonomy — see feed-model.ts's header.
+                  const dismissId = notificationId(card);
                   const item = (
                     <FeedCardItem
                       card={card}

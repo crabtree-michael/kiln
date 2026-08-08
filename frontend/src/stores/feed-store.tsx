@@ -22,6 +22,7 @@ import {
   postFeedSeen,
 } from '@/transport/transport';
 import type { ConnectionState, FeedCard, FeedSnapshot } from '@/transport/transport';
+import { notificationId } from '@/components/feed-model';
 import { FeedStoreContext, type FeedStoreValue } from '@/stores/feed-context';
 import { cacheFeed, readCachedFeed } from '@/stores/project-cache';
 import { subscribeStream } from '@/stores/stream-connection';
@@ -41,30 +42,21 @@ const HISTORY_PAGE_SIZE = 30;
 // a genuinely-failed accept resurfaces the proposal so nothing is silently lost.
 const OPTIMISTIC_ACCEPT_TTL_MS = 5 * 60 * 1000;
 
-// Notification-backed card kinds (08 §3, §7): update/preview are brain-authored,
-// poke is the steward's mechanical stall nudge, done is the runtime's mechanical
-// completion card. All four are rows in the `notifications` table — the runtime
-// returns them in the feed's retained, paginated update stream — so the store
-// accumulates them across snapshots the same way. (Blocker/proposal cards are
-// board-derived and taken fresh from every snapshot instead.) A card that isn't
-// accumulated here never reaches the merged feed, so it silently vanishes even
-// though FeedCardItem renders it.
-function isUpdateCard(card: FeedCard): boolean {
-  return (
-    card.kind === 'update' ||
-    card.kind === 'preview' ||
-    card.kind === 'poke' ||
-    card.kind === 'done'
-  );
-}
-
-/** A notification-backed card (update/preview/poke/done) with a usable numeric
- * notification_id, narrowed. */
-function updateId(card: FeedCard): number | null {
-  return isUpdateCard(card) && typeof card.notification_id === 'number'
-    ? card.notification_id
-    : null;
-}
+// The notification-backed taxonomy this store accumulates by — update/preview
+// (brain-authored), poke (the steward's mechanical stall nudge) and done (the
+// runtime's mechanical completion card) — now lives in `@/components/feed-model`
+// as `notificationId`, shared with the feed shells that ask the same question
+// for the swipe-to-clear gesture. It used to be spelled `updateId` here and
+// `dismissableId` in `PrimaryScreenView`, which is the duplication review D9
+// named.
+//
+// It is NOT the same set as the shells' divider boundary (`authoredUpdateId`,
+// update/preview only), which was ALSO called `updateId` before the split. Read
+// feed-model.ts's header before touching either: collapsing them is a silent,
+// type-checking way to slide the "Earlier" divider onto the poke and done cards.
+//
+// A card that isn't accumulated here never reaches the merged feed, so it
+// silently vanishes even though FeedCardItem renders it.
 
 /** The smallest notification_id currently accumulated — the keyset cursor for
  * the next older history page. `undefined` when no updates are held yet. */
@@ -221,7 +213,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       return { feed: null, lastSeen: null, collapsedCount: 0 };
     }
     for (const card of cached.updates) {
-      const id = updateId(card);
+      const id = notificationId(card);
       if (id !== null) {
         updatesRef.current.set(id, card);
       }
@@ -376,7 +368,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       const serverIds = new Set<number>();
       let windowFloor = Infinity;
       for (const card of snapshot.cards) {
-        const id = updateId(card);
+        const id = notificationId(card);
         if (id === null) {
           continue;
         }
@@ -392,7 +384,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         }
       }
       for (const card of snapshot.cards) {
-        const id = updateId(card);
+        const id = notificationId(card);
         if (id !== null) {
           updatesRef.current.set(id, card);
         }
@@ -457,7 +449,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
         try {
           const page = await fetchFeedHistory(before, HISTORY_PAGE_SIZE);
           for (const card of page.cards) {
-            const id = updateId(card);
+            const id = notificationId(card);
             if (id !== null) {
               updatesRef.current.set(id, card);
             }

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -52,7 +53,10 @@ type fakeStore struct {
 	workers     map[board.WorkerID]board.Worker
 	workerProj  map[board.WorkerID]string // worker id -> owning project
 	workerError map[board.WorkerID]bool   // worker id -> errored (unhealthy); absent = healthy
-	outbox      []fakeEmission
+	// deps are the dependency edges (0013): ticket id -> the tickets it waits
+	// for, in insertion order, mirroring ticket_dependencies.
+	deps   map[board.TicketID][]board.TicketID
+	outbox []fakeEmission
 
 	seq      int
 	nextTime time.Time // monotonically-advancing fake clock for CreatedAt/UpdatedAt
@@ -65,6 +69,7 @@ func newFakeStore() *fakeStore {
 		workers:     map[board.WorkerID]board.Worker{},
 		workerProj:  map[board.WorkerID]string{},
 		workerError: map[board.WorkerID]bool{},
+		deps:        map[board.TicketID][]board.TicketID{},
 		nextTime:    time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
 	}
 }
@@ -85,6 +90,10 @@ func (s *fakeStore) Tx(ctx context.Context, fn func(board.Tx) error) error {
 	maps.Copy(workersBefore, s.workers)
 	workerProjBefore := make(map[board.WorkerID]string, len(s.workerProj))
 	maps.Copy(workerProjBefore, s.workerProj)
+	depsBefore := make(map[board.TicketID][]board.TicketID, len(s.deps))
+	for k, v := range s.deps {
+		depsBefore[k] = append([]board.TicketID(nil), v...)
+	}
 	outboxBefore := make([]fakeEmission, len(s.outbox))
 	copy(outboxBefore, s.outbox)
 
@@ -95,6 +104,7 @@ func (s *fakeStore) Tx(ctx context.Context, fn func(board.Tx) error) error {
 		s.ticketProj = ticketProjBefore
 		s.workers = workersBefore
 		s.workerProj = workerProjBefore
+		s.deps = depsBefore
 		s.outbox = outboxBefore
 		return err
 	}
@@ -120,6 +130,7 @@ func (s *fakeStore) Snapshot(ctx context.Context, projectID string) (board.Snaps
 		if t.ArchivedAt != nil { // archived tickets are gone from every read (03 §4 amended)
 			continue
 		}
+		t.DependsOn, t.UnmetDependencies = s.liveDeps(id)
 		switch t.State {
 		case board.StateShaping:
 			snap.Shaping = append(snap.Shaping, t)
@@ -168,6 +179,7 @@ func (s *fakeStore) GetTicket(_ context.Context, projectID string, id board.Tick
 	if !ok || s.ticketProj[id] != projectID || t.ArchivedAt != nil {
 		return board.Ticket{}, board.ErrNotFound
 	}
+	t.DependsOn, t.UnmetDependencies = s.liveDeps(id)
 	return t, nil
 }
 
@@ -192,6 +204,26 @@ func (s *fakeStore) SetWorkerHealth(_ context.Context, projectID string, errored
 		}
 	}
 	return nil
+}
+
+// liveDeps projects a ticket's edges the way the adapter's read queries do
+// (0013): archived dependencies are dropped entirely — they can never reach
+// done, so they neither appear in the list nor count as unmet — and what
+// remains is counted against state done.
+func (s *fakeStore) liveDeps(id board.TicketID) ([]board.TicketID, int) {
+	var live []board.TicketID
+	unmet := 0
+	for _, dep := range s.deps[id] {
+		dt, ok := s.tickets[dep]
+		if !ok || dt.ArchivedAt != nil {
+			continue
+		}
+		live = append(live, dep)
+		if dt.State != board.StateDone {
+			unmet++
+		}
+	}
+	return live, unmet
 }
 
 // now returns a strictly-increasing timestamp, so CreatedAt/tie-break
@@ -369,8 +401,11 @@ func (t *fakeTx) TicketIDByDoneCommit(_ context.Context, projectID, sha string) 
 func (t *fakeTx) NextReadyTicket(_ context.Context, projectID string) (board.Ticket, bool, error) {
 	var best *board.Ticket
 	for id, tk := range t.s.tickets {
-		if t.s.ticketProj[id] != projectID || tk.State != board.StateReady {
+		if t.s.ticketProj[id] != projectID || tk.State != board.StateReady || tk.ArchivedAt != nil {
 			continue
+		}
+		if _, unmet := t.s.liveDeps(id); unmet > 0 {
+			continue // waiting on work that has not landed (0013)
 		}
 		cand := tk
 		if best == nil || readyLess(cand, *best) {
@@ -406,6 +441,75 @@ func (t *fakeTx) FreeWorker(_ context.Context, projectID string) (board.Worker, 
 func (t *fakeTx) AppendOutbox(_ context.Context, projectID string, e board.Emission) error {
 	t.s.outbox = append(t.s.outbox, fakeEmission{Project: projectID, E: e})
 	return nil
+}
+
+// SetDependency records or drops id -> dependsOn (0013), idempotent both ways —
+// mirroring the adapter's ON CONFLICT DO NOTHING and its no-rows DELETE.
+func (t *fakeTx) SetDependency(_ context.Context, _ string, id, dependsOn board.TicketID, present bool) error {
+	if present {
+		if !slices.Contains(t.s.deps[id], dependsOn) {
+			t.s.deps[id] = append(t.s.deps[id], dependsOn)
+		}
+		return nil
+	}
+	kept := make([]board.TicketID, 0, len(t.s.deps[id]))
+	for _, existing := range t.s.deps[id] {
+		if existing != dependsOn {
+			kept = append(kept, existing)
+		}
+	}
+	t.s.deps[id] = kept
+	return nil
+}
+
+// DependencyPathTo walks edges forward from `from` looking for `target`,
+// standing in for the adapter's recursive CTE. Archived tickets are not
+// traversed and the visited set stops it revisiting a ticket — both the same
+// rules the SQL applies, so a ring that only closes through an archived ticket
+// is not reported as a cycle.
+func (t *fakeTx) DependencyPathTo(
+	_ context.Context, projectID string, from, target board.TicketID,
+) ([]board.TicketID, bool, error) {
+	visited := map[board.TicketID]bool{from: true}
+	type step struct {
+		id   board.TicketID
+		path []board.TicketID
+	}
+	queue := []step{{id: from, path: []board.TicketID{from}}}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur.id == target {
+			return cur.path, true, nil
+		}
+		for _, next := range t.s.deps[cur.id] {
+			if visited[next] || t.s.ticketProj[next] != projectID {
+				continue
+			}
+			if dt, ok := t.s.tickets[next]; !ok || dt.ArchivedAt != nil {
+				continue
+			}
+			visited[next] = true
+			queue = append(queue, step{id: next, path: append(append([]board.TicketID(nil), cur.path...), next)})
+		}
+	}
+	return nil, false, nil
+}
+
+// Dependents reports whether any live ticket waits on id (0013).
+func (t *fakeTx) Dependents(_ context.Context, projectID string, id board.TicketID) (bool, error) {
+	for waiter, edges := range t.s.deps {
+		if t.s.ticketProj[waiter] != projectID {
+			continue
+		}
+		if wt, ok := t.s.tickets[waiter]; !ok || wt.ArchivedAt != nil {
+			continue
+		}
+		if slices.Contains(edges, id) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ---- shared assertion helpers ----------------------------------------

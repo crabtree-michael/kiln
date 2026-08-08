@@ -990,3 +990,53 @@
  * surface that matters. Poke's pill also brought a `:hover` with it, which a touch
  * device paints for a finger that was only scrolling past — the disc's press is the
  * whole feedback now, as it is for the other three. */
+
+/* What this ticket is waiting for (0013). It sits with the status badge, not in
+ * the scrolling body, because it explains the ticket's *position* — the same
+ * class of fact the badge carries — and on a held ticket it is usually why the
+ * sheet was opened. Quiet by default: the label is the caps micro-heading the
+ * rest of the header uses, and the list is plain text, because this is context
+ * for the title above it rather than a thing to act on. */
+[data-role='ticket-detail-dependencies'] {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+}
+
+[data-role='ticket-detail-dependencies-label'] {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-faint);
+}
+
+[data-role='ticket-detail-dependency-list'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+[data-role='ticket-detail-dependency'] {
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* A landed dependency stays on the list, struck through and faded: it is the
+ * progress a held ticket has, and removing it would make a nearly-unblocked
+ * ticket look like one that has not started. */
+[data-role='ticket-detail-dependency'][data-done='true'] {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}

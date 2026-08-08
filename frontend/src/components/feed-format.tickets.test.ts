@@ -175,3 +175,41 @@ describe('ticketStatuses', () => {
     expect(byId.get('rd')).toBe('ready');
   });
 });
+
+// A queued ticket held by unlanded dependencies (0013). The row carries the
+// count so the dropdown can say why a ready ticket at the top of the pull order
+// is not starting — without it, a deliberately-ordered queue reads as a stuck
+// one.
+describe('ticketStatuses — waiting on dependencies', () => {
+  const queued = (id: string, title: string, dependsOn: string[]): ReturnType<typeof makeTicket> =>
+    makeTicket({ ...baseFields, id, title, body: '', state: 'ready', priority: 0, dependsOn });
+
+  it('carries the unmet count for a ready ticket held by its dependencies', () => {
+    const board = makeBoard({ ready: [queued('r1', 'Use the column', ['b1', 'b2'])] });
+    expect(ticketStatuses(board)[0]?.waitingOn).toBe(2);
+  });
+
+  it('reports 0 for a ready ticket that waits on nothing', () => {
+    const board = makeBoard({ ready: [queued('r1', 'Free to start', [])] });
+    expect(ticketStatuses(board)[0]?.waitingOn).toBe(0);
+  });
+
+  // Only a queued ticket can be waiting: one already working is past the point
+  // its dependencies could hold it, so the row must not claim otherwise.
+  it('reports 0 for a working ticket even if it has dependencies', () => {
+    const board = makeBoard({
+      working: [
+        makeTicket({
+          ...baseFields,
+          id: 'w1',
+          title: 'Already running',
+          body: '',
+          state: 'working',
+          priority: 0,
+          dependsOn: ['b1'],
+        }),
+      ],
+    });
+    expect(ticketStatuses(board)[0]?.waitingOn).toBe(0);
+  });
+});

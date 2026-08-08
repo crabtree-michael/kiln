@@ -29,6 +29,13 @@ export interface TicketFixtureInput {
   keepSandbox?: boolean;
   blockedReason?: string;
   readyAt?: string;
+  /** Ids this ticket waits for (0013); defaults to none. */
+  dependsOn?: string[];
+  /** How many of those have not landed. Defaults to "all of them" — a fixture
+   * that names dependencies almost always means them to be holding the ticket,
+   * and a default of 0 would silently produce a ticket with dependencies that
+   * is somehow waiting for nothing. */
+  unmetDependencies?: number;
 }
 
 /** Builds a `Ticket` from the wire schema, adding optional fields only when
@@ -46,6 +53,12 @@ export function makeTicket(input: TicketFixtureInput): Ticket {
     created_at: input.createdAt,
     updated_at: input.updatedAt,
     state_changed_at: input.statusChangedAt ?? input.updatedAt,
+    depends_on: input.dependsOn ?? [],
+    unmet_dependencies: input.unmetDependencies ?? (input.dependsOn ?? []).length,
+    // Mirrors the server's own derivation (board.Ticket.WaitingOnDependencies):
+    // a waiting ticket is a queued one, so only `ready` can be waiting.
+    waiting_on_dependencies:
+      input.state === 'ready' && (input.unmetDependencies ?? (input.dependsOn ?? []).length) > 0,
   };
   const withBlocked =
     input.blockedReason !== undefined ? { ...base, blocked_reason: input.blockedReason } : base;

@@ -830,12 +830,14 @@ func enableServerRoutes(
 	// wired (the store always exists) — it mounts no route, it only gives the
 	// callback's rejection path somewhere to write.
 	server.EnableBeta(&betaRegistrarAdapter{store: betaStore})
-	// The two client-driven board writes, both satisfied directly by the board
-	// service and both always mounted, since the ticket detail sheet depends on
-	// them: the per-ticket sandbox option (POST /api/tickets/{id}/sandbox) and
-	// the sheet's direct text edit (POST /api/tickets/{id}/text).
+	// The client-driven board writes, all satisfied directly by the board service
+	// and all always mounted, since the ticket detail sheet depends on them: the
+	// per-ticket sandbox option (POST /api/tickets/{id}/sandbox), the sheet's
+	// direct text edit (POST /api/tickets/{id}/text), and the ticket's
+	// dependencies (POST/DELETE /api/tickets/{id}/dependencies).
 	server.EnableTicketSandbox(boardSvc)
 	server.EnableTicketText(boardSvc)
+	server.EnableTicketDependencies(boardSvc)
 	// The dev "fresh session" reset endpoint (POST /api/dev/reset) is wired
 	// unconditionally — it is a developer affordance, not gated on DevEndpoints.
 	// It re-seeds the worker pool to the project's configured worker count (so a

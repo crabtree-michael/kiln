@@ -95,6 +95,13 @@ export interface TicketStatus {
    * from `state_changed_at`, not `updated_at`, so a nudge (a same-state mutation)
    * does not reset the clock; it reflects the real total time in the column. */
   statusSince: string;
+  /** How many of the ticket's dependencies have not landed (0013), or 0 when it
+   * is not being held by any. A ready ticket waiting on other work sits at the
+   * top of the pull order and never starts, which reads as a stuck queue unless
+   * the row says otherwise — the same reason the desktop backlog names it. Only
+   * ever non-zero for a ready ticket: the server derives `waiting_on_dependencies`
+   * and the row trusts it rather than re-deriving the rule here. */
+  waitingOn: number;
 }
 
 /** Ordering rank per board state (08 §2, amended 2026-07-06): active tickets
@@ -163,6 +170,7 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
       state: ticket.state,
       reason: ticket.blocked_reason ?? null,
       statusSince: ticket.state_changed_at,
+      waitingOn: ticket.waiting_on_dependencies ? ticket.unmet_dependencies : 0,
     }));
 }
 

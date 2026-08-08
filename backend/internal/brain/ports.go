@@ -52,6 +52,14 @@ type BoardAPI interface {
 	// the gate is at the brain's discretion (08 §5, §9 D5). Precondition
 	// state==shaping surfaces as a typed board error, fed back verbatim (06 §6, §8).
 	RequestApproval(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	// AddDependency → update_ticket depends_on (0013). Records that a ticket
+	// waits for another; the pull skips it until that one is done. Refuses an
+	// edge that would close an unsatisfiable ring (*board.ErrCircularDependency)
+	// and a missing id (ErrNotFound) — both fed back verbatim (06 §6).
+	AddDependency(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error)
+	// RemoveDependency → update_ticket depends_on (0013). Drops an edge;
+	// removing one that is not there succeeds.
+	RemoveDependency(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error)
 }
 
 // NotificationStore is the brain's port onto the runtime's notification feed

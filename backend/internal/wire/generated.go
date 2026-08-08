@@ -804,7 +804,10 @@ type Ticket struct {
 	BlockedReason *string   `json:"blocked_reason,omitempty"`
 	Body          string    `json:"body"`
 	CreatedAt     time.Time `json:"created_at"`
-	Id            string    `json:"id"`
+
+	// DependsOn Ids of the tickets this one waits for: it is not pulled until every one of them is done (0013). In the order they were added. Lists only LIVE dependencies — a dependency that has been deleted can never reach done, so it stops counting and drops out of this list rather than stranding the ticket behind it.
+	DependsOn []string `json:"depends_on"`
+	Id        string   `json:"id"`
 
 	// KeepSandbox Save this ticket's sandbox instead of recycling it. Normally a ticket that leaves Developing (accepted to done, or a blocked ticket deleted) releases its worker, which tears the sandbox down and recreates it — the workspace is gone. With this set the release is skipped, so the sandbox and everything in it survive and the next turn on that slot continues in the same workspace. Set per ticket from the ticket detail sheet (POST /api/tickets/{id}/sandbox); false by default.
 	KeepSandbox bool `json:"keep_sandbox"`
@@ -822,12 +825,24 @@ type Ticket struct {
 	StateChangedAt time.Time `json:"state_changed_at"`
 	Title          string    `json:"title"`
 
+	// UnmetDependencies How many entries in `depends_on` are not yet done — what the client renders as "waiting on N".
+	UnmetDependencies int `json:"unmet_dependencies"`
+
 	// UpdatedAt Time of the ticket's last mutation of any kind (bumped by nudges too).
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// WaitingOnDependencies True when this ticket is queued but held back by work that has not landed (state is `ready` and `unmet_dependencies` > 0). Derived server-side rather than left to the client: there are still exactly five states (03 D1) and a waiting ticket is a Ready one, so this is a render hint, not a sixth state. A shaping ticket is not queued for anything yet, and one already working is past the point its dependencies could hold it, so neither is ever waiting.
+	WaitingOnDependencies bool `json:"waiting_on_dependencies"`
 }
 
 // TicketState One of the five board states (03 §2.1). Render mapping: shaping/ ready -> Backlog; working/blocked -> Developing (blocked stacked above working); done -> Done.
 type TicketState string
+
+// TicketDependencyRequest POST /api/tickets/{id}/dependencies body — the ticket to wait for.
+type TicketDependencyRequest struct {
+	// DependsOn Id of the ticket that must be done before this one can start. Must be a live ticket in the same project, and must not already wait on this one (that would close an unsatisfiable ring — 409).
+	DependsOn string `json:"depends_on"`
+}
 
 // TicketSandboxRequest POST /api/tickets/{id}/sandbox body — the per-ticket sandbox option.
 type TicketSandboxRequest struct {
@@ -918,6 +933,9 @@ type PutSettingsJSONRequestBody = SettingsUpdateRequest
 
 // SaveSnapshotJSONRequestBody defines body for SaveSnapshot for application/json ContentType.
 type SaveSnapshotJSONRequestBody = SaveSnapshotRequest
+
+// AddTicketDependencyJSONRequestBody defines body for AddTicketDependency for application/json ContentType.
+type AddTicketDependencyJSONRequestBody = TicketDependencyRequest
 
 // SetTicketSandboxJSONRequestBody defines body for SetTicketSandbox for application/json ContentType.
 type SetTicketSandboxJSONRequestBody = TicketSandboxRequest

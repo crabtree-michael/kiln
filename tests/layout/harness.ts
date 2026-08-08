@@ -108,6 +108,14 @@ function ticket(
     priority: 1,
     approval_requested: false,
     keep_sandbox: false,
+    // Required by the wire contract (0013). Present even though no layout spec
+    // exercises dependencies: this fixture stands in for a real server response,
+    // and a missing required field is a shape the client never has to handle —
+    // leaving it out made every ticket-sheet spec fail at the sheet's first
+    // read of it, which reads as a layout regression rather than a stale double.
+    depends_on: [],
+    unmet_dependencies: 0,
+    waiting_on_dependencies: false,
     created_at: '2026-08-04T09:00:00Z',
     updated_at: '2026-08-04T11:00:00Z',
     state_changed_at: '2026-08-04T11:00:00Z',

@@ -188,13 +188,29 @@ backend/internal/board/
 - **`state_changed_at` vs `updated_at`.** A Working→Working nudge (`SendToAgent`) bumps
   `updated_at` but must **not** advance `state_changed_at` — that column is the "time in
   status" clock (0007), so only a real state change touches it.
-- **A new board migration does NOT reach an existing `kiln_test`.** The integration suite's
-  `ensureMigrationsApplied` bootstraps the schema only when the `tickets` table is *missing*
-  — it keeps no ledger (unlike `cmd/kiln`'s `schema_migrations`) — so on a box that has run
-  the suite before, a freshly added migration is silently skipped and every board integration
-  test fails with `column "…" does not exist`. Drop and recreate the scratch DB
-  (`DROP DATABASE kiln_test; CREATE DATABASE kiln_test OWNER kiln;`) — every module's helper
-  bootstraps its own tables, so the next run rebuilds all of them from the migration files.
+- **A new board migration reaches an existing `kiln_test` on its own now — it did not used to.**
+  The suite applies migrations through the same per-file `schema_migrations` ledger the app uses
+  (`testutil.ApplyMigrations`, keyed by `postgres.MigrationsKey`), so adding a `.sql` file is
+  enough. Before that it bootstrapped only when the `tickets` table was *missing*, which froze a
+  long-lived scratch DB at its creation-day schema and failed every board integration test with
+  `column "…" does not exist`. If you meet a database older than the ledger itself, the helper
+  says so and names the fix: `make test-db-reset`.
+- **A dependency edge is not a state.** `ticket_dependencies` (0013) says a ticket waits for
+  others, and its ONLY mechanical effect is that `NextReadyTicket` skips a Ready ticket with an
+  unmet dependency — it keeps its place in the pull order and holds no worker. There are still
+  exactly five states (D1): "waiting" is derived on read
+  (`Ticket.WaitingOnDependencies` = ready + unmet > 0), never stored.
+- **An ARCHIVED dependency stops counting, deliberately.** Every dependency query carries
+  `archived_at IS NULL`. An archived ticket can never reach done, so honouring an edge to one
+  would strand its dependents forever — deleting a ticket therefore silently releases whatever
+  waited on it. `ArchiveTicket` asks `Dependents` first and emits `pull.evaluate` when the answer
+  is yes: the pullable set changed without any ticket changing state, and nothing else would
+  notice. The same rule makes the cycle walk skip archived tickets — a ring that only closes
+  through one is not a real cycle.
+- **The cycle check runs under both tickets' row locks.** `AddDependency` locks the ticket AND the
+  dependency, then walks `DependencyPathTo`. Drop either lock and two concurrent adds can each
+  see an acyclic graph and commit edges that close a ring — which nothing downstream would detect,
+  because the pull just skips every ticket in it forever.
 - **`done_commit` uniqueness is lock-then-check.** `recordDoneCommit` runs under the target
   ticket's row lock with the partial unique index as the backstop; skip the lock and two
   concurrent accepts can race the same commit onto two tickets.

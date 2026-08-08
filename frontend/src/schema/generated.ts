@@ -281,6 +281,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tickets/{id}/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make this ticket wait for another one.
+         * @description Records that this ticket cannot start until `depends_on` is done (0013). A queued ticket with an unmet dependency is skipped by the pull — it keeps its place in the backlog and consumes no worker slot — and shows as waiting on the board.
+         *     Like the sandbox option this does not route through the brain: it is a per-ticket setting rather than a board transition, so it writes the edge directly and the resulting `board.updated` carries the new dependency list back over the stream. Idempotent — adding an edge that already exists succeeds and changes nothing.
+         */
+        post: operations["addTicketDependency"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/dependencies/{dependsOn}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop this ticket waiting for another one.
+         * @description Drops the dependency edge (0013), freeing the ticket to be pulled once nothing else holds it. Removing an edge that is not there succeeds — the caller asked for it to be gone and it is — so this is safe to call without reading the list first.
+         */
+        delete: operations["removeTicketDependency"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/text": {
         parameters: {
             query?: never;
@@ -642,6 +683,12 @@ export interface components {
             approval_requested: boolean;
             /** @description Save this ticket's sandbox instead of recycling it. Normally a ticket that leaves Developing (accepted to done, or a blocked ticket deleted) releases its worker, which tears the sandbox down and recreates it — the workspace is gone. With this set the release is skipped, so the sandbox and everything in it survive and the next turn on that slot continues in the same workspace. Set per ticket from the ticket detail sheet (POST /api/tickets/{id}/sandbox); false by default. */
             keep_sandbox: boolean;
+            /** @description Ids of the tickets this one waits for: it is not pulled until every one of them is done (0013). In the order they were added. Lists only LIVE dependencies — a dependency that has been deleted can never reach done, so it stops counting and drops out of this list rather than stranding the ticket behind it. */
+            depends_on: string[];
+            /** @description How many entries in `depends_on` are not yet done — what the client renders as "waiting on N". */
+            unmet_dependencies: number;
+            /** @description True when this ticket is queued but held back by work that has not landed (state is `ready` and `unmet_dependencies` > 0). Derived server-side rather than left to the client: there are still exactly five states (03 D1) and a waiting ticket is a Ready one, so this is a render hint, not a sixth state. A shaping ticket is not queued for anything yet, and one already working is past the point its dependencies could hold it, so neither is ever waiting. */
+            waiting_on_dependencies: boolean;
             /** @description Set iff state is blocked (03 I4); full text, shown on the card (07 §7). */
             blocked_reason?: string | null;
             /**
@@ -816,6 +863,11 @@ export interface components {
         TicketSandboxRequest: {
             /** @description True saves the ticket's sandbox (its release is suppressed, so the workspace survives); false returns it to the default recycle. */
             keep: boolean;
+        };
+        /** @description POST /api/tickets/{id}/dependencies body — the ticket to wait for. */
+        TicketDependencyRequest: {
+            /** @description Id of the ticket that must be done before this one can start. Must be a live ticket in the same project, and must not already wait on this one (that would close an unsatisfiable ring — 409). */
+            depends_on: string;
         };
         /** @description POST /api/tickets/{id}/text body — a direct edit of the ticket's own text. Both fields are optional so the sheet can send only what changed, but at least one must be present (neither ⇒ 400). An omitted field is left untouched; a present one replaces the stored value verbatim, including an empty `body` — clearing the description is a legal edit, clearing the title is not. */
         TicketTextRequest: {
@@ -1408,6 +1460,82 @@ export interface operations {
             };
             /** @description Either the ticket has no sandbox to move (not `working`/`blocked`), or every worker slot is busy so there is none free to move to. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    addTicketDependency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The ticket that will wait. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketDependencyRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted — the dependency was recorded. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such ticket, or no such dependency, in the caller's project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The edge would let the ticket wait on itself, directly or through a chain. Such a cycle can never be satisfied — every ticket in the ring would be skipped by the pull forever — so it is refused at the point it would be created. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    removeTicketDependency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The waiting ticket. */
+                id: string;
+                /** @description The dependency to drop. */
+                dependsOn: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted — the ticket no longer waits for that dependency. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such ticket in the caller's project. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

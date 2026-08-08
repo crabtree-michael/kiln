@@ -23,6 +23,7 @@ import type { Board } from '@/transport/transport';
 import type { Ticket } from '@/components/TicketCard';
 import { findTicket } from '@/components/feed-model';
 import { useDeepLinkTicket } from '@/components/use-deep-link-ticket';
+import { ticketDependencies, type TicketDependency } from '@/components/ticket-dependencies';
 
 export interface TicketOverlay {
   /** The id the shell is trying to show, whether or not it resolves. */
@@ -37,6 +38,11 @@ export interface TicketOverlay {
    * snapshot's `worker_free` — so the user is never walked into the server's
    * 409. */
   canReassign: boolean;
+  /** The tickets the open one waits for (0013), resolved to titles against the
+   * same snapshot. Derived here for the same reason as `openAgentStatus`: it is
+   * a fact about the open ticket that only the board can answer, and deriving it
+   * once means all three shells render the sheet from one wiring. */
+  openDependencies: TicketDependency[];
   /** Open a ticket by id. Handed straight to every affordance that opens one: a
    * feed card, the header dropdown, a board card, an activity pill. */
   setOpenTicketId: (ticketId: string) => void;
@@ -73,6 +79,7 @@ export function useTicketOverlay(board: Board | null): TicketOverlay {
     openTicket,
     openAgentStatus,
     canReassign: (board?.worker_free ?? 0) > 0,
+    openDependencies: openTicket === null ? [] : ticketDependencies(board, openTicket),
     setOpenTicketId,
     closeTicket,
     voiceActive,

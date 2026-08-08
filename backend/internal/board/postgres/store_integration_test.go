@@ -859,3 +859,251 @@ func TestProjectIsolation_OutboxRowsCarryProjectID(t *testing.T) {
 		t.Errorf("outbox rows with project_id=projA: %d of %d — every append must set the tenant column", scoped, total)
 	}
 }
+
+// ---- Ticket dependencies (0013) --------------------------------------------
+//
+// The pull's skip test and the cycle walk are both SQL, so the fake cannot
+// stand in for them: these run the real predicates against real rows.
+
+// readyTicket creates a ticket and queues it, returning its id — the shape the
+// pull orders over.
+func readyTicket(ctx context.Context, t *testing.T, svc *board.Service, projectID, title string) board.TicketID {
+	t.Helper()
+	tk, err := svc.CreateTicket(ctx, projectID, title, "")
+	if err != nil {
+		t.Fatalf("CreateTicket(%s): %v", title, err)
+	}
+	if _, err := svc.MarkReady(ctx, projectID, tk.ID); err != nil {
+		t.Fatalf("MarkReady(%s): %v", title, err)
+	}
+	return tk.ID
+}
+
+// The headline against real SQL: the NOT EXISTS in NextReadyTicket holds back a
+// ticket whose dependency has not landed, and the pull moves on to the next one
+// instead of stalling.
+func TestDependencies_PullSkipsUnmetAndTakesTheNextTicket(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+	mustInsertWorker(ctx, t, db, projA)
+
+	// waiter is queued first, so it is what the single worker would claim if the
+	// dependency predicate did nothing.
+	waiter := readyTicket(ctx, t, svc, projA, "Use the new column")
+	blocker := readyTicket(ctx, t, svc, projA, "Land the migration")
+	if _, err := svc.AddDependency(ctx, projA, waiter, blocker); err != nil {
+		t.Fatalf("AddDependency: %v", err)
+	}
+
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+	got, err := svc.GetTicket(ctx, projA, waiter)
+	if err != nil {
+		t.Fatalf("GetTicket(waiter): %v", err)
+	}
+	if got.State != board.StateReady {
+		t.Errorf("waiter state = %q, want ready — its dependency has not landed", got.State)
+	}
+	other, err := svc.GetTicket(ctx, projA, blocker)
+	if err != nil {
+		t.Fatalf("GetTicket(blocker): %v", err)
+	}
+	if other.State != board.StateWorking {
+		t.Errorf("blocker state = %q, want working — the pull must move past the waiting ticket", other.State)
+	}
+}
+
+// Completing the dependency releases the waiter on the next pull.
+func TestDependencies_PullProceedsOnceTheDependencyIsDone(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+	mustInsertWorker(ctx, t, db, projA)
+	mustInsertWorker(ctx, t, db, projA)
+
+	waiter := readyTicket(ctx, t, svc, projA, "Waiter")
+	blocker := readyTicket(ctx, t, svc, projA, "Blocker")
+	if _, err := svc.AddDependency(ctx, projA, waiter, blocker); err != nil {
+		t.Fatalf("AddDependency: %v", err)
+	}
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull: %v", err)
+	}
+	if _, err := svc.AcceptToDone(ctx, projA, blocker, board.CompletionLink{}, ""); err != nil {
+		t.Fatalf("AcceptToDone: %v", err)
+	}
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull after completion: %v", err)
+	}
+
+	got, err := svc.GetTicket(ctx, projA, waiter)
+	if err != nil {
+		t.Fatalf("GetTicket(waiter): %v", err)
+	}
+	if got.State != board.StateWorking {
+		t.Errorf("waiter state = %q, want working once its dependency was accepted", got.State)
+	}
+}
+
+// Deleting the dependency must not strand its dependents: the archived_at
+// predicate is what stops a dead edge blocking forever.
+func TestDependencies_ArchivedDependencyStopsBlocking(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+	mustInsertWorker(ctx, t, db, projA)
+
+	waiter := readyTicket(ctx, t, svc, projA, "Waiter")
+	doomed, err := svc.CreateTicket(ctx, projA, "Abandoned", "")
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if _, err := svc.AddDependency(ctx, projA, waiter, doomed.ID); err != nil {
+		t.Fatalf("AddDependency: %v", err)
+	}
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull while the dependency lived: %v", err)
+	}
+	if got, gerr := svc.GetTicket(ctx, projA, waiter); gerr != nil || got.State != board.StateReady {
+		t.Fatalf("waiter state = %q (err %v), want ready while the dependency existed", got.State, gerr)
+	}
+
+	if _, err := svc.ArchiveTicket(ctx, projA, doomed.ID); err != nil {
+		t.Fatalf("ArchiveTicket: %v", err)
+	}
+	if err := svc.RunPull(ctx, projA); err != nil {
+		t.Fatalf("RunPull after archiving: %v", err)
+	}
+	got, err := svc.GetTicket(ctx, projA, waiter)
+	if err != nil {
+		t.Fatalf("GetTicket(waiter): %v", err)
+	}
+	if got.State != board.StateWorking {
+		t.Errorf("waiter state = %q, want working — an archived dependency can never be met", got.State)
+	}
+	if len(got.DependsOn) != 0 || got.UnmetDependencies != 0 {
+		t.Errorf("DependsOn/Unmet = %v/%d, want empty — an archived dependency is gone from reads",
+			got.DependsOn, got.UnmetDependencies)
+	}
+}
+
+// The recursive CTE refuses a ring three tickets long and names the chain.
+func TestDependencies_RecursiveWalkRejectsTransitiveCycle(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	a := readyTicket(ctx, t, svc, projA, "A")
+	b := readyTicket(ctx, t, svc, projA, "B")
+	c := readyTicket(ctx, t, svc, projA, "C")
+	if _, err := svc.AddDependency(ctx, projA, a, b); err != nil {
+		t.Fatalf("AddDependency(a->b): %v", err)
+	}
+	if _, err := svc.AddDependency(ctx, projA, b, c); err != nil {
+		t.Fatalf("AddDependency(b->c): %v", err)
+	}
+
+	_, err := svc.AddDependency(ctx, projA, c, a)
+	var cyc *board.ErrCircularDependency
+	if !errors.As(err, &cyc) {
+		t.Fatalf("AddDependency(c->a) = %v, want *board.ErrCircularDependency", err)
+	}
+	want := []board.TicketID{a, b, c}
+	if len(cyc.Path) != len(want) {
+		t.Fatalf("Path = %v, want %v", cyc.Path, want)
+	}
+	for i := range want {
+		if cyc.Path[i] != want[i] {
+			t.Fatalf("Path = %v, want %v", cyc.Path, want)
+		}
+	}
+}
+
+// A self-edge is refused by the service, and the CHECK constraint is the
+// backstop if it ever were not (03 §8's "database constraints back up every
+// invariant even if service code is wrong").
+func TestDependencies_SelfEdgeRefusedAndConstrained(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	a := readyTicket(ctx, t, svc, projA, "A")
+	var cyc *board.ErrCircularDependency
+	if _, err := svc.AddDependency(ctx, projA, a, a); !errors.As(err, &cyc) {
+		t.Errorf("AddDependency(a->a) = %v, want *board.ErrCircularDependency", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO ticket_dependencies (project_id, ticket_id, depends_on_id) VALUES ($1, $2, $2)`,
+		projA, string(a)); err == nil {
+		t.Error("a self-dependency must violate ticket_dependency_not_self")
+	}
+}
+
+// Re-adding an edge is a no-op, not a duplicate-key error: at-least-once callers
+// must be safe.
+func TestDependencies_AddIsIdempotent(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	a := readyTicket(ctx, t, svc, projA, "A")
+	b := readyTicket(ctx, t, svc, projA, "B")
+	if _, err := svc.AddDependency(ctx, projA, a, b); err != nil {
+		t.Fatalf("first AddDependency: %v", err)
+	}
+	got, err := svc.AddDependency(ctx, projA, a, b)
+	if err != nil {
+		t.Fatalf("second AddDependency: %v", err)
+	}
+	if len(got.DependsOn) != 1 {
+		t.Errorf("DependsOn = %v, want exactly one edge", got.DependsOn)
+	}
+}
+
+// Tenancy (11 §3): an edge may not reach across projects.
+func TestDependencies_CannotCrossProjects(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	mine := readyTicket(ctx, t, svc, projA, "Mine")
+	theirs := readyTicket(ctx, t, svc, projB, "Theirs")
+	if _, err := svc.AddDependency(ctx, projA, mine, theirs); !errors.Is(err, board.ErrNotFound) {
+		t.Errorf("AddDependency across projects = %v, want ErrNotFound", err)
+	}
+}
+
+// The FK cleans up if a ticket row is ever hard-deleted (the board soft-deletes,
+// but nothing should be left pointing at a row that is gone).
+func TestDependencies_HardDeleteCascades(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := postgres.New(db)
+	svc := board.NewService(store)
+
+	a := readyTicket(ctx, t, svc, projA, "A")
+	b := readyTicket(ctx, t, svc, projA, "B")
+	if _, err := svc.AddDependency(ctx, projA, a, b); err != nil {
+		t.Fatalf("AddDependency: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM tickets WHERE id = $1`, string(b)); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	var edges int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM ticket_dependencies WHERE ticket_id = $1`, string(a)).Scan(&edges); err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if edges != 0 {
+		t.Errorf("edges = %d, want 0 — ON DELETE CASCADE should have removed them", edges)
+	}
+}

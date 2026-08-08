@@ -76,12 +76,48 @@ type Tx interface {
 	// NextReadyTicket locks the project's next pullable ticket in pull order
 	// — priority DESC, ready_at ASC, id ASC — using FOR UPDATE SKIP LOCKED
 	// (03 §5). ok is false when no ready ticket is available in the project.
+	//
+	// A ready ticket with an unmet dependency is not pullable and is skipped
+	// (0013): it keeps its place in the queue and consumes no worker slot, and
+	// the ticket behind it is pulled instead. "Unmet" counts only LIVE
+	// dependencies that are not done — an archived dependency can never reach
+	// done, so it stops holding anything back.
 	NextReadyTicket(ctx context.Context, projectID string) (t Ticket, ok bool, err error)
 
 	// FreeWorker locks one of the project's workers that no active ticket
 	// references, using FOR UPDATE SKIP LOCKED (03 §5). ok is false when none
 	// is free.
 	FreeWorker(ctx context.Context, projectID string) (w Worker, ok bool, err error)
+
+	// SetDependency records or drops the id → dependsOn edge (0013): present
+	// means id waits for dependsOn, absent means it no longer does. One setter
+	// rather than an add/remove pair because the two are exact inverses over the
+	// same row — the same shape as SetKeepSandbox, and it keeps this port from
+	// growing a method per direction.
+	//
+	// Idempotent both ways: an edge that already exists is left as it is, and
+	// removing one that is not there is a no-op. A repeated call from an
+	// at-least-once caller is therefore safe. The caller owns the liveness and
+	// cycle checks (LockTicket, DependencyPathTo) — the store records what it is
+	// given.
+	SetDependency(ctx context.Context, projectID string, id, dependsOn TicketID, present bool) error
+
+	// DependencyPathTo walks the dependency edges forward from `from` looking for
+	// `target`, returning the route when one exists — "does `from` already wait,
+	// directly or transitively, on `target`?". AddDependency asks it before
+	// recording id → dependsOn: a path from dependsOn back to id means the new
+	// edge would close a ring (ErrCircularDependency), and the returned path
+	// names the tickets in it.
+	//
+	// Archived tickets are not traversed. An edge through one is already dead
+	// (it can never be met), so a "cycle" that only closes through an archived
+	// ticket is not one, and refusing it would block a legitimate edge.
+	DependencyPathTo(ctx context.Context, projectID string, from, target TicketID) (path []TicketID, found bool, err error)
+
+	// Dependents reports whether any live ticket in the project waits on id
+	// (0013). ArchiveTicket asks so it can nudge the pull when the ticket it is
+	// removing was holding others back.
+	Dependents(ctx context.Context, projectID string, id TicketID) (bool, error)
 
 	// AppendOutbox records one emission for the project in this transaction
 	// (03 §7, I7).

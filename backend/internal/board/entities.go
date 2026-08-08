@@ -56,13 +56,35 @@ type Ticket struct {
 	// — so a SHA already spent on another ticket cannot mark a second one done
 	// (ErrCommitAlreadyUsed).
 	DoneCommit *string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// DependsOn is the tickets this one waits for: it is not pulled until every
+	// one of them is done (0013). Read-time projection of the ticket_dependencies
+	// edges, in the order they were added, and it lists only LIVE dependencies —
+	// an archived ticket is gone from every read path, and an edge to one no
+	// longer holds anything back (see UnmetDependencies).
+	DependsOn []TicketID
+	// UnmetDependencies counts the entries in DependsOn that are not yet done.
+	// Derived on read, never stored: it is the number the pull's skip test asks
+	// about, and what the client renders as "waiting on N".
+	UnmetDependencies int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 	// StateChangedAt is when the ticket last entered its current State (03
 	// §2.2). Unlike UpdatedAt it advances only on a real state transition, never
 	// on a same-state mutation such as a Working→Working nudge (SendToAgent), so
 	// it is the true "time in status" clock the client renders.
 	StateChangedAt time.Time
+}
+
+// WaitingOnDependencies reports whether this ticket is queued but held back by
+// work that has not landed yet — the board-visible "waiting" state (0013).
+//
+// It is deliberately derived rather than stored, like column and zone (03 D1):
+// there are still exactly five states, and a waiting ticket is a Ready ticket.
+// Only Ready is asked about because the pull is the only mechanism dependencies
+// touch — a shaping ticket is not queued for anything yet, and one already
+// working or done is past the point where its dependencies could hold it.
+func (t Ticket) WaitingOnDependencies() bool {
+	return t.State == StateReady && t.UnmetDependencies > 0
 }
 
 // Worker is a capacity slot, not a live resource handle (03 §2.3): the WIP

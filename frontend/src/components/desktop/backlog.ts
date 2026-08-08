@@ -34,6 +34,14 @@ export interface BacklogTicket {
    * time-in-status clock, so a row can say how long it has been waiting.
    * Deliberately not `updated_at`, which a same-state nudge bumps. */
   since: string;
+  /** How many of the ticket's dependencies have not landed yet (0013), or 0.
+   * A queued ticket waiting on other work is the one case where "ready" is
+   * actively misleading: the row sits at the top of the pull order and never
+   * starts, which reads as a stuck queue rather than a deliberate ordering. */
+  unmetDependencies: number;
+  /** Whether those dependencies are what is holding the ticket back — the
+   * server's own `waiting_on_dependencies`, not re-derived here. */
+  waitingOnDependencies: boolean;
 }
 
 /** The word shown beside a title when the ticket is NOT simply queued. `ready`
@@ -47,8 +55,26 @@ const STATE_NOTE: Record<BacklogState, string> = {
   shaping: 'proposal',
 };
 
-export function backlogStateNote(state: BacklogState): string {
-  return STATE_NOTE[state];
+/**
+ * The note for one backlog row.
+ *
+ * A ticket held by unlanded dependencies outranks its state word, and it is the
+ * one case where a `ready` row earns a note at all: it is top of the pull order
+ * and still not starting, which without a word reads as a stuck queue. Naming it
+ * spends a word from the quiet budget to remove a wrong conclusion, which is
+ * what that budget is for.
+ *
+ * The count, not just "waiting", because the number is the part that changes as
+ * the blocking work lands — a row going "waiting on 3" → "waiting on 1" is
+ * visible progress on a ticket where nothing else moves.
+ */
+export function backlogStateNote(
+  ticket: Pick<BacklogTicket, 'state' | 'waitingOnDependencies' | 'unmetDependencies'>,
+): string {
+  if (ticket.waitingOnDependencies) {
+    return `waiting on ${ticket.unmetDependencies.toString()}`;
+  }
+  return STATE_NOTE[ticket.state];
 }
 
 function toBacklogTicket(state: BacklogState) {
@@ -57,6 +83,8 @@ function toBacklogTicket(state: BacklogState) {
     title: ticket.title,
     state,
     since: ticket.state_changed_at,
+    unmetDependencies: ticket.unmet_dependencies,
+    waitingOnDependencies: ticket.waiting_on_dependencies,
   });
 }
 

@@ -125,6 +125,14 @@ type UpdateTicketInput struct {
 	// Required when State="done": the done path verifies it is on origin/main
 	// before accepting the ticket (06 §7 amended, prompt.go). Ignored otherwise.
 	DoneCommit *string `json:"done_commit,omitempty"`
+	// DependsOn is the complete set of tickets this one must wait for (0013).
+	// A nil pointer leaves the list untouched; a present list — including an
+	// empty one, which clears it — is the desired end state, so the facade adds
+	// what is missing and removes what is no longer named. Whole-list rather
+	// than add/remove verbs because that is how a model states it ("this waits
+	// for A and B"); a delta API would make it read the current list first just
+	// to compute one.
+	DependsOn *[]string `json:"depends_on,omitempty"`
 }
 
 // DeleteTicketInput — delete_ticket → BoardAPI.ArchiveTicket(id) (06 §4
@@ -223,6 +231,7 @@ const (
 	schemaTypeInteger = "integer"
 	schemaTypeBoolean = "boolean"
 	schemaTypeObject  = "object"
+	schemaTypeArray   = "array"
 
 	fieldTicketID       = "id"
 	fieldTitle          = "title"
@@ -233,6 +242,7 @@ const (
 	fieldBlockedReason  = "blocked_reason"
 	fieldDoneCommit     = "done_commit"
 	fieldApproval       = "approval_requested"
+	fieldDependsOn      = "depends_on"
 	fieldImageURL       = "image_url"
 	fieldNotificationID = "notification_id"
 	fieldWorkerID       = "worker_id"
@@ -262,6 +272,16 @@ func intSchema(description string) map[string]any {
 
 func boolSchema(description string) map[string]any {
 	return map[string]any{schemaKeyType: schemaTypeBoolean, schemaKeyDescription: description}
+}
+
+// stringArraySchema is a JSON-Schema array of strings — used for the whole-list
+// fields, where the model sends the complete desired set rather than a delta.
+func stringArraySchema(description string) map[string]any {
+	return map[string]any{
+		schemaKeyType:        schemaTypeArray,
+		schemaKeyDescription: description,
+		"items":              map[string]any{schemaKeyType: schemaTypeString},
+	}
 }
 
 func objectSchema(required []string, properties map[string]any) map[string]any {
@@ -327,7 +347,8 @@ var Tools = []ToolDef{
 			"to one (mutually exclusive with state). Fields apply before the state change, so " +
 			"one call can revise and queue a ticket. A ticket's state limits which of these it " +
 			"takes — a working or blocked ticket's fields cannot be edited and it cannot be " +
-			"queued — so read its \"allowed now\" line from get_ticket or list_tickets first.",
+			"queued — so read its \"allowed now\" line from get_ticket or list_tickets first. " +
+			"Use depends_on to make a ticket wait for other tickets to finish first.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID:      stringSchema("Ticket id."),
 			fieldTitle:         stringSchema("New title, if changing."),
@@ -340,6 +361,12 @@ var Tools = []ToolDef{
 				"Each commit maps to one ticket — a SHA already used to accept another ticket is rejected, " +
 				"so use the commit that carries this ticket's own work."),
 			fieldApproval: boolSchema("Optional emphasis; every shaping ticket already shows as a proposal card."),
+			fieldDependsOn: stringArraySchema("The tickets this one must wait for, as a complete " +
+				"list — whatever you pass replaces the current one, and [] clears it. A queued " +
+				"ticket whose dependencies are not all done is skipped by the pull: it keeps its " +
+				"place in the backlog and takes up no worker. Use this to order work that must " +
+				"happen in sequence instead of holding a ticket back by leaving it unqueued. A " +
+				"ticket cannot wait on itself, directly or through a chain."),
 		}),
 	},
 	{
@@ -703,7 +730,8 @@ func isHexSHA(s string) bool {
 // is not work).
 func updateHasWork(in UpdateTicketInput) bool {
 	edits := in.Title != nil || in.Body != nil || in.Priority != nil
-	return edits || (in.ApprovalRequested != nil && *in.ApprovalRequested) || in.State != nil
+	return edits || (in.ApprovalRequested != nil && *in.ApprovalRequested) ||
+		in.State != nil || in.DependsOn != nil
 }
 
 // applyUpdate routes a validated patch to the board's typed operations in order
@@ -723,6 +751,9 @@ func (s *Service) applyUpdate(ctx context.Context, id string, in UpdateTicketInp
 		}
 		applied = append(applied, "fields")
 	}
+	if step, ok := s.dependencyStep(ctx, id, tid, in, &applied, &t); !ok {
+		return step
+	}
 	if in.ApprovalRequested != nil && *in.ApprovalRequested {
 		t, err = s.board.RequestApproval(ctx, tid)
 		if err != nil {
@@ -736,6 +767,112 @@ func (s *Service) applyUpdate(ctx context.Context, id string, in UpdateTicketInp
 		return s.applyStateStep(ctx, id, in, applied)
 	}
 	return ticketResult(id, t, nil)
+}
+
+// dependencyStep runs update_ticket's depends_on step, if the patch carries one.
+// It sits before approval and state so a single call can say what a ticket waits
+// for and queue it: the edges must exist by the time it is markable ready, or
+// the pull could take it in the window between the two.
+//
+// ok=false means the returned ToolResult is the failure to send back; `applied`
+// and `t` are updated in place so the caller's sequence carries on unchanged.
+func (s *Service) dependencyStep(
+	ctx context.Context, id string, tid board.TicketID,
+	in UpdateTicketInput, applied *[]string, t *board.Ticket,
+) (ToolResult, bool) {
+	if in.DependsOn == nil {
+		return ToolResult{}, true
+	}
+	updated, err := s.reconcileDependencies(ctx, tid, *in.DependsOn)
+	if err != nil {
+		return updateStepError(id, "set depends_on", *applied, err), false
+	}
+	*t = updated
+	*applied = append(*applied, fieldDependsOn)
+	return ToolResult{}, true
+}
+
+// reconcileDependencies drives the ticket's dependency list to exactly `want`
+// (0013): it reads what the ticket has now, adds what is missing, and removes
+// what is no longer named. Whole-list rather than add/remove verbs, because that
+// is how the model states it — "this waits for A and B" — and a delta API would
+// force it to read the list first just to compute one.
+//
+// Adds run before removes so a rejected edge (a cycle, a missing ticket) leaves
+// the existing list intact rather than half-dismantled: the model's next attempt
+// then starts from the state it last saw. Duplicates in `want` are harmless —
+// AddDependency is idempotent — and a self-edge is refused by the board, so
+// nothing needs filtering here.
+func (s *Service) reconcileDependencies(
+	ctx context.Context, id board.TicketID, want []string,
+) (board.Ticket, error) {
+	current, err := s.reader.GetTicket(ctx, id)
+	if err != nil {
+		//nolint:wrapcheck // board errors reach the model verbatim (06 §6).
+		return board.Ticket{}, err
+	}
+	wanted := dependencySet(want)
+	have := dependencySet(ticketDependencyIDs(current))
+
+	// Walk `want` in the order given, not the set: which edge is attempted first
+	// decides which refusal the model sees, so it must not depend on map order.
+	t := current
+	for _, dep := range dedupeDependencies(want) {
+		if have[dep] {
+			continue
+		}
+		//nolint:wrapcheck // board errors reach the model verbatim (06 §6).
+		if t, err = s.board.AddDependency(ctx, id, dep); err != nil {
+			return board.Ticket{}, err
+		}
+	}
+	for _, dep := range current.DependsOn {
+		if wanted[dep] {
+			continue
+		}
+		//nolint:wrapcheck // board errors reach the model verbatim (06 §6).
+		if t, err = s.board.RemoveDependency(ctx, id, dep); err != nil {
+			return board.Ticket{}, err
+		}
+	}
+	return t, nil
+}
+
+// dependencySet indexes ticket ids for membership tests, ignoring blanks.
+func dependencySet(ids []string) map[board.TicketID]bool {
+	set := make(map[board.TicketID]bool, len(ids))
+	for _, raw := range ids {
+		if id := strings.TrimSpace(raw); id != "" {
+			set[board.TicketID(id)] = true
+		}
+	}
+	return set
+}
+
+// dedupeDependencies is `ids` in the order given, blanks dropped and repeats
+// collapsed — so a model naming the same dependency twice writes one edge.
+func dedupeDependencies(ids []string) []board.TicketID {
+	seen := make(map[board.TicketID]bool, len(ids))
+	out := make([]board.TicketID, 0, len(ids))
+	for _, raw := range ids {
+		id := board.TicketID(strings.TrimSpace(raw))
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// ticketDependencyIDs is a ticket's current dependency list as plain strings,
+// so it can share dependencySet with the requested list.
+func ticketDependencyIDs(t board.Ticket) []string {
+	out := make([]string, 0, len(t.DependsOn))
+	for _, d := range t.DependsOn {
+		out = append(out, string(d))
+	}
+	return out
 }
 
 // applyStateStep runs update_ticket's final step, the state transition. A done
@@ -995,6 +1132,15 @@ func allowedActions(state board.State) string {
 	return strings.Join(phrasings, ", ")
 }
 
+// joinTicketIDs renders a dependency list for the model, comma-separated.
+func joinTicketIDs(ids []board.TicketID) string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, string(id))
+	}
+	return strings.Join(out, ", ")
+}
+
 // formatRoster renders list_tickets' result — the compact board roster, no
 // bodies (06 §4 amended). Reuses renderBoard (service.go), the same compact
 // per-column layout that was injected before board reads became a tool.
@@ -1020,7 +1166,19 @@ func formatTicketDetail(t board.Ticket) string {
 	if t.KeepSandbox {
 		b.WriteString(" keep_sandbox=true")
 	}
+	// Dependencies, and — for a queued ticket — whether they are why it has not
+	// started. Without this line the model reads a Ready ticket sitting still and
+	// concludes the pull is stuck (or re-queues it, which changes nothing).
+	if len(t.DependsOn) > 0 {
+		fmt.Fprintf(&b, "\ndepends_on: %s (%d not done)", joinTicketIDs(t.DependsOn), t.UnmetDependencies)
+		if t.WaitingOnDependencies() {
+			b.WriteString("\nwaiting: queued, but held until those are done — this is expected, not a stall")
+		}
+	}
 	fmt.Fprintf(&b, "\n%s: %s", allowedPrefix, allowedActions(t.State))
+	if len(t.DependsOn) > 0 {
+		fmt.Fprintf(&b, "\n%s: %s", fieldDependsOn, formatDependsOn(t))
+	}
 	if t.BlockedReason != nil {
 		fmt.Fprintf(&b, "\nblocked_reason: %s", *t.BlockedReason)
 	}
@@ -1031,6 +1189,26 @@ func formatTicketDetail(t board.Ticket) string {
 		b.WriteString(t.Body)
 	}
 	return b.String()
+}
+
+// formatDependsOn renders a ticket's dependencies for the model, naming how many
+// are still outstanding when any are. Spelling out "waiting" matters: the model's
+// job is to explain why a queued ticket is not moving, and a bare id list reads
+// like metadata rather than a reason the pull is passing it over.
+func formatDependsOn(t board.Ticket) string {
+	ids := make([]string, 0, len(t.DependsOn))
+	for _, d := range t.DependsOn {
+		ids = append(ids, string(d))
+	}
+	list := strings.Join(ids, ", ")
+	if t.UnmetDependencies == 0 {
+		return list + " (all done)"
+	}
+	if t.WaitingOnDependencies() {
+		return fmt.Sprintf("%s — waiting on %d, so the pull skips this ticket until they are done",
+			list, t.UnmetDependencies)
+	}
+	return fmt.Sprintf("%s (%d not done)", list, t.UnmetDependencies)
 }
 
 // formatUpdates renders list_updates' result — one line per active feed card

@@ -149,6 +149,8 @@ type fakeBoard struct {
 	archiveTicketFn   func(ctx context.Context, id board.TicketID) (board.Ticket, error)
 	getBoardFn        func(ctx context.Context) (board.Snapshot, error)
 	getTicketFn       func(ctx context.Context, id board.TicketID) (board.Ticket, error)
+	addDependencyFn   func(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error)
+	removeDepFn       func(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error)
 
 	// lastCompletionLink captures the GitHub link AcceptToDone was called with, so
 	// a done-path test can assert the merge-gate verify's URL/ref threaded through.
@@ -243,6 +245,22 @@ func (f *fakeBoard) GetTicket(ctx context.Context, id board.TicketID) (board.Tic
 	f.record("GetTicket", id)
 	if f.getTicketFn != nil {
 		return f.getTicketFn(ctx, id)
+	}
+	return board.Ticket{ID: id, State: board.StateShaping}, nil
+}
+
+func (f *fakeBoard) AddDependency(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error) {
+	f.record("AddDependency", id, dependsOn)
+	if f.addDependencyFn != nil {
+		return f.addDependencyFn(ctx, id, dependsOn)
+	}
+	return board.Ticket{ID: id, State: board.StateShaping, DependsOn: []board.TicketID{dependsOn}}, nil
+}
+
+func (f *fakeBoard) RemoveDependency(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error) {
+	f.record("RemoveDependency", id, dependsOn)
+	if f.removeDepFn != nil {
+		return f.removeDepFn(ctx, id, dependsOn)
 	}
 	return board.Ticket{ID: id, State: board.StateShaping}, nil
 }

@@ -70,6 +70,7 @@ import { Drawer } from 'vaul';
 import type { Ticket } from '@/components/TicketCard';
 import { TicketDetailSandboxMenu } from '@/components/TicketDetailSandboxMenu';
 import type { components } from '@/schema/generated';
+import type { TicketDependency } from '@/components/ticket-dependencies';
 import '@/components/TicketDetail.css';
 
 /** One direct text edit: the fields the user actually changed. Both are
@@ -82,6 +83,12 @@ export type TicketTextEdit = components['schemas']['TicketTextRequest'];
 export interface TicketDetailProps {
   ticket: Ticket;
   onClose: () => void;
+  /** The tickets this one waits for (0013), already resolved to titles by the
+   * screen from its board snapshot (`ticketDependencies`). The sheet is the one
+   * place the whole list belongs: the board rows only have room for the count,
+   * and "waiting on 2" is exactly the answer that provokes "on what?". Omitted
+   * or empty → no section, so a ticket with no dependencies is unchanged. */
+  dependencies?: TicketDependency[];
   /** When provided, the detail is a proposal reached via click-through and shows
    * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
    * the overlay stays strictly read-only (D5).
@@ -351,6 +358,7 @@ const PRESS_FEEDBACK_DELAY_MS = 100;
 export function TicketDetail({
   ticket,
   onClose,
+  dependencies = [],
   onAccept,
   onDelete,
   onPoke,
@@ -828,6 +836,32 @@ export function TicketDetail({
                       sandboxStatusLabel={hasSandbox ? sandboxStatusLabel : undefined}
                     />
                   )}
+                </div>
+              )}
+              {/* What this ticket is waiting for (0013). It sits in the header
+                  rather than the scrolling body because it explains the ticket's
+                  *position* — the same class of fact as the status badge beside
+                  it — and because on a held ticket it is the reason the sheet was
+                  opened at all. A landed dependency stays listed, struck through:
+                  the list is progress ("2 of 3 done"), and dropping the finished
+                  ones would make a nearly-unblocked ticket look identical to one
+                  that has not started. */}
+              {dependencies.length > 0 && (
+                <div data-role="ticket-detail-dependencies">
+                  <span data-role="ticket-detail-dependencies-label">
+                    {ticket.waiting_on_dependencies ? 'Waiting on' : 'Depends on'}
+                  </span>
+                  <ul data-role="ticket-detail-dependency-list">
+                    {dependencies.map((dep) => (
+                      <li
+                        key={dep.id}
+                        data-role="ticket-detail-dependency"
+                        data-done={dep.done ? 'true' : undefined}
+                      >
+                        {dep.title}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>

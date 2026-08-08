@@ -214,3 +214,14 @@
 [data-role='kanban-card'][data-state='blocked'] {
   border-left: 2px solid var(--accent);
 }
+
+/* A queued ticket held by unlanded dependencies (0013). Without this the card is
+ * indistinguishable from the one about to start — same column, same flat mark —
+ * while sitting at the top of the pull order going nowhere, so the board cannot
+ * answer "why is nothing happening" without opening a ticket. Reads in the
+ * secondary register, not the blocked one: waiting on ordered work is the system
+ * behaving, not a problem. */
+[data-role='kanban-card-waiting'] {
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}

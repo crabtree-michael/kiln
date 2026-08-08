@@ -120,6 +120,33 @@ type TicketTextEditor interface {
 	ShapeTicket(ctx context.Context, projectID string, id board.TicketID, patch board.ShapePatch) (board.Ticket, error)
 }
 
+// TicketDependencyController is the api's third direct write onto a ticket,
+// behind POST/DELETE /api/tickets/{id}/dependencies: which other tickets this
+// one waits for (0013). It carries its own port for the same reason as the
+// sandbox and text seams — the exception to D5 ("the client never mutates the
+// board directly") stays visible rather than accreting onto BoardReader.
+//
+// It earns the exception on the sandbox toggle's grounds: a dependency is a
+// per-ticket *setting*, not a board transition. It moves no ticket between
+// states — its only effect is that the pull skips a queued ticket whose
+// dependencies have not landed — so there is no decision here for the brain to
+// own, and routing "this waits for that" through an LLM pass would make an
+// ordering statement slow and non-deterministic for no gain. The brain can
+// still set dependencies through its own tools; this is the user doing it
+// directly from the detail sheet.
+//
+// Satisfied directly by *board.Service. Optional: a nil controller leaves both
+// routes unmounted.
+type TicketDependencyController interface {
+	// AddDependency records that id waits for dependsOn. board.ErrNotFound when
+	// either id is not a live ticket in the project;
+	// *board.ErrCircularDependency when the edge would close an unsatisfiable
+	// ring.
+	AddDependency(ctx context.Context, projectID string, id, dependsOn board.TicketID) (board.Ticket, error)
+	// RemoveDependency drops the edge. Removing one that is not there succeeds.
+	RemoveDependency(ctx context.Context, projectID string, id, dependsOn board.TicketID) (board.Ticket, error)
+}
+
 // AgentInspector is the api's read seam onto live worker status, joined into
 // the board snapshot for the Streams view (amended 2026-07-05). Satisfied by a
 // cmd/kiln adapter over *agent.Service — the api never imports internal/agent,
@@ -421,9 +448,13 @@ type DevSessionMinter interface {
 //
 // Push registration arrives with the notification spec (02 §10); voice with 09.
 type Server struct {
-	boards     BoardReader
-	sandboxes  TicketSandboxController // non-nil ⇒ the POST /api/tickets/{id}/sandbox[/kill|/reassign] routes are mounted
-	ticketText TicketTextEditor        // non-nil ⇒ POST /api/tickets/{id}/text is mounted
+	boards BoardReader
+	// Each of the three per-ticket write ports is optional: nil leaves its routes
+	// unmounted. sandboxes → /tickets/{id}/sandbox[/kill|/reassign], ticketText →
+	// /tickets/{id}/text, ticketDeps → /tickets/{id}/dependencies.
+	sandboxes  TicketSandboxController
+	ticketText TicketTextEditor
+	ticketDeps TicketDependencyController
 	poster     MessagePoster
 	messages   MessagesReader
 	feed       FeedReader
@@ -491,6 +522,12 @@ func (s *Server) EnableTicketSandbox(ctrl TicketSandboxController) { s.sandboxes
 // by *board.Service; left unset (presentational/unit wiring) the route simply
 // isn't mounted.
 func (s *Server) EnableTicketText(editor TicketTextEditor) { s.ticketText = editor }
+
+// EnableTicketDependencies turns on POST/DELETE /api/tickets/{id}/dependencies,
+// the detail sheet's direct edit of which tickets this one waits for (call
+// before Handler). Satisfied by *board.Service; left unset the routes simply
+// aren't mounted.
+func (s *Server) EnableTicketDependencies(ctrl TicketDependencyController) { s.ticketDeps = ctrl }
 
 // EnableDevTickets turns on the dev-only POST /api/dev/tickets route (call before
 // Handler). Local/e2e only — gated at the composition root by KILN_DEV_ENDPOINTS.
@@ -597,6 +634,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	s.mountSandboxRoutes(mux)
 	s.mountTicketTextRoute(mux)
+	s.mountTicketDependencyRoutes(mux)
 	// Voice + push are per-user, not per-project: withSession authenticates and
 	// hands the user through; the push ports scope to user.ID.
 	mux.HandleFunc("POST /api/voice/token", s.withSession(s.handleVoiceToken))
@@ -711,6 +749,17 @@ func (s *Server) mountTicketTextRoute(mux *http.ServeMux) {
 		return
 	}
 	s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/text", s.handleTicketText)
+}
+
+// mountTicketDependencyRoutes registers the ticket-dependency pair — the third
+// narrow D5 exception, mounted on the same terms as the other two: project
+// scoped, dual-mounted, and only when its port is wired.
+func (s *Server) mountTicketDependencyRoutes(mux *http.ServeMux) {
+	if s.ticketDeps == nil {
+		return
+	}
+	s.mountProjectScoped(mux, http.MethodPost, "/tickets/{id}/dependencies", s.handleAddDependency)
+	s.mountProjectScoped(mux, http.MethodDelete, "/tickets/{id}/dependencies/{dependsOn}", s.handleRemoveDependency)
 }
 
 // mountIdentityRoutes registers the GitHub OAuth + cookie-session routes and the
@@ -1683,10 +1732,82 @@ func ticketToWire(t board.Ticket) wire.Ticket {
 		ReadyAt:           t.ReadyAt,
 		ApprovalRequested: t.ApprovalRequested,
 		KeepSandbox:       t.KeepSandbox,
-		CreatedAt:         t.CreatedAt,
-		UpdatedAt:         t.UpdatedAt,
-		StateChangedAt:    t.StateChangedAt,
+		// Always a non-nil slice so the JSON is [] rather than null: the client
+		// maps over it unguarded, exactly as it does the ticket groups.
+		DependsOn:             dependencyIDs(t.DependsOn),
+		UnmetDependencies:     t.UnmetDependencies,
+		WaitingOnDependencies: t.WaitingOnDependencies(),
+		CreatedAt:             t.CreatedAt,
+		UpdatedAt:             t.UpdatedAt,
+		StateChangedAt:        t.StateChangedAt,
 	}
+}
+
+// dependencyIDs maps a ticket's dependency list to wire strings, always
+// returning a non-nil slice so the field serializes as [] and never null.
+func dependencyIDs(ids []board.TicketID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, string(id))
+	}
+	return out
+}
+
+// handleAddDependency records that a ticket waits for another (0013) — the
+// detail sheet writing the board directly, on the same narrow terms as the
+// sandbox toggle (see TicketDependencyController). A cycle is 409, not 400: the
+// request is well-formed and the ids are real, it is the resulting graph the
+// board refuses.
+func (s *Server) handleAddDependency(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxTicketTextBody)
+	var req wire.TicketDependencyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.DependsOn) == "" {
+		http.Error(w, "depends_on must not be empty", http.StatusBadRequest)
+		return
+	}
+	id := board.TicketID(r.PathValue("id"))
+	var cyclic *board.ErrCircularDependency
+	switch _, err := s.ticketDeps.AddDependency(r.Context(), project.ID, id, board.TicketID(req.DependsOn)); {
+	case errors.Is(err, board.ErrNotFound):
+		http.Error(w, "no such ticket", http.StatusNotFound)
+		return
+	case errors.As(err, &cyclic):
+		// The message names both ends, so the sheet can say what it collided
+		// with rather than just refusing.
+		http.Error(w, cyclic.Error(), http.StatusConflict)
+		return
+	case err != nil:
+		slog.Error("api: add ticket dependency", "err", err)
+		http.Error(w, "add dependency", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleRemoveDependency drops a ticket's dependency edge (0013). Removing one
+// that is not there succeeds — the caller asked for it to be gone and it is —
+// so only a missing *ticket* is a 404.
+func (s *Server) handleRemoveDependency(
+	w http.ResponseWriter, r *http.Request, _ identity.User, project identity.Project,
+) {
+	id := board.TicketID(r.PathValue("id"))
+	dependsOn := board.TicketID(r.PathValue("dependsOn"))
+	switch _, err := s.ticketDeps.RemoveDependency(r.Context(), project.ID, id, dependsOn); {
+	case errors.Is(err, board.ErrNotFound):
+		http.Error(w, "no such ticket", http.StatusNotFound)
+		return
+	case err != nil:
+		slog.Error("api: remove ticket dependency", "err", err)
+		http.Error(w, "remove dependency", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // feedToWire maps a runtime.FeedSnapshot onto the generated wire.FeedSnapshot

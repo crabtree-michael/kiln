@@ -270,6 +270,16 @@ func (a *boardAPIAdapter) RequestApproval(ctx context.Context, id board.TicketID
 	return a.svc.RequestApproval(ctx, a.projectID, id)
 }
 
+//nolint:wrapcheck // board errors reach the model verbatim (see type doc).
+func (a *boardAPIAdapter) AddDependency(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error) {
+	return a.svc.AddDependency(ctx, a.projectID, id, dependsOn)
+}
+
+//nolint:wrapcheck // board errors reach the model verbatim (see type doc).
+func (a *boardAPIAdapter) RemoveDependency(ctx context.Context, id, dependsOn board.TicketID) (board.Ticket, error) {
+	return a.svc.RemoveDependency(ctx, a.projectID, id, dependsOn)
+}
+
 var _ brain.BoardAPI = (*boardAPIAdapter)(nil)
 
 // boardReaderAdapter satisfies brain.BoardReader over *board.Service, scoped to

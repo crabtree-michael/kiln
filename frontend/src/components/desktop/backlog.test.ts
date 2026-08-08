@@ -93,11 +93,25 @@ describe('backlogTickets', () => {
 });
 
 describe('backlogStateNote', () => {
+  const note = (
+    state: 'ready' | 'shaping',
+    waitingOnDependencies = false,
+    unmetDependencies = 0,
+  ): string => backlogStateNote({ state, waitingOnDependencies, unmetDependencies });
+
   it('says nothing for the expected case — a row reading "ready · ready" is noise', () => {
-    expect(backlogStateNote('ready')).toBe('');
+    expect(note('ready')).toBe('');
   });
 
   it('names a shaping ticket, because it is waiting on a person rather than a worker', () => {
-    expect(backlogStateNote('shaping')).toBe('proposal');
+    expect(note('shaping')).toBe('proposal');
+  });
+
+  it('names the unlanded dependencies holding a queued ticket, which otherwise reads as a stuck queue', () => {
+    expect(note('ready', true, 2)).toBe('waiting on 2');
+  });
+
+  it('lets the dependency note outrank the state word — why it is waiting beats what it is', () => {
+    expect(note('shaping', true, 1)).toBe('waiting on 1');
   });
 });

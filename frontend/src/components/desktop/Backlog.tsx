@@ -69,7 +69,7 @@ export function Backlog({ tickets, onOpenTicket, now }: BacklogProps): JSX.Eleme
       <div data-role="desktop-backlog-head">backlog</div>
       <ul data-role="desktop-backlog-list">
         {tickets.map((ticket) => {
-          const note = backlogStateNote(ticket.state);
+          const note = backlogStateNote(ticket);
           return (
             <li key={ticket.id}>
               <button

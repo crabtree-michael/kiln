@@ -156,6 +156,13 @@ export function HeaderStatusMenu({
                   />
                   <span data-role="header-status-label">{ticket.label || 'Untitled ticket'}</span>
                   <span data-role="header-status-age">{relativeAge(ticket.statusSince)}</span>
+                  {/* A queued ticket held by unlanded work. Shown instead of
+                      nothing because "ready" at the top of the list, not
+                      starting, otherwise reads as a stalled queue; the count is
+                      the part that visibly moves as the blocking work lands. */}
+                  {ticket.waitingOn > 0 && (
+                    <span data-role="header-status-waiting">waiting on {ticket.waitingOn}</span>
+                  )}
                   {ticket.reason !== null && (
                     <span data-role="header-status-reason">{ticket.reason}</span>
                   )}

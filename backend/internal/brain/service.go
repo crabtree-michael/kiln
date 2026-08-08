@@ -299,6 +299,11 @@ func renderColumn(b *strings.Builder, label string, state board.State, tickets [
 		if t.BlockedReason != nil {
 			fmt.Fprintf(b, " blocked_reason=%q", *t.BlockedReason)
 		}
+		// A queued ticket held by its dependencies looks identical to a stalled
+		// one in a bare roster, so the roster says which it is (0013).
+		if t.WaitingOnDependencies() {
+			fmt.Fprintf(b, " waiting_on=%d unfinished dependencies", t.UnmetDependencies)
+		}
 		b.WriteByte('\n')
 	}
 	if len(shown) < len(tickets) {

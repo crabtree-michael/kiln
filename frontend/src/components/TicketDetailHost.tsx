@@ -50,14 +50,25 @@ export function TicketDetailHost({
   onReassignSandbox,
   onEditText,
 }: TicketDetailHostProps): JSX.Element | null {
-  const { openTicket, openAgentStatus, canReassign, closeTicket, voiceActive, setVoiceActive } =
-    overlay;
+  const {
+    openTicket,
+    openAgentStatus,
+    canReassign,
+    openDependencies,
+    closeTicket,
+    voiceActive,
+    setVoiceActive,
+  } = overlay;
   if (openTicket === null) {
     return null;
   }
   return (
     <TicketDetail
       ticket={openTicket}
+      // What this ticket waits for (0013), resolved by the overlay against the
+      // board it already reads. Passing it here rather than from each shell is
+      // the point of the host: one wiring, three shells.
+      dependencies={openDependencies}
       surface="primary"
       placement={placement}
       // The sheet's voice cluster, shown on every ticket state — the unified

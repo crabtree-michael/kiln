@@ -373,6 +373,82 @@ func (s *Service) SetKeepSandbox(
 	})
 }
 
+// AddDependency records that a ticket waits for another: it will not be pulled
+// until dependsOn is done (0013). Returns the ticket with its refreshed
+// dependency list.
+//
+// Like SetKeepSandbox this is a setting rather than a transition — no state
+// precondition, legal wherever the ticket sits — because the pull is the only
+// thing dependencies touch. Adding one to a ticket that is already working or
+// done is therefore allowed and simply has no mechanical effect; it is the
+// honest answer, since the alternative would be refusing to record a fact about
+// work that genuinely did depend on something.
+//
+// Both ids must be live tickets in the project (ErrNotFound). The edge is
+// refused when it would let the ticket wait on itself, directly or through a
+// chain (ErrCircularDependency) — see the error's own note on why a cycle is
+// unsatisfiable rather than merely odd. Idempotent: re-adding an existing edge
+// succeeds without duplicating it.
+//
+// Emits mutate's board.updated so every client re-renders the waiting state.
+// No pull.evaluate: adding a dependency can only ever remove a ticket from the
+// pullable set, never add one.
+func (s *Service) AddDependency(
+	ctx context.Context, projectID string, id, dependsOn TicketID,
+) (Ticket, error) {
+	apply := func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if id == dependsOn {
+			return Ticket{}, &ErrCircularDependency{Ticket: id, DependsOn: dependsOn}
+		}
+		// Lock the dependency too: it proves the ticket exists, is live and is in
+		// this project, and holds it still while the cycle walk reads the edges
+		// leading out of it.
+		if _, lerr := tx.LockTicket(ctx, projectID, dependsOn); lerr != nil {
+			return Ticket{}, fmt.Errorf("board: lock dependency %s: %w", dependsOn, lerr)
+		}
+		path, cyclic, cerr := tx.DependencyPathTo(ctx, projectID, dependsOn, id)
+		if cerr != nil {
+			return Ticket{}, fmt.Errorf("board: dependency cycle check: %w", cerr)
+		}
+		if cyclic {
+			return Ticket{}, &ErrCircularDependency{Ticket: id, DependsOn: dependsOn, Path: path}
+		}
+		if aerr := tx.SetDependency(ctx, projectID, id, dependsOn, true); aerr != nil {
+			return Ticket{}, fmt.Errorf("board: add dependency: %w", aerr)
+		}
+		return *t, nil
+	}
+	if _, err := s.mutate(ctx, projectID, "add_dependency", id, apply); err != nil {
+		return Ticket{}, err
+	}
+	return s.GetTicket(ctx, projectID, id)
+}
+
+// RemoveDependency drops the ticket's edge to dependsOn (0013), returning the
+// ticket with its refreshed dependency list. Removing an edge that is not there
+// succeeds — the caller asked for it to be gone and it is — so this is the safe
+// way to clear a dependency without first reading the list.
+//
+// Emits board.updated and pull.evaluate: dropping the last unmet dependency can
+// make a queued ticket pullable right now, and nothing else would notice.
+func (s *Service) RemoveDependency(
+	ctx context.Context, projectID string, id, dependsOn TicketID,
+) (Ticket, error) {
+	apply := func(ctx context.Context, tx Tx, t *Ticket) (Ticket, error) {
+		if rerr := tx.SetDependency(ctx, projectID, id, dependsOn, false); rerr != nil {
+			return Ticket{}, fmt.Errorf("board: remove dependency: %w", rerr)
+		}
+		if aerr := tx.AppendOutbox(ctx, projectID, Emission{Topic: TopicPullEvaluate}); aerr != nil {
+			return Ticket{}, fmt.Errorf("board: append pull.evaluate: %w", aerr)
+		}
+		return *t, nil
+	}
+	if _, err := s.mutate(ctx, projectID, "remove_dependency", id, apply); err != nil {
+		return Ticket{}, err
+	}
+	return s.GetTicket(ctx, projectID, id)
+}
+
 // KillSandbox destroys the sandbox behind the ticket's worker slot so the slot
 // recreates a fresh one — the user's manual override for a wedged or corrupted
 // workspace, which until now only the orchestrator could clear up. It is the
@@ -635,6 +711,19 @@ func (s *Service) ArchiveTicket(ctx context.Context, projectID string, id Ticket
 			worker := *t.WorkerID
 			t.WorkerID = nil
 			emissions = append(emissions, releaseEmissions(*t, worker)...)
+			emissions = append(emissions, Emission{Topic: TopicPullEvaluate})
+		}
+		// Anything waiting on this ticket is released by archiving it: an archived
+		// dependency can never reach done, so the pull stops counting it (0013).
+		// That changes the pullable set without any ticket changing state, and
+		// nothing else would notice — hence the nudge. Asked before the archive so
+		// the dependents are still readable, and only when there are any, so the
+		// ordinary delete keeps emitting exactly what it did before.
+		waiting, err := tx.Dependents(ctx, projectID, t.ID)
+		if err != nil {
+			return Ticket{}, fmt.Errorf("board: check dependents: %w", err)
+		}
+		if waiting {
 			emissions = append(emissions, Emission{Topic: TopicPullEvaluate})
 		}
 		now := time.Now().UTC()

@@ -70,6 +70,9 @@ func (s *Store) Snapshot(ctx context.Context, projectID string) (board.Snapshot,
 	if err := s.readTickets(ctx, projectID, &snap); err != nil {
 		return board.Snapshot{}, err
 	}
+	if err := s.attachDependencies(ctx, projectID, &snap); err != nil {
+		return board.Snapshot{}, err
+	}
 	sortSnapshot(&snap)
 
 	if err := s.db.QueryRowContext(ctx,
@@ -98,7 +101,15 @@ func (s *Store) GetTicket(ctx context.Context, projectID string, id board.Ticket
 	if errors.Is(err, sql.ErrNoRows) {
 		return board.Ticket{}, board.ErrNotFound
 	}
-	return tk, err
+	if err != nil {
+		return board.Ticket{}, err
+	}
+	deps, unmet, err := s.dependencyRows(ctx, projectID, id)
+	if err != nil {
+		return board.Ticket{}, err
+	}
+	tk.DependsOn, tk.UnmetDependencies = deps[id], unmet[id]
+	return tk, nil
 }
 
 // SetWorkerHealth reconciles the project's worker health in one statement (03 §5
@@ -388,6 +399,7 @@ func (t *tx) NextReadyTicket(ctx context.Context, projectID string) (board.Ticke
 	row := t.sqltx.QueryRowContext(ctx,
 		`SELECT `+ticketColumns+` FROM tickets
 		 WHERE project_id = $1 AND state = 'ready' AND archived_at IS NULL
+		   AND NOT EXISTS (`+unmetDependencyExists+`)
 		 ORDER BY priority DESC, ready_at ASC, id ASC
 		 FOR UPDATE SKIP LOCKED LIMIT 1`, projectID)
 	tk, err := scanTicket(row)

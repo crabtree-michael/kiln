@@ -21,8 +21,8 @@
 //	    go test -tags=integration ./internal/api/... -run Tenancy
 //
 // kiln_test is shared with the per-module integration tests; setup only ever
-// creates a module's own tables when missing and only ever truncates the tables
-// this suite touches — never DROPs.
+// applies a module's own migrations (through the shared schema_migrations
+// ledger) and only ever truncates the tables this suite touches — never DROPs.
 package api_test
 
 import (
@@ -32,13 +32,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
-	"path"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +49,7 @@ import (
 	identitypg "github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	runtimepg "github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 	"github.com/crabtree-michael/kiln/backend/internal/wire"
 )
 
@@ -174,12 +172,12 @@ func tenDB(t *testing.T) *sql.DB {
 		t.Fatalf("ping: %v", err)
 	}
 
-	// Apply each module's embedded migrations only if its sentinel table is
-	// missing — kiln_test is shared, so never DROP and never touch tables owned
-	// by modules this suite doesn't seed.
-	tenEnsureSchema(ctx, t, db, "projects", identitypg.Migrations)
-	tenEnsureSchema(ctx, t, db, "tickets", boardpg.Migrations)
-	tenEnsureSchema(ctx, t, db, "notifications", runtimepg.Migrations)
+	// Apply each module's embedded migrations through the shared ledger —
+	// kiln_test is shared, so never DROP and never touch tables owned by modules
+	// this suite doesn't seed.
+	testutil.ApplyMigrations(ctx, t, db, identitypg.MigrationsKey, identitypg.Migrations)
+	testutil.ApplyMigrations(ctx, t, db, boardpg.MigrationsKey, boardpg.Migrations)
+	testutil.ApplyMigrations(ctx, t, db, runtimepg.MigrationsKey, runtimepg.Migrations)
 
 	if _, err := db.ExecContext(ctx,
 		`TRUNCATE TABLE users, sessions, user_config, projects,
@@ -188,46 +186,6 @@ func tenDB(t *testing.T) *sql.DB {
 		t.Fatalf("truncate tenancy tables: %v", err)
 	}
 	return db
-}
-
-// tenEnsureSchema applies migrationsFS (rooted at a "migrations" subdir) in
-// filename order when `sentinel` does not yet exist, so a fresh kiln_test is
-// bootstrapped without disturbing an already-migrated shared DB.
-func tenEnsureSchema(ctx context.Context, t *testing.T, db *sql.DB, sentinel string, migrationsFS fs.FS) {
-	t.Helper()
-	var exists bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1
-	)`, sentinel).Scan(&exists); err != nil {
-		t.Fatalf("check for %s table: %v", sentinel, err)
-	}
-	if exists {
-		return
-	}
-	sub, err := fs.Sub(migrationsFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations: %v", err)
-	}
-	entries, err := fs.ReadDir(sub, ".")
-	if err != nil {
-		t.Fatalf("read migrations: %v", err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && path.Ext(e.Name()) == ".sql" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		body, err := fs.ReadFile(sub, name)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", name, err)
-		}
-		if _, err := db.ExecContext(ctx, string(body)); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
 }
 
 // ---- tenant handle ---------------------------------------------------------

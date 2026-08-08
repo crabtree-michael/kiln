@@ -6,25 +6,23 @@
 //	TEST_DATABASE_URL=postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable \
 //	    go test -tags=integration ./internal/push/postgres/...
 //
-// kiln_test is shared with other modules, so setup only ever creates push's own
-// tables if missing and only ever truncates push_subscriptions and
-// push_user_settings — never DROPs, never touches tables it doesn't own.
+// kiln_test is shared with other modules, so setup only ever applies push's own
+// migrations (through the shared schema_migrations ledger) and only ever
+// truncates push_subscriptions and push_user_settings — never DROPs, never
+// touches tables it doesn't own.
 package postgres_test
 
 import (
 	"context"
 	"database/sql"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
 	"testing"
 
 	_ "github.com/lib/pq"
 
 	"github.com/crabtree-michael/kiln/backend/internal/push"
 	"github.com/crabtree-michael/kiln/backend/internal/push/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 const (
@@ -53,72 +51,9 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("ping: %v", err)
 	}
 
-	ensureMigrationsApplied(ctx, t, db)
+	testutil.ApplyMigrations(ctx, t, db, postgres.MigrationsKey, postgres.Migrations)
 	truncatePushTables(ctx, t, db)
 	return db
-}
-
-// tableExists reports whether a public-schema table is present.
-func tableExists(ctx context.Context, t *testing.T, db *sql.DB, name string) bool {
-	t.Helper()
-	var exists bool
-	err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1
-	)`, name).Scan(&exists)
-	if err != nil {
-		t.Fatalf("check for %s table: %v", name, err)
-	}
-	return exists
-}
-
-// ensureMigrationsApplied applies ./migrations, in filename order, only if
-// push's own tables don't already exist — kiln_test is shared, and other
-// modules' tables must never be touched here. A database that pre-dates the
-// tenancy migration (push_subscriptions present, push_user_settings absent)
-// gets only the missing tail applied.
-func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
-	t.Helper()
-	haveSubs := tableExists(ctx, t, db, "push_subscriptions")
-	haveUserSettings := tableExists(ctx, t, db, "push_user_settings")
-	if haveSubs && haveUserSettings {
-		return
-	}
-
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Join(filepath.Dir(thisFile), "migrations")
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".sql" {
-			continue
-		}
-		if haveSubs && e.Name() != "0003_user_tenancy.sql" {
-			continue // pre-tenancy schema already in place; apply only the tail.
-		}
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no .sql migrations found in %s", dir)
-	}
-
-	migrationsFS := os.DirFS(dir)
-	for _, name := range names {
-		b, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", name, err)
-		}
-		if _, err := db.ExecContext(ctx, string(b)); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
 }
 
 // truncatePushTables resets exactly push's own tables so every test starts

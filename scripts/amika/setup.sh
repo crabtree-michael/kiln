@@ -46,6 +46,22 @@ else
   echo "amika-setup: no frontend/ dir — skipping pnpm install" >&2
 fi
 
+# --- Tests: pnpm deps (make setup: `cd tests && pnpm install`) -----------------
+# The layout gate (`make test-layout`) is part of `make check`, so this package
+# and its Chromium are hard-gate toolchain now, not just the deliberately-run
+# e2e suite's. Without this the gate fails on a fresh boot at the layout stage
+# with a missing playwright binary, long after lint and the Go tests went green.
+if [ -d tests ]; then
+  if command -v pnpm >/dev/null 2>&1; then
+    echo "amika-setup: tests -> pnpm install"
+    (cd tests && pnpm install)
+  else
+    echo "amika-setup: WARNING pnpm not on PATH — the layout gate will not run" >&2
+  fi
+else
+  echo "amika-setup: no tests/ dir — skipping pnpm install" >&2
+fi
+
 # --- Backend: Go modules (make setup: `cd backend && go mod download`) ----------
 if [ -d backend ]; then
   if command -v go >/dev/null 2>&1; then

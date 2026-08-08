@@ -9,9 +9,9 @@
 //	    go test -tags=integration ./internal/board/postgres/...
 //
 // kiln_test is shared with other modules (e.g. internal/agent's agent_turns
-// table), so setup only ever creates the board's own tables if missing and
-// only ever truncates tickets/workers/outbox — never DROPs, never touches
-// tables it doesn't own.
+// table), so setup only ever applies the board's own migrations (through the
+// shared schema_migrations ledger) and only ever truncates
+// tickets/workers/outbox — never DROPs, never touches tables it doesn't own.
 package postgres_test
 
 import (
@@ -19,11 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
 	"sync"
 	"testing"
 
@@ -31,6 +27,7 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 	"github.com/crabtree-michael/kiln/backend/internal/board/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 // Fixed tenant ids (11 §3): operations run under projA; projB exists to
@@ -61,61 +58,9 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("ping: %v", err)
 	}
 
-	ensureMigrationsApplied(ctx, t, db)
+	testutil.ApplyMigrations(ctx, t, db, postgres.MigrationsKey, postgres.Migrations)
 	truncateBoardTables(ctx, t, db)
 	return db
-}
-
-// ensureMigrationsApplied applies ./migrations, in filename order, only if
-// the board's own tables don't already exist — kiln_test is shared, and
-// other modules' tables (e.g. agent_turns) must never be touched here.
-func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
-	t.Helper()
-	var exists bool
-	err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tickets'
-	)`).Scan(&exists)
-	if err != nil {
-		t.Fatalf("check for tickets table: %v", err)
-	}
-	if exists {
-		return
-	}
-
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Join(filepath.Dir(thisFile), "migrations")
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sql" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no .sql migrations found in %s", dir)
-	}
-
-	// Read through an fs.FS rooted at the fixed, repo-local migrations
-	// directory — names come from that same directory listing, never from
-	// external input.
-	migrationsFS := os.DirFS(dir)
-	for _, name := range names {
-		b, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", name, err)
-		}
-		if _, err := db.ExecContext(ctx, string(b)); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
 }
 
 // truncateBoardTables resets exactly the board's own tables (03 I8) so

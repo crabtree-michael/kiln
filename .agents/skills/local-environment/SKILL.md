@@ -103,6 +103,23 @@ by script, and the whole thing is meant to be baked into a snapshot so agents la
   therefore listens on **5433** (`TEST_DATABASE_URL=postgres://kiln:kiln@localhost:5433/kiln_test?sslmode=disable`)
   so the gate's database and `make up` can run at the same time — the normal case for an agent.
   `sudo` drops `PGPORT`, so pass `-p 5433` to `psql`/`createdb` by hand.
+- **A long-lived `kiln_test` silently freezes at the schema it was created with.** Each
+  integration suite used to bootstrap the shared database with "does my first table exist? then
+  assume the schema is current", so every migration added *after* the box was provisioned was
+  skipped forever. The gate then failed with `column "keep_sandbox" does not exist` against a
+  column that plainly exists in the repo — a stale box reading as broken tests. The suites now
+  apply migrations through the **same per-file `schema_migrations` ledger the app uses**
+  (`internal/testutil/ApplyMigrations`, keyed by each module's `MigrationsKey`), so a new
+  migration reaches an existing database on the next `make check`. The migrations are *not*
+  written idempotently (bare `CREATE TABLE` / `ADD COLUMN`), which is why only a ledger can
+  decide what still needs applying. If you meet a database older than the ledger itself,
+  `make test-db-reset` recreates `kiln_test` empty — it holds only test scratch, every suite
+  truncates on setup, and `make sandbox` performs that repair automatically.
+- **`internal/agent` and `internal/steward` deliberately do not use that ledger** — each drops and
+  rebuilds its single table per test for a clean slate, so they were never exposed to the freeze.
+  It also means "tables exist but the ledger is empty" is a normal mid-run state, not drift:
+  pre-ledger databases are detected per migration file, from the `duplicate_table` SQLSTATE the
+  collision actually raises, not by counting tables up front.
 - **A blank `.env` breaks the e2e suite in a way that looks like a stack problem.** The
   documented first-time step (`cp .env.example .env`) leaves `KILN_BOOTSTRAP_GITHUB_USER`
   **defined but empty**, `tests/playwright.config.ts` loads that file, and an empty string is not

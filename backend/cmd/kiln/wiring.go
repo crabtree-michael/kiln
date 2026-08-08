@@ -94,13 +94,13 @@ func moduleMigrations() ([]migrationSet, error) {
 		key string
 		emb fs.FS
 	}{
-		{"internal/identity/postgres/migrations", identitypg.Migrations},
-		{"internal/board/postgres/migrations", boardpg.Migrations},
-		{"internal/runtime/postgres/migrations", runtimepg.Migrations},
-		{"internal/agent/postgres/migrations", agentpg.Migrations},
-		{"internal/steward/postgres/migrations", stewardpg.Migrations},
-		{"internal/push/postgres/migrations", pushpg.Migrations},
-		{"internal/beta/postgres/migrations", betapg.Migrations},
+		{identitypg.MigrationsKey, identitypg.Migrations},
+		{boardpg.MigrationsKey, boardpg.Migrations},
+		{runtimepg.MigrationsKey, runtimepg.Migrations},
+		{agentpg.MigrationsKey, agentpg.Migrations},
+		{stewardpg.MigrationsKey, stewardpg.Migrations},
+		{pushpg.MigrationsKey, pushpg.Migrations},
+		{betapg.MigrationsKey, betapg.Migrations},
 	}
 	sets := make([]migrationSet, 0, len(mods))
 	for _, m := range mods {

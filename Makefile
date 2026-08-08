@@ -42,6 +42,10 @@ sandbox: ## Provision a bare dev box: toolchain, test database, docker, hooks, d
 services: ## Start the local services (postgres for integration tests, docker for the stack)
 	scripts/amika/start-services.sh
 
+.PHONY: test-db-reset
+test-db-reset: ## Recreate the integration-test database (kiln_test) empty — it holds only test scratch
+	scripts/amika/reset-test-db.sh
+
 .PHONY: hooks
 hooks: ## Install the git pre-commit / pre-push hard-gate hooks
 	git config core.hooksPath .githooks

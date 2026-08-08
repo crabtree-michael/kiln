@@ -10,20 +10,16 @@
 //	    go test -tags=integration ./internal/runtime/postgres/...
 //
 // kiln_test is shared with other modules (e.g. internal/board's
-// tickets/workers/outbox), so setup only ever creates the runtime's own
-// tables (events, messages) if missing, and only ever truncates
-// events/messages — never DROPs, never touches tables it doesn't own.
+// tickets/workers/outbox), so setup only ever applies the runtime's own
+// migrations (through the shared schema_migrations ledger), and only ever
+// truncates events/messages — never DROPs, never touches tables it doesn't own.
 package postgres_test
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
-	goruntime "runtime"
-	"sort"
 	"testing"
 	"time"
 
@@ -31,6 +27,7 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	"github.com/crabtree-michael/kiln/backend/internal/runtime/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 // projA/projB are the two tenants the isolation tests write under (11 §3) —
@@ -61,7 +58,7 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("ping: %v", err)
 	}
 
-	ensureMigrationsApplied(ctx, t, db)
+	testutil.ApplyMigrations(ctx, t, db, postgres.MigrationsKey, postgres.Migrations)
 	ensureTenantColumns(ctx, t, db)
 	truncateRuntimeTables(ctx, t, db)
 	return db
@@ -88,56 +85,6 @@ func ensureTenantColumns(ctx context.Context, t *testing.T, db *sql.DB) {
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			t.Fatalf("ensure tenant column (%s): %v", stmt, err)
-		}
-	}
-}
-
-// ensureMigrationsApplied applies ./migrations, in filename order, only if
-// the runtime's own tables don't already exist — kiln_test is shared, and
-// other modules' tables (tickets, workers, outbox, agent_turns) must never
-// be touched here.
-func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
-	t.Helper()
-	var exists bool
-	err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'events'
-	)`).Scan(&exists)
-	if err != nil {
-		t.Fatalf("check for events table: %v", err)
-	}
-	if exists {
-		return
-	}
-
-	_, thisFile, _, ok := goruntime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Join(filepath.Dir(thisFile), "migrations")
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sql" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no .sql migrations found in %s", dir)
-	}
-
-	migrationsFS := os.DirFS(dir)
-	for _, name := range names {
-		b, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", name, err)
-		}
-		if _, err := db.ExecContext(ctx, string(b)); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
 		}
 	}
 }

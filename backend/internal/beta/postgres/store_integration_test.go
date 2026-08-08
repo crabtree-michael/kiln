@@ -14,17 +14,13 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
 	"testing"
 
-	"github.com/lib/pq"
+	_ "github.com/lib/pq"
 
 	"github.com/crabtree-michael/kiln/backend/internal/beta/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -48,69 +44,9 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("ping: %v", err)
 	}
 
-	ensureMigrationsApplied(ctx, t, db)
+	testutil.ApplyMigrations(ctx, t, db, postgres.MigrationsKey, postgres.Migrations)
 	truncateBetaTables(ctx, t, db)
 	return db
-}
-
-// alreadyAppliedCodes are the SQLSTATEs a migration raises when its objects are
-// already there — i.e. it ran against this database on an earlier test run.
-// Postgres wraps a multi-statement simple query in one implicit transaction, so
-// a migration file either applies whole or not at all; re-running an applied one
-// therefore fails cleanly on its first statement and changes nothing.
-var alreadyAppliedCodes = map[pq.ErrorCode]bool{
-	"42P07": true, // duplicate_table
-	"42701": true, // duplicate_column
-	"42710": true, // duplicate_object (a constraint)
-}
-
-// ensureMigrationsApplied applies ./migrations in filename order, skipping the
-// ones this database already has — kiln_test is shared and long-lived, and other
-// modules' tables must never be touched here.
-//
-// It cannot short-circuit on "the beta_signups table exists", which is what it
-// used to do: a database created before 0002 has the table but not the
-// github_login column, so the probe passed and the re-key never ran, failing
-// every test below against a stale schema. Per-migration tolerance is what keeps
-// an existing test database current as migrations are added.
-func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
-	t.Helper()
-
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Join(filepath.Dir(thisFile), "migrations")
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sql" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no .sql migrations found in %s", dir)
-	}
-
-	migrationsFS := os.DirFS(dir)
-	for _, name := range names {
-		b, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", name, err)
-		}
-		if _, err := db.ExecContext(ctx, string(b)); err != nil {
-			var pqErr *pq.Error
-			if errors.As(err, &pqErr) && alreadyAppliedCodes[pqErr.Code] {
-				continue
-			}
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
 }
 
 // truncateBetaTables resets exactly beta's own table so every test starts clean,

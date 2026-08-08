@@ -6,10 +6,10 @@
 //	TEST_DATABASE_URL=postgres://kiln:kiln@localhost:5432/kiln_test?sslmode=disable \
 //	    go test -tags=integration ./internal/identity/postgres/...
 //
-// kiln_test is shared with other modules, so setup only ever creates
-// identity's own tables if missing and only ever truncates
-// users/sessions/user_config/projects — never DROPs, never touches tables it
-// doesn't own.
+// kiln_test is shared with other modules, so setup only ever applies
+// identity's own migrations (through the shared schema_migrations ledger) and
+// only ever truncates users/sessions/user_config/projects — never DROPs, never
+// touches tables it doesn't own.
 package postgres_test
 
 import (
@@ -17,11 +17,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
 	"testing"
 	"time"
 
@@ -29,6 +25,7 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/identity"
 	"github.com/crabtree-michael/kiln/backend/internal/identity/postgres"
+	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -52,61 +49,9 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("ping: %v", err)
 	}
 
-	ensureMigrationsApplied(ctx, t, db)
+	testutil.ApplyMigrations(ctx, t, db, postgres.MigrationsKey, postgres.Migrations)
 	truncateIdentityTables(ctx, t, db)
 	return db
-}
-
-// ensureMigrationsApplied applies ./migrations, in filename order, only if
-// identity's own tables don't already exist — kiln_test is shared, and other
-// modules' tables must never be touched here.
-func ensureMigrationsApplied(ctx context.Context, t *testing.T, db *sql.DB) {
-	t.Helper()
-	var exists bool
-	err := db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users'
-	)`).Scan(&exists)
-	if err != nil {
-		t.Fatalf("check for users table: %v", err)
-	}
-	if exists {
-		return
-	}
-
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	dir := filepath.Join(filepath.Dir(thisFile), "migrations")
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sql" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no .sql migrations found in %s", dir)
-	}
-
-	// Read through an fs.FS rooted at the fixed, repo-local migrations
-	// directory — names come from that same directory listing, never from
-	// external input.
-	migrationsFS := os.DirFS(dir)
-	for _, name := range names {
-		b, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", name, err)
-		}
-		if _, err := db.ExecContext(ctx, string(b)); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
 }
 
 // truncateIdentityTables resets exactly identity's own tables so every test

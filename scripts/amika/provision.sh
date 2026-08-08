@@ -201,6 +201,21 @@ if [ "$HAVE_SUDO" = 1 ] && command -v pg_ctlcluster >/dev/null 2>&1; then
         sudo_q -u postgres createdb -p "$TEST_DB_PORT" -O kiln "$db"
       fi
     done
+    # A kiln_test built by the old per-module setup helpers has every table but
+    # no schema_migrations ledger, so its schema is frozen at the day it was
+    # created: migrations added since are skipped forever and the gate fails
+    # with `column "keep_sandbox" does not exist` on a database nobody suspects
+    # of being stale. It holds only test scratch, so the repair is to recreate
+    # it and let the ledger refill it (internal/testutil/migrate.go).
+    tables=$(sudo_q -u postgres psql -p "$TEST_DB_PORT" -d kiln_test -tAc \
+      "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null || echo 0)
+    ledger=$(sudo_q -u postgres psql -p "$TEST_DB_PORT" -d kiln_test -tAc \
+      "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='schema_migrations'" 2>/dev/null || echo 0)
+    if [ "${tables:-0}" -gt 0 ] && [ "${ledger:-0}" -eq 0 ]; then
+      log "kiln_test predates the migration ledger — recreating it"
+      TEST_DB_PORT="$TEST_DB_PORT" "$repo_root/scripts/amika/reset-test-db.sh" \
+        || warn "could not reset kiln_test (run 'make test-db-reset' by hand)"
+    fi
   else
     warn "postgres not reachable on $TEST_DB_PORT (integration tests will skip)"
   fi
@@ -305,11 +320,15 @@ git config user.email >/dev/null 2>&1 || git config user.email "agent@trykiln.de
 #
 # They are probed independently on purpose: keying the libraries off the browser
 # cache means a box that got one and not the other never repairs itself on re-run.
+# The tests package's node_modules is a third independent thing, installed by
+# setup.sh above — it must not hang off the browser probe either, or a box with a
+# warm browser cache and no node_modules never gets them and the layout gate
+# (part of `make check`) fails on a fresh boot.
 if [ -d tests ] && command -v pnpm >/dev/null 2>&1; then
   if [ ! -d "$HOME/.cache/ms-playwright" ]; then
     log "installing the playwright chromium browser"
-    (cd tests && pnpm install && pnpm run install-browser) >/dev/null 2>&1 \
-      || warn "playwright browser install failed (make e2e will be unavailable)"
+    (cd tests && pnpm run install-browser) >/dev/null 2>&1 \
+      || warn "playwright browser install failed (the layout gate and e2e will be unavailable)"
   else
     log "playwright browser already installed"
   fi

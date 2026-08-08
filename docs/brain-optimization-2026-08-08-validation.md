@@ -29,7 +29,7 @@
 | 5 | Two `git fetch` per done | **Confirmed — small** | 171 double-fetches, ~1/h |
 | 6 | Reads not batched into one round | **Confirmed — largest lever** | **11–14% of all rounds** are collapsible |
 | 7 | Serial dispatch within a round | **Confirmed latent; premise wrong** | Model already batches in **22.1%** of rounds |
-| 8 | `ListAgents` N+1 | **Reframed** | Brain path 2.2/h; the unlogged tick is ~160× bigger |
+| 8 | `ListAgents` N+1 | **Reframed** | Brain path 2.2/h; the unlogged tick is **~650×** bigger |
 | **10** | *(new)* Redundant identical tool calls | **Confirmed** | **215 wasted calls, 4.1%**, in 9.3% of passes |
 | **11** | *(new)* `update_ticket` illegal-transition churn | **Confirmed, partly fixed** | 39.5% → **10.3%** error rate after fix B |
 
@@ -205,9 +205,22 @@ pattern is stable across the fix boundary and across an 8× volume swing, which 
 worth acting on: **11–14% of every round the brain runs is a read round that could have been folded
 into the one before it.**
 
-At $0.0109/round that is ~$6.88 per window. The more useful framing is the cost shape from §1: each
-avoided round removes a full cache *write* of the conversation prefix, which is the 50% line item —
-so the saving is weighted toward the most expensive thing the brain does, not the cheapest.
+Sizing the saving needs more care than multiplying by the $0.0109 round average (which gives ~$6.88
+per window), because merging N read rounds into one removes the assistant messages and the
+conversation re-sends, but the **tool results still enter context once**. Taking the 631 rounds'
+actual token split — 103,609 output, 5,162,129 cache read, 1,552,051 cache write:
+
+| Basis | $ / window | Share of spend | $ / 30 d |
+| --- | ---: | ---: | ---: |
+| Conservative — output + cache reads only | 3.10 | **6.0%** | 13.57 |
+| Optimistic — also counts their cache writes as avoidable | 8.92 | **17.4%** | 39.03 |
+
+The truth sits between and nearer the middle — the removed rounds' *assistant messages* stop being
+written, the tool results do not — so **~10–12%** is the number to plan against, with the flat-average
+$6.88 (13.4%) landing inside the range roughly by luck. The more useful framing is the cost shape
+from §1: each avoided round removes a full cache *write* of the conversation prefix, which is the 50%
+line item — so the saving is weighted toward the most expensive thing the brain does, not the
+cheapest. It also removes 631 × ~3.9 s of round latency from passes users are waiting on.
 
 This lands independently of recommendation E (re-inject the board snapshot), as the 08-08 doc says,
 and it still applies to `get_agent_updates` + `bash`, which no board injection covers.
@@ -249,18 +262,26 @@ The two belong in one piece of work, as the doc says. The read/mutation partitio
 | Path | Frequency |
 | --- | --- |
 | Brain `list_agents` tool | **369 calls / 6.9 d = 2.2 per hour** |
-| `refreshStatuses` liveness tick | ~360 per hour per project (`LivenessInterval` = 10 s) |
+| `refreshStatuses` liveness tick | ~360/h per project × **4 active projects = ~1,440 per hour** |
+
+`refreshStatuses` documents the rate itself — *"one ListWorkers call per project per tick"* — at
+`LivenessInterval = 10 s` (`turn.go:101`). The window names **4 distinct project ids**, so the
+aggregate background rate is ~1,440/h against the brain's 2.2/h: **~650×**, not the ~160× a
+per-project reading gives.
 
 The N+1 is real (`agent/service.go:269`, one `LatestForWorker` per worker on top of a `ListWorkers`
-HTTP call). But the brain's in-pass usage is **~160× smaller** than the background tick, so framing
-it as "latency inside passes" points at the wrong 0.6% of the traffic. It is a background-load and
-provider-round-trip issue that scales with project count under 11 §3.
+HTTP call), so that ~1,440/h also carries one Amika HTTP round-trip each plus a DB query per worker,
+unconditionally, whether or not anything changed and whether or not anyone is watching. Framing §8 as
+"latency inside passes" points at the wrong 0.15% of the traffic. It is a background-load and
+provider-round-trip issue that scales linearly with project count under 11 §3.
 
-**Measurement gap, and it is a blocker:** `refreshStatuses` emits **no log line at all**. The 360/h
-figure is derived from `LivenessInterval` and project count, not observed — I could not measure the
-tick, its duration, or its DB cost from logs. Instrumenting it is a prerequisite to sizing the fix,
-in the same way §5 of the part-2 root-cause doc needed one log line before the rebuild loop could be
-explained.
+**Measurement gap, and it is a blocker:** `refreshStatuses` emits a log line only on the *failure*
+path (`agent: liveness refresh; skipping project` — 53 records, which is how the project count is
+known). The successful tick is **silent**, so the ~1,440/h is derived from the interval and the
+observed project count, not observed directly — I could not measure the tick, its duration, or its DB
+cost from logs. Instrumenting it is a prerequisite to sizing the fix, in the same way §5 of the
+part-2 root-cause doc needed one log line before the rebuild loop could be explained. It is also what
+would let that ~1,440/h be checked against Amika's rate limits.
 
 ---
 
@@ -344,8 +365,9 @@ calls/day at the extremes) and in what the owner was working on. The attribution
 ## 12. Revised priorities
 
 1. **§6 + §7 as one ticket.** The only finding with a measured double-digit share of rounds
-   (11–14%), amplified by the cost shape in §1 — each avoided round removes a cache-prefix rewrite,
-   the 50% line item. §7 is already load-bearing at 22.1% of rounds, not latent.
+   (11–14%), worth **6.0–17.4% of spend** and most likely ~10–12%, amplified by the cost shape in §1
+   — each avoided round removes a cache-prefix rewrite, the 50% line item. §7 is already
+   load-bearing at 22.1% of rounds, not latent.
 2. **§10 + §11 (both new).** 4.1% of calls are exact duplicates and 10.3% of `update_ticket` calls
    still fail on an illegal transition. Together these are a larger measured waste than §1–§4
    combined, and §11 has a proven remedy shape — B already cut it 4×.

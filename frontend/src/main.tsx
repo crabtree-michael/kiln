@@ -5,7 +5,7 @@ import '@fontsource-variable/newsreader';
 import '@fontsource-variable/spline-sans-mono';
 import '@/styles/tokens.css';
 
-import { StrictMode, useEffect } from 'react';
+import { StrictMode, Suspense, lazy, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   BrowserRouter,
@@ -17,22 +17,47 @@ import {
   useNavigationType,
 } from 'react-router-dom';
 import * as Sentry from '@sentry/react';
-import { PrimaryScreen } from '@/components/PrimaryScreen';
-import { KanbanScreen } from '@/components/KanbanScreen';
 import { DefaultRoute } from '@/components/DefaultRoute';
-import { NotFound } from '@/components/NotFound';
 import { Landing2 } from '@/landing/Landing2';
-import { PrivateBeta } from '@/landing/PrivateBeta';
-import { Guide } from '@/guide/Guide';
-import { Dashboard } from '@/dashboard/Dashboard';
-import { Signup } from '@/signup/Signup';
-import { ProjectsManager } from '@/projects/ProjectsManager';
 import { AppErrorFallback } from '@/components/AppErrorFallback';
 import { SessionGate } from '@/components/SessionGate';
 import { SessionProvider } from '@/stores/session';
 import { CurrentProjectProvider } from '@/stores/current-project';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
 import { installAssetRecovery } from '@/asset-recovery';
+
+// Every screen below is loaded on demand rather than bundled into the entry
+// chunk. The routes here are mutually exclusive whole *pages* — a visitor on the
+// marketing landing page never runs the board, and a signed-in user on the board
+// never runs the dashboard's config forms — so shipping all of them to everyone
+// meant the first paint of any one route paid for all the others. Splitting them
+// makes the entry chunk the shell (router + Sentry + session) and gives each
+// screen its own chunk, fetched when its route matches.
+//
+// `DefaultRoute` and the `Landing2` it renders stay eagerly imported, and both
+// exceptions are on purpose. `DefaultRoute` IS the `/` decision (landing page vs.
+// redirect into an installed app), so putting a chunk fetch in front of it would
+// add a round-trip to a redirect; `Landing2` is the largest-contentful paint of
+// the most common cold entry, so deferring it would slow down the one route that
+// most needs to be fast. Everything else here is a screen you navigate *to*.
+const PrimaryScreen = lazy(async () => ({
+  default: (await import('@/components/PrimaryScreen')).PrimaryScreen,
+}));
+const KanbanScreen = lazy(async () => ({
+  default: (await import('@/components/KanbanScreen')).KanbanScreen,
+}));
+const NotFound = lazy(async () => ({ default: (await import('@/components/NotFound')).NotFound }));
+const PrivateBeta = lazy(async () => ({
+  default: (await import('@/landing/PrivateBeta')).PrivateBeta,
+}));
+const Guide = lazy(async () => ({ default: (await import('@/guide/Guide')).Guide }));
+const Dashboard = lazy(async () => ({
+  default: (await import('@/dashboard/Dashboard')).Dashboard,
+}));
+const Signup = lazy(async () => ({ default: (await import('@/signup/Signup')).Signup }));
+const ProjectsManager = lazy(async () => ({
+  default: (await import('@/projects/ProjectsManager')).ProjectsManager,
+}));
 
 // Arm deploy-rollover recovery before anything else: if a hashed CSS/JS asset
 // from a superseded deploy 404s (stale shell after a deploy, no SW to recover),
@@ -104,62 +129,72 @@ createRoot(root).render(
     <Sentry.ErrorBoundary fallback={AppErrorFallback}>
       <BrowserRouter>
         <ThemeColorSync />
-        <SentryRoutes>
-          <Route path="/" element={<DefaultRoute />} />
-          <Route path="/landing" element={<Landing2 />} />
-          <Route path="/landing-2" element={<Landing2 />} />
-          <Route
-            path="/app"
-            element={
-              <SessionProvider>
-                <SessionGate>
-                  <CurrentProjectProvider>
-                    <PrimaryScreen />
-                  </CurrentProjectProvider>
-                </SessionGate>
-              </SessionProvider>
-            }
-          />
-          {/* `/kanban` is the desktop board view: the same shell and the same
+        {/* Every route below except `/` is code-split, so the matched screen's
+            chunk is fetched at navigation time and this boundary covers the wait.
+            The fallback is deliberately empty: the chunk is same-origin and
+            already cached on any repeat visit, so a spinner would mostly flash
+            for a frame or two — an empty frame reads as the page still arriving,
+            a flashed spinner reads as something going wrong. A chunk that fails
+            outright (the stale-shell-after-deploy case) is caught by the
+            `installAssetRecovery` reload armed above, not by a fallback here. */}
+        <Suspense fallback={null}>
+          <SentryRoutes>
+            <Route path="/" element={<DefaultRoute />} />
+            <Route path="/landing" element={<Landing2 />} />
+            <Route path="/landing-2" element={<Landing2 />} />
+            <Route
+              path="/app"
+              element={
+                <SessionProvider>
+                  <SessionGate>
+                    <CurrentProjectProvider>
+                      <PrimaryScreen />
+                    </CurrentProjectProvider>
+                  </SessionGate>
+                </SessionProvider>
+              }
+            />
+            {/* `/kanban` is the desktop board view: the same shell and the same
               rail as `/app`, with the feed replaced by five columns of tickets
               (one per board state). Same session gate and same project scope —
               every `/api/*` call it makes is project-scoped, and it reads the
               same board store, so it is a second view of one truth rather than a
               second app. It is deliberately NOT a route the mobile shell
               switches on: a kanban board is a desk reading. */}
-          <Route
-            path="/kanban"
-            element={
-              <SessionProvider>
-                <SessionGate>
-                  <CurrentProjectProvider>
-                    <KanbanScreen />
-                  </CurrentProjectProvider>
-                </SessionGate>
-              </SessionProvider>
-            }
-          />
-          <Route path="/onboarding" element={<Guide />} />
-          <Route path="/beta/pending" element={<PrivateBeta />} />
-          <Route path="/dashboard/*" element={<Dashboard />} />
-          {/* `/signup` replays the sign-up experience on demand: the same
+            <Route
+              path="/kanban"
+              element={
+                <SessionProvider>
+                  <SessionGate>
+                    <CurrentProjectProvider>
+                      <KanbanScreen />
+                    </CurrentProjectProvider>
+                  </SessionGate>
+                </SessionProvider>
+              }
+            />
+            <Route path="/onboarding" element={<Guide />} />
+            <Route path="/beta/pending" element={<PrivateBeta />} />
+            <Route path="/dashboard/*" element={<Dashboard />} />
+            {/* `/signup` replays the sign-up experience on demand: the same
               `SignIn`/`Onboarding` components the dashboard mounts, over a
               simulated store, so an already-onboarded account can walk the whole
               flow again — either path — without being wiped first and without
               writing anything. Like `/dashboard`, it owns its own provider and
               so mounts outside the app's SessionGate. */}
-          <Route path="/signup" element={<Signup />} />
-          {/* `/projects` is the app-native project-management page (12 follow-up):
+            <Route path="/signup" element={<Signup />} />
+            {/* `/projects` is the app-native project-management page (12 follow-up):
               list / create / configure / delete projects in the app's own chrome,
               where the header switcher's "Add" and the account view's projects
               detour used to route. It owns its own `DashboardProvider` (the shared
               data layer), so — like `/dashboard` — it mounts directly, not behind
               the app's SessionGate. */}
-          <Route path="/projects" element={<ProjectsManager />} />
-          {/* Catch-all last: every real route above wins first; any other path
+            <Route path="/projects" element={<ProjectsManager />} />
+            {/* Catch-all last: every real route above wins first; any other path
               lands on the standalone 404 page instead of rendering nothing. */}
-          <Route path="*" element={<NotFound />} />
-        </SentryRoutes>
+            <Route path="*" element={<NotFound />} />
+          </SentryRoutes>
+        </Suspense>
       </BrowserRouter>
     </Sentry.ErrorBoundary>
   </StrictMode>,

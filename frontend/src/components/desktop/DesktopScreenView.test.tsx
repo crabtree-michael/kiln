@@ -64,6 +64,16 @@ const PROJECTS: RailProject[] = [
   { id: 'p2', name: 'atlas', state: 'needs-you', working: 0 },
 ];
 
+/** The mark at the head of the in-progress panel. Found by the SHARED mark's role
+ * rather than one of the panel's own: that is the whole of the design here — the
+ * head wears the same element the rows do, so there is no `desktop-working-dot`
+ * left to query. */
+function headMark(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>(
+    '[data-role="desktop-working-head"] [data-role="status-dot"]',
+  );
+}
+
 /** A ticket an agent is mid-turn on, for the working-strip cases. */
 function workingTicket(id: string, title: string, statusChangedAt: string) {
   return makeTicket({
@@ -520,6 +530,68 @@ describe('DesktopScreenView', () => {
     );
   });
 
+  it('working: the head wears the same mark as the rows, keyed the same way', () => {
+    // The reported bug: the head's indicator and the per-ticket indicators under
+    // it were two different designs that happened to breathe at the same speed —
+    // a smaller dot, a plain fill instead of an ink-and-halo, opacity breathing
+    // instead of a breathing halo. Eight pixels apart in one column, that reads as
+    // two systems rather than one reading summarising the others.
+    //
+    // The fix is that there is now ONE mark: the head renders the same
+    // `status-dot` element the rows do, keyed on the same two attributes, so size,
+    // shape, ink and breath cannot diverge again — they are one rule
+    // (PrimaryScreen.css, pinned in status-mark.test.ts).
+    const { container } = renderShell({
+      board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+      thinking: true,
+    });
+    const head = headMark(container);
+    const row = container.querySelector<HTMLElement>(
+      '[data-role="desktop-working-ticket"] [data-role="status-dot"]',
+    );
+    expect(head).not.toBeNull();
+    expect(row).not.toBeNull();
+    // Same hue axis: the ticket's lifecycle state, which is what makes the head a
+    // summary of the rows rather than a second opinion about them.
+    expect(head).toHaveAttribute('data-state', 'working');
+    expect(row).toHaveAttribute('data-state', 'working');
+    // Same texture axis, and the head is moving because the work is.
+    expect(head).toHaveAttribute('data-status', 'building');
+    expect(row).toHaveAttribute('data-status', 'building');
+    // Decoration either way — the head's word and the row's own text carry the
+    // reading for anyone not looking at the pixels.
+    expect(head).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('working: a blocked head lights but holds still, even mid-pass', () => {
+    // Blocked is the state where nothing is moving, so its mark must not breathe
+    // — and it must not breathe in FIRE, which is what a pulsing alarm beside
+    // "blocked" would be. It used to take a CSS override to beat the head's own
+    // breathing rule; with the shared mark it is simply not given a session
+    // status, and `building` is the only status that mark moves for.
+    const { container } = renderShell({
+      board: makeBoard({
+        blocked: [
+          makeTicket({
+            id: 'b1',
+            title: 'auth refresh',
+            body: 'the full record',
+            state: 'blocked',
+            priority: 1,
+            createdAt: '2026-08-04T09:00:00Z',
+            updatedAt: '2026-08-04T11:00:00Z',
+            statusChangedAt: '2026-08-04T11:00:00Z',
+          }),
+        ],
+      }),
+      // The case the old override existed for: the brain mid-pass over a stuck
+      // board, which lights the panel without putting anything in Working.
+      thinking: true,
+    });
+    expect(headMark(container)).toHaveAttribute('data-state', 'blocked');
+    expect(headMark(container)).not.toHaveAttribute('data-status');
+  });
+
   it('working: a board naming a working ticket lights the strip even before the summary agrees', () => {
     const { container } = renderShell({
       board: makeBoard({ working: [workingTicket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
@@ -621,10 +693,10 @@ describe('DesktopScreenView', () => {
     // the second, so a head reading "working now" would be pointing at rows that
     // do not exist.
     const { container } = renderShell({ thinking: true });
-    expect(container.querySelector('[data-role="desktop-working-dot"]')).toHaveAttribute(
-      'data-active',
-      'true',
-    );
+    // Breathing is said in the shared mark's own vocabulary now — `building` is
+    // the one status it moves for — because the head wears that mark rather than
+    // a dot of its own. See "wears the same mark as the rows" below.
+    expect(headMark(container)).toHaveAttribute('data-status', 'building');
     expect(container.querySelector('[data-role="desktop-working-head"]')).toHaveTextContent('idle');
   });
 
@@ -637,12 +709,10 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-working-panel"]')).not.toBeNull();
     expect(container.querySelector('[data-role="desktop-working-list"]')).toBeNull();
     expect(screen.getByText('Nothing in progress.')).toBeInTheDocument();
-    // …and nothing about it is live: the mark does not breathe, and there is no
+    // …and nothing about it is live: the mark does not breathe (no session status
+    // on it at all, so the shared mark has nothing to move for), and there is no
     // live region re-announcing an absence.
-    expect(container.querySelector('[data-role="desktop-working-dot"]')).toHaveAttribute(
-      'data-active',
-      'false',
-    );
+    expect(headMark(container)).not.toHaveAttribute('data-status');
     expect(container.querySelector('[data-role="desktop-working-head"]')).not.toHaveAttribute(
       'role',
     );
@@ -792,7 +862,12 @@ describe('DesktopScreenView', () => {
     });
     const backlog = container.querySelector('[data-role="desktop-backlog"]');
     expect(backlog).not.toBeNull();
-    expect(backlog?.querySelector('[data-role="desktop-working-dot"]')).toBeNull();
+    // Its head carries no mark at all — not a resting one: a mark that could
+    // breathe would have nothing to report over a queue, and the difference
+    // between "running" and "waiting" is why the two sections are separate.
+    expect(
+      backlog?.querySelector('[data-role="desktop-backlog-head"] [data-role="status-dot"]'),
+    ).toBeNull();
     expect(container.querySelector('[data-role="desktop-backlog-head"]')).not.toHaveAttribute(
       'role',
     );

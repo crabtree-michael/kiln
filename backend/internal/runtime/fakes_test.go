@@ -34,6 +34,9 @@ const (
 	kindBlocked = "blocked"
 	kindStarted = "started"
 	kindDone    = "done"
+	// kindUpdate tags a feed-update push — the broad activity stream only "all"
+	// mode delivers, as opposed to the three milestones above.
+	kindUpdate = "update"
 
 	// verbProposal is the one feed-update verb that recurs across the
 	// notification tables often enough to trip goconst.

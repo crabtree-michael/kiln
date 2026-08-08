@@ -94,13 +94,24 @@ package-level (same package — see §5 for why not sub-packages).
 - **Methods:** `Feed`, `FeedHistory`; owns `notificationToCard`, `feedPageSize`.
 - Backs api `FeedReader`. Pure read/assembly, zero mutation.
 
-### 2.4 `Notify` — the tenant-scoped push choke point
+### 2.4 `Notify` — the tenant-scoped push choke point — **LANDED**
 - **Ports:** `Owner`, `Notifier`.
-- **Method:** `Send(ctx, projectID, payload)` — the current `notifyOwner`:
+- **Method:** `Send(ctx, projectID, kind, payload)` — the current `notifyOwner`:
   resolve owner → send, enforcing the tenant boundary (11 §3) in one place.
 - Used by both `Dispatcher` (the `notify.send` topic) and `FanOut` (the
   transition push). Extracting it kills the only dependency two other units
   would otherwise share.
+
+**As built (2026-08-08), amending the above.** The 02 §10 notification-mode gate
+landed *after* this plan was written and sits directly in front of `notifyOwner`,
+over the same `Owner` port (`Owner.Mode`). Leaving it on `Service` would have kept
+the `owner` port there and defeated the point, so `Notify` absorbed it and now owns
+`deliverNotification` + `notifyMode` + `notifyOwner`, plus the mode/kind consts and
+`notifyModeAllows`. The unit therefore exposes **one** exported method, `Send`,
+which takes the push `kind` and runs gate → owner-resolve → notifier; the old
+`notifyOwner` body is the unexported `sendToOwner`. Keeping it unexported makes the
+mode gate unbypassable from outside — a caller cannot reach the `Notifier` without
+passing a kind. Step 5's `FanOut` should call this same `Send`, not a raw one.
 
 ### 2.5 `FanOut` — the push / SSE coordinator
 - **Ports:** `SnapshotPusher`, `FeedPusher`, `ActivityPusher`,
@@ -318,7 +329,13 @@ first, spine last, delete last.
 
 1. **`Notify`** — extract `notifyOwner`→`Send`, move `Owner`/`Notifier` ports to
    `notify.go`. Have `Service` delegate to an embedded `*Notify` so nothing
-   else moves yet.
+   else moves yet. — **DONE 2026-08-08.** `NewService`'s signature is unchanged
+   (it builds the `*Notify` from the same `notifier`/`owner` args), so no caller
+   and no existing test moved; `Service` holds a `notify *Notify` field instead
+   of the two ports and its two push call sites go through it. New
+   `notify_test.go` builds the unit over its two fakes alone — no store, no
+   workers — which is the testability payoff §9 predicts, in miniature.
+   `service.go` 941 → 831 LOC. See the amendment in §2.4 for the one deviation.
 2. **`Feed`** — move `Feed`/`FeedHistory`/`notificationToCard`/`feedPageSize`
    into `feed_assembler.go` on `*Feed`; `Service` delegates.
 3. **`Notifications`** — move the eight CRUD methods to

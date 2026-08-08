@@ -42,7 +42,12 @@ backend/internal/runtime/
   store.go      Store port (InsertEvent, ClaimNextDue, MarkDone/MarkRetry/MarkDead) · Clock
   worker.go     Worker — serial drain loop, Nudge(), Handler/DeadLetter types
   service.go    Service — EnqueueEvent + the executor ports: Brain, Puller, Blocker,
-                AgentRuntime (Send/Release — 05 §2.1), Notifier, SnapshotPusher
+                AgentRuntime (Send/Release — 05 §2.1), SnapshotPusher. Being split
+                into six focused types (docs/god-units-plans/runtime-service.md);
+                until that finishes Service delegates each extracted slice.
+  notify.go     Notify — the tenant-scoped push choke point (split step 1, DONE):
+                Owner + Notifier ports, mode gate, owner resolution. Every Web Push
+                the runtime emits goes through its one exported Send.
   feed.go · notifications.go · transcript.go   the 07/10 additions (feed cards, notify.send, transcript)
   postgres/     store adapter
     migrations/ 0001_events.sql (04 §2; outbox DDL lives in board's 0002_outbox.sql), 0002+ since

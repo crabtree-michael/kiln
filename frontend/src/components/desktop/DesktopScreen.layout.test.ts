@@ -320,6 +320,39 @@ describe('DesktopScreen.css', () => {
     expect(mark).toMatch(/animation:\s*kiln-status-pulse/);
   });
 
+  it('keeps time with the ticket list, not merely the same tempo as it', () => {
+    // The bug this pins down, and the one the cadence test above could not catch:
+    // the head and the rows agreed on duration and curve and STILL drifted,
+    // because a CSS animation's clock starts when its own element starts
+    // animating. The head begins breathing when the panel first goes live, each
+    // row's mark when that ticket is picked up — same tempo, arbitrary phase, so
+    // they cross in and out of step forever. Matching a rate is not sharing a
+    // clock, and the eye tracks the difference.
+    //
+    // `--pulse-phase: shared` is the opt-in that puts both on one clock
+    // (pulse-phase.ts pins them to the document timeline). Both marks have to
+    // carry it: one alone is pinned to an origin the other is not reading, which
+    // is exactly the state this started in.
+    const mark = primaryRuleBody("[data-role='status-dot'][data-status='building'] {");
+    const head = ruleBody("[data-role='desktop-working-dot'][data-active='true'] {");
+    expect(mark).toMatch(/--pulse-phase:\s*shared/);
+    expect(head).toMatch(/--pulse-phase:\s*shared/);
+  });
+
+  it('leaves the rail’s project dot on a clock of its own', () => {
+    // The counter-case, and why the opt-in is a CSS property rather than a list
+    // of animation names in the sync module: the rail dot runs the SAME
+    // `kiln-breathe` keyframes as the in-progress head, deliberately at
+    // `--breathe-duration` instead of the list's tempo, alone in a column with no
+    // ticket marks beside it to keep time against. Matching on the keyframe name
+    // would sweep it into a sync it never asked for.
+    const rail = ruleBody(
+      "[data-role='rail-project-state'][data-state='working'] [data-role='rail-project-dot'] {",
+    );
+    expect(rail).toMatch(/animation:\s*kiln-breathe\s+var\(--breathe-duration/);
+    expect(rail).not.toMatch(/--pulse-phase/);
+  });
+
   it('gives the in-progress head the colour the TICKET wears, not one of its own', () => {
     // The bug this pins down: the panel head and the detail sheet were picking
     // their in-progress colour independently, so the mark beside "working now"

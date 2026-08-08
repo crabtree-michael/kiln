@@ -33,12 +33,20 @@ import { SessionProvider } from '@/stores/session';
 import { CurrentProjectProvider } from '@/stores/current-project';
 import { ThemeColorSync } from '@/components/ThemeColorSync';
 import { installAssetRecovery } from '@/asset-recovery';
+import { installPulsePhase } from '@/pulse-phase';
 
 // Arm deploy-rollover recovery before anything else: if a hashed CSS/JS asset
 // from a superseded deploy 404s (stale shell after a deploy, no SW to recover),
 // force one full reload onto the current build's shell instead of rendering
 // unstyled/blank. See asset-recovery.ts for the full rationale.
 installAssetRecovery();
+
+// Put every mark that shares a cadence on one clock, before anything renders, so
+// the first mark to animate is already pinned. Marks that declare
+// `--pulse-phase: shared` — the desk's in-progress head and the status marks
+// listed under it — otherwise run the same tempo from whenever each happened to
+// mount, and drift against each other permanently. See pulse-phase.ts.
+installPulsePhase();
 
 // Frontend error + trace reporting (spec-10 §3). The DSN is baked in at build
 // time (`VITE_SENTRY_DSN`, a public value). When it is unset — local `pnpm dev`,

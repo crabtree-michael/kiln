@@ -591,8 +591,17 @@ html:has([data-role='desktop-screen']) body {
    dot, which sits in a different column with no ticket marks beside it to
    disagree with. Only WHAT breathes stays this panel's own — opacity here, the
    halo on a status mark — because the two marks are different shapes; the
-   tempo is the part they have to share. */
+   tempo is the part they have to share.
+
+   `--pulse-phase: shared` is the rest of that agreement, and the reason matching
+   the tempo alone was not enough. A CSS animation's clock starts when its own
+   element starts animating: this head begins breathing when the panel first goes
+   live, each row's mark when that ticket is picked up. Same tempo, arbitrary
+   phase — the two peak apart and cross in and out of step forever, which is the
+   drift the eye actually tracks. The property opts this mark into the one clock
+   every other `shared` mark reads (pulse-phase.ts), so they peak together. */
 [data-role='desktop-working-dot'][data-active='true'] {
+  --pulse-phase: shared;
   background: var(--working-mark, var(--text-muted));
   box-shadow: 0 0 0 3px var(--working-mark-soft, transparent);
   animation: kiln-breathe var(--pulse-duration) ease-in-out infinite;

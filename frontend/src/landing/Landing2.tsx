@@ -73,20 +73,52 @@ function BellMark(): JSX.Element {
 }
 
 /** A theme-swapped screenshot: the dark capture in dark mode, the light capture
- * otherwise. `base` is the shared filename stem under /shots (e.g. "feed"). */
+ * otherwise. `base` is the shared filename stem under /shots (e.g. "feed").
+ *
+ * `width`/`height` are the capture's intrinsic pixel size. They are not what the
+ * image renders at — the stylesheet sizes every shot with `width: 100%; height:
+ * auto` — they are there so the browser knows the aspect ratio before the bytes
+ * arrive and can reserve the right box. Without them each shot lays out at zero
+ * height and then shoves the page down as it decodes, which on this page is a
+ * visible jump right where someone is reading the hero copy.
+ *
+ * `eager` opts one shot out of lazy loading, for a shot that is above the fold.
+ * `loading="lazy"` is right for the shots further down the page, but on the
+ * largest-contentful element it is actively harmful: it holds the request back
+ * until layout has run, so the one image the page is measured on is the last one
+ * asked for.
+ *
+ * The matching `fetchpriority="high"` is deliberately NOT set. React 18 doesn't
+ * pass the attribute through (it warns on the camelCase prop and drops it), and
+ * spelling it lowercase to sneak it past would need a cast the repo bans
+ * (02 §4b). It is worth adding on the React 19 upgrade; `loading="eager"` is the
+ * part that actually unblocks the request. */
 function ThemedShot({
   base,
   alt,
   className,
+  width,
+  height,
+  eager = false,
 }: {
   base: string;
   alt: string;
   className: string;
+  width: number;
+  height: number;
+  eager?: boolean;
 }): JSX.Element {
   return (
     <picture className={className}>
       <source srcSet={`/shots/${base}-dark.png`} media="(prefers-color-scheme: dark)" />
-      <img src={`/shots/${base}-light.png`} alt={alt} loading="lazy" decoding="async" />
+      <img
+        src={`/shots/${base}-light.png`}
+        alt={alt}
+        width={width}
+        height={height}
+        loading={eager ? 'eager' : 'lazy'}
+        decoding="async"
+      />
     </picture>
   );
 }
@@ -98,6 +130,8 @@ function PhoneFeedShot(): JSX.Element {
     <ThemedShot
       base="feed"
       className="shot-phone"
+      width={804}
+      height={1720}
       alt="The Kiln activity feed on a phone: a blocker pinned to the top, two proposals with Accept buttons, an image preview, and the voice dock at the bottom."
     />
   );
@@ -112,6 +146,11 @@ function PacmanFeedShot(): JSX.Element {
     <ThemedShot
       base="pacman"
       className="shot-phone"
+      width={804}
+      height={1720}
+      // The hero art, and so the landing page's largest-contentful paint: it
+      // loads eagerly and at high priority rather than waiting for layout.
+      eager
       alt="The Kiln activity feed after a full Pac-Man build: a stack of green ✅ completion cards — maze, ghost AI, power pellets, score, sounds, the win screen — every task shipped, with the voice dock at the bottom."
     />
   );
@@ -123,6 +162,8 @@ function DockShot(): JSX.Element {
     <ThemedShot
       base="dock"
       className="shot-dock"
+      width={804}
+      height={236}
       alt="The Kiln voice dock: a microphone button labelled Tap to talk, with a keyboard toggle."
     />
   );

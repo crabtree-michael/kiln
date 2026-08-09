@@ -27,11 +27,12 @@
 // Layering (see 02 §2). Outer layers depend inward, never the reverse:
 //
 //	interfaces  — HandleEvent(ctx, event), the runtime's Brain port (04 §2),
-//	              and the tool definitions (tools.go) that are this
+//	              and the tool definitions (tool_schemas.go) that are this
 //	              module's entire action surface (06 §4).
 //	services    — context assembly (types.go, prompt.go), the bounded tool
 //	              loop (service.go, 06 §5), and the tool→port dispatch
-//	              (tools.go), all written once against the ports below.
+//	              (tool_dispatch.go and the handlers behind it), all written
+//	              once against the ports below.
 //	infra       — the Anthropic Go SDK client behind the LLM port (llm.go),
 //	              wired at the composition root. Tests use a scripted fake
 //	              that plays back a fixed response sequence (06 §9); the SDK
@@ -40,10 +41,20 @@
 //
 // Files: doc.go (this file); service.go (Service, HandleEvent, the pass
 // loop); ports.go (BoardAPI, BoardReader, Say, ConversationReader — the
-// ports consumed); tools.go (the ToolDef schemas, the registry, and the
-// tool-call → port-method dispatch); search.go (search_tickets' keyword match
-// and paging over the board snapshot); prompt.go (the Go-template system
-// prompt, D7); llm.go (model config, the LLM port + request/response
-// shapes, and the not-yet-wired Anthropic adapter); types.go (the per-pass
-// input contract, transcript Message, and event/payload shapes, 06 §3).
+// ports consumed); search.go (search_tickets' keyword match and paging over
+// the board snapshot); prompt.go (the Go-template system prompt, D7); llm.go
+// (model config, the LLM port + request/response shapes, and the
+// not-yet-wired Anthropic adapter); types.go (the per-pass input contract,
+// transcript Message, and event/payload shapes, 06 §3).
+//
+// The action surface (06 §4) is six files rather than one, so that adding a
+// tool is one append in each place instead of five edits threaded through a
+// single 1400-line file: tool_schemas.go (tool names, input structs, the
+// Tools table of JSON-Schema definitions), tool_dispatch.go (Dispatch and the
+// name → handler table), tool_handlers.go (one handler per tool),
+// update_ticket.go (the one handler that is a state machine — the patch facade
+// validating and routing each field to the board's typed operation, with the
+// done gate), tool_results.go (the ToolResult constructors and the shared
+// argument guard) and tool_render.go (how each read tool's result reads back
+// to the model, including the "allowed now" line).
 package brain

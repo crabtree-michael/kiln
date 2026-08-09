@@ -201,6 +201,113 @@ test.describe('desk shell', () => {
   });
 });
 
+test.describe('the boundary between the tickets column and the feed is draggable', () => {
+  test.use({ viewport: DESK });
+
+  /** The column's resting width, and the floor a drag may not go under — the
+   * fixed width the column shipped at (use-working-panel-width.ts, restated in
+   * DesktopScreen.css as the grid template's fallback). Stated here as a literal
+   * on purpose: this spec's job is to catch the three of them disagreeing. */
+  const RESTING_WIDTH = 248;
+  const MAX_WIDTH = RESTING_WIDTH * 2;
+
+  /** Drag the handle by `dx`, from a point on its own line. Returns the width
+   * the tickets column ended up at. */
+  async function drag(page: import('@playwright/test').Page, dx: number): Promise<number> {
+    const handle = await box(page, "[data-role='desktop-working-resizer']");
+    const y = handle.top + handle.height / 2;
+    await page.mouse.move(handle.left + 2, y);
+    await page.mouse.down();
+    // In steps, because a single jump is one event and would pass even if the
+    // handle only tracked the release.
+    await page.mouse.move(handle.left + 2 + dx, y, { steps: 8 });
+    await page.mouse.up();
+    return (await box(page, "[data-role='desktop-working-panel']")).width;
+  }
+
+  test('rests at the width the column shipped at, with the rule on the handle', async ({
+    page,
+  }) => {
+    await mountShell(page, { band: 'none' });
+    const panel = await box(page, "[data-role='desktop-working-panel']");
+    const handle = await box(page, "[data-role='desktop-working-resizer']");
+    // Nothing has moved yet: the column is exactly where it always was.
+    expect(Math.round(panel.width)).toBe(RESTING_WIDTH);
+    // The boundary the eye reads IS the control — the 1px rule that used to be
+    // the panel's right border is now the handle's left one, at the same x.
+    expect(Math.round(handle.left)).toBe(Math.round(panel.right));
+    expect(await computed(page, "[data-role='desktop-working-resizer']", 'border-left-width')).toBe(
+      '1px',
+    );
+    expect(await computed(page, "[data-role='desktop-working-panel']", 'border-right-width')).toBe(
+      '0px',
+    );
+    // ...and the pointer says so, which is the whole of how a split view
+    // announces itself at rest: no grip, no second mark, one cursor.
+    expect(await computed(page, "[data-role='desktop-working-resizer']", 'cursor')).toBe(
+      'col-resize',
+    );
+    // The grab room reaches back over the panel's own margin, so the target is
+    // wider than the 1px line it is drawn as. A 5px column is an honest width
+    // for the rule and a mean one for a pointer.
+    expect(await paintedAt(page, handle.left - 3, handle.top + handle.height / 2)).toBe(
+      'desktop-working-resizer',
+    );
+  });
+
+  test('a drag widens the column and the feed gives up exactly that width', async ({ page }) => {
+    await mountShell(page, { band: 'none' });
+    const before = await box(page, "[data-role='desktop-feed']");
+    expect(await drag(page, 80)).toBe(RESTING_WIDTH + 80);
+
+    const panel = await box(page, "[data-role='desktop-working-panel']");
+    const feed = await box(page, "[data-role='desktop-feed']");
+    // The three regions still tile the window — the feed is what pays, and it
+    // pays the drag and nothing more. A grid that let the columns overrun would
+    // still measure "wider" here while running the feed off the screen.
+    expect(Math.round(feed.left - before.left)).toBe(80);
+    expect(Math.round(before.width - feed.width)).toBe(80);
+    expect(panel.right).toBeLessThanOrEqual(feed.left + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      DESK.width,
+    );
+    // The rows inside it took the width — a column that grew while its content
+    // stayed at 248px would look identical in a screenshot of the furniture.
+    const backlog = await box(page, "[data-role='desktop-backlog-list']");
+    expect(backlog.width).toBeGreaterThan(panel.width * 0.8);
+  });
+
+  test('is floored at the shipped width and ceilinged at twice it', async ({ page }) => {
+    await mountShell(page, { band: 'none' });
+    // Dragged hard left, past the rail and off the window: the column stops at
+    // the width below which its rows stop holding a ticket title.
+    expect(await drag(page, -600)).toBe(RESTING_WIDTH);
+    // ...and hard right, which is where the feed would otherwise be squeezed out
+    // of the window it is the point of.
+    expect(await drag(page, 900)).toBe(MAX_WIDTH);
+    const feed = await box(page, "[data-role='desktop-feed']");
+    expect(feed.width).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      DESK.width,
+    );
+  });
+
+  test('takes the same range from the keyboard', async ({ page }) => {
+    await mountShell(page, { band: 'none' });
+    // A real tab stop: the splitter is reachable and arrow-driveable, which is
+    // the half of this feature a mouse drag cannot check.
+    await page.focus("[data-role='desktop-working-resizer']");
+    await page.keyboard.press('End');
+    expect(Math.round((await box(page, "[data-role='desktop-working-panel']")).width)).toBe(
+      MAX_WIDTH,
+    );
+    await page.keyboard.press('Home');
+    expect(Math.round((await box(page, "[data-role='desktop-working-panel']")).width)).toBe(
+      RESTING_WIDTH,
+    );
+  });
+});
+
 /** How far the feed's scrolled content runs past its scrollport. The whole touch
  * rule is about keeping this above zero, so it is the measurement both sides of
  * it are stated in. */

@@ -3,7 +3,7 @@
 // made checkable: two regions and only two, the feed scoped to the selected
 // project, the states it has to hold, detail over the feed rather than beside
 // it, and a keyboard path through the column.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterAll, beforeAll, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { DesktopScreenView } from '@/components/desktop/DesktopScreenView';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
@@ -194,14 +194,21 @@ describe('DesktopScreenView', () => {
     expect(container.querySelector('[data-role="desktop-inspector"]')).toBeNull();
   });
 
-  it('orders the columns rail → in-progress → feed, left to right', () => {
+  it('orders the columns rail → in-progress → separator → feed, left to right', () => {
     // The grid places by source order, so the DOM order IS the layout. A panel
-    // authored after <main> would render to the right of the feed.
+    // authored after <main> would render to the right of the feed — and the
+    // separator sits between the two regions whose boundary it moves, which is
+    // also where its tab stop belongs.
     const { container } = renderShell();
     const roles = Array.from(
       container.querySelectorAll<HTMLElement>('[data-role="desktop-screen"] > [data-role]'),
     ).map((node) => node.dataset.role);
-    expect(roles).toEqual(['desktop-rail', 'desktop-working-panel', 'desktop-main']);
+    expect(roles).toEqual([
+      'desktop-rail',
+      'desktop-working-panel',
+      'desktop-working-resizer',
+      'desktop-main',
+    ]);
   });
 
   it('renders the rail from the projects it is given and switches on click', () => {
@@ -1179,5 +1186,137 @@ describe('DesktopScreenView', () => {
     const { container } = renderShell({ composer: <div data-role="test-composer" /> });
     const region = container.querySelector('[data-role="desktop-composer-region"]');
     expect(region?.querySelector('[data-role="test-composer"]')).not.toBeNull();
+  });
+
+  describe('the boundary between the tickets column and the feed is draggable', () => {
+    // jsdom ships no PointerEvent, so testing-library's fireEvent.pointer* would
+    // drop the clientX the drag is measured from. Backed by a MouseEvent, which
+    // jsdom does carry coordinates for — same stand-in SwipeToDismiss.test.tsx
+    // uses, and stubbed only for this group since nothing else in this file
+    // sends a pointer anywhere.
+    class StubPointerEvent extends MouseEvent {
+      readonly pointerId: number;
+      readonly pointerType: string;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerId = params.pointerId ?? 0;
+        this.pointerType = params.pointerType ?? '';
+      }
+    }
+
+    beforeAll(() => {
+      vi.stubGlobal('PointerEvent', StubPointerEvent);
+    });
+
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function at(clientX: number): PointerEventInit {
+      return { clientX, clientY: 400, pointerId: 1, pointerType: 'mouse', button: 0 };
+    }
+
+    /** The shell root — where the live width is published, because it is the
+     * element whose grid template reads it. */
+    function shell(container: HTMLElement): HTMLElement {
+      const node = container.querySelector<HTMLElement>('[data-role="desktop-screen"]');
+      if (node === null) {
+        throw new Error('desktop-screen not found');
+      }
+      return node;
+    }
+
+    function publishedWidth(container: HTMLElement): string {
+      return shell(container).style.getPropertyValue('--desk-working-width');
+    }
+
+    function handle(): HTMLElement {
+      return screen.getByRole('separator', { name: 'Resize the tickets column' });
+    }
+
+    it('is a window splitter that reports where the boundary is', () => {
+      // The ARIA pattern, not a slider and not a button: a separator with a
+      // value, bounded by the width the column shipped at and twice it. The
+      // value is on the element from the first paint — a splitter with no
+      // `aria-valuenow` is one a screen reader cannot report.
+      const { container } = renderShell();
+      const splitter = handle();
+      expect(splitter).toHaveAttribute('aria-orientation', 'vertical');
+      expect(splitter).toHaveAttribute('aria-valuemin', '248');
+      expect(splitter).toHaveAttribute('aria-valuemax', '496');
+      expect(splitter).toHaveAttribute('aria-valuenow', '248');
+      expect(splitter.tabIndex).toBe(0);
+      expect(publishedWidth(container)).toBe('248px');
+    });
+
+    it('widens the column by exactly what the pointer travelled', () => {
+      const { container } = renderShell();
+      const splitter = handle();
+      fireEvent.pointerDown(splitter, at(500));
+      fireEvent.pointerMove(splitter, at(560));
+      fireEvent.pointerUp(splitter, at(560));
+      // Measured from where the drag STARTED, so grabbing the handle anywhere
+      // across its width moves the edge by nothing until the pointer does.
+      expect(publishedWidth(container)).toBe('308px');
+      expect(splitter).toHaveAttribute('aria-valuenow', '308');
+    });
+
+    it('never narrows past the width it shipped at, nor widens past twice it', () => {
+      const { container } = renderShell();
+      const splitter = handle();
+      fireEvent.pointerDown(splitter, at(500));
+      fireEvent.pointerMove(splitter, at(50));
+      expect(publishedWidth(container)).toBe('248px');
+      // ...and the drag is still live at the floor: pushing back out from there
+      // tracks the pointer again rather than resuming from where it left.
+      fireEvent.pointerMove(splitter, at(4000));
+      expect(publishedWidth(container)).toBe('496px');
+      fireEvent.pointerUp(splitter, at(4000));
+      expect(splitter).toHaveAttribute('aria-valuenow', '496');
+    });
+
+    it('takes the same range from the keyboard, arrows and ends', () => {
+      const { container } = renderShell();
+      const splitter = handle();
+      fireEvent.keyDown(splitter, { key: 'ArrowRight' });
+      expect(publishedWidth(container)).toBe('264px');
+      fireEvent.keyDown(splitter, { key: 'ArrowLeft' });
+      expect(publishedWidth(container)).toBe('248px');
+      fireEvent.keyDown(splitter, { key: 'End' });
+      expect(publishedWidth(container)).toBe('496px');
+      fireEvent.keyDown(splitter, { key: 'Home' });
+      expect(publishedWidth(container)).toBe('248px');
+      expect(splitter).toHaveAttribute('aria-valuenow', '248');
+    });
+
+    it('says a drag is in flight for as long as it lasts, and no longer', () => {
+      // What the whole window reads to keep the resize cursor up and stop
+      // selecting text under a pointer that is captured by a 5px handle and
+      // spends the drag somewhere else entirely.
+      const { container } = renderShell();
+      const splitter = handle();
+      expect(shell(container)).not.toHaveAttribute('data-resizing');
+      fireEvent.pointerDown(splitter, at(500));
+      expect(shell(container)).toHaveAttribute('data-resizing', 'true');
+      fireEvent.pointerUp(splitter, at(520));
+      expect(shell(container)).not.toHaveAttribute('data-resizing');
+    });
+
+    it('ends the drag when the browser cancels the pointer', () => {
+      // A cancel is how a touch that turned into something else ends, and this
+      // shell is width-gated: a landscape tablet drives it by finger.
+      const { container } = renderShell();
+      const splitter = handle();
+      fireEvent.pointerDown(splitter, at(500));
+      fireEvent.pointerMove(splitter, at(540));
+      fireEvent.pointerCancel(splitter, at(540));
+      expect(shell(container)).not.toHaveAttribute('data-resizing');
+      // Where the pointer left it is the width the user chose — there is nothing
+      // to spring back to.
+      expect(publishedWidth(container)).toBe('288px');
+      // ...and the ended drag has stopped tracking: a stray move is not a resize.
+      fireEvent.pointerMove(splitter, at(700));
+      expect(publishedWidth(container)).toBe('288px');
+    });
   });
 });

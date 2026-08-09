@@ -81,12 +81,21 @@ package-level (same package — see §5 for why not sub-packages).
 - **Methods:** `PostMessage`, `Say`, `Recent`.
 - Backs api `MessagePoster` + `MessagesReader`, brain `Say` + `ConversationReader`.
 
-### 2.2 `Notifications` — notification CRUD
+### 2.2 `Notifications` — notification CRUD — **LANDED**
 - **Ports:** `NotificationStore` (writer + reader; `List*` needs the read half).
 - **Methods:** `PostNotification`, `PostPoke`, `RetractNotification`,
   `DismissNotification`, `DismissAllNotifications`, `EditNotification`,
   `ListNotifications`, `MarkSeen`.
 - Backs api `FeedMutator`, brain `NotificationStore` + `FeedReader`, steward `PostPoke`.
+
+**As built (2026-08-09).** Exactly as specified. Its one port is the full
+`NotificationStore` rather than the write half, because `ListNotifications` reads
+the brain's active-card view — so unlike `Feed`, this unit's discipline is not
+structural but uniform: every method is a single store call that writes its row
+and appends the `feed.updated` outbox entry in the same transaction, and every
+failure is returned rather than logged-and-dropped. That is the property §9 calls
+out, and it is now legible in one file instead of interleaved with `FanOut`'s
+best-effort pushes.
 
 ### 2.3 `Feed` — the feed assembler — **LANDED**
 - **Ports:** `BoardReader`, `NotificationReader` (read-only — reuse the existing
@@ -356,7 +365,20 @@ first, spine last, delete last.
    board reader and a notification store instead of eleven fakes, a clock and a
    worker. `service.go` 831 → 718 LOC.
 3. **`Notifications`** — move the eight CRUD methods to
-   `notification_service.go`; `Service` delegates.
+   `notification_service.go`; `Service` delegates. — **DONE 2026-08-09.**
+   `NewService`'s signature is unchanged for the third time (it builds the
+   `*Notifications` from the same `notifications` arg), so again no caller moved.
+   The port `Service` keeps is now **narrowed to `NotificationWriter`**: the read
+   half went to `Feed` in step 2 and the CRUD here, leaving
+   `handleFeedCompletion`'s `PostCompletionCard` as the one notification write
+   `Service` still performs itself — it and the port both leave in step 5. Like
+   step 2 the tests **moved** rather than being duplicated (the four delegation
+   assertions exercised nothing but the store hop), and the now-trivial
+   constructor bought four more: `PostPoke`'s card shape, retract-vs-dismiss, and
+   clear-all had no unit coverage before, because asserting them through the god
+   object cost eleven fakes, a clock and a worker. That is the testability payoff
+   §9 predicts showing up as coverage rather than as brevity.
+   `service.go` 718 → 691 LOC.
 4. **`Transcript`** — move `PostMessage`/`Say`/`Recent`; add `Nudger` hook;
    `Service` delegates and passes itself as the nudger for now.
 5. **`FanOut`** — move the four UI handlers + `pushThinking` + push helpers +

@@ -690,6 +690,15 @@ The mic is dressed in the *other* stylesheet (`PrimaryScreen.css`, unscoped, so 
 footer picks it up wherever it is placed), which is exactly the kind of seam an edit to one
 side walks past. If you restyle the mic, restyle these with it.
 
+**And so are the two that replace them mid-utterance.** `dock-send` and `dock-cancel` — the
+pair the state actions hand the trailing slot to — are the same 54px disc now, on the dock as
+well as in the sheet; they came over from the dock at 40px, so starting to speak used to swap
+two mic-sized buttons for two small ones in the same place. That rule lives in
+`PrimaryScreen.css` beside the mic's, unscoped like it, with two scoped exceptions that are
+each there on purpose: the dock's own keyboard mode holds send at 40px (no mic in that row to
+match — see the `voice-pipeline` skill), and the desktop composer keeps its borrowed × at
+30px. Measured in `tests/layout/ticket-detail.spec.ts` and `voice-controls.spec.ts`.
+
 ### Poke is offered on every working ticket, idle session or not
 
 Poke shows on **working|blocked whenever `onPoke` is wired** — there is no `agentIdle` prop

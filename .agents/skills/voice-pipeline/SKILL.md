@@ -70,6 +70,28 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
   exercise a real mic/socket/network in the offline gate.
 - Unit (backend): `internal/voice/assemblyai/client_test.go` against an `httptest.Server`;
   `internal/api` token-route tests against a `fakeVoiceTokenMinter` (happy 200, mint → 502).
+- **Layout gate — the speaking arrangement is reachable, offline: `speak(page, mic, text)` in
+  `tests/layout/harness.ts`.** jsdom performs no layout, so anything about where the dock's
+  send/× actually LAND needs a browser, and the mic is what stands between the gate and that
+  state. `mountShell` now installs the three stand-ins that get past it, and the real store
+  runs its real machine on the other side (no key, no network, no billing): Chromium's fake
+  capture device (config `launchOptions` + `permissions: ['microphone']`), a stubbed
+  `/api/voice/token`, and `page.routeWebSocket` over the AssemblyAI host, which `speak` then
+  pushes one **partial** `Turn` down. Partial on purpose — a formatted final arms the
+  auto-send, which fires on a wall clock and takes the controls off screen mid-spec. Three
+  traps, each of which surfaces as the same useless `AbortError: Unable to load a worklet's
+  module` and a mic stuck in Retry:
+  - **The token's `expires_at` must be minutes out, not years.** The store schedules its
+    proactive refresh as `setTimeout(expiry - now - buffer)`, and a delay past the 32-bit
+    millisecond ceiling (~24.8 days) wraps to ~immediately — so a far-future expiry tears the
+    stream down mid-setup, closing the AudioContext while `addModule` is still fetching.
+  - **Vite's DEV server cannot serve the PCM worklet as a worklet module** (it hands back an
+    ES module with the HMR preamble; a worklet global scope has no import machinery). A prod
+    build inlines it, so this is the gate's problem alone — `addModule` is patched to load a
+    same-named no-op processor instead.
+  - **That stand-in has to arrive as a `data:` URL.** A worklet fetches its module in its own
+    realm, so `page.route` never sees the request, and a blob URL minted in the page races its
+    own registration.
 - Gated real-service smoke: `tests/tests/voice-token-mints.spec.ts` — **only** runs with
   `KILN_VOICE_SMOKE=1` (real AssemblyAI; never in `make check`). It mints via the backend and
   authenticates a real socket (no audio asset needed); the audio→`human.message` assertion runs
@@ -119,6 +141,18 @@ addition is a token-minting route, so the API key never leaves `/backend` (02 §
   sent). Empty/whitespace finals never POST (and never restart).
 - Keep decision logic in `commit-machine` (pure, testable); keep all I/O in `voice-store` /
   `assemblyai-client`. The machine returns a `commit` intent; the store performs the POST.
+- **Send, × and the mic are one size (54px) and, on the dock, live on the row's two FLANKS.**
+  The pair used to be 40px circles hugging the mic; both halves of that were wrong. Size:
+  they are the mic's peers on every surface (the ticket sheet's footer already dresses
+  Accept/Delete/Poke at the mic's 54px disc — see the web-client skill), and the two smallest
+  targets on the row were the ones carrying the irreversible actions. Placement: at 54px,
+  clustered means "send this" and "throw this away" a few pixels apart under a thumb, so the
+  1fr/auto/1fr grid now pushes send to `justify-self: start` in column 1 and × to
+  `justify-self: end` in column 3, with the mic still centred between them. **Keyboard mode is
+  the deliberate exception** and overrides send back to 40px: there is no mic orb in that row,
+  and send's peers there are the voice toggle and the dismiss button. All of it is measured in
+  `tests/layout/voice-controls.spec.ts` (+ the sheet's pair in `ticket-detail.spec.ts`) —
+  every one of these renders identically in the DOM whether it holds or not.
 - **Grace-window timing lives in the store, not the machine.** An end-of-turn final arms
   `state.pending` (machine); the *timer* is the store's. It runs off an **absolute deadline**
   (`graceDeadlineRef` = `Date.now() + COMMIT_DELAY_MS`), not a fixed-duration `setTimeout`, so

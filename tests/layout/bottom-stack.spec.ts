@@ -95,15 +95,65 @@ test.describe('phone shell — the bottom-anchored stack', () => {
     }
   });
 
-  test('the thinking chip never lands on "Show earlier"', async ({ page }) => {
-    // The reserve's other occupant, and the reason the drop above is gated on a
-    // real band: the chip is narrow, centred and floating, with no fill to hide
-    // anything behind it. Dropping the control through the reserve for THIS
-    // would land the chip on the control's label.
+  test('the thinking chip overlays "Show earlier" too — it does not lift it', async ({ page }) => {
+    // The reserve's other occupant, and the half the old paint-only drop
+    // deliberately left out: the drop was gated on a real toast band, so Kiln
+    // starting to think lifted this control ~29px up the screen and dropped it
+    // back when the chip went. The chip is a transient indicator like a toast,
+    // and it floats over the feed for the same reason — so it moves nothing
+    // either, and simply hovers over the control it lands on.
+    const standoffs: Record<string, number> = {};
+    for (const thinking of [false, true]) {
+      await mountShell(page, { band: 'none', thinking });
+      const control = await box(page, "[data-role='feed-show-earlier']");
+      const dock = await box(page, "[data-role='dock-region']");
+      standoffs[String(thinking)] = Math.round(dock.top - control.bottom);
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
+    expect(standoffs['true']).toBe(standoffs['false']);
+
+    // ...and it is genuinely on top of it, not merely beside it: the chip is
+    // opaque, so where the two meet the chip is what the user sees.
     await mountShell(page, { band: 'none', thinking: true });
     const chip = await box(page, "[data-role='thinking-indicator']");
     const control = await box(page, "[data-role='feed-show-earlier']");
-    expect(intersects(chip, control)).toBe(false);
+    expect(intersects(chip, control)).toBe(true);
+    // The chip's own word is what answers there, not the control underneath it
+    // (`thinking-text` is the span inside the pill — either is the chip).
+    expect(
+      await paintedAt(page, chip.left + chip.width / 2, chip.top + chip.height / 2),
+    ).toMatch(/^thinking-/);
+  });
+
+  test('the board is one size in every band state', async ({ page }) => {
+    // The regression underneath the control's: the reserve is `padding-bottom`
+    // on a scroll container, which extends the scroll AND shrinks the content
+    // box — so every toast and every "Kiln is thinking" resized the board behind
+    // it (529 → 500 → 478 → 411px at this viewport) and everything anchored to
+    // its foot rode the change. The wrapper hands the band's growth back
+    // (`--feed-overlay-slack`), so the laid-out board is one height throughout
+    // and only the scroll extent moves.
+    const heights: Record<string, number> = {};
+    for (const state of [
+      { key: 'rest', band: 'none', thinking: false },
+      { key: 'thinking', band: 'none', thinking: true },
+      { key: 'toast', band: 'toast', thinking: false },
+      { key: 'say', band: 'say', thinking: false },
+      { key: 'both', band: 'say', thinking: true },
+    ] as const) {
+      await mountShell(page, { band: state.band, thinking: state.thinking, cards: 0 });
+      // The band really is standing there — a state that silently failed to
+      // produce one would pass this test by not testing anything.
+      const row = await box(page, "[data-role='activity-row']");
+      expect(row.height, `${state.key}: no band to be unaffected by`).toBeGreaterThan(
+        state.key === 'rest' ? 0 : 12,
+      );
+      heights[state.key] = Math.round((await box(page, "[data-role='feed-scroll']")).height);
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
+    for (const key of ['thinking', 'toast', 'say', 'both']) {
+      expect(heights[key], `the board resized when the band was "${key}"`).toBe(heights['rest']);
+    }
   });
 
   test('nothing the feed pins into the reserve paints over the dock layer', async ({ page }) => {

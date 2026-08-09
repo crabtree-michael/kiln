@@ -355,17 +355,15 @@ html:has([data-role='desktop-screen']) body {
      while there is a band to publish — so the idle layout is untouched, and it
      grows and shrinks with the toasts.
 
-     This is the desktop half of the layering principle the phone states in
-     PrimaryScreen.css: the pinned control rides the live height of the layers
-     below it, and it does so INDIRECTLY, through this padding. A sticky box is
-     clamped to its containing block, whose bottom edge is this region's CONTENT
-     box — so reserving the band here lands "Show earlier" exactly on top of the
-     band instead of underneath it. The desk had no reserve at all until this
-     line, which is why a toast simply hid the control (the phone was never
-     affected: its feed has named both overlay vars since they existed). Do NOT
-     also name the var on the control's own `bottom` — that applies the clearance
-     twice, floating it a band's height off the composer with the feed showing
-     through the gap.
+     It is SCROLL allowance and nothing else. Padding on a scroll container also
+     shrinks its content box, so on its own this line made every toast shorten
+     the feed behind it and lift whatever ends it — the pinned control, the
+     resting block's centring. The wrapper below takes that share straight back
+     (`--feed-overlay-slack`), so the laid-out feed is one height in every band
+     state and the padding is left doing only the thing it is for: letting the
+     last card be scrolled clear of an opaque band standing over it. Do NOT also
+     name the var on the control's own `bottom` — that is the same clearance a
+     third time.
 
      The composer region's own top padding (the mic's glow room) is what gives
      the control air below it at rest. */
@@ -396,11 +394,24 @@ html:has([data-role='desktop-screen']) body {
    and turning this back into a plain block would quietly return the control to
    the end of the cards. It is the control's containing block now, so the sticky
    half of that anchoring hangs off it; it runs the full scrolled height, so
-   `bottom: 0` still pins the control to the region's floor. */
+   `bottom: 0` still pins the control to the region's floor.
+
+   It also carries the desk's half of "a toast is not a layout event", off the
+   same var the phone reads (`--feed-overlay-slack`, declared for both roots in
+   PrimaryScreen.css). The region's `padding-bottom` above grows with the live
+   band, which shrinks the content box this wrapper stretches into — so a toast
+   arriving shortened the feed and lifted everything anchored to its foot. Adding
+   the band's growth back here cancels the two out exactly: the wrapper is the
+   same height in every band state, so the resting block, the cards and the
+   pinned control all stay put, and what the padding still buys is the scroll
+   extent past that height. Restating this rule without the term is how the desk
+   would start resizing again while the phone stayed still — which is the drift
+   between the shells this has already been fixed for twice. */
 [data-role='desktop-feed-scroll'] {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
+  min-height: calc(100% + var(--feed-overlay-slack, 0px));
 }
 
 /* A short feed still has to feel like a surface you can move. A scroll container
@@ -428,7 +439,10 @@ html:has([data-role='desktop-screen']) body {
    propagates out of the feed finds nothing to move. */
 @media (hover: none) and (pointer: coarse) {
   [data-role='desktop-feed-scroll'] {
-    min-height: calc(100% + 1px);
+    /* The pixel rides ON TOP of the band's slack rather than replacing it —
+       dropping the term here would leave the tablet reading (this rule's whole
+       reason to exist) resizing its feed on every toast. */
+    min-height: calc(100% + var(--feed-overlay-slack, 0px) + 1px);
   }
 }
 

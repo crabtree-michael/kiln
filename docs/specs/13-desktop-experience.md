@@ -334,9 +334,27 @@ that a glance answers "is it alive, and does it want me":
    is what makes it complete: a ticket can be worked for a long time without the brain
    authoring a card about it.
 
+   **Amended 2026-08-09: it names the blocked tickets too.** The strip listed the Working
+   bucket and took the Blocked one as a *count* — enough to colour its head and to say that
+   *a* ticket needed the user, never enough to say which. So the one state on the board
+   that exists to be answered by a person was the one state this column would not name, on
+   the surface a desk user reads first and leaves open all day; the blocker was reachable
+   only through a feed card, which scrolls away and collapses once seen. The blocked
+   tickets are now rows in the same list, above the working ones — a row that wants a
+   decision does not sit under rows that want nothing — each wearing the ticket's own
+   BLOCKED reading and the word "needs you", and each opening the same detail overlay a
+   working row does. They do not breathe: a blocked ticket is the absence of motion with a
+   name on it, and this section's liveness is still the working rows alone. The blocker's
+   *reason* stays in the feed card and the sheet — a column of titles is not where a
+   paragraph goes. The phone has always listed both states together (`08` §2's dropdown)
+   and `/kanban` gives blocked a column of its own; this brings the desk's ticket panel
+   level with both.
+
    Everything the strip does *not* do is the same list as before: no count, no badge, no
-   bar, no log tail, nothing that ticks, and no accent — a row is a title, a word, and a
-   relative age.
+   bar, no log tail, nothing that ticks — a row is a title, a word, and a relative age. The
+   "no accent" in that list is now stated the way §4 states it: fire appears here on a
+   blocked row and nowhere else in the section, which is not a second spend of the budget
+   but the one thing the budget is *for*. A working row wearing it was the original bug.
 3. **The feed itself changing** — the strongest signal, and free. Cards arriving and
    blockers clearing *are* the evidence that work is happening. The design's job is mostly
    to not get in their way.
@@ -370,7 +388,7 @@ against.
 | --- | --- |
 | **Resting** — nothing needs you | Composed, not empty. The rail is quiet, the feed shows recent history, the window looks almost blank and is completely honest. This is the state the design is optimized for. |
 | **Working** — agents mid-turn, nothing needed | The breathing indication is on and the tickets being worked are named under it (§8.2, amended); the feed is otherwise still. "It's handling *these*, and it doesn't need you." |
-| **Needs you** — a blocker or a proposal | The one loud moment. Accent present, question in full, answerable in place. Everything else on screen stays exactly as quiet as it was. |
+| **Needs you** — a blocker or a proposal | The one loud moment. Accent present, question in full, answerable in place — and the blocked ticket is *named* in the tickets column as well (§8.2, amended 2026-08-09), so it stays findable after the card has been read past. Everything else on screen stays exactly as quiet as it was. |
 | **Fresh / zero projects** | Falls through to the existing setup gate (`12` §4.1). Desktop does not invent a second onboarding. |
 | **Disconnected** | Must be stated, not hidden — an ambient app that has silently stopped receiving is worse than one that is visibly off. Low-key and permanent while it lasts, not a modal. |
 

@@ -919,10 +919,14 @@ html:has([data-role='desktop-screen']) body {
 }
 
 /* The word only present when the ticket is NOT the section's expected case —
-   a session that is stopped, failing or starting up in the working list; a
-   proposal still awaiting acceptance in the backlog. It is stated in the same
-   neutral ink either way: a wedged sandbox is a fact, not an alarm, and the
-   accent belongs to things that want a decision (13 §4). */
+   a session that is stopped, failing or starting up in the working list, or a
+   ticket blocked on the user ("needs you"); a proposal still awaiting acceptance
+   in the backlog. It is stated in the same neutral ink in every one of those
+   cases, the blocker included, and that is deliberate: the ROW's alarm is its
+   mark, which is already fire, and a second element in the same ink beside it
+   would double the spend on one row without adding a reading. A wedged sandbox
+   is a fact, not an alarm; a blocker is an alarm, and it is the mark that
+   sounds it (13 §4). */
 [data-role='desktop-working-note'],
 [data-role='desktop-backlog-note'] {
   flex: none;

@@ -196,11 +196,11 @@ export function ProjectModal({
     });
   }, [onDelete, onClose, project]);
 
-  // The trash glyph alone, at the leading edge of the form's action bar. Like
-  // the modal's ×, it carries no visible label, so its accessible name has to
-  // come from `aria-label` (and `title` gives a pointer user the same word on
-  // hover). A paragraph of danger-zone copy said nothing the confirm dialog
-  // doesn't say at the moment it matters.
+  // The trash glyph alone, at the leading edge of the form's action bar. Like the
+  // Close button above it carries no visible label, so its accessible name comes
+  // from `aria-label` (and `title` gives a pointer user the same word on hover).
+  // A paragraph of danger-zone copy said nothing the confirm dialog doesn't say
+  // at the moment it matters.
   const deleteButton =
     onDelete !== undefined && project !== undefined ? (
       <button
@@ -233,10 +233,10 @@ export function ProjectModal({
             <FolderIcon />
             {project === undefined ? 'New project' : 'Project settings'}
           </span>
-          {/* The × alone. "Close" beside a close glyph is a word that tells a
-              sighted reader nothing the glyph didn't; the name a screen reader
-              needs comes from `aria-label`, and `title` gives a pointer user the
-              same word on hover. */}
+          {/* The X alone. A dismiss glyph in a dialog's top-right corner is as
+              unambiguous as UI gets, and the word beside it only widened the bar;
+              the accessible name moves to `aria-label` (with `title` giving a
+              pointer user the same word on hover). */}
           <button
             type="button"
             data-role="close-project-modal"

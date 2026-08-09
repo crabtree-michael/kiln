@@ -208,21 +208,6 @@ export interface ProjectFieldsProps {
   onSave: (body: ProjectUpdateRequest) => Promise<void>;
 }
 
-/** One line of "what this snapshot actually is", for the modal's sandbox
- * section: where it was captured from and when, so picking a base image isn't a
- * guess from an opaque ref. */
-function snapshotDetail(snap: Snapshot): string {
-  const parts: string[] = [snap.ref];
-  if (snap.source !== '') {
-    parts.push(`captured from ${snap.source}`);
-  }
-  const captured = new Date(snap.created_at);
-  if (!Number.isNaN(captured.getTime())) {
-    parts.push(captured.toLocaleDateString(undefined, { dateStyle: 'medium' }));
-  }
-  return parts.join(' · ');
-}
-
 interface SandboxInfoProps {
   catalogAvailable: boolean;
   snapshots: Snapshot[];
@@ -231,22 +216,18 @@ interface SandboxInfoProps {
 }
 
 /** What the snapshot picker above actually means, in words (projects-in-a-modal,
- * "sandbox info"). A snapshot ref on its own says nothing about which sandbox a
- * worker will boot into, so each of the four states the picker can be in gets a
- * plain-language reading: no catalog at all, the deployment default, a snapshot
- * from the catalog (with where it was captured from and when), or a stored handle
- * the catalog no longer lists. */
-function SandboxInfo({ catalogAvailable, snapshots, selectedRef }: SandboxInfoProps): JSX.Element {
+ * "sandbox info"). Only rendered where the picker itself leaves something unsaid:
+ * nothing picked (what "default" gets you, and why a snapshot is worth picking),
+ * or a stored handle the catalog no longer lists. A snapshot picked *from* the
+ * catalog needs no reading — the option label above already names it — and with
+ * no catalog at all the field is a free-text handle that speaks for itself. */
+function SandboxInfo({
+  catalogAvailable,
+  snapshots,
+  selectedRef,
+}: SandboxInfoProps): JSX.Element | null {
   if (!catalogAvailable) {
-    return (
-      <div data-role="sandbox-info" data-state="no-catalog">
-        <p>
-          This project&apos;s agent provider manages its own sandboxes, so there is no Amika
-          snapshot catalog to pick from. The handle above is passed to the provider as written —
-          leave it blank to use the deployment&apos;s default image.
-        </p>
-      </div>
-    );
+    return null;
   }
 
   if (selectedRef === '') {
@@ -261,32 +242,17 @@ function SandboxInfo({ catalogAvailable, snapshots, selectedRef }: SandboxInfoPr
     );
   }
 
-  const selected = snapshots.find((snap) => snap.ref === selectedRef);
-  if (selected === undefined) {
-    return (
-      <div data-role="sandbox-info" data-state="unlisted">
-        <p>
-          Workers start from <code>{selectedRef}</code>, which this project&apos;s catalog no longer
-          lists — it may have been deleted, or belong to another Amika account. It stays in use
-          until you pick another snapshot.
-        </p>
-      </div>
-    );
+  if (snapshots.some((snap) => snap.ref === selectedRef)) {
+    return null;
   }
 
   return (
-    <div data-role="sandbox-info" data-state="snapshot">
+    <div data-role="sandbox-info" data-state="unlisted">
       <p>
-        Workers start from{' '}
-        <strong data-role="sandbox-snapshot-name">
-          {selected.name === '' ? selected.ref : selected.name}
-        </strong>
-        {selected.state === 'ready' ? '.' : ` (${selected.state}).`}
+        Workers start from <code>{selectedRef}</code>, which this project&apos;s catalog no longer
+        lists — it may have been deleted, or belong to another Amika account. It stays in use until
+        you pick another snapshot.
       </p>
-      {selected.description !== '' ? (
-        <p data-role="sandbox-snapshot-description">{selected.description}</p>
-      ) : null}
-      <p data-role="sandbox-snapshot-detail">{snapshotDetail(selected)}</p>
     </div>
   );
 }

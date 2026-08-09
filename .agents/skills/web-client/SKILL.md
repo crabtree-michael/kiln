@@ -538,10 +538,12 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
   in place + the repo picker, together — there is no raw URL field anywhere) over grouped
   Agent and Sandbox sections. Both branches render the *same* field elements, built once above
   the branch, so the two shells can't drift in what they render or submit.
-- **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words, in four
-  states (`data-state`: `no-catalog` / `default` / `snapshot` / `unlisted`). Keep it
-  provider-neutral outside the catalog case — a provider that manages its own sandboxes gets
-  the `no-catalog` reading, so the group's own hint text must not promise Amika.
+- **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words **only
+  where the picker leaves something unsaid** — two states (`data-state`: `default` /
+  `unlisted`). It renders `null` when the provider exposes no catalog (the free-text handle
+  field speaks for itself) and when the picked ref *is* in the catalog (the option label above
+  already names it). Don't reintroduce a reading that just restates the control. The group's
+  own hint text must stay provider-neutral — it must not promise Amika.
 - **The modal is hand-rolled, not `<dialog>`.** jsdom 25 (the whole DOM suite) ships **no
   `HTMLDialogElement`** — `showModal` is `undefined` — so a native dialog would be untestable
   in the gate. `ProjectModal` therefore owns Escape, the scrim press (only one that *starts*

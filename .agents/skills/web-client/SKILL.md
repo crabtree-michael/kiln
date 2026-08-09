@@ -55,6 +55,43 @@ client↔server types.
   truth.
 _(Accumulate: how to run the frontend locally, build/test commands, the boundary — `/frontend`.)_
 
+## Text earns its place (standing principle)
+
+*Applies to every surface in `/frontend` — mobile shell, desktop shell, dashboard, sheets.
+This is a default to design against, not a lint rule; the reviewer is you.*
+
+**A glyph whose meaning is unambiguous ships without a label.** A × beside the word
+"Close", a trash can beside "Delete", a gear beside "Settings" — the word tells a sighted
+reader nothing the glyph didn't, and it costs a control's worth of width on a 390px
+screen. Ship the icon alone.
+
+The accessibility of that is not optional and not hard: an icon-only control takes its
+accessible name from `aria-label`, and `title` gives a pointer user the same word on
+hover. The icons in `dashboard/icons.tsx` are all `aria-hidden`, so **without an
+`aria-label` an unlabelled icon button is nameless to a screen reader** — a real bug, and
+the reason the two rules travel together. Test queries stay `getByRole('button', { name:
+'Close' })`; the name is the contract, the visible text is not.
+
+The exceptions are the glyphs that are genuinely ambiguous — a control whose icon could
+plausibly mean two things, or one that carries a *value* rather than an action (a model
+name, a branch, a count). Those keep their text. "Would a first-time user hesitate?" is
+the test, and the answer for × is no.
+
+Styling follows: an icon-only button is square and a ghost at rest, not a padded pill with
+its label removed. `[data-role='close-project-modal']` and `[data-role='delete-project']`
+in `Dashboard.css` are the pattern — `width: 32px; padding: 0; border-color: transparent`,
+glyph sized in px because there is no neighbouring text to stay proportional to.
+
+**The same economy applies to prose.** Do not write help copy for something the context
+already says. A danger-zone paragraph under a delete button says nothing the confirm
+dialog doesn't say at the moment it matters; a hint under a field whose label already
+names it is noise the user learns to skip, which is worse than absent because it teaches
+them to skip the hints that *do* matter. Placeholder text, section blurbs, "you can also…"
+asides: cut by default, add back only where a real reader would otherwise get it wrong.
+
+The bar for any string on screen: **it changes what someone does.** If it doesn't, it is
+weight — on the screen, in the DOM, and in every future diff that has to keep it true.
+
 ## Bottom-anchored UI layering (standing principle)
 
 *Intent, not enforcement. The rules below are checked as computed geometry in

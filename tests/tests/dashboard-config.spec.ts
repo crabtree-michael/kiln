@@ -42,9 +42,9 @@ test('dashboard onboarding stores config and reflects status', async ({ page }) 
   await page.getByLabel('Amika API key').fill('sk-amika-e2e-fake-x4Kd');
   await page.locator('[data-role="api-key-save"]').click();
   // The row is the whole report: it flips to connected and its action becomes
-  // "Update key". The stored key's tail lives in the dialog, not on the row.
+  // "Configure". The stored key's tail lives in the dialog, not on the row.
   await expect(amikaCard).toHaveAttribute('data-connected', 'true');
-  await expect(amikaCard.locator('[data-role="integration-connect"]')).toHaveText('Update key');
+  await expect(amikaCard.locator('[data-role="integration-connect"]')).toHaveText('Configure');
   await amikaCard.locator('[data-role="integration-connect"]').click();
   await expect(page.getByLabel('Amika API key')).toHaveAttribute('placeholder', /x4Kd/);
   await page.locator('[data-role="api-key-cancel"]').click();

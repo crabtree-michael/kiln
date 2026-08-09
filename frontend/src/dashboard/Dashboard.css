@@ -1585,7 +1585,7 @@ html:has([data-role='settings']) {
   background: var(--calm);
 }
 
-/* The right-hand action slot: Connect / Update key, plus the live validity
+/* The right-hand action slot: Connect / Configure, plus the live validity
    mark. `margin-left: auto` is the whole point — it pushes the action to the
    card's right edge instead of letting it sit inline after the identity
    text. */

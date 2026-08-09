@@ -823,6 +823,16 @@ twice over: smaller than the mic it stands beside in the dock, and the one small
 otherwise all-54px sheet footer. Both sizes render, so `tests/layout/ticket-detail.spec.ts`
 measures it in both places against the dock mic's box — no DOM test can see this class of bug.
 
+**And so are the two that replace them mid-utterance.** `dock-send` and `dock-cancel` — the
+pair the state actions hand the trailing slot to — are the same 54px disc now, on the dock as
+well as in the sheet; they came over from the dock at 40px, so starting to speak used to swap
+two mic-sized buttons for two small ones in the same place. That rule lives in
+`PrimaryScreen.css` beside the mic's, unscoped like it, with two scoped exceptions that are
+each there on purpose: the dock's keyboard MODE (`[data-mode='keyboard']` — the typing row,
+not the toggle above) holds send at 40px, since there is no mic orb in that row to match, and
+the desktop composer keeps its borrowed × at 30px. Measured in
+`tests/layout/ticket-detail.spec.ts` and `voice-controls.spec.ts`.
+
 ### Poke is offered on every working ticket, idle session or not
 
 Poke shows on **working|blocked whenever `onPoke` is wired** — there is no `agentIdle` prop

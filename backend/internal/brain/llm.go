@@ -140,7 +140,7 @@ const (
 
 // LLMRequest is one round-trip to the model (06 §2, §5): the fixed system
 // prompt (prompt.go), the conversation so far, and the fixed tool schema
-// (tools.go). No streaming (06 §5, D4) and no sampling overrides — SDK
+// (tool_schemas.go). No streaming (06 §5, D4) and no sampling overrides — SDK
 // defaults until the golden tests say otherwise (06 §2).
 type LLMRequest struct {
 	Model    string
@@ -302,7 +302,7 @@ func (a *Adapter) logRound(ctx context.Context, u anthropic.Usage, resp LLMRespo
 
 // summarizeCalls renders a round's tool_use blocks as a compact "name#id" list
 // — empty when the round called nothing. Names and ids only: dispatchOne
-// (tools.go) already logs each call's arguments and result on its own record,
+// (tool_dispatch.go) already logs each call's arguments and result on its own record,
 // and the id is what joins the two under the same turn_id.
 func summarizeCalls(calls []ToolCall) string {
 	parts := make([]string, 0, len(calls))
@@ -406,7 +406,7 @@ func markConversationBreakpoint(msgs []anthropic.MessageParam) {
 	}
 }
 
-// toSDKTools maps the fixed tool set (tools.go) onto the SDK's tool params.
+// toSDKTools maps the fixed tool set (tool_schemas.go) onto the SDK's tool params.
 func toSDKTools(defs []ToolDef) []anthropic.ToolUnionParam {
 	out := make([]anthropic.ToolUnionParam, 0, len(defs))
 	for _, d := range defs {

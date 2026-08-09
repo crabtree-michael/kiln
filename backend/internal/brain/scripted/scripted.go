@@ -68,7 +68,7 @@ type Round struct {
 
 // ToolStep is one tool call in a round. Input is the raw JSON arguments object,
 // passed to the brain's dispatch verbatim after ${ticket} substitution — so it
-// must match the tool's input schema (tools.go), e.g. create_ticket wants
+// must match the tool's input schema (brain's tool_schemas.go), e.g. create_ticket wants
 // {"title","body"} and update_ticket wants {"id","state",…}.
 type ToolStep struct {
 	Name  string          `json:"name"`

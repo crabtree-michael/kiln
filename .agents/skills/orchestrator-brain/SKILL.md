@@ -35,13 +35,13 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
       update_ticket (one
       patch folding the old shape/mark_ready/mark_blocked/accept_to_done/request_approval
       verbs — routes each field to the board's typed op; see applyState/applyUpdate in
-      tools.go), delete_ticket (soft archive). Feed: post_update, list_updates, edit_update,
+      update_ticket.go), delete_ticket (soft archive). Feed: post_update, list_updates, edit_update,
       retract_update. Plus send_to_agent, say, list_agents+get_agent_updates, bash. No pull
       (03 I6), no notify (deferred to 10). Board read IS now a tool (list_tickets/get_ticket)
       — D3's "state is injected" is superseded. Both reads carry an **"allowed now" line**
       naming what the ticket's current state accepts, in tool phrasing
       (`update_ticket state="ready"`, `send_to_agent`, …): rendered by `allowedActions`
-      (tools.go) from the board's own `State.AllowedOps()`, once per column on the roster
+      (tool_render.go) from the board's own `State.AllowedOps()`, once per column on the roster
       (a column *is* one state) and once per ticket on get_ticket. It exists because 39% of
       update_ticket calls were failing and most were guesses at an unavailable transition
       (docs/brain-optimization-2026-08-05.md §2).
@@ -79,6 +79,13 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   code (06 D7).
 - Module boundary: `backend/internal/brain`; reach the board only through the Board API
   port, the transcript only through ConversationReader.
+- **Adding a tool is one append per file, not five edits in one.** The action surface is
+  split (D7): `tool_schemas.go` (name const, input struct, `Tools` entry), `tool_dispatch.go`
+  (the `routeTool` case), `tool_handlers.go` (the `do*` handler), `tool_render.go` (how its
+  result reads back to the model), `tool_results.go` (the shared `ToolResult` constructors
+  and `requireField`). Keep each file in `Tools` order so the four appends line up. The one
+  handler that does not live in `tool_handlers.go` is `update_ticket`'s — it heads the patch
+  facade in `update_ticket.go`.
 
 ## Common footguns
 
@@ -134,7 +141,7 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   `state="done"` requires a `done_commit` and verifies it before calling `AcceptToDone`: mode
   `main` → `verifyDoneOnMain` (commit landed on `origin/main`), mode `pr` → `verifyDoneInPR`
   (work is in a pull request). The mode comes from the project's `merge_gate_mode` setting
-  (`GatePR` etc. in `tools.go`); a refusal is steered back to the agent to actually land the
+  (`GatePR` etc. in `update_ticket.go`); a refusal is steered back to the agent to actually land the
   work, not surfaced to the user.
 - **The `main` gate reuses the model's `git fetch`, it does not repeat it.** The prompt has
   the model fetch via `bash` before it looks up the commit, so `repo.Shell.VerifyOnMain` used
@@ -146,7 +153,7 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   `origin/main` only grows; anything else fetches and decides again, so the gate still fails
   closed against fetched refs. `repo.shell.verify` logs `fetched` — watch it stay `false` on
   accepted dones.
-- `post_update` takes its prose under **`body` or `text`** (`resolvedBody()` in `tools.go`),
+- `post_update` takes its prose under **`body` or `text`** (`resolvedBody()` in `tool_schemas.go`),
   though the schema advertises only `body`. The model borrows say's `text` key on ~1 in 5
   calls and used to burn a round self-correcting (`docs/brain-optimization-2026-08-05.md` §1).
   Don't "tidy" the alias away, and don't add `text` to the schema — one advertised name is

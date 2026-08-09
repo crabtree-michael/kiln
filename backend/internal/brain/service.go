@@ -130,7 +130,7 @@ func (s *Service) model() string {
 //
 //  1. Render the system prompt (prompt.go) and the input's three context
 //     blocks into the first LLMRequest; call s.llm.Do.
-//  2. For each returned ToolCall, run Dispatch (tools.go) against the
+//  2. For each returned ToolCall, run Dispatch (tool_dispatch.go) against the
 //     ports and collect the ToolResults — including typed errors, verbatim.
 //  3. Feed the results back as the next round's LLMMessage; repeat from (1)
 //     until the model's StopReason is StopEndTurn or MaxToolRounds is hit,

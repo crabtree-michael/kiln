@@ -17,6 +17,7 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -405,10 +406,10 @@ func TestArchiveTicket_ArchivedReadyIsNotPulled(t *testing.T) {
 	}
 }
 
-// ---- keep_sandbox: the per-ticket sandbox option round-trips, and suppresses
-// the release the accept would otherwise emit (migration 0012) ---------------
+// ---- keep_sandbox: the per-ticket sandbox option round-trips, and turns the
+// release the accept would otherwise emit into a capture (migrations 0012, 0014)
 
-func TestKeepSandbox_RoundTripsAndSuppressesRelease(t *testing.T) {
+func TestKeepSandbox_RoundTripsAndCapturesInsteadOfReleasing(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 	mustInsertWorker(ctx, t, db, projA)
@@ -454,6 +455,23 @@ func TestKeepSandbox_RoundTripsAndSuppressesRelease(t *testing.T) {
 	}
 	if releases != 0 {
 		t.Fatalf("agent.release rows = %d, want 0 — a saved sandbox is never recycled", releases)
+	}
+	// The capture that replaces it has to actually COMMIT, which is the whole
+	// risk in a new topic: the outbox topic column is a CHECK list, and leaving a
+	// new topic out of it has twice made every transition that emits it fail at
+	// commit (see migration 0006's header). Reading the row back is what proves
+	// 0014 widened the constraint, and its payload is what the executor works from.
+	var payload []byte
+	if err := db.QueryRowContext(ctx,
+		`SELECT payload FROM outbox WHERE topic = $1`, string(board.TopicAgentSnapshot)).Scan(&payload); err != nil {
+		t.Fatalf("read the agent.snapshot row: %v", err)
+	}
+	var snap board.SnapshotPayload
+	if err := json.Unmarshal(payload, &snap); err != nil {
+		t.Fatalf("decode agent.snapshot payload: %v", err)
+	}
+	if snap.TicketID != created.ID || snap.WorkerID == "" || snap.At.IsZero() {
+		t.Errorf("agent.snapshot payload = %+v, want the ticket, its slot, and the emit-time instant", snap)
 	}
 	// The option itself is retained on the done row (the sandbox is still saved).
 	var kept bool

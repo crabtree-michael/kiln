@@ -365,6 +365,30 @@ func (s *Store) UpdateProject(ctx context.Context, p identity.Project) (identity
 	return out, nil
 }
 
+// SetProjectSnapshot points a live project at a base-image snapshot, writing
+// that one column and nothing else. Deliberately narrower than UpdateProject:
+// its caller holds a snapshot ref and a project id, not a whole project, so a
+// read-modify-write through the wholesale upsert would risk clobbering a
+// concurrent settings edit — and would have to round-trip the project's
+// encrypted secrets to leave them alone. No owner clause (the caller is a
+// background capture, not a request); the id is server-derived. ErrNotFound when
+// no live row matches.
+func (s *Store) SetProjectSnapshot(ctx context.Context, id, snapshot string) (identity.Project, error) {
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE projects
+		   SET amika_snapshot = $2
+		 WHERE id = $1 AND deleted_at IS NULL
+		RETURNING `+projectColumns, id, snapshot)
+	out, err := scanProject(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return identity.Project{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return identity.Project{}, fmt.Errorf("identity/postgres: set project snapshot: %w", err)
+	}
+	return out, nil
+}
+
 // SoftDeleteProject marks the owner's project deleted (12 DP6): the row is
 // retained (id never reused) and filtered from every read path. Guarded by the
 // owner check and idempotent-safe — a WHERE that also requires deleted_at IS NULL

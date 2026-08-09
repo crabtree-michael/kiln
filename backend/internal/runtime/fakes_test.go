@@ -527,8 +527,9 @@ var _ runtime.Blocker = (*fakeBlocker)(nil)
 type fakeAgentRuntime struct {
 	callRecorder
 
-	sendFn    func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
-	releaseFn func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	sendFn     func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	releaseFn  func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	snapshotFn func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
 }
 
 func (f *fakeAgentRuntime) Send(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
@@ -543,6 +544,14 @@ func (f *fakeAgentRuntime) Release(ctx context.Context, projectID string, idempo
 	f.record("Release", projectID, idempotencyKey, append([]byte(nil), payload...))
 	if f.releaseFn != nil {
 		return f.releaseFn(ctx, projectID, idempotencyKey, payload)
+	}
+	return nil
+}
+
+func (f *fakeAgentRuntime) Snapshot(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+	f.record("Snapshot", projectID, idempotencyKey, append([]byte(nil), payload...))
+	if f.snapshotFn != nil {
+		return f.snapshotFn(ctx, projectID, idempotencyKey, payload)
 	}
 	return nil
 }

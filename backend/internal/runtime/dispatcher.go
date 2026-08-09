@@ -57,9 +57,17 @@ type Blocker interface {
 // key; the module (and its mock provider) must deduplicate on it (04 §3,
 // 05 §7). Calls record-and-return; they never block on provisioning or a turn
 // (05 D2).
+//
+// Snapshot is the exception to record-and-return: it captures the workspace
+// behind a slot as a reusable base image (the saved-sandbox exit from
+// Developing, 05 §4, §6) and DOES call the provider inline, because the capture
+// request is one call and the outbox's own retry/dead-letter policy is the right
+// durability for it — there is no turn to progress afterwards. Its payload is
+// board's SnapshotPayload; it must be safe to redeliver (04 §3).
 type AgentRuntime interface {
 	Send(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
 	Release(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	Snapshot(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
 }
 
 // Outbox topic names (04 §2) as the runtime routes them — carried in
@@ -69,9 +77,14 @@ type AgentRuntime interface {
 const (
 	topicAgentSend    = "agent.send"
 	topicAgentRelease = "agent.release"
-	topicNotifySend   = "notify.send"
-	topicPullEvaluate = "pull.evaluate"
-	topicBoardUpdated = "board.updated"
+	// agent.snapshot is agent.release's saved-sandbox counterpart (05 §4, §6):
+	// capture the slot's workspace as a reusable base image rather than recycle
+	// it. Board-emitted by both exits from Developing on a ticket whose sandbox
+	// is saved.
+	topicAgentSnapshot = "agent.snapshot"
+	topicNotifySend    = "notify.send"
+	topicPullEvaluate  = "pull.evaluate"
+	topicBoardUpdated  = "board.updated"
 	// feed.updated / activity.toast are the 08 §7 additions. feed.updated is
 	// emitted by both the board (state transitions) and the runtime itself
 	// (notification post/retract/seen — the second outbox writer); either way
@@ -100,7 +113,7 @@ const brainUnavailableMessage = "Kiln couldn't start its brain for this project 
 	"(model credentials). The board is unchanged; please check the project's settings and try again."
 
 // errUnknownTopic is returned by the outbox handler for a topic outside the
-// eight it routes — a contract violation by whoever appended it, surfaced as a
+// nine it routes — a contract violation by whoever appended it, surfaced as a
 // retryable handler error rather than a silent drop.
 var errUnknownTopic = errors.New("runtime: unknown outbox topic")
 
@@ -274,18 +287,17 @@ func (d *Dispatcher) deadLetterEvent(ctx context.Context, e Entry, cause error) 
 // handleOutbox is the outbox worker's handler: route the topic (Entry.Kind)
 // to its executor (04 §2). Every executor reads the claimed entry's ProjectID
 // and threads it into its port call (11 §3), so the side effect lands on the
-// emitting tenant. The outbox id travels as the idempotency key for
-// agent.send/agent.release (04 §3, 05 §7).
+// emitting tenant. The outbox id travels as the idempotency key for the agent.*
+// topics (04 §3, 05 §7), which route through routeAgent.
 func (d *Dispatcher) handleOutbox(ctx context.Context, e Entry) error {
 	// Trace each outbox delivery as one span keyed on the topic (design
 	// 2026-07-05); no-op when Sentry is disabled.
 	ctx, finish := obs.StartSpan(ctx, "outbox.deliver", e.Kind)
 	defer finish()
+	if routed, err := d.routeAgent(ctx, e); routed {
+		return err
+	}
 	switch e.Kind {
-	case topicAgentSend:
-		return wrapOutbox("agent send", d.agents.Send(ctx, e.ProjectID, e.ID, e.Payload))
-	case topicAgentRelease:
-		return wrapOutbox("agent release", d.agents.Release(ctx, e.ProjectID, e.ID, e.Payload))
 	case topicPullEvaluate:
 		return wrapOutbox("run pull", d.puller.RunPull(ctx, e.ProjectID))
 	case topicNotifySend:
@@ -302,6 +314,25 @@ func (d *Dispatcher) handleOutbox(ctx context.Context, e Entry) error {
 		return wrapOutbox("post completion card", d.fanout.HandleFeedCompletion(ctx, e))
 	default:
 		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
+	}
+}
+
+// routeAgent handles the three agent.* topics — the AgentRuntime port's own
+// slice of the routing table (05 §2.1), split out of handleOutbox so the two
+// groups read separately: these all hand the entry's project, outbox id and raw
+// payload straight to the agent module, while everything else in handleOutbox
+// decodes or fans out. routed=false means the topic is not one of these and the
+// caller keeps looking.
+func (d *Dispatcher) routeAgent(ctx context.Context, e Entry) (bool, error) {
+	switch e.Kind {
+	case topicAgentSend:
+		return true, wrapOutbox("agent send", d.agents.Send(ctx, e.ProjectID, e.ID, e.Payload))
+	case topicAgentRelease:
+		return true, wrapOutbox("agent release", d.agents.Release(ctx, e.ProjectID, e.ID, e.Payload))
+	case topicAgentSnapshot:
+		return true, wrapOutbox("agent snapshot", d.agents.Snapshot(ctx, e.ProjectID, e.ID, e.Payload))
+	default:
+		return false, nil
 	}
 }
 

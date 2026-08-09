@@ -13,7 +13,9 @@
 //   • Save sandbox when done — a toggle carrying a checkmark when on. The one
 //     non-destructive item, and the only one offered on a ticket with no sandbox
 //     yet: the choice matters before the workspace exists just as much as while
-//     it runs.
+//     it runs. On means the ticket's exit from Developing captures the workspace
+//     as a snapshot the project then starts its workers from, rather than
+//     recycling it.
 //   • Re-create sandbox — throw this workspace away and bring a fresh one up on
 //     the same slot, leaving the ticket where it is.
 //   • Move to free sandbox — rebind the ticket to a free slot and brief an agent

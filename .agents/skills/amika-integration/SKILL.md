@@ -20,8 +20,10 @@ jobs, provisioning, auth — stays inside this module. Fully specified in
 Swapping or adding an agent platform touches only a Provider adapter + config.
 
 **Two seams (05 §2).**
-- *Consumer contract:* `AgentRuntime{Send, Release}` — executes `agent.send` /
-  `agent.release` outbox entries; record-and-return, idempotent by outbox id. Inbound:
+- *Consumer contract:* `AgentRuntime{Send, Release, Snapshot}` — executes `agent.send` /
+  `agent.release` / `agent.snapshot` outbox entries; the first two record-and-return,
+  idempotent by outbox id. `Snapshot` is the odd one out and calls the provider inline (see
+  "Saving a worker's workspace" below). Inbound:
   `EnqueueEvent(ctx, projectID, agent.turn_completed, idempotencyKey, {ticket_id, worker_id,
   is_error, output, cost_usd})` — every terminal outcome, mechanical failures included (D3);
   the `idempotencyKey` makes completion **exactly-once at the event seam** (the 05 §5
@@ -205,7 +207,7 @@ Amika is now **one registered provider among several**, not *the* provider. What
 - **Dashboard descriptor (Phase 3, D6).** `providerDescriptors(cfg)` (registry → `wire.ProviderDescriptor`)
   is served inside `GET /api/me` (`me.providers`); `ProjectFields` renders a provider `<select>`
   from it (hidden when ≤1 provider), storing `agent_provider`. The generic dashboard names no provider.
-- **Still frozen (the whole point):** `AgentRuntime{Send,Release}`, the `agent.turn_completed`
+- **Still frozen (the whole point):** `AgentRuntime`'s shape, the `agent.turn_completed`
   payload, the `agent_turns` dedupe, the reconciler/poller. A provider addition that touches
   board/brain/runtime/wire (beyond the descriptor) means the abstraction is leaking.
 
@@ -239,6 +241,38 @@ snapshots, plus "save a running dev box as a snapshot". The seam stays provider-
   data-role="amika-snapshot">` + capture form when `catalogAvailable` (snapshots endpoint answered
   200), else the free-text input. Do NOT put snapshot state in the global dashboard store — it can't
   serve N project cards.
+
+### Saving a worker's workspace (`Service.SaveWorkerSnapshot`) — the capture the board drives
+
+The catalog's other consumer, and the only one that is not a user pressing a button: the board
+emits `agent.snapshot` when a ticket whose sandbox is SAVED leaves Developing (see
+`board-mechanism`), and it lands here.
+
+- **`Service.SaveWorkerSnapshot(ctx, projectID, workerID, name, description)`** resolves the
+  project's provider + catalog, finds the slot's live `ProviderWorker`, and captures its `Ref`.
+  `agent.ErrNoCatalog` / `agent.ErrNoLiveWorker` are **terminal facts, not failures** — there is
+  nothing to capture and retrying cannot change that, so the caller reports and completes the
+  outbox entry instead of burning the retry budget to the same end.
+- **Idempotency is the NAME.** v0beta1 has no idempotency key anywhere and the outbox is
+  at-least-once, so before capturing it asks `ListSnapshots` whether one already exists under
+  the name and returns that instead. This only works because the name is DERIVED from the
+  emit-time instant the board stamped into the payload — if you ever generate the name from
+  the clock at execution time, every redelivery captures the workspace again. A catalog read
+  that FAILS deliberately falls through to capturing (losing the workspace is the worse way to
+  be wrong).
+- **The capture consumes its source.** `scrub_and_delete` is the only safe mode here: a Kiln
+  worker holds the owner's git credential and the project's injected secrets, and this image is
+  about to become the base every future worker starts from — never switch it to `full`. Amika
+  therefore deletes the box, so `SaveWorkerSnapshot` drops the slot from the worker cache and
+  the reconciler re-provisions it, the same heal `advanceRelease` leans on.
+- **Composition** (`agentRuntimeAdapter.Snapshot`, `cmd/kiln/adapters.go`): names the snapshot
+  `<project>-<timestamp>` from the project's own name, then calls
+  `identity.SetProjectSnapshot` so the project starts its workers from it. That spans two
+  modules, which is exactly why it lives in the composition root and not in either one. The
+  repoint happens while the capture is still running, so there is a window where the project
+  names a not-yet-ready image; worker creation fails and retries until it lands. Waiting
+  instead would not converge — a capture routinely outlives the outbox's ~3-minute retry budget.
+
 - **Gotcha:** adding the `DevBoxStatus`/`SnapshotState` enums to the schema collided with
   `AgentStatusStatus`'s bare `errored`/etc. constants, so oapi-codegen re-qualified them
   (`wire.Errored` → `wire.AgentStatusStatusErrored`). Expected — update the consumer, don't rename

@@ -338,6 +338,71 @@ func (s *Service) GetAgentUpdates(ctx context.Context, projectID, workerID strin
 	return u, nil
 }
 
+// SaveWorkerSnapshot captures the workspace behind one worker slot as a new
+// named snapshot (05 §4, §6) — the executor behind board's agent.snapshot, and
+// the saved-sandbox counterpart to Release. Where Release destroys the slot's
+// sandbox and recreates it empty, this freezes it into the provider's snapshot
+// catalog, so what the ticket's agent installed, cloned, built and authenticated
+// outlives the box it lived in and can become the image later workers start from.
+//
+// It resolves the project's provider and its OPTIONAL snapshot catalog
+// (SandboxCatalogOf — the leak-free read); a provider with no catalog is
+// ErrNoCatalog, a slot with no live sandbox is ErrNoLiveWorker. Both are
+// terminal facts, not transient failures: there is nothing to capture and
+// retrying cannot change that, so the caller reports them and stops.
+//
+// Idempotent on the name, which is what makes it safe on an at-least-once
+// outbox (04 §3). The provider API has no idempotency key, so a redelivery
+// would otherwise start a second capture of the same workspace; instead an
+// existing snapshot under this name is returned as the capture that already
+// ran. The name must therefore be DERIVED, not freshly generated per attempt —
+// board stamps the emit-time instant into the payload for exactly this reason.
+// A catalog read that fails is logged and the capture proceeds: losing the
+// workspace is the worse outcome, and a duplicate snapshot is only clutter.
+//
+// The capture CONSUMES its source. The provider scrubs the box's injected
+// secrets and deletes it (the only safe mode — a Kiln worker holds the owner's
+// git credential and the project's secrets, and this image is about to become
+// the base every future worker starts from), so the slot's cached worker is
+// dropped on the way out and the reconciler re-provisions it on its next sweep —
+// the same heal advanceRelease leans on. The capture runs in the background, so
+// the returned Snapshot is typically still SnapshotCapturing.
+func (s *Service) SaveWorkerSnapshot(
+	ctx context.Context, projectID, workerID, name, description string,
+) (Snapshot, error) {
+	provider, prefix, err := s.providers.For(ctx, projectID)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("agent: resolve provider for project %q: %w", projectID, err)
+	}
+	catalog, ok := SandboxCatalogOf(provider)
+	if !ok {
+		return Snapshot{}, ErrNoCatalog
+	}
+	if prior, found := s.capturedAs(ctx, catalog, name); found {
+		slog.InfoContext(ctx, "agent.snapshot.already_captured",
+			"project_id", projectID, "worker_id", workerID, "name", name, "state", prior.State)
+		return prior, nil
+	}
+	w, err := s.resolveSlotWorker(ctx, provider, prefix, workerID)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("agent: save worker snapshot: %w", err)
+	}
+	if w.Ref == "" {
+		return Snapshot{}, fmt.Errorf("%w: %s", ErrNoLiveWorker, workerID)
+	}
+	snap, err := catalog.SaveSnapshot(ctx, SaveSnapshotRequest{
+		DevBoxRef: w.Ref, Name: name, Description: description,
+	})
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("agent: save worker snapshot %q: %w", workerID, err)
+	}
+	slog.InfoContext(ctx, "agent.snapshot.captured",
+		"project_id", projectID, "worker_id", workerID, "worker", w.Name,
+		"name", name, "ref", snap.Ref, "state", snap.State)
+	s.deleteWorker(w.Name)
+	return snap, nil
+}
+
 // ResetProject tears down one project's live workers and clears that project's
 // entries from the in-memory worker cache — the developer "fresh session" reset,
 // scoped to the caller's project (docs/superpowers/specs/
@@ -377,6 +442,25 @@ func (s *Service) ResetProject(ctx context.Context, projectID string) error {
 	}
 	s.mu.Unlock()
 	return nil
+}
+
+// capturedAs looks the catalog up for a snapshot already captured under name —
+// SaveWorkerSnapshot's redelivery guard. A read failure is not a "no": it is
+// unknown, so it is logged and reported as not-found, which re-captures rather
+// than skips (see SaveWorkerSnapshot on why that is the right way to be wrong).
+func (s *Service) capturedAs(ctx context.Context, catalog SandboxCatalog, name string) (Snapshot, bool) {
+	snaps, err := catalog.ListSnapshots(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: list snapshots for capture guard; capturing anyway",
+			"name", name, "err", err)
+		return Snapshot{}, false
+	}
+	for _, snap := range snaps {
+		if snap.Name == name {
+			return snap, true
+		}
+	}
+	return Snapshot{}, false
 }
 
 // refreshStatuses re-reads every worker's composed status across all projects

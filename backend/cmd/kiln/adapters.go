@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/agent"
@@ -148,7 +149,42 @@ var _ runtime.BoardReader = (*boardViewAdapter)(nil)
 // stamps the runtime-supplied projectID onto the raw payload before handing it
 // to *agent.Service, whose Send/Release decode project_id from the payload
 // itself (11 §3).
-type agentRuntimeAdapter struct{ inner *agent.Service }
+//
+// Snapshot is the one route that is more than a hand-off, and it is here rather
+// than inside a module because it is the one that spans two of them: capturing a
+// workspace is the agent module's job, and pointing a project at the result is
+// identity's, so composing the pair belongs to the composition root. Hence
+// projects — the only reason this adapter knows identity exists. It is nil on a
+// deployment with identity unconfigured, which Snapshot handles.
+type agentRuntimeAdapter struct {
+	inner    *agent.Service
+	projects projectSnapshots
+}
+
+// projectSnapshots is the slice of identity the saved-sandbox capture needs: the
+// project's name (to name the snapshot after) and the one-field write that
+// points it at the captured image. Narrow on purpose — this adapter has no
+// business with the rest of the identity surface, and a two-method port is a
+// fake a test can write in five lines. Satisfied by *identity.Service.
+type projectSnapshots interface {
+	GetProject(ctx context.Context, projectID string) (identity.Project, error)
+	SetProjectSnapshot(ctx context.Context, projectID, snapshot string) (identity.Project, error)
+}
+
+var _ projectSnapshots = (*identity.Service)(nil)
+
+// newAgentRuntimeAdapter builds the agent.* outbox executor, leaving its
+// projects port nil when identity is unconfigured. The nil check has to happen
+// here rather than at the field: assigning a typed nil *identity.Service would
+// produce a NON-nil interface holding a nil pointer, and Snapshot tests that
+// field to know whether there is a project to name a capture after.
+func newAgentRuntimeAdapter(agentSvc *agent.Service, idSvc *identity.Service) *agentRuntimeAdapter {
+	a := &agentRuntimeAdapter{inner: agentSvc}
+	if idSvc != nil {
+		a.projects = idSvc
+	}
+	return a
+}
 
 func withProjectID(payload []byte, projectID string) ([]byte, error) {
 	var fields map[string]json.RawMessage
@@ -189,6 +225,130 @@ func (a *agentRuntimeAdapter) Release(
 		return fmt.Errorf("kiln: agent release: %w", err)
 	}
 	return nil
+}
+
+// Snapshot executes board's agent.snapshot (05 §4, §6): capture the workspace
+// behind the slot as a snapshot, then point the project at it. It is the whole
+// of what "Save sandbox when done" now does — before this the option only
+// suppressed the recycle, so nothing was ever written to the snapshot catalog
+// and the saved workspace still died with its box (ticket 0549b739).
+//
+// The snapshot is named <project>-<timestamp> from the project's own name and
+// the emit-time instant the board stamped into the payload. That makes the name
+// predictable and unique without asking the user for one — and, because it is
+// derived from the payload rather than from the clock, STABLE across an
+// at-least-once redelivery, which is what lets the agent module recognise a
+// capture that already ran instead of starting a second one.
+//
+// Repointing the project is what makes the capture worth making: the next worker
+// created starts from the saved workspace. It is done as soon as the capture is
+// accepted, while the (slow) capture is still running, so there is a window in
+// which the project names an image that is not selectable yet — a worker created
+// in it fails to provision and the reconciler retries until the capture lands.
+// That converges; waiting instead would not, since a capture routinely outlives
+// the outbox's ~3-minute retry budget and the entry would dead-letter having
+// captured the workspace but never selected it.
+//
+// Errors: a provider with no snapshot catalog, or a slot whose sandbox is
+// already gone, is reported and swallowed — retrying cannot conjure a workspace
+// to capture, and failing forever would only dead-letter the entry with the same
+// outcome. Everything else is returned so the outbox retries it.
+func (a *agentRuntimeAdapter) Snapshot(
+	ctx context.Context, projectID string, idempotencyKey int64, payload []byte,
+) error {
+	var p board.SnapshotPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("kiln: agent snapshot: decode payload: %w", err)
+	}
+	// With identity unconfigured (a keyless deployment) there is no project row to
+	// read a name from or to point anywhere afterwards. The capture is still worth
+	// making — the workspace is what the user asked to save — so it goes ahead
+	// under the fallback stem and stops short of the selection.
+	name := snapshotName("", p.At)
+	if a.projects != nil {
+		project, perr := a.projects.GetProject(ctx, projectID)
+		if perr != nil {
+			return fmt.Errorf("kiln: agent snapshot: resolve project %s: %w", projectID, perr)
+		}
+		name = snapshotName(project.Name, p.At)
+	}
+	snap, err := a.inner.SaveWorkerSnapshot(ctx, projectID, string(p.WorkerID), name,
+		fmt.Sprintf("Saved by Kiln from ticket %s.", p.TicketID))
+	switch {
+	case errors.Is(err, agent.ErrNoCatalog), errors.Is(err, agent.ErrNoLiveWorker):
+		slog.WarnContext(ctx, "kiln: saved sandbox not captured",
+			"idem_key", idempotencyKey, "project_id", projectID,
+			"ticket_id", p.TicketID, "worker_id", p.WorkerID, "err", err)
+		return nil
+	case err != nil:
+		return fmt.Errorf("kiln: agent snapshot: %w", err)
+	}
+	if snap.Ref == "" || snap.State == agent.SnapshotFailed {
+		// Nothing usable to select: leave the project on the image it has rather
+		// than move it onto one that will never come up.
+		slog.WarnContext(ctx, "kiln: captured snapshot not selectable; project left unchanged",
+			"project_id", projectID, "name", name, "ref", snap.Ref, "state", snap.State)
+		return nil
+	}
+	if a.projects == nil {
+		slog.InfoContext(ctx, "kiln: saved sandbox captured; no project to select it on",
+			"project_id", projectID, "name", name, "ref", snap.Ref)
+		return nil
+	}
+	if _, err := a.projects.SetProjectSnapshot(ctx, projectID, snap.Ref); err != nil {
+		return fmt.Errorf("kiln: agent snapshot: point project %s at %q: %w", projectID, snap.Ref, err)
+	}
+	slog.InfoContext(ctx, "kiln: saved sandbox captured and selected",
+		"project_id", projectID, "ticket_id", p.TicketID, "worker_id", p.WorkerID,
+		"name", name, "ref", snap.Ref, "state", snap.State)
+	return nil
+}
+
+// snapshotNameTimestamp is the timestamp layout in a captured snapshot's name:
+// UTC, sortable, and made of characters a provider name accepts.
+// snapshotNameFallbackStem stands in when the project's name slugs to nothing,
+// so the timestamp always has a stem in front of it.
+const (
+	snapshotNameTimestamp    = "20060102-150405"
+	snapshotNameFallbackStem = "kiln"
+)
+
+// snapshotName builds a captured snapshot's name as <project>-<timestamp> (UTC),
+// the predictable, unique name a save gets without asking the user for one. The
+// project name is slugged because it is free text the user typed and this
+// becomes a provider-side identifier; a name that slugs to nothing (punctuation
+// only, or a project with no name) falls back to "kiln" so the timestamp still
+// has a stem.
+func snapshotName(project string, at time.Time) string {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	stem := slugify(project)
+	if stem == "" {
+		stem = snapshotNameFallbackStem
+	}
+	return stem + "-" + at.UTC().Format(snapshotNameTimestamp)
+}
+
+// slugify reduces free text to lowercase alphanumerics joined by single dashes,
+// with no leading or trailing dash — the conservative shape an opaque
+// provider-side name is safe in.
+func slugify(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = false
+			b.WriteRune(r)
+		default:
+			dash = true
+		}
+	}
+	return b.String()
 }
 
 var _ runtime.AgentRuntime = (*agentRuntimeAdapter)(nil)

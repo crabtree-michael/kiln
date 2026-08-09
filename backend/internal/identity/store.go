@@ -64,6 +64,12 @@ type Store interface {
 	// UpdateProject updates a project in place, guarded by the owner check in its
 	// WHERE (id + owner_user_id, live only); ErrNotFound when no live row matches (12 §3.2).
 	UpdateProject(ctx context.Context, p Project) (Project, error)
+	// SetProjectSnapshot writes ONLY a live project's amika_snapshot, leaving every
+	// other column (and its secrets) untouched; ErrNotFound when no live row
+	// matches. Unlike UpdateProject this is NOT owner-guarded, because its caller
+	// is a background side effect with no user in the request — see the warning on
+	// Service.SetProjectSnapshot.
+	SetProjectSnapshot(ctx context.Context, id, snapshot string) (Project, error)
 	// SoftDeleteProject marks the owner's project deleted (retained, filtered from
 	// reads); ErrNotFound when no live row matches (12 DP6).
 	SoftDeleteProject(ctx context.Context, id, ownerUserID string) error

@@ -312,6 +312,7 @@ func TestDispatcher_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 const (
 	topicAgentSend      = "agent.send"
 	topicAgentRelease   = "agent.release"
+	topicAgentSnapshot  = "agent.snapshot"
 	topicNotifySend     = "notify.send"
 	topicPullEvaluate   = "pull.evaluate"
 	topicBoardUpdated   = "board.updated"
@@ -333,6 +334,8 @@ func TestDispatcher_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 		runtime.QueueOutbox, topicAgentSend, []byte(`{"ticket_id":"tk-1","worker_id":"w-1","message":"go"}`), 0,
 	)
 	releaseID := rig.store.seed(runtime.QueueOutbox, topicAgentRelease, []byte(`{"worker_id":"w-1"}`), 0)
+	snapshotID := rig.store.seed(runtime.QueueOutbox, topicAgentSnapshot,
+		[]byte(`{"ticket_id":"tk-1","worker_id":"w-1","at":"2026-08-09T12:00:00Z"}`), 0)
 	rig.store.seed(runtime.QueueOutbox, topicPullEvaluate, []byte(`{}`), 0)
 	rig.store.seed(runtime.QueueOutbox, topicNotifySend,
 		[]byte(`{"ticket_id":"tk-2","title":"t","reason":"r","kind":"blocked"}`), 0)
@@ -343,6 +346,7 @@ func TestDispatcher_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 
 	testutil.Eventually(t, func() bool {
 		return rig.agents.count("Send") >= 1 && rig.agents.count("Release") >= 1 &&
+			rig.agents.count("Snapshot") >= 1 &&
 			rig.puller.count("RunPull") >= 1 && rig.notifier.count("Send") >= 1 &&
 			rig.snapshots.count("PushBoard") >= 1
 	})
@@ -360,6 +364,17 @@ func TestDispatcher_Workers_OutboxRoutesEachTopicToItsExecutor(t *testing.T) {
 	releaseCalls := rig.agents.callsFor("Release")
 	if key, ok := releaseCalls[0].Args[1].(int64); !ok || key != releaseID {
 		t.Errorf("agent.release routed with idempotencyKey = %v, want the outbox id %d", releaseCalls[0].Args[1], releaseID)
+	}
+
+	// agent.snapshot is agent.release's saved-sandbox counterpart (05 §4, §6):
+	// capture the slot's workspace instead of recycling it. Same routing contract.
+	snapshotCalls := rig.agents.callsFor("Snapshot")
+	if pid, ok := snapshotCalls[0].Args[0].(string); !ok || pid != defaultTestProject {
+		t.Errorf("agent.snapshot routed with projectID = %v, want %q", snapshotCalls[0].Args[0], defaultTestProject)
+	}
+	if key, ok := snapshotCalls[0].Args[1].(int64); !ok || key != snapshotID {
+		t.Errorf("agent.snapshot routed with idempotencyKey = %v, want the outbox id %d",
+			snapshotCalls[0].Args[1], snapshotID)
 	}
 
 	// Every executor gets the claimed entry's project (11 §3).

@@ -49,9 +49,15 @@ backend/internal/runtime/
                 to the six values and delete it. Add nothing here — add it to the
                 unit that owns the responsibility.
   dispatcher.go Dispatcher — the durable queue core (split step 6, DONE): Store +
-                BrainResolver + Puller + Blocker + AgentRuntime (Send/Release —
-                05 §2.1), EnqueueEvent, Workers, the events/outbox handlers, the
-                dead-letter paths and the topic consts, over Transcript (the
+                BrainResolver + Puller + Blocker + AgentRuntime (Send/Release/
+                Snapshot — 05 §2.1; the three agent.* topics route together
+                through routeAgent), EnqueueEvent, Workers, the events/outbox
+                handlers, the dead-letter paths and the topic consts (nine now:
+                agent.snapshot joined them — a saved sandbox's exit from
+                Developing captures the workspace instead of recycling it, and
+                unlike the other two agent.* routes its executor calls the
+                provider inline, leaning on this queue's own retry/dead-letter
+                policy for durability), over Transcript (the
                 system-error and brain-unresolved Says), Notify (notify.send) and
                 FanOut (the four UI topics + the thinking bracket). The spine: an
                 at-least-once drain where a returned error retries and then

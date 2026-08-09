@@ -570,7 +570,10 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
   `unlisted`). It renders `null` when the provider exposes no catalog (the free-text handle
   field speaks for itself) and when the picked ref *is* in the catalog (the option label above
   already names it). Don't reintroduce a reading that just restates the control. The group's
-  own hint text must stay provider-neutral — it must not promise Amika.
+  own hint text must stay provider-neutral — it must not promise Amika. Its `default` copy is
+  also the app's **only** explanation of what snapshots are for and the only warning that
+  "Save sandbox when done" adds one here and selects it without being asked — so it stays
+  until something else in the product says those things.
 - **The modal is hand-rolled, not `<dialog>`.** jsdom 25 (the whole DOM suite) ships **no
   `HTMLDialogElement`** — `showModal` is `undefined` — so a native dialog would be untestable
   in the gate. `ProjectModal` therefore owns Escape, the scrim press (only one that *starts*
@@ -626,11 +629,16 @@ transition, the third because it acts on the *sandbox* behind the ticket's slot 
 the board at all:
 
 - **The sandbox toggle** (`onSetKeepSandbox` → `setTicketSandbox` → `POST
-  /api/tickets/{id}/sandbox`): saving a ticket's sandbox stops the board recycling its worker,
-  so an agent can keep working in the same workspace across turns. It is a *setting on the
-  ticket*, so it writes directly — round-tripping a toggle through an LLM pass would be slow
-  and non-deterministic for no gain. It reads "Save sandbox when done" and lives in the gear
-  menu below, not in the sheet's body.
+  /api/tickets/{id}/sandbox`): saving a ticket's sandbox turns the recycle its exit from
+  Developing would otherwise do into a capture — the workspace is frozen into a snapshot in
+  the project's catalog and the project is pointed at it, so what the agent built becomes the
+  base image later workers start from. Nothing happens on the tap itself; it is a standing
+  instruction for when the ticket is done. It is a *setting on the ticket*, so it writes
+  directly — round-tripping a toggle through an LLM pass would be slow and non-deterministic
+  for no gain. It reads "Save sandbox when done" and lives in the gear menu below, not in the
+  sheet's body. The one place the app explains any of this is `SandboxInfo` in the settings
+  modal's project card (below) — including that this toggle will change the project's snapshot
+  selection on its own. Don't delete that copy without replacing what it says.
 - **The text edit** (`onEditText` → `editTicketText` → `POST /api/tickets/{id}/text`): pressing
   the rendered body turns the title and body into a field and a textarea. This one skips
   the brain for the opposite reason — **an LLM pass is the thing being avoided.** Describing a

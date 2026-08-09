@@ -53,15 +53,23 @@ a free slot, `AcceptToDone` an unspent commit — so an allowed op can still fai
 
 **Per-ticket sandbox option (`KeepSandbox`, migration 0012).** The user's "save this
 ticket's sandbox" choice, set from the ticket detail sheet via `SetKeepSandbox` (behind
-`POST /api/tickets/{id}/sandbox`). Its whole mechanical effect is one **suppression**: the
+`POST /api/tickets/{id}/sandbox`). Its mechanical effect is one **swap**: the
 `agent.release` a ticket owes when it gives up its worker — `AcceptToDone`, and
-`ArchiveTicket` on a blocked ticket — is not emitted, so the agent module never
-destroys-and-recreates the slot's sandbox and the workspace survives for the next turn on
-that slot (`releaseEmissions` in service.go is the single seam; both exits go through it).
-Everything else is unchanged: the binding still clears and `pull.evaluate` still fires, so
-the *slot* is freed — only the sandbox behind it is kept. `SetKeepSandbox` is the module's
-one operation that is a **setting rather than a transition**: no precondition, legal in any
-state, emits only `board.updated`.
+`ArchiveTicket` on a blocked ticket — is replaced by **`agent.snapshot`**, which asks the
+agent-runtime module to capture that workspace as a reusable base image and (in the
+composition root) points the project at it. `sandboxExitEmissions` in service.go is the
+single seam; both exits go through it, and it emits exactly one of the two — a workspace
+being captured must never also be recycled. Everything else is unchanged: the binding still
+clears and `pull.evaluate` still fires, so the *slot* is freed — only the fate of the sandbox
+behind it differs. `SetKeepSandbox` is the module's one operation that is a **setting rather
+than a transition**: no precondition, legal in any state, emits only `board.updated`, and
+nothing happens at the moment it is set — it is a standing instruction for when the ticket
+is done.
+
+The capture used to be missing entirely: the option only *suppressed* the release, so the box
+lingered but nothing was ever written to the provider's snapshot catalog and the workspace
+still died with the sandbox (ticket 0549b739). If you touch this path, the thing to preserve
+is that the option produces a durable artefact, not merely a stay of execution.
 
 **Manual sandbox overrides (`KillSandbox` / `ReassignSandbox`).** The user's direct escape
 from a wedged or corrupted workspace, behind `POST /api/tickets/{id}/sandbox/kill|reassign` —
@@ -79,11 +87,12 @@ bound worker (`ErrInvalidTransition` otherwise).
   `SendToAgent` leaves things. `ErrNoFreeWorker` when every slot is busy. **No
   `pull.evaluate`**: one slot is vacated and one taken, so free capacity is unchanged.
 
-**Both deliberately ignore `KeepSandbox`** — the one place `releaseEmissions` is bypassed. The
-option means "don't recycle this behind my back"; these are the user in front of it asking for
-the recycle now, and a saved sandbox is exactly the case where a silent no-op would be worst.
-If you add a third exit from Developing, route it through `releaseEmissions`; if you add
-another override, don't.
+**Both deliberately ignore `KeepSandbox`** — the one place `sandboxExitEmissions` is bypassed.
+The option means "capture this when the work is done, don't recycle it behind my back"; these
+are the user in front of it asking for the recycle now, and a saved sandbox is exactly the case
+where a silent no-op — or baking a corrupted tree into a base image — would be worst. If you add
+a third exit from Developing, route it through `sandboxExitEmissions`; if you add another
+override, don't.
 
 **Deterministic pull (03 §5).** Ready→Working happens **only** via `RunPull`, never by
 brain action (I6) — it is not in the brain's tool set. Triggered by transactional
@@ -109,7 +118,8 @@ Database constraints back up every invariant even if service code is wrong.
 state change and executed after commit by the runtime's drain loop, at-least-once with the
 outbox `id` as idempotency key. Topics: `agent.send` (RunPull's work order and
 SendToAgent's instruction — one topic, 05 A1), `agent.release` (AcceptToDone → recycle the
-worker), `notify.send` (fired on start, blocked, and done transitions), `pull.evaluate`,
+worker), `agent.snapshot` (the same exit on a *saved* sandbox → capture the workspace
+instead), `notify.send` (fired on start, blocked, and done transitions), `pull.evaluate`,
 `board.updated` (full-snapshot push, not diffs — D7), plus the feed topics `feed.updated`,
 `activity.toast`, and `feed.completion` (the persistent "done" card — see below). Payloads
 are emit-time snapshots. The outbox is distinct from the brain-waking event queue (02 §2). An
@@ -155,8 +165,8 @@ backend/internal/board/
                 DoneCommit) · Worker (incl. health) · Snapshot
   errors.go     ErrNotFound · ErrInvalidTransition{From, Attempted} · ErrEmptyTitle ·
                 ErrNoFreeWorker · ErrCommitAlreadyUsed{SHA, OtherID}
-  outbox.go     Topic constants (incl. feed.updated/activity.toast/feed.completion) ·
-                Emission · Send/Release/Notify/Completion payload structs
+  outbox.go     Topic constants (incl. feed.updated/activity.toast/feed.completion and
+                agent.snapshot) · Emission · Send/Release/Snapshot/Notify/Completion payloads
   store.go      Store + Tx ports (lock-then-check seam; SKIP LOCKED pickers for the pull)
   service.go    Service — the Board API: all 03 §4 operations incl. RunPull
   postgres/     store adapter (implements board.Store / board.Tx)
@@ -165,7 +175,8 @@ backend/internal/board/
                 state_changed_at, project_id, worker_health, done_commit,
                 worker_binding_live: I3 scoped to live rows so a deleted blocked
                 ticket can be archived worker-less), 0012_keep_sandbox.sql (the
-                per-ticket sandbox option)
+                per-ticket sandbox option), 0013_ticket_dependencies.sql,
+                0014_outbox_snapshot_topic.sql (admit agent.snapshot)
 ```
 
 - Build/check from `/backend`: `gofmt -l . && go vet ./... && go build ./...` (module
@@ -179,9 +190,12 @@ backend/internal/board/
 
 - **Adding an outbox topic without widening the topic CHECK constraint.** The `outbox` topic
   column has a `CHECK (topic IN (...))`; a new topic needs a migration to widen it
-  (`0004_outbox_topics.sql`, `0006_outbox_completion_topic.sql`) or every transition that emits
-  it fails the CHECK at commit. This has bitten twice — 0006's header records that leaving out
-  `feed.completion` made "every 'done' transition fail the CHECK."
+  (`0004_outbox_topics.sql`, `0006_outbox_completion_topic.sql`,
+  `0014_outbox_snapshot_topic.sql`) or every transition that emits it fails the CHECK at
+  commit. This has bitten twice — 0006's header records that leaving out `feed.completion`
+  made "every 'done' transition fail the CHECK." The guard against a third time is that the
+  keep-sandbox integration test reads its `agent.snapshot` row back out of Postgres, so a
+  missing widening fails there rather than in production.
 
 ## Potential gotchas
 

@@ -152,3 +152,52 @@ func TestVerifyProjectUsesTargetRepo(t *testing.T) {
 		t.Fatalf("foreign VerifyProject err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestSetProjectSnapshotWritesOnlyTheSnapshot asserts the narrow write behind
+// the saved-sandbox capture (05 §4, §6): it points the project at the captured
+// base image and leaves every other field — and the project's secrets — exactly
+// as they were, which a read-modify-write through the wholesale UpdateProject
+// could not promise. It also fires the invalidator, so the project's provider is
+// rebuilt and the next worker starts from the new image.
+func TestSetProjectSnapshotWritesOnlyTheSnapshot(t *testing.T) {
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
+	owner := mustDevSignIn(t, svc, "owner")
+	created, err := svc.CreateProject(context.Background(), owner.ID, identity.ProjectUpdate{
+		Name: "widgets", RepoURL: "https://github.com/acme/widgets",
+		WorkerCount: 3, AmikaSnapshot: "old-base",
+		AmikaSecrets: []identity.AmikaSecretInput{{Name: "TOKEN", Value: "s3cret"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	var invalidated []string
+	svc.SetInvalidator(func(id string) { invalidated = append(invalidated, id) })
+
+	got, err := svc.SetProjectSnapshot(context.Background(), created.Project.ID, "widgets-20260809-123045")
+	if err != nil {
+		t.Fatalf("SetProjectSnapshot: %v", err)
+	}
+	if got.AmikaSnapshot != "widgets-20260809-123045" {
+		t.Errorf("AmikaSnapshot = %q, want the captured snapshot", got.AmikaSnapshot)
+	}
+	if got.Name != "widgets" || got.RepoURL != created.Project.RepoURL || got.WorkerCount != 3 {
+		t.Errorf("project = %+v, want every other field untouched", got)
+	}
+	if len(got.AmikaSecrets) != 1 {
+		t.Errorf("secrets = %d, want the project's one secret carried through untouched", len(got.AmikaSecrets))
+	}
+	if len(invalidated) != 1 || invalidated[0] != created.Project.ID {
+		t.Errorf("invalidated = %v, want the project rebuilt so new workers use the new image", invalidated)
+	}
+}
+
+// An unknown or already-deleted project is ErrNotFound, so a capture whose
+// project was deleted mid-flight reports it rather than writing nowhere quietly.
+func TestSetProjectSnapshotUnknownIsNotFound(t *testing.T) {
+	svc := newTestService(t, newFakeStore(), &fakeGitHub{}, nil)
+
+	_, err := svc.SetProjectSnapshot(context.Background(), "no-such-id", "snap")
+	if !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("SetProjectSnapshot on an unknown project = %v, want ErrNotFound", err)
+	}
+}

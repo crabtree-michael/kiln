@@ -2,8 +2,20 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrNoCatalog reports that a project's provider exposes no snapshot catalog —
+// SandboxCatalogOf said no. It is a fact about the provider, not a failure:
+// a session-only platform has no workspace image to save, so a caller that
+// wanted to capture one should say so and stop rather than retry.
+var ErrNoCatalog = errors.New("agent: provider exposes no sandbox catalog")
+
+// ErrNoLiveWorker reports that a slot has no live provider worker to act on —
+// the sandbox is already gone (recycled, auto-deleted, or never provisioned).
+// Terminal for a capture: there is no workspace left to save.
+var ErrNoLiveWorker = errors.New("agent: no live worker for slot")
 
 // SnapshotState is the provider-neutral capture lifecycle of a Snapshot. An
 // adapter classifies its platform's own states into these; a state it does not

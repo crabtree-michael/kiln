@@ -626,6 +626,29 @@ func (s *Service) ProjectByID(ctx context.Context, userID, projectID string) (Pr
 	return p, nil
 }
 
+// SetProjectSnapshot points a project at the base-image snapshot its workers
+// should start from, writing that one field. It exists for the saved-sandbox
+// capture (05 §4, §6): when a ticket's workspace is frozen into a new snapshot,
+// the project is moved onto it, which is what turns "save this sandbox" into
+// something later work actually starts from rather than an image nobody selected.
+// Firing the invalidator rebuilds the project's provider, so the next worker
+// created uses the new image (11 §3).
+//
+// SERVER-DERIVED projectID ONLY, exactly like GetProject and for the same
+// reason: there is no user in this call, so it cannot and does not check
+// ownership — it writes to whatever live project the id names. Pass only an id
+// the server produced (here: an outbox row's project_id). A user-facing snapshot
+// change is a different operation and must keep going through the owner-guarded
+// UpdateProject.
+func (s *Service) SetProjectSnapshot(ctx context.Context, projectID, snapshot string) (Project, error) {
+	p, err := s.store.SetProjectSnapshot(ctx, projectID, snapshot)
+	if err != nil {
+		return Project{}, fmt.Errorf("identity: set project snapshot: %w", err)
+	}
+	s.fireInvalidate(p.ID)
+	return p, nil
+}
+
 // SoftDeleteProject marks the caller's project deleted (12 DP6), guarded by the
 // owner check in the store's UPDATE WHERE. Returns ErrNotFound when no live row
 // the caller owns matches. The runtime-eviction/state-cascade around this

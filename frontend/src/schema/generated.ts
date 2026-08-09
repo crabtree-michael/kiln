@@ -232,7 +232,7 @@ export interface paths {
         put?: never;
         /**
          * Save (or stop saving) this ticket's sandbox.
-         * @description The per-ticket sandbox option, toggled from the ticket detail sheet. Saving a ticket's sandbox suppresses the `agent.release` its exit from Developing would otherwise emit, so the worker is not destroyed and recreated — the workspace survives and an agent can keep working in that same sandbox across turns. Unlike Accept and Delete this does not route through the brain: it is a per-ticket setting, not a board transition, so it writes the flag directly and the resulting `board.updated` carries the new value back over the stream.
+         * @description The per-ticket sandbox option, toggled from the ticket detail sheet. Saving a ticket's sandbox replaces the `agent.release` its exit from Developing would otherwise emit with a capture: the workspace is frozen into a new named snapshot in the project's snapshot catalog and the project is pointed at it, so the workspace outlives the sandbox and later workers start from it. Nothing happens when the option is set — it is a standing instruction about what to do when the ticket is done. Unlike Accept and Delete this does not route through the brain: it is a per-ticket setting, not a board transition, so it writes the flag directly and the resulting `board.updated` carries the new value back over the stream.
          */
         post: operations["setTicketSandbox"];
         delete?: never;
@@ -681,7 +681,7 @@ export interface components {
             priority: number;
             /** @description Set by the brain's request_approval tool on a Shaping ticket (08 §5); a narrower secondary "explicitly nudged for attention" signal. It no longer gates proposal-card visibility: every Shaping ticket surfaces as a `proposal` feed card regardless (08 §5, superseding D5). Cleared by mark_ready. */
             approval_requested: boolean;
-            /** @description Save this ticket's sandbox instead of recycling it. Normally a ticket that leaves Developing (accepted to done, or a blocked ticket deleted) releases its worker, which tears the sandbox down and recreates it — the workspace is gone. With this set the release is skipped, so the sandbox and everything in it survive and the next turn on that slot continues in the same workspace. Set per ticket from the ticket detail sheet (POST /api/tickets/{id}/sandbox); false by default. */
+            /** @description Save this ticket's sandbox instead of recycling it. Normally a ticket that leaves Developing (accepted to done, or a blocked ticket deleted) releases its worker, which tears the sandbox down and recreates it — the workspace is gone. With this set, that exit captures the workspace as a new named snapshot in the project's snapshot catalog instead, and points the project at it, so what the agent installed, cloned and built becomes the base image later workers start from. The capture runs in the background and is named `<project>-<timestamp>`. Set per ticket from the ticket detail sheet (POST /api/tickets/{id}/sandbox); false by default. */
             keep_sandbox: boolean;
             /** @description Ids of the tickets this one waits for: it is not pulled until every one of them is done (0013). In the order they were added. Lists only LIVE dependencies — a dependency that has been deleted can never reach done, so it stops counting and drops out of this list rather than stranding the ticket behind it. */
             depends_on: string[];
@@ -861,7 +861,7 @@ export interface components {
         };
         /** @description POST /api/tickets/{id}/sandbox body — the per-ticket sandbox option. */
         TicketSandboxRequest: {
-            /** @description True saves the ticket's sandbox (its release is suppressed, so the workspace survives); false returns it to the default recycle. */
+            /** @description True saves the ticket's sandbox (its exit from Developing captures the workspace as a snapshot instead of recycling the slot); false returns it to the default recycle. */
             keep: boolean;
         };
         /** @description POST /api/tickets/{id}/dependencies body — the ticket to wait for. */

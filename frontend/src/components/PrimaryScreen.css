@@ -774,17 +774,24 @@
  * the mark to where a row's mark sits (a row is inset 6px by the list's padding
  * and 10px by its own), so the head's mark and every mark under it stand in one
  * vertical line rather than a hair apart — which is the whole of reading them as
- * one reading and its list. */
+ * one reading and its list.
+ *
+ * The type is a title, not a caption. It used to be a 10.5px faint capital — a
+ * legend for the list, quieter than anything it named, and in dark it sat at
+ * --text-faint against the panel where it read as grey furniture. Now it takes a
+ * ticket title's ink (--text-body, the rows' own colour) a step above their
+ * 13px, so the head is the largest thing in the panel and the rows read as its
+ * list. Sentence case for the same reason: capitals at this size shout a section
+ * rather than name one. */
 [data-role='header-status-heading'] {
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 11px 16px 7px;
-  font-size: 10.5px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--text-faint);
+  letter-spacing: var(--tracking-display);
+  color: var(--text-body);
 }
 
 [data-role='header-status-heading'] [data-role='status-dot'] {
@@ -801,8 +808,9 @@
      16.5px age line at the base 1.5 line-height), rows sit 2px apart, and the
      list carries 6px of bottom padding: 6·56 + 5·2 + 6 = 352px. The 60vh
      ceiling still wins on short screens so the panel can't overrun the
-     viewport. */
-  max-height: min(352px, calc(60vh - 34px));
+     viewport — less the head above it, now 42px (11px + 7px padding around a
+     16px title's 24px line box), so the two together still fit the panel. */
+  max-height: min(352px, calc(60vh - 42px));
   /* Always scrollable (reserve the gutter) so the list never reflows its width
      as it crosses the six-row threshold and the overflow affordance stays
      consistent whatever the ticket count. */

@@ -7,12 +7,21 @@
 // the trailing group reads Send → × → mic from the right edge inward, and the ×
 // is the way OUT (discard AND stop the mic) rather than the dock's clear-and-keep-
 // listening. Plus the `onActiveChange` reporting the sheet above rearranges on.
+//
+// The keyboard toggle rides the same rules from the other side: it is offered
+// beside the mic at rest and only at rest, and once typed input is live it wears
+// the SAME Send and × the spoken utterance does — pointed at the draft. The draft
+// itself is owned above (`useTicketKeyboard`), so it is stubbed here per case
+// exactly as the voice store is.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { createRef } from 'react';
 import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
+import type { TicketKeyboard } from '@/components/use-ticket-keyboard';
 import type { VoiceStoreValue } from '@/voice/voice-context';
 
 let mockVoiceValue: VoiceStoreValue;
+let mockKeyboard: TicketKeyboard;
 
 vi.mock('@/voice/voice-context', () => ({
   useVoice: (): VoiceStoreValue => mockVoiceValue,
@@ -46,17 +55,130 @@ function stubVoice(overrides: Partial<VoiceStoreValue>): VoiceStoreValue {
   };
 }
 
+function stubKeyboard(overrides: Partial<TicketKeyboard>): TicketKeyboard {
+  return {
+    open: false,
+    draft: '',
+    inputRef: createRef<HTMLTextAreaElement>(),
+    setDraft: vi.fn(),
+    begin: vi.fn(),
+    end: vi.fn(),
+    submit: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe('TicketDetailVoiceActions', () => {
   beforeEach(() => {
     mockVoiceValue = stubVoice({});
+    mockKeyboard = stubKeyboard({});
   });
 
-  it('is the mic alone at rest — no Send, no × to reach past', () => {
+  it('is the mic and the keyboard toggle at rest — no Send, no × to reach past', () => {
     mockVoiceValue = stubVoice({ micState: 'paused' });
-    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
     expect(screen.getByRole('button', { name: 'Talk' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Type a message' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+  });
+
+  it('keeps the keyboard toggle in the mic’s own group, so neither one travels', () => {
+    // The toggle is the mic's neighbour, not a third loose child of the cluster —
+    // `space-between` would fling a loose one to the row's far end, next to
+    // Accept. Grouped, the mic stays the group's first child and the group stays
+    // the cluster's first child, which is what pins the mic to the row's left
+    // edge in every reading.
+    const { container } = render(
+      <TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />,
+    );
+    const lead = container.querySelector('[data-role="ticket-detail-voice-mic"]');
+    expect(lead).not.toBeNull();
+    const roles = [...(lead?.querySelectorAll('button') ?? [])].map((el) =>
+      el.getAttribute('data-role'),
+    );
+    expect(roles).toEqual(['dock-talk', 'dock-keyboard']);
+  });
+
+  it('tapping the keyboard toggle opens typed input', () => {
+    const begin = vi.fn();
+    mockKeyboard = stubKeyboard({ begin });
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Type a message' }));
+    expect(begin).toHaveBeenCalledTimes(1);
+  });
+
+  it('withdraws the keyboard toggle the moment either input goes live', () => {
+    // Speaking: the mic orb is already the way out, and the trailing slot has the
+    // session's Send and ×.
+    mockVoiceValue = stubVoice({ micState: 'listening' });
+    const { unmount } = render(
+      <TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Type a message' })).toBeNull();
+    unmount();
+
+    // Typing: same reading — tapping the mic is how you go back to voice, so a
+    // toggle beside it would be a second way to change the same mind.
+    mockVoiceValue = stubVoice({ micState: 'paused' });
+    mockKeyboard = stubKeyboard({ open: true });
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
+    expect(screen.queryByRole('button', { name: 'Type a message' })).toBeNull();
+  });
+
+  it('hands the trailing slot to a typed message on the same terms as a spoken one', () => {
+    // Typed input is a live session, so the sheet withdraws Poke/Delete/Accept
+    // for it exactly as it does for an utterance — same swap, same slot.
+    const onActiveChange = vi.fn();
+    mockVoiceValue = stubVoice({ micState: 'paused', settledText: '', tailText: '' });
+    mockKeyboard = stubKeyboard({ open: true });
+    render(
+      <TicketDetailVoiceActions
+        ticketTitle="Ship the redesign"
+        keyboard={mockKeyboard}
+        onActiveChange={onActiveChange}
+      />,
+    );
+    expect(onActiveChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+    // ...and the mic never left, so the ticket-context registration behind a
+    // typed message is still standing.
+    expect(screen.getByRole('button', { name: 'Talk' })).toBeInTheDocument();
+  });
+
+  it('Send posts the typed draft, and is dead until there is one', () => {
+    const submit = vi.fn();
+    const sendNow = vi.fn();
+    mockVoiceValue = stubVoice({ micState: 'paused', sendNow });
+    mockKeyboard = stubKeyboard({ open: true, draft: '   ', submit });
+    const { rerender } = render(
+      <TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />,
+    );
+    // Whitespace is not a message: present, holding its place, and dead.
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+
+    mockKeyboard = stubKeyboard({ open: true, draft: 'move the button', submit });
+    rerender(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(submit).toHaveBeenCalledTimes(1);
+    // The typed seam, not the utterance one — there is no transcript to commit.
+    expect(sendNow).not.toHaveBeenCalled();
+  });
+
+  it('× drops the draft and closes the field — the same way out, in typed input', () => {
+    const end = vi.fn();
+    const cancel = vi.fn();
+    const pause = vi.fn();
+    mockVoiceValue = stubVoice({ micState: 'paused', cancel, pause });
+    mockKeyboard = stubKeyboard({ open: true, draft: 'never mind', end });
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(end).toHaveBeenCalledTimes(1);
+    // The voice teardown is not the typed one: there is no utterance to discard
+    // and no mic to stop.
+    expect(cancel).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
   });
 
   it('shows Send and × the moment the mic goes up, and keeps the mic on screen', () => {
@@ -64,7 +186,9 @@ describe('TicketDetailVoiceActions', () => {
     // and the orb has to stay, since its glow is the only thing reporting that the
     // mic is hearing anything.
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
-    const { container } = render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    const { container } = render(
+      <TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />,
+    );
     expect(container.querySelector('[data-role="dock-mic-orb"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute('data-role', 'dock-send');
     expect(screen.getByRole('button', { name: 'Discard' })).toHaveAttribute(
@@ -78,7 +202,9 @@ describe('TicketDetailVoiceActions', () => {
     // the row's trailing end: mic first, then ×, then Send hard against the edge —
     // the slot Accept vacates for the session.
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'move the button' });
-    const { container } = render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    const { container } = render(
+      <TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />,
+    );
     const roles = [...container.querySelectorAll('button')].map((el) =>
       el.getAttribute('data-role'),
     );
@@ -87,7 +213,7 @@ describe('TicketDetailVoiceActions', () => {
 
   it('keeps the session live on a still-forming tail alone', () => {
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: 'move the' });
-    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
   });
 
@@ -95,7 +221,7 @@ describe('TicketDetailVoiceActions', () => {
     // An end-of-turn final pauses the mic while the utterance sits armed in the
     // grace window — the footer must not snap back to Accept underneath it.
     mockVoiceValue = stubVoice({ micState: 'paused', settledText: 'move the button' });
-    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
   });
@@ -104,14 +230,14 @@ describe('TicketDetailVoiceActions', () => {
     // Present-but-disabled rather than absent, so × and the mic do not shuffle
     // sideways the instant the first partial lands.
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: '', tailText: '' });
-    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
   });
 
   it('Send commits whatever is on screen now', () => {
     const sendNow = vi.fn();
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'move the button', sendNow });
-    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(sendNow).toHaveBeenCalledTimes(1);
   });
@@ -128,7 +254,7 @@ describe('TicketDetailVoiceActions', () => {
       cancel,
       pause,
     });
-    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />);
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(pause).toHaveBeenCalledTimes(1);
@@ -138,13 +264,21 @@ describe('TicketDetailVoiceActions', () => {
     const onActiveChange = vi.fn();
     mockVoiceValue = stubVoice({ micState: 'paused' });
     const { rerender } = render(
-      <TicketDetailVoiceActions ticketTitle="Ship the redesign" onActiveChange={onActiveChange} />,
+      <TicketDetailVoiceActions
+        ticketTitle="Ship the redesign"
+        keyboard={mockKeyboard}
+        onActiveChange={onActiveChange}
+      />,
     );
     expect(onActiveChange).toHaveBeenLastCalledWith(false);
 
     mockVoiceValue = stubVoice({ micState: 'listening' });
     rerender(
-      <TicketDetailVoiceActions ticketTitle="Ship the redesign" onActiveChange={onActiveChange} />,
+      <TicketDetailVoiceActions
+        ticketTitle="Ship the redesign"
+        keyboard={mockKeyboard}
+        onActiveChange={onActiveChange}
+      />,
     );
     expect(onActiveChange).toHaveBeenLastCalledWith(true);
   });
@@ -156,7 +290,11 @@ describe('TicketDetailVoiceActions', () => {
     const onActiveChange = vi.fn();
     mockVoiceValue = stubVoice({ micState: 'listening', settledText: 'half a thought' });
     const { unmount } = render(
-      <TicketDetailVoiceActions ticketTitle="Ship the redesign" onActiveChange={onActiveChange} />,
+      <TicketDetailVoiceActions
+        ticketTitle="Ship the redesign"
+        keyboard={mockKeyboard}
+        onActiveChange={onActiveChange}
+      />,
     );
     expect(onActiveChange).toHaveBeenLastCalledWith(true);
     unmount();
@@ -166,7 +304,9 @@ describe('TicketDetailVoiceActions', () => {
   it('registers the ticket with the voice store so a message sent from here is prefixed', () => {
     const setTicketContext = vi.fn();
     mockVoiceValue = stubVoice({ setTicketContext });
-    const { unmount } = render(<TicketDetailVoiceActions ticketTitle="Ship the redesign" />);
+    const { unmount } = render(
+      <TicketDetailVoiceActions ticketTitle="Ship the redesign" keyboard={mockKeyboard} />,
+    );
     expect(setTicketContext).toHaveBeenCalledWith('Ship the redesign');
     unmount();
     expect(setTicketContext).toHaveBeenLastCalledWith(null);

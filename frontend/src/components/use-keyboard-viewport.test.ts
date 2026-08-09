@@ -29,13 +29,19 @@ function inset(): string {
 }
 
 // Focus an editable field so the hook arms (a soft keyboard is expected), driving
-// the `focusin` path the same way a real focus would.
-function focusField(): void {
+// the `focusin` path the same way a real focus would. Returns the field, whose
+// `scrollIntoView` is a spy: jsdom implements no scrolling at all, so the method
+// is absent and the hook's `typeof` guard would otherwise skip it.
+function focusField(): { field: HTMLTextAreaElement; scrollIntoView: ReturnType<typeof vi.fn> } {
   const field = document.createElement('textarea');
+  const scrollIntoView = vi.fn();
+  field.scrollIntoView = scrollIntoView;
   document.body.append(field);
+  field.focus();
   act(() => {
     field.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
   });
+  return { field, scrollIntoView };
 }
 
 beforeEach(() => {
@@ -148,6 +154,87 @@ describe('useKeyboardViewport', () => {
       fire();
     });
     expect(inset()).toBe('0px');
+  });
+
+  // The other half of the overlay model: the keyboard covers the screen instead of
+  // resizing it, so whatever the user is typing into has to be brought above it
+  // from inside its own scroller. The hook waits for the OS animation to QUIET
+  // first — a nudge per frame would fight it — which is what these two pin.
+  describe('revealing the focused field', () => {
+    // Only setTimeout/clearTimeout: the suite drives frames through its own
+    // synchronous requestAnimationFrame stub, and letting the fake clock take that
+    // over too would stop every measurement in this file from settling.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('scrolls the focused field into view once, after the keyboard settles', () => {
+      vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(800);
+      const { vv, fire } = fakeVisualViewport(800);
+      vi.stubGlobal('visualViewport', vv);
+
+      renderHook(() => {
+        useKeyboardViewport();
+      });
+      const { scrollIntoView } = focusField();
+
+      // Mid-animation: each new measurement pushes the deadline out, so nothing is
+      // nudged while the keyboard is still on its way up.
+      act(() => {
+        vv.height = 700;
+        fire();
+      });
+      act(() => {
+        vi.advanceTimersByTime(100);
+        vv.height = 500;
+        fire();
+      });
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      // Quiet: the keyboard has arrived, and the field is brought into view inside
+      // whichever scroller holds it — `nearest`, so anything already visible (the
+      // dock's own field, which rides up with the dock) doesn't move at all.
+      act(() => {
+        vi.advanceTimersByTime(120);
+      });
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    });
+
+    it('does not scroll when the keyboard closes again before it settles', () => {
+      vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(800);
+      const { vv, fire } = fakeVisualViewport(800);
+      vi.stubGlobal('visualViewport', vv);
+
+      renderHook(() => {
+        useKeyboardViewport();
+      });
+      const { scrollIntoView } = focusField();
+
+      act(() => {
+        vv.height = 500;
+        fire();
+      });
+      // Back to rest inside the quiet window: there is no keyboard left to clear
+      // the field of, so the pending nudge is cancelled rather than re-armed.
+      act(() => {
+        vv.height = 800;
+        fire();
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(inset()).toBe('0px');
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
   });
 
   it('removes the override on unmount', () => {

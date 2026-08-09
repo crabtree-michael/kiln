@@ -174,3 +174,47 @@ func TestRenderSystemPrompt_NoRedundantNarration(t *testing.T) {
 		})
 	}
 }
+
+// TestRenderSystemPrompt_PendingMergeIsNotABlocker pins the third silence, which
+// is a state change rather than a channel: blocked fires a push notification (10),
+// so blocking a ticket whose only outstanding item is "the agent has yet to land
+// its work" wakes the user for coordination already under way and already being
+// handled by the nudge. The rule has to survive under either merge gate, and the
+// gate section itself — which used to prescribe exactly this block — has to agree
+// with it.
+func TestRenderSystemPrompt_PendingMergeIsNotABlocker(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		doneInPR bool
+	}{
+		{subtestMainGate, false},
+		{subtestPRGate, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := RenderSystemPrompt(PromptData{Role: testRole, DoneInPR: tc.doneInPR})
+			if err != nil {
+				t.Fatalf("RenderSystemPrompt: %v", err)
+			}
+			for _, want := range []string{
+				// The rule, and why blocked is governed by the same principle as
+				// the announcement channels: it costs the user a notification.
+				"A pending merge is not a blocker.",
+				"Do NOT set it blocked",
+				"leave the ticket in the state it is already in",
+				// What to do instead, and the one thing that does earn a block.
+				"send_to_agent",
+				"Escalate to blocked only once the nudge has failed",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("prompt should contain %q:\n%s", want, got)
+				}
+			}
+			// The superseded prescription: the gate section told the model to
+			// block the ticket while the agent landed the work, which is the
+			// exact pattern the rule above rules out.
+			if strings.Contains(got, "set the\nticket blocked meanwhile") {
+				t.Errorf("gate section still prescribes blocking for a pending merge:\n%s", got)
+			}
+		})
+	}
+}

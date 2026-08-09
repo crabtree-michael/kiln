@@ -17,13 +17,17 @@
   position: relative;
   /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
      (its overflow-y:auto) with the dock pinned, rather than growing the page.
-     The column keeps its full height when the on-screen keyboard opens (iOS
-     Safari doesn't shrink the `dvh` layout viewport for the keyboard); the dock
-     is instead lifted above the keyboard by a compositor transform driven from
-     the visual viewport (see the `dock-region` rule + use-keyboard-viewport),
-     so no per-event resize/reflow of this column is needed. On Chrome Android
-     `interactive-widget=resizes-content` (index.html) does shrink `dvh` as the
-     keyboard animates, so this column follows the keyboard natively there. */
+
+     This height is FIXED while the on-screen keyboard is up, on every engine, and
+     that is the whole keyboard model: the keyboard overlays the app the way it
+     does in a native one, so nothing here resizes and nothing the user is looking
+     at moves. Neither browser shrinks the `dvh` layout viewport for the keyboard
+     any more — iOS Safari never did, and Chrome Android is asked not to via
+     `interactive-widget=overlays-content` (index.html). What moves instead is the
+     dock, lifted above the keyboard by a compositor transform driven off the
+     visual viewport (see the `dock-region` rule + use-keyboard-viewport), and the
+     feed's bottom padding, which reserves the covered strip as scroll room
+     (below). No per-event resize, no reflow of this column. */
   height: 100dvh;
   margin: 0 auto;
   max-width: 520px;
@@ -79,14 +83,33 @@
      Both vars are published on the screen root and default to 0px, so an empty
      band with a collapsed dock leaves the idle layout exactly as before.
 
-     This is SCROLL allowance and nothing else. Padding on a scroll container
-     shrinks its content box, so on its own it also shortens everything stretched
-     inside it — which is how a toast arriving came to resize the board and lift
-     the pinned "Show earlier" control off the dock. The band's share is handed
-     straight back to the wrapper below (`--feed-overlay-slack`), so the cards
-     keep the room to be scrolled clear of the band while the laid-out board is
-     the same height in every band state. */
-  padding: 8px 26px calc(8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px));
+     For the two overlay vars this is SCROLL allowance and nothing else. Padding
+     on a scroll container shrinks its content box, so on its own it also shortens
+     everything stretched inside it — which is how a toast arriving came to resize
+     the board and lift the pinned "Show earlier" control off the dock. The band's
+     share is handed straight back to the wrapper below (`--feed-overlay-slack`),
+     so the cards keep the room to be scrolled clear of the band while the
+     laid-out board is the same height in every band state.
+
+     `--keyboard-inset` is a third term and the ONE that is deliberately not
+     handed back. It is the strip of this region the soft keyboard covers
+     (use-keyboard-viewport); the keyboard overlays rather than resizing the app
+     (see the column's height above), so without it the last cards would simply be
+     unreachable behind the keyboard. But unlike a toast — a transient overlay the
+     board must hold still under — the covered strip is genuinely gone for as long
+     as the keyboard is up, so the laid-out board SHOULD shorten to what is left:
+     that is what keeps the resting block and the pinned "Show earlier" on screen
+     instead of behind the keyboard, riding up with the dock. Adding it to
+     `--feed-overlay-slack` would strand both under the keyboard, which is the
+     mirror image of the bug the slack exists to fix. Still padding rather than a
+     height change on the column, so growing the reserve BELOW the content moves
+     nothing already scrolled past: opening the keyboard costs the user no scroll
+     position. */
+  padding: 8px 26px
+    calc(
+      8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px) +
+        var(--keyboard-inset, 0px)
+    );
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav
@@ -370,9 +393,48 @@
   background: var(--surface-card);
 }
 
-/* The right-aligned cluster of header dropdowns: the bell notification-settings
- * menu, then the stream status menu. justify-content: space-between on the
- * header keeps the wordmark left and this cluster right. */
+/* The rule under the projects (and their "Add"), separating them from the one
+ * item in this panel that is not about a project. Full-bleed: the panel clips to
+ * its own radius, so a hairline across it reads as a division of the menu rather
+ * than as an underline on the row above. */
+[data-role='project-switcher-divider'] {
+  flex-shrink: 0;
+  height: 1px;
+  background: var(--border-hairline);
+}
+
+/* "Settings" — the panel's last item, and the way to the account view now that
+ * the header has no gear. A quiet text row rather than a second boxed button
+ * like "Add": it is a hop to another screen, not an action on this menu's
+ * subject, and two framed footers would make the panel read as two peers. */
+[data-role='project-switcher-settings'] {
+  display: block;
+  flex-shrink: 0;
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 9px 10px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='project-switcher-settings']:hover {
+  color: var(--text-body);
+  background: var(--surface-inset);
+}
+
+/* The right-aligned cluster of header controls: the clear-all trash, then the
+ * stream status menu. justify-content: space-between on the header keeps the
+ * wordmark left and this cluster right. */
 [data-role='header-actions'] {
   display: flex;
   align-items: center;
@@ -385,7 +447,10 @@
   position: relative;
 }
 
-/* Bell notification-settings menu (02 §10), left of the stream status. */
+/* Bell notification-settings menu (02 §10). The phone's header no longer mounts
+ * it — the desktop rail's foot is its one placement — but the rules stay here,
+ * unscoped, because that shell layers on this sheet (DesktopScreen.css states
+ * only the panel's re-anchoring). */
 [data-role='notify-settings'] {
   position: relative;
   display: flex;
@@ -422,41 +487,20 @@
   display: block;
 }
 
-/* Dashboard link, beside the bell — an anchor, so it also has to clear the
- * global link styling (colour/underline) to match the icon buttons it sits
- * with. Otherwise identical to the bell/trash triggers so the cluster reads as
- * one set. */
-[data-role='header-dashboard'] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  text-decoration: none;
-  background: none;
-  border: none;
-  padding: 5px;
-  margin: -5px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-}
-
-[data-role='header-dashboard']:hover {
-  color: var(--text-secondary);
-  background: var(--surface-inset);
-}
-
+/* The gear glyph. Nothing in the phone's header wears it any more — the top bar
+ * gave up its standalone dashboard link, and the account view is reached from
+ * the project switcher's "Settings" item instead — but the desktop rail's
+ * dashboard link still does, and it inherits this sheet (see DesktopScreen.css,
+ * which resizes it to 16px for the rail). */
 [data-role='header-gear'] {
-  /* Matches the bell/trash (22px) so the cluster shares one scale. */
+  /* Matches the bell/trash (22px) so an icon cluster shares one scale. */
   width: 22px;
   height: 22px;
   display: block;
 }
 
-/* Clear-all trash affordance (08 §3), beside the bell — mirrors the bell
- * trigger's sizing/hover so the two read as one header cluster. */
+/* Clear-all trash affordance (08 §3) — mirrors the bell trigger's sizing/hover,
+ * so the two still read as one set wherever they sit together. */
 [data-role='feed-clear-all'] {
   display: inline-flex;
   align-items: center;
@@ -733,53 +777,21 @@
   pointer-events: auto;
 }
 
-/* The list's head — a label, and now a reading of what is under it.
- *
- * It carries the shared status mark of the TOP ticket (see HeaderStatusMenu),
- * which is what the desk's in-progress head has worn since it stopped drawing a
- * dot of its own. There are no geometry, colour or animation rules for the mark
- * here either, and that absence is the design: it is the same element the rows
- * render, so it is the same 7px circle, the same ink, the same breath, from the
- * one rule above that paints the whole list.
- *
- * Two things the head does have to say. First, hold the box — the mark is a flex
- * child, and without this a long heading would take its pixels before wrapping,
- * and a squeezed circle is an oval (the rows never risk it: they lay the mark out
- * in a grid column instead).
- *
- * Second, the column. The gap is the rows' `column-gap` and the padding carries
- * the mark to where a row's mark sits (a row is inset 6px by the list's padding
- * and 10px by its own), so the head's mark and every mark under it stand in one
- * vertical line rather than a hair apart — which is the whole of reading them as
- * one reading and its list. */
-[data-role='header-status-heading'] {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 11px 16px 7px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-[data-role='header-status-heading'] [data-role='status-dot'] {
-  flex: none;
-}
-
 [data-role='header-status-list'] {
   list-style: none;
   margin: 0;
-  padding: 0 6px 6px;
+  /* Top padding matches the bottom: with no head above them the rows are the
+     panel's first thing, and they need the same breathing room at the top edge
+     that they have always had at the bottom one. */
+  padding: 6px;
   /* Cap the dropdown at six ticket rows, then scroll — a long board stays a
      compact, thumb-reachable list instead of running most of the viewport. A
      row is 56px (18px vertical padding + a 19.5px label line + 2px gap + a
      16.5px age line at the base 1.5 line-height), rows sit 2px apart, and the
-     list carries 6px of bottom padding: 6·56 + 5·2 + 6 = 352px. The 60vh
-     ceiling still wins on short screens so the panel can't overrun the
-     viewport. */
-  max-height: min(352px, calc(60vh - 34px));
+     list carries 6px of padding top and bottom: 6·56 + 5·2 + 12 = 358px. The
+     60vh ceiling still wins on short screens so the panel can't overrun the
+     viewport, and with nothing above the list it is the panel's whole height. */
+  max-height: min(358px, 60vh);
   /* Always scrollable (reserve the gutter) so the list never reflows its width
      as it crosses the six-row threshold and the overflow affordance stays
      consistent whatever the ticket count. */
@@ -961,7 +973,9 @@
 }
 
 [data-role='header-status-empty'] {
-  padding: 6px 14px 16px;
+  /* The top padding used to be 6px because a head sat above with its own
+     bottom padding. Nothing is above it now, so the line carries its own inset. */
+  padding: 14px 14px 16px;
   font-size: 12.5px;
   color: var(--text-muted);
 }
@@ -970,7 +984,9 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 6px 14px 16px;
+  /* The top padding used to be 6px because a head sat above with its own
+     bottom padding. Nothing is above it now, so the line carries its own inset. */
+  padding: 14px 14px 16px;
   font-size: 12.5px;
   color: var(--text-muted);
 }
@@ -987,9 +1003,11 @@
 
 /* The breathing ring, in whatever hue the element it lands on has named. The
    status mark sets `--dot-ring` from the TICKET's state (see above), so a
-   working ticket breathes ember and nothing has to restate the palette here;
-   the accent fallbacks are for `feed-empty-pulse`, which names no ink and is
-   the app's own liveness mark rather than any one ticket's. */
+   working ticket breathes ember and nothing has to restate the palette here.
+   Every mark that uses this now names both rings — including the all-clear
+   screen's liveness pulse, which is the app's own mark rather than any one
+   ticket's — so the accent fallbacks are a floor, not a live default: reaching
+   them means a new caller forgot to say what colour it breathes in. */
 @keyframes kiln-status-pulse {
   0%,
   100% {
@@ -1741,9 +1759,24 @@ button[data-role='feed-card-head']:focus-visible {
   background: var(--text-muted);
 }
 
+/* Live — one or more agents are mid-turn. Ember, not fire, and for the same
+   reason the `building` status dot stopped painting the accent (see the note
+   above [data-role='status-dot']): fire is spent only where a person is needed
+   (13 §4), and `--danger` IS `--accent` in the dark register, so a healthy
+   working board wore the exact mark a BLOCKED ticket wears in the list — the
+   loudest colour on screen for the calmest state the app has. The ink it takes
+   now is the one the working marks and the sheet's IN PROGRESS badge already
+   wear, so "N building" here and a working row there read as one thing.
+
+   The ring vars are named rather than left to the keyframes' accent fallbacks,
+   which would have put the fire back in the halo the moment this mark breathed;
+   naming them also gives this mark the same breath as every working dot — soft
+   ring in, nothing out. */
 [data-role='feed-empty-pulse'][data-active='true'] {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  --dot-ring: var(--warn-soft);
+  --dot-ring-far: transparent;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--dot-ring);
   animation: kiln-status-pulse var(--pulse-duration) ease-in-out infinite;
 }
 
@@ -2509,28 +2542,47 @@ button[data-role='toast-open']:focus-visible {
   border-color: var(--border-strong);
 }
 
-/* Keyboard toggle: the alternate-input entry point (icon-only), parked on the
-   right of the controls row in the resting voice state. Same neutral 40px circle
-   as the cancel (X) box so it reads as a peer control; justify-self:end pins it to
-   the row's right edge while the mic stays centred. */
+/* Keyboard toggle: the alternate-input entry point (icon-only) — the OTHER way to
+   say something, so it wears the same disc as the way it stands beside. Every
+   number here is `[data-role='dock-mic']`'s (below): the 54px circle, the card fill
+   inside a strong outline, the raised shadow that collapses under the thumb, and
+   the muted glyph the mic's own bars are drawn in. It shipped as a 40px
+   border-default circle borrowed from the cancel (X), which read as a lesser
+   control parked next to the mic rather than as its peer — and read wrong twice
+   over in the ticket sheet, whose footer is otherwise all mic-discs
+   (TicketDetail.css).
+
+   One rule dresses BOTH placements, because the sheet reuses this data-role
+   exactly as it reuses dock-cancel/dock-send — so the two can't drift the way a
+   second, sheet-local rule would. `grid-column`/`justify-self` place it in the
+   dock's controls grid (right edge, mic centred) and are inert in the sheet's flex
+   row. No `:hover`, deliberately: the mic and the sheet's footer discs carry none,
+   and a touch device emulates hover — the press IS the feedback. */
 [data-role='dock-keyboard'] {
   grid-column: 3;
   justify-self: end;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 54px;
+  height: 54px;
+  padding: 0;
   border-radius: 50%;
   background: var(--surface-card);
-  border: 1.5px solid var(--border-default);
-  color: var(--text-faint);
+  border: 1.5px solid var(--border-strong);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-muted);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    box-shadow var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
 
-[data-role='dock-keyboard']:hover {
-  color: var(--text-body);
-  border-color: var(--border-strong);
+[data-role='dock-keyboard']:active {
+  transform: translateY(3px);
+  box-shadow: var(--shadow-card);
 }
 
 /* Keyboard mode: no mic glyph in the centre — just the voice toggle (mic) on the

@@ -366,8 +366,24 @@ html:has([data-role='desktop-screen']) body {
      third time.
 
      The composer region's own top padding (the mic's glow room) is what gives
-     the control air below it at rest. */
-  padding: var(--space-8) var(--space-8) var(--feed-bottom-inset, 0px);
+     the control air below it at rest.
+
+     `--keyboard-inset` is a third term, and it is here because this shell is also
+     a TOUCH shell: the breakpoint is width-only, so a tablet in landscape gets
+     this layout driven by a finger and a soft keyboard. The keyboard overlays
+     rather than resizing (index.html asks for `interactive-widget=overlays-content`),
+     so it covers the foot of this region the way the band does — reserve it and
+     the last cards can still be scrolled clear of it.
+
+     It is the one term NOT handed back through `--feed-overlay-slack`, and the
+     phone's copy of this rule carries the argument at length: a band is transient
+     and the feed must hold still under it, while the keyboard's strip is genuinely
+     gone for as long as it is up, so the laid-out feed SHOULD shorten to what is
+     left. That is what keeps the pinned control and the resting block on screen —
+     riding up with the composer — instead of behind the keyboard. 0px on any
+     window with no soft keyboard, which is every mouse-driven one. */
+  padding: var(--space-8) var(--space-8)
+    calc(var(--feed-bottom-inset, 0px) + var(--keyboard-inset, 0px));
 }
 
 /* The feed region is the keyboard's entry point into the column (13 §9), so it
@@ -993,6 +1009,14 @@ html:has([data-role='desktop-screen']) body {
   position: relative;
   flex: none;
   padding: var(--space-6) var(--space-8) var(--space-6);
+  /* Ride the on-screen keyboard, exactly as the phone's dock region does (see
+     [data-role='dock-region'] in PrimaryScreen.css for the full account). This
+     shell is width-gated, not pointer-gated, so a landscape tablet gets it under
+     a finger — and with the keyboard overlaying rather than resizing, a composer
+     pinned to the foot of a 100dvh column would otherwise sit behind it. A
+     compositor transform, no transition: it tracks the OS animation frame by
+     frame, and it carries the activity row anchored above it along. */
+  transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
 }
 
 /* A toast stops where the line it is answering stops. The activity row is

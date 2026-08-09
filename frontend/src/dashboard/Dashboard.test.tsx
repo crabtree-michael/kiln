@@ -86,7 +86,7 @@ function integrationCard(provider: string): HTMLElement {
   return card;
 }
 
-/** Click a provider card's Connect / Update key button and return the API-key
+/** Click a provider card's Connect / Configure button and return the API-key
  * modal's input — the only way to enter a key now that the flat credential
  * form is gone. */
 async function openConnectModal(provider: string, label: string): Promise<HTMLElement> {
@@ -941,7 +941,7 @@ describe('Dashboard', () => {
     expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue(
       'https://github.com/crabtree-michael/kiln',
     );
-    expect(modal.querySelector('[data-role="sandbox-info"]')).not.toBeNull();
+    expect(modal.querySelector('[data-role="project-group"][data-group="sandbox"]')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     await waitFor(() => {

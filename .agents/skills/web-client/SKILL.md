@@ -246,6 +246,14 @@ same sign-up flow, replayable on demand — see the rehearsal section below.
 - `vite.config.ts` proxies `/auth` to the backend alongside `/api` and `/api/stream` — the
   GitHub OAuth redirect (`GET /auth/github/connect` → `/callback`) needs to hit the backend
   directly, not be intercepted by the SPA's client-side router.
+- **From the phone, the way in is the project switcher's last item, "Settings"**
+  (`ProjectSwitcher.tsx`, below a divider), not an icon in the top bar. The bar's gear and
+  its bell were both removed: it had grown to four controls, and two of them opened
+  *settings* rather than acting on what was on screen. What is left there is the clear-all
+  trash and the tickets dropdown. The switcher can route with `useNavigate` where the header
+  could not — it is the one router-dependent control in that bar, injected through
+  `PrimaryScreenView`'s brand slot, which is why the gear had to be a full-page `<a>`. The
+  desk is unchanged: its rail foot still carries both the bell and a dashboard link.
 
 ### One GitHub flow — sign-in IS the GitHub connection
 
@@ -1346,8 +1354,10 @@ and `tests/layout/` measures the geometry.
 - **A shared popover inherits its ANCHOR too, and the anchor is a fact about the shell.**
   Inheriting the mobile sheet's unscoped rules is the point (above), but a dropdown's
   `top`/`right` encode where its trigger sits — and the two shells put the same triggers in
-  opposite corners. The bell is a worked example: `NotificationSettingsMenu` is one
-  component, mounted in the phone's top-right header cluster and in the desk's bottom-left
+  opposite corners. The bell is the worked example — historically, since the phone's header
+  has since given the bell up altogether (the settings page is its entry there now) and the
+  rail's foot is its one placement. It was one component, `NotificationSettingsMenu`,
+  mounted in the phone's top-right header cluster and in the desk's bottom-left
   rail foot, and the mobile "open down and to the left" anchoring aimed it off the bottom
   *and* off the left of a `100dvh` shell that cannot scroll it back — invisible, not merely
   misplaced. `DesktopScreen.css` re-anchors it to the bell's bottom-left corner (`top`/

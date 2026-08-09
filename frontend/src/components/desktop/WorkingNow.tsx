@@ -21,26 +21,37 @@
 // running: a breathing dot and rows when there is, one faint line when there
 // isn't.
 //
+// It lists the BLOCKED tickets too, above the working ones (amended
+// 2026-08-09). They used to reach this panel as a bare count — enough to colour
+// the head and to add half a sentence to the resting line, never enough to name
+// the ticket — on the reasoning that the blocker is a pinned card in the feed
+// with its reason on it. That holds right up until the feed is scrolled, or the
+// card has been seen and collapsed away, or a second project's worth of history
+// sits on top of it; the column beside it, which cannot be scrolled away and
+// exists precisely to list what is standing open, said only that *something*
+// needed the user. The one state on the board that is waiting on a person was
+// the one this panel would not name. See `activeTickets` for why the two states
+// share one list and why blocked leads it.
+//
 // What it deliberately is NOT: a count badge, a progress meter, a live log tail,
-// or anything that ticks (13 §8). Each row is a status mark, a title, an
-// optional word when the session behind it is not plainly building, and how long
-// it has been in Working.
+// or anything that ticks (13 §8). Each row is a status mark, a title, a word
+// where the ticket is not simply building, and how long it has been in its
+// state. The blocker's REASON is still not here — that is a paragraph, and this
+// column is a list of titles; the feed card and the detail sheet the row opens
+// are where the question is read and answered.
 import type { JSX } from 'react';
 import { relativeAge } from '@/components/feed-format';
 import {
+  activeStatusNote,
   workingPanelLabel,
   workingPanelState,
-  workingStatusNote,
-  type WorkingTicket,
+  type ActiveTicket,
 } from '@/components/desktop/working-now';
 
 export interface WorkingNowProps {
-  /** The Working tickets, oldest-started first (see `workingTickets`). */
-  tickets: WorkingTicket[];
-  /** How many tickets are blocked. Only the count: blocked tickets are not
-   * listed here — the head says the project is stuck, and the feed and the
-   * ticket sheet say which one and why. */
-  blocked: number;
+  /** The started-and-unfinished tickets — blocked first, then working, each
+   * group oldest-first (see `activeTickets`). */
+  tickets: ActiveTicket[];
   /** Whether anything is in motion at all — the brain mid-pass or workers
    * mid-turn. Kept separate from the list because the two can disagree in both
    * directions: the brain thinks with nothing in Working, and a board snapshot
@@ -60,13 +71,12 @@ function agePhrase(since: string, now: number): string {
   return age === 'now' ? 'just started' : `for ${age}`;
 }
 
-export function WorkingNow({
-  tickets,
-  blocked,
-  active,
-  onOpenTicket,
-  now,
-}: WorkingNowProps): JSX.Element {
+export function WorkingNow({ tickets, active, onOpenTicket, now }: WorkingNowProps): JSX.Element {
+  // What the head says, and what it wears. Both come from the board rather than
+  // from a fixed string, so the panel reports a state instead of labelling a
+  // column — see `workingPanelState` for why working outranks blocked.
+  const state = workingPanelState(tickets);
+
   // Live = something is actually running. It drives the breathing dot and, with
   // it, `role="status"`: an announcement belongs to the transition into work,
   // not to the resting panel, which would otherwise re-announce the head on
@@ -77,12 +87,12 @@ export function WorkingNow({
   // project in" — and a brain pass over an empty board is a true answer to the
   // first and not to the second: the dot breathes, the word still says idle,
   // because there is no ticket for it to be naming.
-  const live = active || tickets.length > 0;
-
-  // What the head says, and what it wears. Both come from the board rather than
-  // from a fixed string, so the panel reports a state instead of labelling a
-  // column — see `workingPanelState` for why working outranks blocked.
-  const state = workingPanelState(tickets.length, blocked);
+  //
+  // It is the WORKING rows, not the row count, that count as motion — a listed
+  // blocked ticket is the opposite of something happening, and reading a
+  // non-empty list as liveness would have set a stuck panel breathing the moment
+  // its blockers became visible.
+  const live = active || state === 'working';
 
   // The head is a summary of the list under it, so it wears the colour those
   // tickets wear rather than a fixed grey of its own — a head that stayed
@@ -91,11 +101,13 @@ export function WorkingNow({
   // The colour comes from the TICKET's lifecycle state, which is why these are
   // `working` and `blocked` (the same values `ticket.state` carries into the
   // detail sheet's badge) and not one of the session statuses the rows below key
-  // on. Every ticket listed in this panel is in Working, so opening any of them
-  // shows an IN PROGRESS badge; the ticket's own reading is the source of truth
-  // and the head matches it. Keying off a row's session status instead would
-  // make the head disagree with the detail view of the very ticket it sits
-  // above.
+  // on. It is the state of the row it is NAMING: `working` while there is work
+  // to name, `blocked` when the only thing left to name is stuck. So a head in
+  // ember over a mixed list is the head of the working rows, and the fire row
+  // above them wears its own ink and says its own word — one fact per level,
+  // which is the same division the rows' session statuses already live under.
+  // Keying off a row's session status instead would make the head disagree with
+  // the detail view of the very ticket it sits above.
   //
   // Undefined at rest — an idle project has no ticket to take a colour from, and
   // falls back to the neutral reading in CSS. That is the one state that should
@@ -122,7 +134,13 @@ export function WorkingNow({
     // The region's name is fixed while the head's word is not: a landmark that
     // renamed itself as the project moved would shuffle under anyone navigating
     // by region. The state is spoken by the live head inside it instead.
-    <section data-role="desktop-working" aria-label="In progress">
+    //
+    // "Active", not "In progress", since the blocked rows arrived: IN PROGRESS
+    // is the detail sheet's badge for `working` specifically, so a landmark
+    // called that over a list of blocked tickets would be using the app's own
+    // word for the one state those rows are not in. Active is the phone's
+    // vocabulary for exactly this pair (`ticketStatuses`).
+    <section data-role="desktop-working" aria-label="Active tickets">
       {/* `role="status"` is on the head line ONLY, not the whole panel: the
           section holds buttons, and wrapping interactive controls in a live
           region makes assistive tech re-announce them on every re-render. */}
@@ -158,17 +176,26 @@ export function WorkingNow({
       {tickets.length > 0 ? (
         <ul data-role="desktop-working-list">
           {tickets.map((ticket) => {
-            const note = workingStatusNote(ticket.status);
+            const note = activeStatusNote(ticket);
             return (
               <li key={ticket.id}>
                 <button
                   type="button"
                   data-role="desktop-working-ticket"
-                  data-status={ticket.status}
+                  // The ticket's own state, on the row as well as on its mark —
+                  // the backlog's rows have always carried it, and it is what
+                  // lets anything downstream (a rule, a test, a future
+                  // affordance) address "the working rows" without inferring the
+                  // state from a colour.
+                  data-state={ticket.state}
+                  data-status={ticket.status ?? undefined}
                   // Spelled out rather than left to the row's text content, so
-                  // the bare "12m" becomes a sentence and the status word is
-                  // stated even when the visible note is empty.
-                  aria-label={`Open working ticket: ${ticket.title} — ${
+                  // the bare "12m" becomes a sentence and the ticket's reading is
+                  // stated even when the visible note is empty. The state is
+                  // named too: fire and a word are the visible difference between
+                  // a stuck row and a live one, and neither survives being read
+                  // aloud.
+                  aria-label={`Open ${ticket.state} ticket: ${ticket.title} — ${
                     note === '' ? 'working' : note
                   } ${agePhrase(ticket.since, now)}`}
                   onClick={() => {
@@ -179,21 +206,27 @@ export function WorkingNow({
                       the head above wears too, all three from the same unscoped
                       rules in PrimaryScreen.css: the ticket's ember while it is
                       worked (breathing while a session builds, flat while it is
-                      idle, hollow once it has stopped), fire only when the
-                      session has failed. Reusing the element rather
-                      than restating the palette here is what keeps "in progress"
-                      looking identical on both platforms; a second set of
-                      colours would drift the moment either is tuned.
+                      idle, hollow once it has stopped), the sheet's fire while it
+                      is blocked, and fire too when a working session has failed.
+                      Reusing the element rather than restating the palette here
+                      is what keeps a ticket looking the same on both platforms; a
+                      second set of colours would drift the moment either is
+                      tuned.
 
-                      `data-state` is literal because every row in this panel is
-                      a ticket in Working — the same value the head above takes,
-                      and the same one the detail sheet's badge is keyed on, so
-                      head, row, and sheet cannot disagree about a ticket the
-                      user can see all three readings of. */}
+                      `data-state` is the ticket's own, which is the same value
+                      the head above takes and the same one the detail sheet's
+                      badge is keyed on — so head, row, and sheet cannot disagree
+                      about a ticket the user can see all three readings of. It
+                      was the literal `working` while this list held only Working
+                      tickets; a blocked row painted ember would have been that
+                      disagreement, in the loudest place to have it.
+
+                      `data-status` is absent for a blocked row rather than
+                      falsified: see `ActiveTicket.status`. */}
                   <span
                     data-role="status-dot"
-                    data-state="working"
-                    data-status={ticket.status}
+                    data-state={ticket.state}
+                    data-status={ticket.status ?? undefined}
                     aria-hidden="true"
                   />
                   <span data-role="desktop-working-title">{ticket.title}</span>
@@ -211,18 +244,13 @@ export function WorkingNow({
         // faintest ink on the screen — it reports an absence, so it must not
         // read as a region waiting to be dealt with.
         //
-        // Except when the absence has a cause: nothing running BECAUSE a ticket
-        // is waiting on a decision is not the same fact as nothing to run, and
-        // the head's one word cannot carry the difference on its own. "needs
-        // you" is the rail's phrase for exactly this, kept verbatim so the two
-        // surfaces say the same thing about the same board. Still no count —
-        // this panel lists, it does not measure (13 §8), and the blocker itself
-        // is a card in the feed, pinned, with its reason.
-        <p data-role="desktop-working-empty">
-          {state === 'blocked'
-            ? 'Nothing in progress — a ticket needs you.'
-            : 'Nothing in progress.'}
-        </p>
+        // One line, not two. It used to have a second reading — "Nothing in
+        // progress — a ticket needs you." — for the case where the absence had a
+        // cause the head's one word could not carry. That case cannot reach this
+        // branch any more: a blocked ticket is a row now, so a board with one in
+        // it has a list rather than an absence to report, and the sentence would
+        // be a stated absence directly above the thing it says is missing.
+        <p data-role="desktop-working-empty">Nothing in progress.</p>
       )}
     </section>
   );

@@ -7,14 +7,15 @@
 // tickets panel, and the selected project's feed with the input under it.
 // The middle column is the one addition to the original two-region shape, and it
 // is deliberately NOT an inspector: it holds no selection and shows no detail.
-// It answers two standing questions, in two sections — what is being worked on
-// right now, and what is queued behind it (the ready pull queue and the
-// proposals still being shaped, the same coverage the phone's header dropdown
-// has always had). It is separated from the feed by a rule rather than by
-// space, because unlike the rail (peripheral furniture, set apart by its
-// recessed surface) it is content about the same project the feed is about, and
-// the line is what says "these are two readings of one thing" instead of "this
-// is more feed". That line is also the one piece of this layout the reader owns:
+// It answers two standing questions, in two sections — what is open right now
+// (the tickets being worked, and the ones stuck waiting on the user), and what
+// is queued behind them (the ready pull queue and the proposals still being
+// shaped, the same coverage the phone's header dropdown has always had). It is
+// separated from the feed by a rule rather than by space, because unlike the
+// rail (peripheral furniture, set apart by its recessed surface) it is content
+// about the same project the feed is about, and the line is what says "these are
+// two readings of one thing" instead of "this is more feed". That line is also
+// the one piece of this layout the reader owns:
 // it is a separator they can drag, between the width the column shipped at and
 // twice it, because how much of a desk goes to titles and how much to the feed
 // is a judgement about their project and their window, not one this file can
@@ -46,7 +47,7 @@ import { ActivityRow } from '@/components/ActivityRow';
 import { DesktopRail } from '@/components/desktop/DesktopRail';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
 import { WorkingNow } from '@/components/desktop/WorkingNow';
-import { blockedCount, workingTickets } from '@/components/desktop/working-now';
+import { activeTickets } from '@/components/desktop/working-now';
 import { Backlog } from '@/components/desktop/Backlog';
 import { backlogTickets } from '@/components/desktop/backlog';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
@@ -148,11 +149,13 @@ export function DesktopScreenView({
   // permitted to animate on its own. Never a progress bar: there is no progress
   // to report, and a bar that doesn't measure anything is a lie.
   const working = thinking || summary.building > 0;
-  // …and WHICH tickets those agents are on, straight off the board's Working
-  // bucket. The liveness signal above and this list are kept separate on purpose:
-  // the brain thinks with nothing in Working, and a board snapshot can name a
-  // working ticket before the feed summary agrees. Either lights the strip.
-  const inProgress = workingTickets(board);
+  // …and WHICH tickets are open right now, straight off the board's Blocked and
+  // Working buckets. The liveness signal above and this list are kept separate on
+  // purpose: the brain thinks with nothing in Working, and a board snapshot can
+  // name a working ticket before the feed summary agrees. Either lights the
+  // strip — and neither is what a blocked row reports, which is the absence of
+  // motion with a name on it.
+  const open = activeTickets(board);
   // …and what is queued up behind them: the ready pull queue, then the
   // proposals still being shaped. Off the same board snapshot, for the same
   // reason — a ticket can wait a long time without the brain having anything to
@@ -257,18 +260,25 @@ export function DesktopScreenView({
         onDisablePush={onDisablePush}
       />
 
-      {/* The working indication (13 §8.2), what it is working ON, and what is
-          queued behind it — its own column, beside the feed rather than above
+      {/* The working indication (13 §8.2), what is open under it, and what is
+          queued behind that — its own column, beside the feed rather than above
           it. A property of the project that stays true for as long as the work
           runs has no business inside (or on top of) a scrolling history: here it
           cannot be scrolled away, and it keeps its own reading rhythm instead of
           borrowing the feed's measure and reading as the first card.
 
           The two sections answer the two standing questions this column exists
-          for — what is running, and what is next — and they are separate
-          sections rather than one merged list because the difference between
-          them is precisely what the reader is after. Only the first is live;
-          only the first breathes.
+          for — what is open, and what is next — and they are separate sections
+          rather than one merged list because the difference between them is
+          precisely what the reader is after. Only the first is live; only the
+          first breathes.
+
+          "Open" is both states a started ticket can be in: being worked, and
+          stuck waiting on the user. The blocked ones used to reach the first
+          section as a count and go unnamed, which made the one thing on the
+          board that wants a person the one thing this column would not point
+          at — on the surface a desk user reads first, and keeps open all day.
+          See WorkingNow.
 
           Scoped to the SELECTED project, like the feed beside it. The rail's
           per-project working counts come from a slow cross-project poll
@@ -285,13 +295,7 @@ export function DesktopScreenView({
           Breathing, slow and low-contrast; the per-ticket marks are the
           phone's, unchanged. See DesktopScreen.css. */}
       <div data-role="desktop-working-panel">
-        <WorkingNow
-          tickets={inProgress}
-          blocked={blockedCount(board)}
-          active={working}
-          onOpenTicket={setOpenTicketId}
-          now={now}
-        />
+        <WorkingNow tickets={open} active={working} onOpenTicket={setOpenTicketId} now={now} />
         <Backlog tickets={waiting} onOpenTicket={setOpenTicketId} now={now} />
       </div>
 

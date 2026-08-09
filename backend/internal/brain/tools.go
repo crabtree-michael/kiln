@@ -311,7 +311,8 @@ var Tools = []ToolDef{
 			"(\"allowed now\"). Every live ticket is listed; Done shows only its most recent few, " +
 			"with the rest reachable through search_tickets. Read the board here before deciding; " +
 			"use get_ticket for a single ticket's full body. Read-only — issue it in the same round " +
-			"as your other opening reads rather than a round of its own.",
+			"as your other opening reads rather than a round of its own, and once per turn: the " +
+			"roster you already have is still current unless you have changed the board since.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
@@ -319,7 +320,9 @@ var Tools = []ToolDef{
 		Description: "Read one ticket in full, including its body, by id. The result's " +
 			"\"allowed now\" line lists exactly what its current state accepts — check it rather " +
 			"than attempting a change the state will refuse. Read-only — when you already know the " +
-			"id (the event names it), ask for it in the same round as your other reads.",
+			"id (the event names it), ask for it in the same round as your other reads. Once per " +
+			"ticket per turn: what it returned is still in front of you, so read it again only " +
+			"after you have changed that ticket.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
 		}),
@@ -330,7 +333,8 @@ var Tools = []ToolDef{
 			"tickets the roster does not list. Matching is case-insensitive on ticket ids, titles " +
 			"and bodies, and every word in the query must appear — so add a word to narrow, drop " +
 			"one to widen. Results come a few per page, best match first; pass page to read the " +
-			"next one. Read-only — batch it with your other reads in one round.",
+			"next one. Read-only — batch it with your other reads in one round, and once per query " +
+			"per turn: re-running a query you already have the results of returns the same page.",
 		InputSchema: objectSchema([]string{fieldQuery}, map[string]any{
 			fieldQuery: stringSchema("Words to look for; a ticket matches only if all of them appear."),
 			fieldPage:  intSchema("Which page of results to read, 1-based. Omit for the first page."),
@@ -350,6 +354,10 @@ var Tools = []ToolDef{
 			"one call can revise and queue a ticket. A ticket's state limits which of these it " +
 			"takes — a working or blocked ticket's fields cannot be edited and it cannot be " +
 			"queued — so read its \"allowed now\" line from get_ticket or list_tickets first. " +
+			"An edit is not how you reach a working ticket's agent: it already has its brief, so " +
+			"put what you wanted to add into send_to_agent instead. Take a refusal as final: the " +
+			"state has not moved since you read it, so re-issuing the same call gets the same " +
+			"answer. " +
 			"Use depends_on to make a ticket wait for other tickets to finish first.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID:      stringSchema("Ticket id."),
@@ -410,7 +418,8 @@ var Tools = []ToolDef{
 	{
 		Name: ToolListUpdates,
 		Description: "List the active feed updates you have posted — their ids, kinds and text — " +
-			"so you can edit or retract one. Read-only — batch it with your other reads in one round.",
+			"so you can edit or retract one. Read-only — batch it with your other reads in one round, " +
+			"and once per turn unless you have posted or retracted since.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
@@ -433,7 +442,8 @@ var Tools = []ToolDef{
 	{
 		Name: ToolListAgents,
 		Description: "List the running agents (workers) and whether each is working a " +
-			"ticket or idle. Read-only — batch it with your other reads in one round.",
+			"ticket or idle. Read-only — batch it with your other reads in one round, and call it " +
+			"once per turn: the roster of workers does not change while you are deciding.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
@@ -441,7 +451,8 @@ var Tools = []ToolDef{
 		Description: "Read an agent's latest completed output by worker id — use to check " +
 			"what a working agent last produced. Read-only — an agent event already names its " +
 			"worker, so ask for this in your opening round alongside the board reads instead of " +
-			"a round later.",
+			"a round later. Once per worker per turn — an agent produces no new output while you " +
+			"are deciding, so a second call returns the same text.",
 		InputSchema: objectSchema([]string{fieldWorkerID}, map[string]any{
 			fieldWorkerID: stringSchema("Board worker id, from list_agents or the board snapshot."),
 		}),
@@ -487,28 +498,59 @@ var Tools = []ToolDef{
 // (06 §5, §8). The idempotency rule (06 §6) depends on ErrInvalidTransition
 // reaching the model exactly this way. See
 // docs/specs/06-orchestrator-brain.md §4, §6, §8.
+//
+// A single call with no pass behind it, so nothing is remembered between two
+// Dispatches — the per-pass memo (memo.go) belongs to runPass, and inventing a
+// one-call one here would only ever dedupe a call against itself.
 func (s *Service) Dispatch(ctx context.Context, call ToolCall) ToolResult {
-	res, _ := s.dispatchOne(ctx, call)
+	res, _ := s.dispatchOne(ctx, nil, call)
 	return res
 }
 
 // dispatchOne routes one tool call to its handler and logs it as a structured
 // board-mutating action (turn_id injected from context): the tool name, an
 // args summary + content hash (ticket id lives in the args; args_hash makes a
-// duplicated send_to_agent instruction greppable — the 841fb6cc smell), and
-// the outcome. It additionally reports whether the call was malformed — an
-// unknown tool name or unparseable arguments (06 §8) — which the pass loop
-// counts toward its one-re-prompt-then-fail rule.
-func (s *Service) dispatchOne(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	res, malformed := s.routeTool(ctx, call)
+// duplicated send_to_agent instruction greppable — the 841fb6cc smell), whether
+// the pass answered it from memory rather than the port, and the outcome. It
+// additionally reports whether the call was malformed — an unknown tool name or
+// unparseable arguments (06 §8) — which the pass loop counts toward its
+// one-re-prompt-then-fail rule.
+//
+// `reused` is emitted on every record, not only the suppressed ones, so the
+// duplicate-rate query that measured §10 (args_hash repeated within a turn_id)
+// can split what the model still emits from what actually cost a port call. The
+// record stays honest about what the model asked for: a suppressed call is
+// logged, because the call was made.
+func (s *Service) dispatchOne(ctx context.Context, memo *passMemo, call ToolCall) (ToolResult, bool) {
+	res, malformed, reused := s.routeOrReuse(ctx, memo, call)
 	slog.InfoContext(ctx, "brain.tool",
 		"tool", string(call.Name),
 		"args", obs.Summary(string(call.Input), toolArgsSummaryBytes),
 		"args_hash", obs.Hash(string(call.Input)),
+		"reused", reused,
 		"is_error", res.IsError,
 		"result", obs.Summary(res.Content, toolResultSummaryBytes),
 	)
 	return res, malformed
+}
+
+// routeOrReuse answers a call from the pass's memo when it is an exact repeat
+// of one already made, and otherwise routes it to its handler and files the
+// outcome. A malformed call is never filed: 06 §8's one-re-prompt-then-fail
+// rule needs a repeated malformed call to be dispatched and counted as
+// malformed again, not suppressed into a clean result.
+//
+// Returns the result, whether the call was malformed, and whether it was
+// answered from memory rather than a port.
+func (s *Service) routeOrReuse(ctx context.Context, memo *passMemo, call ToolCall) (ToolResult, bool, bool) {
+	if res, ok := memo.reuse(call); ok {
+		return res, false, true
+	}
+	res, malformed := s.routeTool(ctx, call)
+	if !malformed {
+		memo.record(call, res)
+	}
+	return res, malformed, false
 }
 
 // routeTool is dispatchOne's flat tool → handler table. A typed Board API error

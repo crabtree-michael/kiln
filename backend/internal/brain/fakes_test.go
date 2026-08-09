@@ -28,6 +28,7 @@ const (
 	methodMarkReady    = "MarkReady"
 	methodShapeTicket  = "ShapeTicket"
 	methodAcceptToDone = "AcceptToDone"
+	methodGetTicket    = "GetTicket"
 	workerW1           = "w-1"
 	workerW2           = "w-2"
 	sayHello           = "hello"

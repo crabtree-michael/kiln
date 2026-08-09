@@ -109,6 +109,25 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   both halves; `TestHandleEvent_BatchedReadRound_OneRoundCarriesEveryRead`
   (pass_loop_test.go) pins that the loop honours the shape.
 
+- Treating the per-pass memo (`memo.go`) as a cache and "improving" it — giving it a TTL,
+  sharing it between passes, hanging it off `Service`, or having a reused read replay the
+  earlier result instead of pointing at it. None of those are what it is. It is scoped to
+  one `runPass` because that is exactly the window in which the board cannot move except
+  by the pass's own hand (no mid-pass refresh, 06 §5); across passes it *does* move, and a
+  shared memo would serve stale state. It points rather than replays because the pass
+  re-sends its whole conversation every round, so a second copy of a result grows every
+  remaining round's prefix — the cost the whole thing exists to avoid. Two invalidations
+  are load-bearing: any mutating call drops every remembered read, and a *successful* one
+  additionally drops every remembered refusal (else a refusal the board would now accept
+  is invented from memory). `bash` is deliberately not a memoizable read — the done flow
+  has it run `git fetch origin`.
+
+- Filing a malformed call in the memo. `routeOrReuse` (tools.go) records only calls that
+  were not malformed, because 06 §8's one-re-prompt-then-fail rule needs the second
+  identical malformed call to be dispatched and counted as malformed again. Suppressing it
+  into a clean result would silently switch that rule off;
+  `TestHandleEvent_MalformedRepeat_IsNeverAnsweredFromMemory` (memo_test.go) pins it.
+
 ## Potential gotchas
 
 - **The done gate is configurable per project (merge-gate mode).** `update_ticket` with

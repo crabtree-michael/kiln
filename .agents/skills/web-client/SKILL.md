@@ -1414,6 +1414,29 @@ and `tests/layout/` measures the geometry.
     directions: the brain thinks (`thinking`) with nothing in Working, and a board snapshot
     can name a working ticket before the feed summary's `building` catches up. Either
     lights the strip; only the list names anything.
+- **The tickets column's width belongs to the USER, and it is published imperatively**
+  (`use-working-panel-width.ts`). The boundary between that column and the feed is a
+  draggable separator: the grid reads `var(--desk-working-width, 248px)`, the floor is the
+  248px the column shipped at and the ceiling is twice it. Four things to keep:
+  - **The live width is a ref written straight to the DOM — a custom property on the shell
+    root and the separator's `aria-valuenow` — never React state.** A drag fires a move per
+    frame, and re-rendering the shell (the whole feed card list with it) on each one is how
+    a handle comes to feel like it drags through treacle. Both targets are single-writer, so
+    a re-render behind a drag cannot fight it. What *is* state is `dragging`, which flips
+    twice a drag and publishes `data-resizing` on the root for the window-wide resize cursor
+    and the selection lock.
+  - **The rule IS the handle.** The 1px `--border-strong` line moved off the panel's
+    `border-right` onto the separator's `border-left`, so the boundary sits at the same x and
+    the resting screen gains nothing to look at. A `::after` reaching 4px LEFT is the grab
+    room — left only, because the feed's region paints after the separator and would win the
+    hit test on its right.
+  - **It is the ARIA window splitter**, so the keyboard path is the pointer's: arrows step,
+    Home/End go to the ends. Home is also the reset, since the default width *is* the
+    minimum — don't add a double-click or a menu item for it.
+  - **The bounds are stated as literals in three places** (the hook, the CSS fallback, the
+    layout spec) and that is deliberate: `tests/layout/desktop-shell.spec.ts` measures the
+    resting width, the drag, and both clamps in a real browser, which is the only thing that
+    can catch the three disagreeing.
 - **The rail carries a working COUNT, and it must never paint one** (13 D9). `RailProject`
   has a required `working: number` and `railHint` folds it into the row's `title` plus the
   mark's visually-hidden text — nothing else. Two reasons it exists at all: 13 §8 rules out

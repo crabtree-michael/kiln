@@ -151,23 +151,101 @@ test.describe('phone shell — the keyboard overlays the app', () => {
     expect(control.bottom).toBeLessThanOrEqual(KEYBOARD_TOP);
   });
 
-  test('the ticket sheet stands its footer clear of the keyboard', async ({ page }) => {
+  test('the ticket sheet rides up onto the keyboard — it does not grow into it', async ({
+    page,
+  }) => {
     // The sheet is fixed to the bottom edge and portals to document.body, so it
     // gets none of the screen column's arrangement — and it is the one surface
     // with an editable field the dock's lift cannot reach (the body editor, the
-    // transcript). Its own padding is what holds the footer up.
+    // transcript, the typed message).
+    //
+    // The regression this pins: the clearance used to be bottom PADDING, and a
+    // bottom-anchored box that gains 300px of padding grows 300px UPWARD. The
+    // footer did clear the keyboard, but a short ticket's sheet ballooned from a
+    // third of the screen to nearly all of it — the ticket thrown to the top edge,
+    // a keyboard's worth of blank paper under the controls — which is what "the
+    // content flies to the top" was. Every claim below passed in that state except
+    // the two about the sheet's own box.
     await mountShell(page, { band: 'none' });
+    await page.click("[data-role='feed-card-open']");
+    await page.waitForSelector("[data-role='ticket-detail']");
+    const rest = await stableBox(page, "[data-role='ticket-detail']");
+    const restTitle = await box(page, "[data-role='ticket-detail-title']");
+    expect(Math.round(rest.bottom)).toBe(PHONE.height);
+
+    await keyboard(page, KEYBOARD);
+    const sheet = await box(page, "[data-role='ticket-detail']");
+    const dock = await box(page, "[data-role='ticket-detail-dock']");
+    const title = await box(page, "[data-role='ticket-detail-title']");
+
+    // It STANDS ON the keyboard: its own bottom edge is the keyboard's top edge,
+    // so there is no strip of sheet left behind the keys to read as dead space.
+    expect(Math.round(sheet.bottom)).toBe(KEYBOARD_TOP);
+    // ...at the size it already was. A short ticket is the case that exposes this:
+    // uncapped, the old padding went straight into the sheet's height.
+    expect(Math.round(sheet.height)).toBe(Math.round(rest.height));
+    // ...so the ticket moved by the keyboard's height and not a pixel more — the
+    // reading position is preserved, just lifted.
+    expect(Math.round(restTitle.top - title.top)).toBe(KEYBOARD);
+
+    // The footer is clear of the keys and still on screen at the top.
+    expect(dock.bottom).toBeLessThanOrEqual(KEYBOARD_TOP);
+    expect(dock.top).toBeGreaterThanOrEqual(0);
+    // And the sheet's own foot is the footer's foot: nothing but its padding
+    // between the controls and the keyboard.
+    expect(sheet.bottom - dock.bottom).toBeLessThan(40);
+  });
+
+  test('a long ticket shrinks to fit above the keyboard rather than off the top', async ({
+    page,
+  }) => {
+    // The other half of the lift: the cap comes off `--keyboard-inset` too, so a
+    // sheet already at its 85dvh maximum yields the space instead of running out
+    // of the top of the screen. Its body carries the outsized flex-shrink, so what
+    // gives is the scrolling region — the dock, with the field in it, keeps its
+    // intrinsic height.
+    await mountShell(page, { band: 'none', longTicketBody: true });
     await page.click("[data-role='feed-card-open']");
     await page.waitForSelector("[data-role='ticket-detail']");
     await stableBox(page, "[data-role='ticket-detail']");
 
     await keyboard(page, KEYBOARD);
-    const dock = await box(page, "[data-role='ticket-detail-dock']");
+    const sheet = await box(page, "[data-role='ticket-detail']");
+    expect(sheet.top).toBeGreaterThanOrEqual(0);
+    expect(Math.round(sheet.bottom)).toBe(KEYBOARD_TOP);
 
-    expect(dock.bottom).toBeLessThanOrEqual(KEYBOARD_TOP);
-    // Still on screen at the top, i.e. it moved up rather than the sheet growing
-    // off the head of the viewport.
-    expect(dock.top).toBeGreaterThanOrEqual(0);
+    const dock = await page.evaluate(() => {
+      const el = document.querySelector("[data-role='ticket-detail-dock']");
+      if (el === null) {
+        return null;
+      }
+      return { height: el.getBoundingClientRect().height, scrollHeight: el.scrollHeight };
+    });
+    expect(dock, 'no dock in the sheet').not.toBeNull();
+    expect(dock?.height ?? 0).toBeGreaterThanOrEqual((dock?.scrollHeight ?? 0) - 1);
+  });
+
+  test('the typed field stays above the keyboard it opened', async ({ page }) => {
+    // The whole point of the sheet's keyboard toggle: what you are typing has to
+    // be on screen. The field lives in the sheet's dock panel, so it rides the
+    // lift with everything else — this is the assertion that the two features hold
+    // together, since either one alone leaves it behind the keys.
+    await mountShell(page, { band: 'none', longTicketBody: true });
+    await page.click("[data-role='feed-card-open']");
+    await page.waitForSelector("[data-role='ticket-detail']");
+    await stableBox(page, "[data-role='ticket-detail']");
+
+    await page.click("[data-role='ticket-detail'] [data-role='dock-keyboard']");
+    await page.waitForSelector("[data-role='ticket-detail-input']");
+    await keyboard(page, KEYBOARD);
+
+    const field = await box(page, "[data-role='ticket-detail-input']");
+    const send = await box(page, "[data-role='ticket-detail'] [data-role='dock-send']");
+    expect(field.height).toBeGreaterThan(0);
+    expect(field.top).toBeGreaterThanOrEqual(0);
+    expect(field.bottom).toBeLessThanOrEqual(KEYBOARD_TOP);
+    // Send with it — a field you can see and no way to post it is the same bug.
+    expect(send.bottom).toBeLessThanOrEqual(KEYBOARD_TOP);
   });
 });
 

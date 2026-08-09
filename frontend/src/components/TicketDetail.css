@@ -23,10 +23,30 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* The sheet SITS ON the soft keyboard — it moves, it does not grow.
+   * `--keyboard-inset` is the keyboard's overlap of the bottom edge, published on
+   * the document root by use-keyboard-viewport and 0px whenever no keyboard is up
+   * (so all of this is inert at a desk, under a hardware keyboard, and in jsdom).
+   *
+   * This used to be spent as bottom PADDING, which cleared the footer of the
+   * keyboard but did it by inflating the sheet: a bottom-anchored box that gains
+   * 300px of padding grows 300px UPWARD, so a short ticket's sheet ballooned from
+   * a third of the screen to nearly all of it and the ticket the user was reading
+   * shot to the top edge — with a keyboard's worth of empty paper below the
+   * controls. Lifting the whole panel by the same number clears the footer just as
+   * well and moves nothing relative to the sheet: what was under the thumb stays
+   * under the thumb, one keyboard higher. The cap comes off the same value, so a
+   * long ticket shrinks (its body carries the outsized flex-shrink and yields —
+   * see the dock's rule) instead of running off the top of the screen.
+   *
+   * It has to be `bottom` + `max-height` and NOT the compositor `translateY` the
+   * dock uses: vaul writes this panel's transform inline, keyed to its own
+   * open/closed state, so a CSS transform here is ignored — or, forced, strands
+   * the panel permanently open. */
+  bottom: var(--keyboard-inset, 0px);
   z-index: var(--layer-detail-panel); /* above its own scrim */
   width: 100%;
-  max-height: 85dvh;
+  max-height: calc(85dvh - var(--keyboard-inset, 0px));
   /* Flex column that clips: the grabber, header, top metadata and (pinned)
    * Accept action hold their intrinsic height while the body between them takes
    * the remaining space and scrolls on its own — the header no longer travels
@@ -41,24 +61,19 @@
   border-bottom: none;
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
-  /* The sheet is fixed to the viewport bottom and portals to document.body, so
-   * its own bottom padding must clear whatever the OS has put over that edge.
-   * Two things can be there and only one at a time matters:
-   *   - the iPhone home-indicator inset (mirrors the dock's pattern in
-   *     PrimaryScreen.css [data-role='dock'], collapsing to the plain value on
-   *     non-notched devices via the 0px fallback); and
-   *   - the soft keyboard, published as `--keyboard-inset` by
-   *     use-keyboard-viewport. The keyboard OVERLAYS the app rather than resizing
-   *     it (see [data-role='primary-screen']'s height), so without this the sheet's
-   *     footer — its Save/Cancel, its mic, its transcript — would sit behind the
-   *     very keyboard the user opened to type into it.
-   * `max()`, not a sum: an open keyboard already covers the home indicator, so
-   * adding both would stand the footer a home-indicator's height too high. The
-   * sheet's own `max-height` still caps it, and its scrolling body carries the
-   * outsized flex-shrink, so a capped sheet takes this out of the body — which
-   * then scrolls the focused editor back into view (`revealFocused`). */
+  /* The sheet is fixed to the viewport bottom and portals to document.body, so its
+   * own bottom padding must clear the iPhone home indicator (mirrors the dock's
+   * pattern in PrimaryScreen.css [data-role='dock'], collapsing to the plain value
+   * on non-notched devices via the 0px fallback).
+   *
+   * The keyboard is NOT added here — the panel is lifted over it instead (see
+   * `bottom` above). What the inset does do is *cancel* the home-indicator
+   * reservation: a raised keyboard already covers the indicator, and the sheet is
+   * now standing on the keyboard rather than on the screen's edge, so reserving
+   * for it too would float the footer a home-indicator's height above the keys.
+   * Clamped at 0 so the term can only ever give the inset back, never go negative. */
   padding: 0.5rem 0.9rem
-    calc(1rem + max(env(safe-area-inset-bottom, 0px), var(--keyboard-inset, 0px)));
+    calc(1rem + max(env(safe-area-inset-bottom, 0px) - var(--keyboard-inset, 0px), 0px));
   box-shadow: var(--shadow-overlay);
 }
 
@@ -924,14 +939,15 @@
  * only overrides padding, color and the inner typography. */
 
 [data-role='ticket-detail'][data-surface='primary'] {
-  /* Add whatever the OS has put over the bottom edge to this skin's 22px bottom
-   * padding, so the dock/controls region clears it. Same `max()` of the
-   * home-indicator inset and the soft keyboard's `--keyboard-inset` as the base
-   * rule, and for the same reasons — restated because this skin rewrites
-   * `padding` wholesale, which is exactly how the base rule's keyboard clearance
-   * would go missing on the ONE surface the app actually renders. */
+  /* Add the home indicator to this skin's 22px bottom padding, so the
+   * dock/controls region clears it — and give it back while a keyboard is up, the
+   * same expression as the base rule and for the same reason (the panel is lifted
+   * onto the keyboard, which has already covered the indicator). Restated because
+   * this skin rewrites `padding` wholesale, which is exactly how the base rule's
+   * bottom clearance would go missing on the ONE surface the app actually
+   * renders. */
   padding: 0.5rem 22px
-    calc(22px + max(env(safe-area-inset-bottom, 0px), var(--keyboard-inset, 0px)));
+    calc(22px + max(env(safe-area-inset-bottom, 0px) - var(--keyboard-inset, 0px), 0px));
   color: var(--text-body);
 }
 

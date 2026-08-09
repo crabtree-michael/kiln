@@ -113,12 +113,25 @@ test.describe('ticket sheet — phone', () => {
     // absence of — a drift no DOM test can see, since both sizes render.
     await mountShell(page, { band: 'none' });
     const dockMic = await box(page, "[data-role='dock-region'] [data-role='dock-mic']");
+    // The toggle is the same control in two places, off one rule — so the dock's
+    // own is held to the mic standing next to it there, before the sheet is even
+    // opened. It shipped as the cancel (×)'s 40px circle, which is a peer of the
+    // wrong thing: smaller than the mic beside it here, and the one small disc in
+    // an all-54px footer below.
+    const dockToggle = await box(page, "[data-role='dock-region'] [data-role='dock-keyboard']");
+    expect(dockToggle.width, "the dock's keyboard toggle is not the mic's disc").toBe(
+      dockMic.width,
+    );
+    expect(dockToggle.height, "the dock's keyboard toggle is not the mic's disc").toBe(
+      dockMic.height,
+    );
+
     await openSheet(page);
 
     // The sheet opens on the shaping proposal, so Accept and Delete are both up;
     // Poke rides a blocked/working ticket and is deliberately not in this row.
     const discs: [string, Box][] = [];
-    for (const role of ['dock-mic', 'detail-delete', 'detail-accept']) {
+    for (const role of ['dock-mic', 'dock-keyboard', 'detail-delete', 'detail-accept']) {
       discs.push([role, await box(page, `[data-role='ticket-detail'] [data-role='${role}']`)]);
     }
     for (const [role, disc] of discs) {

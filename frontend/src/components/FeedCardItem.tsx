@@ -54,6 +54,22 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { FeedCard } from '@/transport/transport';
 import { cardTag, relativeAge } from '@/components/feed-format';
+// Every "what does this kind do?" question on this card comes from the shared
+// taxonomy (`feed-kinds.ts`) rather than a `card.kind === '…'` read. There were
+// seven of those here, and a seventh kind would have type-checked past all of
+// them: no tag, no body, no tap target, no glyph. The one decision that stays
+// local is the head mark below — that's this view's markup, not a shared fact —
+// and it takes its exhaustiveness from `matchKind` instead.
+import {
+  carriesLandedWork,
+  carriesPreviewImage,
+  isAcceptable,
+  matchKind,
+  opensDetailFromBody,
+  opensDetailFromHead,
+  rendersBody,
+  showsKindTag,
+} from '@/components/feed-kinds';
 // The clamp-overflow measurement — the single signal both card-body variants
 // share to decide whether to show the "tap to see more" cue — is shared with the
 // activity row's pills (which ask the same question of their own 2-line clamp).
@@ -277,21 +293,28 @@ export function FeedCardItem({
   onOpenDetail,
   moreLabel = DEFAULT_MORE_LABEL,
 }: FeedCardItemProps): JSX.Element {
-  const isBlocker = card.kind === 'blocker';
-  // A poke card is the steward's mechanical stall nudge: just the ticket title
-  // with a 👉 pointing at it, no body (08 §3 poke kind). The emoji is the whole
-  // signal.
-  const isPoke = card.kind === 'poke';
-  // A done card is the mechanical completion notice (08 §7): just the ticket
-  // title with a ✅ in front of it, no body. Styled like a poke — the emoji is
-  // the whole signal.
-  const isDone = card.kind === 'done';
+  // The mark that leads the head row, if any. One exhaustive table, so a new
+  // kind has to say whether it is flagged and with what — the three separate
+  // `card.kind === '…'` booleans this replaces would each have answered "no" in
+  // silence. It stays in this file rather than in the taxonomy because the marks
+  // are markup and copy: the blocker's pulse dot, the poke's 👉 (the steward's
+  // mechanical stall nudge, 08 §3), the done card's ✅ (the runtime's completion
+  // notice, 08 §7). For the last two the emoji is the whole signal — neither
+  // card has a body.
+  const headMark = matchKind(card.kind, {
+    blocker: 'dot',
+    poke: 'poke',
+    done: 'done',
+    proposal: null,
+    update: null,
+    preview: null,
+  });
   // Update, blocker and proposal cards drop the kind tag — their title colour
   // carries the kind (muted, fire and fire respectively). Only preview keeps it,
   // since the colour scheme doesn't cover it. Poke and done carry no tag either.
-  const showTag = card.kind === 'preview';
+  const showTag = showsKindTag(card);
   const ticketId = card.ticket_id;
-  const canAccept = card.kind === 'proposal' && ticketId != null;
+  const canAccept = isAcceptable(card) && ticketId != null;
   // Only a proposal card is a digest that opens the full ticket detail on tap
   // (08 §5): its clamped body is a shortcut into the ticket's context. Update
   // cards — brain-authored notes — always fall through to the expand-in-place
@@ -302,7 +325,7 @@ export function FeedCardItem({
   // handler — no optional chain, which the lint gate rejects as unnecessary
   // (mirrors TicketCard's onSelect).
   const openDetail =
-    card.kind === 'proposal' && ticketId != null && onOpenDetail !== undefined
+    opensDetailFromBody(card) && ticketId != null && onOpenDetail !== undefined
       ? () => {
           onOpenDetail(ticketId);
         }
@@ -316,7 +339,7 @@ export function FeedCardItem({
   // rather than a dead-end note. Narrow on the id + callback directly, same as
   // openDetail above.
   const openHeadDetail =
-    (isDone || isPoke) && ticketId != null && onOpenDetail !== undefined
+    opensDetailFromHead(card) && ticketId != null && onOpenDetail !== undefined
       ? () => {
           onOpenDetail(ticketId);
         }
@@ -326,13 +349,13 @@ export function FeedCardItem({
   // once and slot into whichever wrapper the head takes below.
   const head = (
     <>
-      {isBlocker && <span data-role="feed-card-dot" aria-hidden="true" />}
-      {isPoke && (
+      {headMark === 'dot' && <span data-role="feed-card-dot" aria-hidden="true" />}
+      {headMark === 'poke' && (
         <span data-role="feed-card-poke" aria-label="poke">
           👉
         </span>
       )}
-      {isDone && (
+      {headMark === 'done' && (
         <span data-role="feed-card-done" aria-label="done">
           ✅
         </span>
@@ -358,7 +381,7 @@ export function FeedCardItem({
       ) : (
         <div data-role="feed-card-head">{head}</div>
       )}
-      {isDone && card.github_url != null && card.github_label != null && (
+      {carriesLandedWork(card) && card.github_url != null && card.github_label != null && (
         <a
           data-role="feed-card-github"
           href={card.github_url}
@@ -369,11 +392,10 @@ export function FeedCardItem({
           {card.github_label}
         </a>
       )}
-      {isDone && card.work_summary != null && card.work_summary !== '' && (
+      {carriesLandedWork(card) && card.work_summary != null && card.work_summary !== '' && (
         <FeedCardBody body={card.work_summary} seen={seen} moreLabel={moreLabel} markdown={false} />
       )}
-      {!isPoke &&
-        !isDone &&
+      {rendersBody(card) &&
         (openDetail !== null ? (
           <OpenDetailCardBody
             body={card.body}
@@ -385,7 +407,7 @@ export function FeedCardItem({
         ) : (
           <FeedCardBody body={card.body} seen={seen} moreLabel={moreLabel} markdown={true} />
         ))}
-      {card.kind === 'preview' && card.image_url != null && (
+      {carriesPreviewImage(card) && card.image_url != null && (
         <img data-role="feed-card-image" src={card.image_url} alt={card.label} />
       )}
       {canAccept && (

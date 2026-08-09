@@ -1512,22 +1512,15 @@ The opt-in lives on the one rule both surfaces render, so there is exactly one p
   the ticket's own detail badge compared as **resolved colours**, which is the claim the old
   `status-mark.test.ts` could only approximate by matching two token *names* across two
   stylesheets.
-- **The phone's tickets dropdown heads its list with the same mark, keyed on the TOP ticket.**
-  The desk's in-progress head took three fixes to become one of its own rows' marks; the
-  phone's `[data-role='header-status-heading']` had the marks in the list and no reading over
-  them, so the one line naming the list said nothing about the state of it. It now renders the
-  shared `status-dot` (`HeaderStatusMenu.tsx`) and, because that is the same element under the
-  same rule, the design match and the phase sync both come for free — the `--pulse-phase:
-  shared` opt-in rides on `[data-status='building']`, so the head breathes *with* the row it is
-  reporting rather than merely at its tempo. Three things to keep: it is the **first ticket of
-  `ticketStatuses`**, not a state re-derived here (that list already ranks working → blocked →
-  ready, so the top row IS the loudest thing on the board, and a second rule is how a head ends
-  up contradicting the row beneath it); it stays **stateless** — mark present, no `data-state`
-  — on an empty or not-yet-loaded board, so the heading's geometry doesn't shift when the first
-  ticket lands under it; and it carries **no `role="status"`**, unlike the desk's permanent
-  panel, because a live region inside a dropdown re-announces on every re-render behind it. The
-  heading rule owns only the flex box, the rows' 9px column gap and the padding that stands its
-  mark in the rows' own column — never a size, ink or animation of its own.
+- **The phone's tickets dropdown has NO head — the list is the panel's first content.**
+  `[data-role='header-status-heading']` is gone, mark included: the panel opens from a button
+  that already reports what it holds and every row carries its own status mark, so the line
+  above them named the list a second time and spent the panel's first 42px doing it. It had
+  just been given the shared `status-dot` keyed on the top ticket when it went; if a reading
+  over the list is ever wanted back, that history is in `HeaderStatusMenu.tsx`'s log — don't
+  reintroduce it as a lone mark with no word. **Mobile only: the desk's in-progress panel keeps
+  its head**, and it is the surface `tests/layout/status-mark.spec.ts` measures the head-vs-row
+  match and the shared breath on.
 - **A glow is geometry too — an opaque band anchored to a region's edge will cut it.** The
   listening mic radiates a box-shadow ring ~20px past the button's edge (`kiln-mic-glow`),
   and the activity row is anchored to the composer region's *top* edge carrying an opaque

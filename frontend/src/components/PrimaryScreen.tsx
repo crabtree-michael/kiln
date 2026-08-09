@@ -62,7 +62,6 @@ function PrimaryScreenBody(): JSX.Element {
     acceptProposal,
     deleteTicketCard,
     dismissCard,
-    dismissAll,
   } = useFeedStore();
   const { board, refreshBoard, refreshing, loading: boardLoading } = useBoardStore();
   // One answer to "is this project still loading?" for the shell below. Both
@@ -123,15 +122,13 @@ function PrimaryScreenBody(): JSX.Element {
 
   // The switch. Everything above is shared; only the shape below differs.
   //
-  // Four things the desktop view deliberately does NOT receive, each for a
+  // Three things the desktop view deliberately does NOT receive, each for a
   // reason in the doc rather than as an oversight:
   //   - `onDismissCard` — the mobile swipe has no desktop equivalent and does not
   //     become a hover-revealed close button by default (13 §6). Whether any card
   //     is dismissible by hand on a desk is a genuinely open question (§13 Q3),
   //     and the curated-feed model (08 D1) argues the brain should be removing
   //     things, not the user.
-  //   - `onDismissAll` — same call, and a bulk clear is a management affordance in
-  //     a window whose entire premise is that there is nothing to manage.
   //   - `onRefreshFeed` — pull-to-refresh is a touch gesture; the desk equivalent
   //     is that the stream is live and the feed just changes (13 §8.3).
   //   - `onOpenTickets`/`ticketsRefreshing`/`brand` — the mobile header's ticket
@@ -199,7 +196,6 @@ function PrimaryScreenBody(): JSX.Element {
       onReassignSandbox={onReassignSandbox}
       onEditText={onEditText}
       onDismissCard={dismissCard}
-      onDismissAll={dismissAll}
       onOpenTickets={refreshBoard}
       ticketsRefreshing={refreshing}
       lastSeenId={lastSeenId}

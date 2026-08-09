@@ -1,279 +1,218 @@
 ---
 name: amika-integration
-description: Use when working in the agent-runtime module — the provider-neutral layer other modules use to reach coding agents (workers + send message + turn-output events; never sandboxes or sessions). Amika is the v1 provider adapter behind it. Backend anchor internal/agent (adapter in internal/agent/amika). Specs 02 §8, 05.
+description: Use when working in the agent-runtime module — the provider-neutral layer other modules use to reach coding agents (workers + send message + turn-output events; never sandboxes or sessions). Amika is one registered provider behind it. Backend anchor internal/agent. Spec docs/specs/05-agent-runtime.md.
 ---
 
-# Agent runtime (02 §8, mechanics decided by 05)
+# Agent runtime (mechanics decided by spec 05)
 
-## Functional Requirements
+## What it is
 
-**Responsibility.** The provider-neutral agent-runtime layer. Other modules see: **workers**
-(opaque handles = the board's capacity slots), **Send** (deliver a message to a worker),
-**output** (`agent.turn_completed` events), and — added since scaffold — a **read/inspector
-seam** (`ListAgents`/`GetAgentUpdates`, backing the brain's `list_agents`/`get_agent_updates`)
-and a **worker-health** signal into the board. Every provider concept — sandboxes, sessions,
-jobs, provisioning, auth — stays inside this module. Fully specified in
-`docs/specs/05-agent-runtime.md`, designed against **Amika API v0beta1**
-(`https://app.amika.dev/api/v0beta1/llms.txt`).
+The provider-neutral agent-runtime layer. Other modules see **workers** (opaque handles = the
+board's capacity slots), **Send** (deliver a message to a worker), **output**
+(`agent.turn_completed` events), a **read/inspector seam** (`ListAgents`/`GetAgentUpdates`,
+backing the brain's `list_agents`/`get_agent_updates`), and a **worker-health** signal into the
+board.
 
-**The abstraction rule (05 §1).** Nothing outside this module may know Amika exists.
-Swapping or adding an agent platform touches only a Provider adapter + config.
+**The abstraction rule (05 §1): nothing outside this module may know Amika exists.** Every
+provider concept — sandboxes, sessions, jobs, provisioning, auth — stays inside. Swapping or
+adding an agent platform touches only a Provider adapter + config. *(The skill is still named
+`amika-integration` for continuity; the module is provider-neutral and Amika is one of several
+registered providers.)*
 
 **Two seams (05 §2).**
-- *Consumer contract:* `AgentRuntime{Send, Release, Snapshot}` — executes `agent.send` /
-  `agent.release` / `agent.snapshot` outbox entries; the first two record-and-return,
-  idempotent by outbox id. `Snapshot` is the odd one out and calls the provider inline (see
-  "Saving a worker's workspace" below). Inbound:
-  `EnqueueEvent(ctx, projectID, agent.turn_completed, idempotencyKey, {ticket_id, worker_id,
-  is_error, output, cost_usd})` — every terminal outcome, mechanical failures included (D3);
-  the `idempotencyKey` makes completion **exactly-once at the event seam** (the 05 §5
-  enqueue+mark-done question, resolved by commit "make turn completion exactly-once via
-  events idempotency key"). No provider handles in the payload.
-- *Provider port (internal):* `ListWorkers / CreateWorker / WorkerReady / DestroyWorker /
-  StartTurn / CheckTurn / ReadLatestOutput / RunStatus` (the last two added since scaffold —
-  they back the inspector seam and worker-health). The state machine, reconciler, poller,
-  dedupe table, and mock are written once against it; Amika (`internal/agent/amika`) is one
-  implementation, resolved **per project** (see below).
+- *Consumer contract:* `AgentRuntime{Send, Release, Snapshot}` executes `agent.send` /
+  `agent.release` / `agent.snapshot` outbox entries. The first two are record-and-return,
+  idempotent by outbox id; `Snapshot` is the odd one out and calls the provider inline (see
+  the catalog section). Inbound: `EnqueueEvent` with an
+  `idempotencyKey`, carrying `{ticket_id, worker_id, is_error, output, cost_usd}` for **every
+  terminal outcome, mechanical failures included** (D3). The key makes completion
+  **exactly-once at the event seam**. No provider handles in the payload.
+- *Provider port (internal):* list/create/ready/destroy a worker, start/check a turn, read
+  latest output, report status. The state machine, reconciler, poller, dedupe table and mock
+  are written **once** against it; each adapter is one implementation, resolved **per project**.
 
-**Lifecycle (05 §4).** Pool + recreate on release: one long-lived provider worker per
-board slot, named `<KILN_WORKER_PREFIX><board-worker-uuid>` (default prefix
-`kiln-worker-`; the whole board↔provider join, D5). Startup reconciliation is
-**adopt-first**: list, match names, create only for slots with no live worker, destroy
-orphans. `agent.release` (AcceptToDone) destroys + recreates for a fresh workspace;
+**Lifecycle (05 §4): pool + recreate on release.** One long-lived provider worker per board
+slot, named `<prefix><board-worker-uuid>` — the whole board↔provider join (D5). Startup
+reconciliation is **adopt-first**: list, match names, create only for slots with no live
+worker, destroy orphans. `agent.release` destroys + recreates for a fresh workspace;
 dead-lettered recreates are healed by the 60 s reconciler sweep.
 
-**Per-project provider + prefix (11 §3 tenancy flip).** The Service no longer holds one
-process-wide `Provider`; it holds a `ProviderResolver` (`ProviderResolver.For(projectID)`) and
-resolves a per-project `(Provider, prefix)` for every reconcile/poll/inspect. The worker prefix
-is composed at the composition root as `cfg.WorkerPrefix + workerPrefixScope(projectID) + "-"`
-(`wiring.go`), so `KILN_WORKER_PREFIX` is only the per-environment **base** and each project
-gets its own scope appended (`agent.WithWorkerPrefix` no longer exists). The prefix is still the
-ownership scope — adopt/create/sweep/reset stay inside it. Environments sharing the Amika
-account MUST use distinct base prefixes — with a shared one, each instance's orphan sweep
-destroys the other environments' live workers within 60 s (their slot uuids live in a different
-DB). docker-compose defaults local dev to `kiln-dev-worker-`; the e2e teardown
-(`tests/amika.ts`) follows the same env var; prod keeps the historical `kiln-worker-` default.
+**Turn machine (05 §5, §7).** Per-operation `recorded → worker_ready → turn_started →
+done/failed`, persisted in the module-owned `agent_turns` table keyed by outbox id — **the
+idempotency dedupe the provider doesn't give us**. A 2 s poller advances non-terminal machines;
+recovery = continue every non-terminal row. Terminal failure → error-turn event; the brain
+decides what it means for the ticket.
 
-**Turn machine (05 §5, §7).** Per-operation machine
-`recorded → worker_ready → turn_started → done/failed`, persisted in the module-owned
-`agent_turns` table keyed by outbox id — **the idempotency dedupe Amika doesn't provide**.
-A 2 s poller advances non-terminal machines; recovery = continue every non-terminal row.
-Terminal failure → error-turn event; the brain decides what it means for the ticket.
+**Mock (05 §8).** A mock **Provider**, not a mock of the whole module — the machinery, table
+and event path all run for real. Instant lifecycle, scripted turns, failure injection,
+conversation loss. Default in dev and the keyless e2e lane.
 
-**Amika mapping (05 §6).** Sandboxes ↔ workers; turns ↔ Amika sends; `new_session` ⇔ first
-send of a conversation. `auto_stop` on, `auto_delete` **off**.
+## Per-project provider + prefix (11 §3 tenancy flip)
 
-> **Sync-send bridge (temporary).** The adapter currently mints a session up front
-> (`POST …/sessions`) and fires a **synchronous** `POST …/agent-send` with a bounded wait —
-> **not** the async `agent-send-jobs` that 05 §6 specifies — because Amika's async endpoint
-> 500s org-wide. Revert to `agent-send-jobs` once Amika fixes it. (This also changes the
-> `agent_session_id` handling below: the adapter always passes the up-front `SessionID`.)
+The Service holds a `ProviderResolver`, not one process-wide `Provider`, and resolves a
+per-project `(Provider, prefix)` for every reconcile/poll/inspect. The prefix is composed at
+the composition root as `cfg.WorkerPrefix + <project scope> + "-"`, so `KILN_WORKER_PREFIX` is
+only the per-environment **base**.
 
-Config: `AGENT_MODE` (`amika`/`mock`), `AMIKA_BASE_URL`, `AMIKA_API_KEY`, `AMIKA_REPO_URL`,
+**The prefix is the ownership scope** — adopt, create, sweep and reset all stay inside it.
+**Environments sharing one provider account MUST use distinct base prefixes**: with a shared
+one, each instance's orphan sweep destroys the other environments' live workers within 60 s
+(their slot uuids live in a different DB). This is what killed prod agents "on every deploy"
+before the per-env prefix landed 2026-07-05. docker-compose defaults local dev to
+`kiln-dev-worker-`; the e2e teardown follows the same env var; prod keeps the historical
+`kiln-worker-`.
+
+## Multi-provider registry
+
+Amika is **one registered provider among several**, not *the* provider
+(`docs/superpowers/specs/2026-07-11-multi-provider-agent-runtime-design.md`).
+
+- **Capability descriptor.** `agent.Capabilities` + `CapabilityReporter`, read via
+  `agent.CapabilitiesOf(p)` — the ONE leak-free way the core varies a core-visible affordance
+  without naming a provider. A provider that omits the interface gets the conservative zero
+  value. **Never type-switch on a concrete provider.**
+- **Registry.** `cmd/kiln/registry.go` maps a key (`amika`/`mock`/`devin`) to a
+  `ProviderFactory`. Adding a provider = one map entry + its adapter package; validation is
+  "is the key registered", never an if-ladder. `AGENT_MODE` is the deployment default.
+- **Per-project override.** `identity.Project.AgentProvider` (empty ⇒ deployment default). An
+  unregistered key fails **LOUD** with `ErrProviderUnavailable` — never a silent fallback.
+- **Devin** (`internal/agent/devin`) is the *virtual-worker* shape: no managed sandbox, empty
+  worker listing, synthetic workers, session created lazily on the first turn, ACU→USD
+  best-effort cost. It is the proof the abstraction holds for a provider unlike Amika.
+- **Still frozen, and that is the whole point:** `AgentRuntime`'s shape, the
+  `agent.turn_completed` payload, the `agent_turns` dedupe, the reconciler/poller. **A provider
+  addition that touches board/brain/runtime/wire (beyond the dashboard descriptor) means the
+  abstraction is leaking.**
+
+## Sandbox selection — the snapshot catalog seam
+
+Replaces a free-text snapshot handle with a dashboard picker of the account's real snapshots,
+plus "save a running dev box as a snapshot" — and stays provider-neutral.
+
+- **Optional Provider extension `agent.SandboxCatalog`** (`catalog.go`): list snapshots, list
+  dev boxes, save a snapshot, over neutral `Snapshot`/`DevBox` types. Read via
+  `agent.SandboxCatalogOf(p)`, mirroring `CapabilitiesOf` — **never a type switch**. A provider
+  without it offers no catalog. `Snapshot.Ref` is exactly what the project stores and passes
+  back at create time: an opaque handle, **no provider vocabulary crosses**.
+- **API:** `GET/POST /api/snapshots`, `GET /api/dev-boxes`, dual-mounted per project. A
+  provider with no catalog → 404, so the client hides the picker; other failures → 502. The
+  frontend consequences (per-project hook, no global store) are `web-client`'s.
+- Amika's impl filters dev boxes to the **complement** of the worker prefix — the user's own
+  boxes, not the pooled workers.
+
+**The catalog's other consumer is the board, not a user.** When a ticket whose sandbox is
+*saved* leaves Developing the board emits `agent.snapshot` (see `board-mechanism`), and
+`Service.SaveWorkerSnapshot` captures that slot's sandbox. Three things about it are
+load-bearing:
+
+- **`ErrNoCatalog` / `ErrNoLiveWorker` are terminal facts, not failures.** There is nothing to
+  capture and retrying cannot change that, so the caller reports and completes the outbox entry
+  rather than burning the retry budget to the same end.
+- **The NAME is the idempotency key.** The provider API has none and the outbox is
+  at-least-once, so the capture first asks the catalog whether one exists under that name. This
+  only works because the name derives from the emit-time instant the board stamped into the
+  payload — derive it from the execution clock and every redelivery captures again. A catalog
+  read that *fails* deliberately falls through to capturing: losing the workspace is the worse
+  way to be wrong.
+- **The capture consumes its source.** `scrub_and_delete` is the only safe mode — a Kiln worker
+  holds the owner's git credential and the project's injected secrets, and this image is about
+  to become the base every future worker starts from, so **never switch it to `full`**. The
+  provider deletes the box, so the slot is dropped from the worker cache and the reconciler
+  re-provisions it, the same heal `advanceRelease` leans on.
+
+Naming (`<project>-<timestamp>`) and pointing the project at the result live in
+`agentRuntimeAdapter.Snapshot` at the composition root, because that spans this module and
+identity. The repoint happens while the capture is still running, so the project briefly names
+a not-yet-ready image and worker creation retries until it lands; waiting instead would not
+converge, since a capture routinely outlives the outbox's ~3-minute retry budget.
+
+## Config
+
+`AGENT_MODE` (`amika`/`mock`/`devin`), `AMIKA_BASE_URL`, `AMIKA_API_KEY`, `AMIKA_REPO_URL`,
 `AMIKA_SNAPSHOT`, **`AMIKA_CLAUDE_CRED_ID`** (required for agent auth), per-project encrypted
-sandbox **secrets** (`amika.Config.Secrets` → `secret_env_vars`), and `KILN_WORKER_PREFIX`
-(per-environment base scope; trailing `-` appended at load). Note: `KILN_AGENT` /
-`KILN_WORKER_AUTO_STOP` exist as struct-comment intentions but are **not wired** at the
-composition root — they fall to `DefaultAgent`/`DefaultAutoStop`.
+sandbox secrets, and `KILN_WORKER_PREFIX` (per-environment base; trailing `-` appended at
+load). Note `KILN_AGENT` / `KILN_WORKER_AUTO_STOP` exist as struct-comment intentions but are
+**not wired** at the composition root — they fall to the defaults.
 
-**Mock (05 §8).** A mock **Provider** (not a mock of the whole module) — machinery, table,
-and event path run for real. Instant lifecycle, scripted turns, failure injection,
-conversation loss. Default in dev and e2e.
+## Settled contract choices (load-bearing, no longer open)
 
-## Module layout (fully implemented)
-
-- `internal/agent` — `provider.go` (Provider port incl. `ReadLatestOutput`/`RunStatus`,
-  `ProviderResolver.For`, `ProviderWorker`/`TurnRef`/`TurnStatus`, `WorkerName`,
-  `ErrConversationLost`/`ErrOutOfCredits`), `turn.go` (phases, `Turn` row incl. `ProjectID`,
-  payload shapes, `PollInterval`/`ReconcileInterval`/`LivenessInterval`), `store.go` (Store
-  port over `agent_turns`), `service.go` (Service: `Send`/`Release` — the shape of
-  `runtime.AgentRuntime`, matched structurally, never imported — plus `ListAgents`/
-  `GetAgentUpdates`, and `Run` driving **three** loops: reconciler, poller, and
-  `refreshStatuses` at `LivenessInterval`=10 s; ports `EventEnqueuer`, `Slots`, `Clock`,
-  `ProviderResolver`, `Projects`, and optional `BoardRefresher`).
-- `internal/agent/postgres` — Store adapter + `migrations/0001_agent_turns.sql`,
-  `0002_project_id.sql`.
-- `internal/agent/mock` — mock Provider (exported knobs: `Script`, `FailProvisioning`,
-  `FailStartTurns`, `DropConversation`, `OutOfCredits`, `StatusByName`, plus setters like
-  `SetWorkerStatus`/`SeedLatestOutput`).
-- `internal/agent/amika` — v0beta1 adapter (`Config` incl. `ClaudeCredID`/`Secrets`, `Client`,
-  `APIError` envelope; `states.go` classification).
-
-Settled contract choices to know (these are load-bearing, no longer open):
-
-- `agent_turns` has a `message` column beyond the 05 §7 list — recovery must be able to
-  StartTurn a never-started turn, so the message has to be durable.
-- `Provider.StartTurn` takes the prior `conversation` handle alongside `fresh` — adapters
-  are stateless and 05 §6 continues "the recorded session_id", which must come from the
-  machinery.
-- `Phase.Terminal()` is done-only: `failed` still owes the error `turn_completed` event
-  (05 §5 `failed → done`), so the poller's working set is `phase <> 'done'`.
+- `agent_turns` carries a `message` column beyond the 05 §7 list — recovery must be able to
+  start a never-started turn, so the message has to be durable.
+- `StartTurn` takes the prior conversation handle alongside `fresh`: adapters are stateless, so
+  the recorded session id must come from the machinery.
+- `Phase.Terminal()` is **done-only** — `failed` still owes the error `turn_completed` event,
+  so the poller's working set is `phase <> 'done'`.
 - The 05 §5 enqueue+mark-done is resolved **not** as a cross-table transaction but as
-  exactly-once **at the event seam**: `EnqueueEvent` takes an idempotency key, and the Service
-  emits-then-marks-done with a plain single-row `Store.Update` (a re-emit is deduped).
-- First-message-vs-continuation is derived via `Store.LatestForWorker` (no row or a
-  release row ⇒ fresh; `markContinuation`).
+  exactly-once *at the event seam*: emit-then-mark-done with a plain single-row update, and a
+  re-emit is deduped by the idempotency key.
+- First-message-vs-continuation is derived from the store (no row, or a release row ⇒ fresh).
 
 ## How to work here
 
-- Never block a port call on the provider: record in `agent_turns`, return; the
+- **Never block a port call on the provider**: record in `agent_turns`, return; the
   reconciler/poller advances the turn (05 D2).
-- The module owns its own table and migration (`agent_turns`) — adapter state, not board
-  state (03 I8 stays intact).
-- The board is reached only via events (`EnqueueEvent`); this module never mutates board
-  state (05 D3).
-- New provider = new Provider adapter package beside `./amika` + config; if you find
-  yourself touching the service or consumer contract, the abstraction is leaking.
+- The module owns its own table and migration — adapter state, not board state (03 I8 stays
+  intact).
+- The board is reached **only via events**; this module never mutates board state (05 D3).
+- New provider = new adapter package + a registry entry. **If you find yourself touching the
+  service or the consumer contract, the abstraction is leaking.**
 
 ## Common footguns
 
-- Leaking a provider concept (session id, sandbox state, job id) into a consumer-facing
-  type, event payload, or log line other modules parse.
-- Blocking an outbox handler on provisioning — it fights the runtime's 8-attempt budget
-  (04 D8). Record-and-return, always.
+- Leaking a provider concept (session id, sandbox state, job id) into a consumer-facing type,
+  event payload, or log line other modules parse.
+- **Blocking an outbox handler on provisioning** — it fights the runtime's 8-attempt budget.
+  Record-and-return, always.
 - Creating workers unconditionally at startup instead of adopt-first reconciliation —
   duplicates the pool on every deploy.
-- Trusting the provider to dedupe: v0beta1 has **no idempotency keys**; every port call
-  checks `agent_turns` first.
-- Running two environments on one Amika account with the same `KILN_WORKER_PREFIX` —
-  each one's orphan sweep destroys the other's live workers (this is what killed prod
-  agents "on every deploy" before the per-env prefix landed 2026-07-05).
+- **Trusting the provider to dedupe:** Amika v0beta1 has **no idempotency keys**; every port
+  call checks `agent_turns` first.
+- Running two environments on one provider account with the same base prefix (see above).
 
 ## Potential gotchas
 
-- Amika sandbox `state` values are **not enumerated** in v0beta1 — `WorkerReady` must be
-  defensive and get hardened against the real value set during implementation (05 §11).
-- `GET /sandboxes/{id}` accepts id **or name** — adoption relies on this.
-- A provider can lose a conversation between turns; fall back to a fresh conversation
-  with the same message (context lost, workspace kept), never fail the ticket (05 §3).
-- Amika's `auto_delete_interval` must stay off — it would yank a worker out from under a
-  Blocked ticket waiting on the user overnight (05 D6). In v0beta1 the "off" sentinel is a
-  **negative** interval (`-1`); the adapter sends `auto_delete_interval: -1`.
-- **Out-of-credits is fail-fast and terminal.** The adapter maps the credit-exhausted
-  response to `ErrOutOfCredits` (`isOutOfCredits` in `client.go`); the Service treats it as a
-  terminal turn outcome rather than retrying forever.
-- **Worker-health feeds the board.** The liveness loop (`refreshStatuses`/`RunStatus`)
-  reports per-worker health through the optional `BoardRefresher.SetWorkerHealth` so the
-  board's pull binds Ready tickets only to healthy sandboxes (see `board-mechanism`).
+- A provider can **lose a conversation between turns**; fall back to a fresh conversation with
+  the same message (context lost, workspace kept) — **never fail the ticket** (05 §3).
+- **`auto_delete` must stay off** — it would yank a worker out from under a Blocked ticket
+  waiting on the user overnight (05 D6). In Amika v0beta1 the "off" sentinel is a **negative**
+  interval (`-1`).
+- **Out-of-credits is fail-fast and terminal.** The adapter maps the credit-exhausted response
+  to `ErrOutOfCredits` and the Service treats it as a terminal turn outcome rather than
+  retrying forever.
+- **Worker-health feeds the board.** The liveness loop reports per-worker health through the
+  optional `BoardRefresher.SetWorkerHealth`, so the pull binds Ready tickets only to healthy
+  sandboxes (see `board-mechanism`).
+- Adding schema enums can collide with existing generated constants — oapi-codegen re-qualifies
+  them (e.g. `wire.Errored` → `wire.AgentStatusStatusErrored`). Expected: **update the
+  consumer, don't rename the schema.**
 
-## Adapter implementation notes (`internal/agent/amika`, v0beta1, landed)
+## Amika adapter notes (`internal/agent/amika`, v0beta1)
 
-The Provider port is fully implemented over v0beta1. Where the docs are silent the adapter
-is deliberately defensive; these are the hardening points to confirm against the live API:
+Designed against `https://app.amika.dev/api/v0beta1/llms.txt`. Where the docs are silent the
+adapter is deliberately defensive; these are the hardening points.
 
-- **State classification lives in `states.go`.** Both sandbox `state` and job `state` are
-  un-enumerated in v0beta1, so `classifyState`/`classifyJob` match known strings and fall
-  through to the safe default (sandbox → not-ready-yet, keep polling; job → keep polling
-  unless it produced a result or `is_error`). Add real values there as they're observed —
-  it's the one place to edit.
-- **`auto_stop_interval` unit is undocumented.** The adapter sends whole **minutes**
-  (`autoStopInterval`); verify the unit against a live sandbox and adjust if it's seconds.
-- **Session handling under the sync-send bridge:** `StartTurn` mints the session up front
-  (`createSession`, `POST …/sessions`) and passes that `SessionID` on the synchronous
-  `agent-send`, so the recorded conversation handle is never empty. (The historical
-  async-`agent-send-jobs` path returned `agent_session_id: null` in its 202 and fell back to
-  omitting `session_id` on continuation — restore that handling when reverting the bridge.)
-- **Conversation-loss detection is a heuristic**: a continuation (`fresh=false`) that fails
-  with a 400/404/409 whose `error_code`/`message` mentions "session" maps to
-  `agent.ErrConversationLost`. v0beta1 documents no per-error codes — tighten
-  `isConversationLost` once the real session-not-found envelope is known.
-- **Auth is `Authorization: Bearer <AMIKA_API_KEY>`** (not documented in `llms.txt`, per
-  05 §9). Every 4xx/5xx decodes into `*APIError` (the uniform envelope); check status with
-  `errors.As`/`statusIs` (404 on delete = success, 409 on start = already-starting).
-- Tests are pure `httptest` (`client_test.go`) — no live calls, no recorded fixtures yet;
-  the manual smoke checklist (05 §10) still gates the first real-Amika run.
+> **Sync-send bridge (still active, 2026-07).** The adapter mints a session up front
+> (`POST …/sessions`) and fires a **synchronous** `POST …/agent-send` with a bounded wait —
+> **not** the async `agent-send-jobs` that 05 §6 specifies — because Amika's async endpoint
+> 500s org-wide ("Agent launch failed"). Consequence: the adapter always passes the up-front
+> `SessionID`, so the recorded conversation handle is never empty. **Revert to
+> `agent-send-jobs` once Amika fixes it**; the historical path returned `agent_session_id:
+> null` in its 202 and fell back to omitting `session_id` on continuation, so restore that
+> handling with it. Restore the async types from git history.
 
-## Multi-provider runtime (2026-07-12, design `docs/superpowers/specs/2026-07-11-multi-provider-agent-runtime-design.md`)
-
-Amika is now **one registered provider among several**, not *the* provider. What changed:
-
-- **Capability descriptor (Phase 0).** `agent.Capabilities` + `agent.CapabilityReporter`, read
-  by the core via `agent.CapabilitiesOf(p)` — the ONE leak-free way the core varies a
-  core-visible affordance without naming a provider. Amika reports
-  `{ManagedSandbox, ReportsCost, Snapshots, SecretsInject: true}`; a provider that omits the
-  interface gets the conservative zero value. Never type-switch on a concrete provider.
-- **Provider registry (Phase 1, D3).** `cmd/kiln/registry.go` — `providerRegistry` maps a key
-  (`amika`/`mock`/`devin`) to a `ProviderFactory(ProviderDeps) (agent.Provider, error)`.
-  Adding a provider = one map entry + its adapter package; `validateConfig`/`resolveTenantProvider`
-  are "is the key registered", never an if-ladder. `AGENT_MODE` is the deployment default.
-- **Per-project provider (Phase 1/3, D7).** `identity.Project.AgentProvider` (migration
-  `0005`, empty ⇒ deployment default). `resolveTenantProvider` resolves the key per build;
-  an unregistered key fails LOUD with `agent.ErrProviderUnavailable` (never silent fallback).
-- **Devin adapter (Phase 2).** `internal/agent/devin` — the *virtual-worker* provider: no
-  managed sandbox, `ListWorkers`→empty, `CreateWorker`→synthetic (empty Ref), session created
-  lazily on `StartTurn(fresh)` via `POST /v1/sessions`, `status_enum` classified in `states.go`,
-  ACU→USD best-effort cost. Sourced from `DEVIN_*` env at the composition root (per-project
-  config blob is a later phase). Pure `httptest` in `client_test.go`.
-- **Dashboard descriptor (Phase 3, D6).** `providerDescriptors(cfg)` (registry → `wire.ProviderDescriptor`)
-  is served inside `GET /api/me` (`me.providers`); `ProjectFields` renders a provider `<select>`
-  from it (hidden when ≤1 provider), storing `agent_provider`. The generic dashboard names no provider.
-- **Still frozen (the whole point):** `AgentRuntime`'s shape, the `agent.turn_completed`
-  payload, the `agent_turns` dedupe, the reconciler/poller. A provider addition that touches
-  board/brain/runtime/wire (beyond the descriptor) means the abstraction is leaking.
-
-## Sandbox selection — snapshot catalog seam (`agent.SandboxCatalog`, catalog.go)
-
-Replaces the free-text `AMIKA_SNAPSHOT` handle with a dashboard picker of the account's real
-snapshots, plus "save a running dev box as a snapshot". The seam stays provider-neutral:
-
-- **Optional Provider extension `agent.SandboxCatalog`** (`internal/agent/catalog.go`):
-  `ListSnapshots` / `ListDevBoxes` / `SaveSnapshot`, over neutral `Snapshot{Ref,Name,Description,
-  Source,State}` (state = `ready|capturing|failed|unknown`) and `DevBox{Ref,Name,Status}`. Read via
-  `agent.SandboxCatalogOf(p)` (mirrors `CapabilitiesOf` — never a type switch); a provider without it
-  offers no catalog. `Snapshot.Ref` is exactly what the project stores as `amika_snapshot` and passes
-  back at create time — an opaque handle, no Amika vocabulary crosses.
-- **Amika impl** (`internal/agent/amika/catalog.go`): `ListSnapshots`→`GET /sandbox-snapshots`
-  (Ref = the snapshot's `snapshot` fully-qualified name, NOT its id); `ListDevBoxes`→`GET /sandboxes`
-  filtered to the COMPLEMENT of the worker prefix (the user's dev boxes, not pooled workers);
-  `SaveSnapshot`→`POST /sandbox-snapshots` (default `scrub_and_delete` mode, async capture). Snapshot
-  `state` is un-enumerated → `classifySnapshotState` in `states.go` (the one place to harden). The
-  mock also implements it (seeded `Snapshots`/`DevBoxes` knobs) so dev/e2e renders the picker.
-- **API** (`internal/api`, `SandboxCatalog` port + `sandboxCatalogAdapter` in `cmd/kiln/adapters.go`
-  over the per-project `agent.ProviderResolver`): `GET/POST /api/snapshots`, `GET /api/dev-boxes`,
-  dual-mounted via `mountProjectScoped` (bare = caller's first project, `/api/projects/{pid}/…` =
-  named project — 12 §3.2), gated on `s.sandbox != nil`. A provider with no catalog →
-  `api.ErrNoSandboxCatalog` → 404, so the client hides the picker (Devin/mock-without-data);
-  other failures → 502.
-- **Frontend (post 12 multi-project):** the catalog is **per-project**, not global — each project
-  resolves its own provider, so `Settings`'s `ProjectCard` uses the `useSandboxCatalog(projectId)`
-  hook (`frontend/src/dashboard/use-sandbox-catalog.ts`), which fetches `/api/projects/{id}/snapshots`
-  + `/dev-boxes` and feeds `ProjectFields`. `ProjectFields` renders the `<select
-  data-role="amika-snapshot">` + capture form when `catalogAvailable` (snapshots endpoint answered
-  200), else the free-text input. Do NOT put snapshot state in the global dashboard store — it can't
-  serve N project cards.
-
-### Saving a worker's workspace (`Service.SaveWorkerSnapshot`) — the capture the board drives
-
-The catalog's other consumer, and the only one that is not a user pressing a button: the board
-emits `agent.snapshot` when a ticket whose sandbox is SAVED leaves Developing (see
-`board-mechanism`), and it lands here.
-
-- **`Service.SaveWorkerSnapshot(ctx, projectID, workerID, name, description)`** resolves the
-  project's provider + catalog, finds the slot's live `ProviderWorker`, and captures its `Ref`.
-  `agent.ErrNoCatalog` / `agent.ErrNoLiveWorker` are **terminal facts, not failures** — there is
-  nothing to capture and retrying cannot change that, so the caller reports and completes the
-  outbox entry instead of burning the retry budget to the same end.
-- **Idempotency is the NAME.** v0beta1 has no idempotency key anywhere and the outbox is
-  at-least-once, so before capturing it asks `ListSnapshots` whether one already exists under
-  the name and returns that instead. This only works because the name is DERIVED from the
-  emit-time instant the board stamped into the payload — if you ever generate the name from
-  the clock at execution time, every redelivery captures the workspace again. A catalog read
-  that FAILS deliberately falls through to capturing (losing the workspace is the worse way to
-  be wrong).
-- **The capture consumes its source.** `scrub_and_delete` is the only safe mode here: a Kiln
-  worker holds the owner's git credential and the project's injected secrets, and this image is
-  about to become the base every future worker starts from — never switch it to `full`. Amika
-  therefore deletes the box, so `SaveWorkerSnapshot` drops the slot from the worker cache and
-  the reconciler re-provisions it, the same heal `advanceRelease` leans on.
-- **Composition** (`agentRuntimeAdapter.Snapshot`, `cmd/kiln/adapters.go`): names the snapshot
-  `<project>-<timestamp>` from the project's own name, then calls
-  `identity.SetProjectSnapshot` so the project starts its workers from it. That spans two
-  modules, which is exactly why it lives in the composition root and not in either one. The
-  repoint happens while the capture is still running, so there is a window where the project
-  names a not-yet-ready image; worker creation fails and retries until it lands. Waiting
-  instead would not converge — a capture routinely outlives the outbox's ~3-minute retry budget.
-
-- **Gotcha:** adding the `DevBoxStatus`/`SnapshotState` enums to the schema collided with
-  `AgentStatusStatus`'s bare `errored`/etc. constants, so oapi-codegen re-qualified them
-  (`wire.Errored` → `wire.AgentStatusStatusErrored`). Expected — update the consumer, don't rename
-  the schema.
+- **State classification lives in `states.go`.** Sandbox `state`, job `state` and snapshot
+  `state` are all **un-enumerated** in v0beta1, so the classifiers match known strings and fall
+  through to the safe default (sandbox → not ready yet, keep polling; job → keep polling unless
+  it produced a result or `is_error`). **Add real values there as they're observed — it is the
+  one place to edit.**
+- **`auto_stop_interval`'s unit is undocumented.** The adapter sends whole **minutes**; verify
+  against a live sandbox and adjust if it is seconds.
+- **Conversation-loss detection is a heuristic**: a continuation that fails with a 400/404/409
+  whose error code or message mentions "session" maps to `ErrConversationLost`. v0beta1
+  documents no per-error codes — tighten it once the real envelope is known.
+- **Auth is `Authorization: Bearer <AMIKA_API_KEY>`** (undocumented in `llms.txt`). Every
+  4xx/5xx decodes into the uniform `*APIError` envelope; check status with `errors.As` (404 on
+  delete = success, 409 on start = already starting).
+- **`GET /sandboxes/{id}` accepts id *or* name** — adoption relies on this.
+- Tests are pure `httptest` — no live calls, no recorded fixtures; the manual smoke checklist
+  (05 §10) still gates the first real-Amika run.

@@ -76,11 +76,6 @@ export interface PrimaryScreenViewProps {
    * omitted (presentational tests) leaves every card static, so the swipe wrapper
    * and its DOM are absent unless wired. */
   onDismissCard?: ((notificationId: number) => void) | undefined;
-  /** Clear ALL notification-backed cards at once — the header trash affordance
-   * (08 §3). When provided, a trash button appears beside the tickets dropdown;
-   * the click confirms first, then clears. Omitted (presentational tests) leaves
-   * the button absent, mirroring how `onDismissCard` gates the swipe wrapper. */
-  onDismissAll?: (() => void) | undefined;
   /** Fired when the tickets dropdown opens — triggers an independent board
    * refresh so the ticket list isn't stale until the next agent push.
    * Optional so presentational tests can omit it. */
@@ -130,7 +125,6 @@ export function PrimaryScreenView({
   onReassignSandbox,
   onEditText,
   onDismissCard,
-  onDismissAll,
   onOpenTickets,
   ticketsRefreshing = false,
   lastSeenId = null,
@@ -142,10 +136,8 @@ export function PrimaryScreenView({
 }: PrimaryScreenViewProps): JSX.Element {
   // The feed, already decided (see feed-model.ts): which rows there are, which
   // are seen, which can be swiped away, and where the "Earlier" divider falls.
-  // This shell chooses the elements and nothing else. `hasClearable` gates the
-  // trash affordance — blockers/proposals are board state a clear doesn't touch,
-  // so a feed of only those leaves it disabled.
-  const { summary, rows, isEmpty, lastWord, hasClearable } = readFeed(feed, lastSeenId, now);
+  // This shell chooses the elements and nothing else.
+  const { summary, rows, isEmpty, lastWord } = readFeed(feed, lastSeenId, now);
 
   // The click-through detail overlay (08 §5) — which ticket is open, how it
   // closes, the push deep-link, and whether a voice session is live inside it.
@@ -177,38 +169,15 @@ export function PrimaryScreenView({
             <span data-role="kiln-wordmark">Kiln</span>
           </div>
         )}
-        {/* Two controls, and no more: the trash and the tickets dropdown. The
-            bell menu and the standalone gear both left this bar — the account
-            view is now reached through the project switcher's own "Settings"
-            item (which is where the notification settings live too), so the top
-            bar carries only what acts on what is on screen. */}
+        {/* One control, and no more: the tickets dropdown. The bulk-clear trash
+            left this bar once notifications began clearing themselves — a manual
+            clear of what is already going away is clutter, and the per-card swipe
+            (08 §3) still handles the one card someone wants gone now. The bell
+            menu and the standalone gear left before it: the account view is
+            reached through the project switcher's own "Settings" item (which is
+            where the notification settings live too), so the top bar carries only
+            what acts on what is on screen. */}
         <div data-role="header-actions">
-          {onDismissAll !== undefined && (
-            <button
-              type="button"
-              data-role="feed-clear-all"
-              aria-label="Clear all notifications"
-              disabled={!hasClearable}
-              onClick={() => {
-                // A confirm before an irreversible bulk clear; cancelling leaves
-                // the feed untouched (08 §3).
-                if (window.confirm('Clear all notifications?')) {
-                  onDismissAll();
-                }
-              }}
-            >
-              <svg data-role="clear-all-trash" viewBox="0 0 20 20" aria-hidden="true">
-                <path
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 6h12M8.5 6V4.8a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1V6M6.3 6l.6 9.4a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9l.6-9.4M9 9.2v4.3M11 9.2v4.3"
-                />
-              </svg>
-            </button>
-          )}
           <HeaderStatusMenu
             summary={summary}
             board={board}

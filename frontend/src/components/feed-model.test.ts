@@ -17,7 +17,6 @@ import {
   authoredUpdateId,
   dividerIndex,
   findTicket,
-  hasClearableCards,
   isSeen,
   notificationId,
   readFeed,
@@ -161,22 +160,6 @@ describe('isSeen', () => {
   });
 });
 
-describe('hasClearableCards', () => {
-  it('is false for an empty feed', () => {
-    expect(hasClearableCards([])).toBe(false);
-  });
-
-  it('is false for a feed of nothing but board state', () => {
-    expect(hasClearableCards([card('blocker', null), card('proposal', null)])).toBe(false);
-  });
-
-  it('is true as soon as any notification-backed card is present', () => {
-    for (const kind of ['update', 'preview', 'poke', 'done'] as const) {
-      expect(hasClearableCards([card('blocker', null), card(kind)])).toBe(true);
-    }
-  });
-});
-
 describe('findTicket', () => {
   const ticket = (id: string, state: 'shaping' | 'ready' | 'blocked' | 'working' | 'done') =>
     makeTicket({
@@ -224,7 +207,6 @@ describe('readFeed', () => {
     expect(reading.rows).toEqual([]);
     expect(reading.summary).toEqual(makeFeedSummary());
     expect(reading.lastWord).toBeNull();
-    expect(reading.hasClearable).toBe(false);
   });
 
   it('keeps the snapshot’s card order untouched', () => {
@@ -276,10 +258,10 @@ describe('readFeed', () => {
     expect(readFeed(feed, null, NOW + 60 * 60 * 1000).lastWord).toBe('last word 1h ago');
   });
 
-  it('reports a feed of only board state as having nothing to clear', () => {
+  it('reports a feed of only board state as non-empty, with nothing dismissable', () => {
     const feed = makeFeedSnapshot({ cards: [card('blocker', null), card('proposal', null)] });
     const reading = readFeed(feed, null, NOW);
     expect(reading.isEmpty).toBe(false);
-    expect(reading.hasClearable).toBe(false);
+    expect(reading.rows.every((row) => row.dismissId === null)).toBe(true);
   });
 });

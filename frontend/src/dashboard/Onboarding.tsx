@@ -543,21 +543,7 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
           )}
 
           {current.id === 'project' && (
-            <>
-              <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />
-              {/* What the removed name field is replaced by: the derived name,
-                  said out loud, so the board's name is never a surprise. */}
-              <p data-role="project-name-note" data-state={name === '' ? 'unpicked' : 'named'}>
-                {name === '' ? (
-                  'This project will take its name from the repository you pick.'
-                ) : (
-                  <>
-                    This project will be called{' '}
-                    <strong data-role="project-name-value">{name}</strong>.
-                  </>
-                )}
-              </p>
-            </>
+            <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />
           )}
 
           {current.id === 'provider' && (

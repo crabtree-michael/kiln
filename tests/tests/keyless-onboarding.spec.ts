@@ -36,11 +36,10 @@ test('@keyless a new user is walked through setup and the board comes alive', as
   // ---- Step 2: choose the project. The repo comes from the connected account's
   // listing — there is no free-text repo URL field anywhere in the app — and the
   // step asks for nothing else: the project is NAMED after the repo (auto-name
-  // from repository), which the step states back before the user goes on.
+  // from repository), silently — the pick is the whole step.
   await expect(page.getByRole('heading', { name: 'Choose your project' })).toBeVisible();
   await expect(page.getByLabel('Project name')).toHaveCount(0);
   await page.getByLabel('Repository').selectOption('https://example.com/keyless/demo');
-  await expect(page.locator('[data-role="project-name-value"]')).toHaveText('demo');
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // ---- Step 3: choose the provider. Mock is the keyless lane's provider (it is

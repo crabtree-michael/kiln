@@ -8,6 +8,12 @@
 // preventing default requires a passive:false listener, which only addEventListener
 // can give us. Touch-only: the pattern is a mobile affordance, and desktop keeps
 // its normal scroll (07 mobile-first client).
+//
+// The gesture is deliberately hard to claim and impossible to claim by accident
+// (amended): a touch is only a pull once the finger has travelled a slop distance
+// decisively downward, from the top, more vertically than horizontally. Everything
+// else stays the browser's, with its momentum intact, so the feed scrolls up as
+// naturally as it pulls down. See DIRECTION_SLOP_PX.
 import { useEffect, useState, type RefObject } from 'react';
 
 /** Finger travel is damped by this factor into visible pull, so the spinner
@@ -30,6 +36,23 @@ const REFRESH_REST_PX = 44;
  * resolves sooner, so a fast refresh reads as a deliberate action instead of a
  * flicker. */
 const MIN_SPIN_MS = 450;
+
+/** Finger travel (px) before a touch is read as having a direction at all.
+ *
+ * This is what keeps the feed scrollable BOTH ways. `preventDefault` is a
+ * one-way door: the moment it suppresses the native scroll, the browser will not
+ * hand that touch back, momentum and all. Claiming on the first pixel of
+ * downward travel therefore took over every gesture that opened with a hair of
+ * downward jitter — including the upward flicks that start with one — and the
+ * feed only ever moved down. Below this threshold nothing is claimed and nothing
+ * is prevented, so a flick that turns out to be upward is still the browser's. */
+const DIRECTION_SLOP_PX = 8;
+
+/** How one touch is being read.
+ * - `watching` — begun at the top, direction not yet decided; nothing claimed.
+ * - `pulling`  — claimed as a deliberate downward pull; we own the gesture.
+ * - `released` — left to native scrolling for the rest of this touch. */
+type Phase = 'watching' | 'pulling' | 'released';
 
 export interface PullToRefresh {
   /** Current visible pull distance in px: tracks the finger while dragging, rests
@@ -69,13 +92,14 @@ export function usePullToRefresh(
     const refresh = onRefresh;
 
     let startY = 0;
-    let active = false; // a downward-from-top pull has engaged
+    let startX = 0;
+    let phase: Phase = 'released';
     let busy = false; // a refresh round-trip is in flight
 
     function onTouchStart(event: TouchEvent): void {
       const touch = event.touches[0];
-      // Only a single-finger drag from the very top arms the gesture; a pinch or a
-      // drag begun mid-scroll is left to the browser.
+      // Only a single-finger drag from the very top can become a pull; a pinch or
+      // a drag begun mid-scroll is the browser's for the whole touch.
       if (
         busy ||
         touch === undefined ||
@@ -83,41 +107,81 @@ export function usePullToRefresh(
         el === null ||
         el.scrollTop > 0
       ) {
+        phase = 'released';
         return;
       }
       startY = touch.clientY;
-      active = true;
+      startX = touch.clientX;
+      // Watching, not claiming: which gesture this is isn't known for another
+      // DIRECTION_SLOP_PX of travel, and guessing costs the user their scroll.
+      phase = 'watching';
     }
 
     function onTouchMove(event: TouchEvent): void {
       const touch = event.touches[0];
-      if (!active || busy || touch === undefined || el === null) {
+      if (busy || touch === undefined || el === null || phase === 'released') {
         return;
       }
       const dy = touch.clientY - startY;
-      // An upward move, or any move once the feed has scrolled off the top, hands
-      // the gesture back to native scrolling.
-      if (dy <= 0 || el.scrollTop > 0) {
-        active = false;
-        setDragging(false);
-        setPull(0);
-        return;
+      const dx = touch.clientX - startX;
+
+      if (phase === 'watching') {
+        // Still inside the slop: the direction isn't decided, so claim nothing
+        // and prevent nothing — the browser is free to start scrolling.
+        if (Math.abs(dy) < DIRECTION_SLOP_PX && Math.abs(dx) < DIRECTION_SLOP_PX) {
+          return;
+        }
+        // Past it, and this is a pull only if the finger went decisively DOWN,
+        // more down than sideways (a card's swipe-to-clear is the other axis),
+        // and the feed is still at the top. Anything else — an upward flick, a
+        // sideways swipe, a feed already scrolled — is native scrolling's, and
+        // stays so for the rest of this touch.
+        if (dy < DIRECTION_SLOP_PX || Math.abs(dx) > Math.abs(dy) || el.scrollTop > 0) {
+          phase = 'released';
+          return;
+        }
+        phase = 'pulling';
       }
-      // Take the gesture over: suppress the native scroll/rubber-band and pull the
-      // spinner down under the finger with resistance.
+
+      // Ours now: suppress the native scroll/rubber-band for the rest of the
+      // touch (the browser won't give it back once we do, which is why the
+      // reversal below is handled here rather than by handing over).
       if (event.cancelable) {
         event.preventDefault();
       }
-      setDragging(true);
-      setPull(Math.min(MAX_PULL_PX, dy * RESISTANCE));
+
+      if (dy > 0) {
+        // Pull the spinner down under the finger with resistance.
+        setDragging(true);
+        setPull(Math.min(MAX_PULL_PX, dy * RESISTANCE));
+        return;
+      }
+      // The finger has come back past where it started: mid-gesture, the user
+      // stopped pulling and started scrolling the list. Ease the indicator shut
+      // and drive the scroll ourselves, 1:1 with the finger — this touch can no
+      // longer be given back to the browser, so the alternative is a feed that
+      // goes dead the moment a pull is reversed.
+      setDragging(false);
+      setPull(0);
+      el.scrollTop = Math.min(-dy, Math.max(0, el.scrollHeight - el.clientHeight));
     }
 
     function onTouchEnd(): void {
-      if (!active || busy) {
+      // A refresh in flight owns the indicator (it rests open for the round-trip);
+      // a finger lifting must not close it.
+      if (busy) {
+        phase = 'released';
         return;
       }
-      active = false;
+      const wasPulling = phase === 'pulling';
+      phase = 'released';
       setDragging(false);
+      if (!wasPulling) {
+        // Nothing claimed this touch — or a claim was cut short by a second
+        // finger landing. Either way, close anything left hanging open.
+        setPull(0);
+        return;
+      }
       setPull((current) => {
         if (current < TRIGGER_PX) {
           return 0; // short pull — spring back, no refresh

@@ -62,14 +62,6 @@ type AgentRuntime interface {
 	Release(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
 }
 
-// SnapshotPusher executes board.updated entries: fan out a fresh full board
-// snapshot to the project's connected clients (04 §7, 11 §3; implemented by
-// the api SSE hub). Snapshots are absolute, so duplicates are harmless
-// (04 D7).
-type SnapshotPusher interface {
-	PushBoard(ctx context.Context, projectID string) error
-}
-
 // Outbox topic names (04 §2) as the runtime routes them — carried in
 // Entry.Kind on the outbox queue. They mirror board's Topic values by value;
 // this module never imports internal/board (the same layering rule the board
@@ -113,35 +105,30 @@ const brainUnavailableMessage = "Kiln couldn't start its brain for this project 
 var errUnknownTopic = errors.New("runtime: unknown outbox topic")
 
 // Service is the runtime's core: EnqueueEvent for the two ingestion callers
-// (04 §6), the transcript operations of 07 §3 (PostMessage, Say, Recent),
-// and the wiring that routes claimed entries to the ports above. Constructed
-// at the composition root (04 §8).
+// (04 §6), the drain that routes claimed entries to the executor ports above,
+// and — until the split finishes — a one-line forward for every method that has
+// already moved onto a focused unit. Constructed at the composition root
+// (04 §8). After step 5 the only ports it still holds itself are the five the
+// drain uses; the rest belong to the five values below.
 type Service struct {
 	store   Store
 	brains  BrainResolver
 	puller  Puller
 	blocker Blocker
 	agents  AgentRuntime
-	pusher  SnapshotPusher
-	// notifications is narrowed to the write half: the read paths moved to Feed
-	// (step 2) and the CRUD to Notifications (step 3), leaving handleFeedCompletion's
-	// PostCompletionCard as the one notification write Service still performs
-	// itself. It goes to FanOut in step 5, and the port leaves with it.
-	notifications  NotificationWriter
-	feedPusher     FeedPusher
-	activityPusher ActivityPusher
 
 	// notify is the extracted push choke point (god-unit split step 1): it owns
 	// the Notifier and Owner ports outright, and Service now delegates to it
-	// rather than holding them. Both push callers left on Service — the
-	// notify.send route and the feed-update push — go through this one value.
+	// rather than holding them. Its one caller left here is the notify.send route
+	// (the feed-update push moved to FanOut in step 5, which reaches the same
+	// value).
 	notify *Notify
 
 	// feed is the extracted feed assembler (god-unit split step 2): it owns the
 	// BoardReader outright and reads the notification store through its read half,
-	// and Service now delegates its two feed reads to it. Both assembly callers
-	// left on Service — the api-facing Feed/FeedHistory and the feed.updated
-	// re-render — go through this one value.
+	// and Service now delegates its two feed reads to it. Its callers left here
+	// are the api-facing Feed/FeedHistory shims (the feed.updated re-render moved
+	// to FanOut in step 5, which reaches the same value).
 	feed *Feed
 
 	// notifs is the extracted notification CRUD facade (god-unit split step 3):
@@ -156,6 +143,13 @@ type Service struct {
 	// NudgeEvents until Dispatcher takes the worker in step 6.
 	transcript *Transcript
 
+	// fanout is the extracted push coordinator (god-unit split step 5): it owns
+	// the three pushers and the completion card's NotificationWriter outright, and
+	// Service now routes the four UI topics and the thinking bracket to it. With
+	// this, every port Service still holds belongs to the durable drain — what is
+	// left of it is Dispatcher (step 6).
+	fanout *FanOut
+
 	// The two workers Workers() builds, retained so anything that commits a
 	// queue row can nudge the matching worker (04 §5). nil until Workers runs.
 	eventsWorker *Worker
@@ -167,14 +161,15 @@ type Service struct {
 // the original 04/07 ports, and the 11 §3 owner port after those, so the
 // composition root updates a single call site.
 //
-// notifier and owner are no longer held directly: they are handed to the
-// extracted Notify, which Service delegates every push to; boardReader likewise
-// goes to the extracted Feed, which Service delegates every feed read to,
-// notifications to the extracted Notifications, which Service delegates every
-// feed mutation to, and messages/sayer to the extracted Transcript, which
-// Service delegates every conversation operation to. The signature is unchanged
-// so the composition root and the existing tests keep working while the rest of
-// the split lands (docs/god-units-plans/runtime-service.md §8).
+// None of the ports below are held directly any more — every one of them now
+// belongs to an extracted unit that Service delegates to: notifier/owner to
+// Notify (every push), boardReader to Feed (every feed read), notifications to
+// Notifications (every feed mutation), messages/sayer to Transcript (every
+// conversation operation), and pusher/feedPusher/activityPusher to FanOut (every
+// SSE fan-out and UI topic). What Service still holds itself is the durable
+// drain's own five. The signature is unchanged so the composition root and the
+// existing tests keep working while the rest of the split lands
+// (docs/god-units-plans/runtime-service.md §8).
 func NewService(
 	store Store, messages MessageStore, brains BrainResolver, puller Puller, blocker Blocker,
 	agents AgentRuntime, notifier Notifier,
@@ -183,20 +178,21 @@ func NewService(
 	activityPusher ActivityPusher,
 	owner Owner,
 ) *Service {
+	// Notify and Feed are built first: FanOut fans out *from* them, so they are
+	// its collaborators as well as Service's own delegates.
+	notify := NewNotify(notifier, owner)
+	feed := NewFeed(boardReader, notifications)
 	s := &Service{
-		store:          store,
-		brains:         brains,
-		puller:         puller,
-		blocker:        blocker,
-		agents:         agents,
-		pusher:         pusher,
-		notifications:  notifications,
-		feedPusher:     feedPusher,
-		activityPusher: activityPusher,
-		notify:         NewNotify(notifier, owner),
-		feed:           NewFeed(boardReader, notifications),
-		notifs:         NewNotifications(notifications),
-		transcript:     NewTranscript(messages, sayer),
+		store:      store,
+		brains:     brains,
+		puller:     puller,
+		blocker:    blocker,
+		agents:     agents,
+		notify:     notify,
+		feed:       feed,
+		notifs:     NewNotifications(notifications),
+		transcript: NewTranscript(messages, sayer),
+		fanout:     NewFanOut(pusher, feedPusher, activityPusher, notifications, feed, notify),
 	}
 	// Service still owns the events worker, so it is the Transcript's Nudger
 	// (§4 of the split plan). Step 6 hands both the worker and this role to
@@ -367,8 +363,8 @@ func (s *Service) handleEvent(ctx context.Context, e Entry) error {
 	// before, On=false after. This is the events queue only — the spinner
 	// tracks a decision step, not an outbox delivery. A failed push must not
 	// derail the brain pass, so activity errors are logged and dropped.
-	s.pushThinking(ctx, e.ProjectID, true)
-	defer s.pushThinking(ctx, e.ProjectID, false)
+	s.fanout.PushThinking(ctx, e.ProjectID, true)
+	defer s.fanout.PushThinking(ctx, e.ProjectID, false)
 	// Trace the brain pass as one span (design 2026-07-05); no-op when Sentry is
 	// disabled. Description carries the event type so traces group by trigger.
 	ctx, finish := obs.StartSpan(ctx, "brain.dispatch", e.Kind)
@@ -392,15 +388,6 @@ func (s *Service) handleEvent(ctx context.Context, e Entry) error {
 	}
 	slog.InfoContext(ctx, "runtime.event.handled", "event_id", e.ID, "event_type", e.Kind)
 	return nil
-}
-
-// pushThinking fans out a thinking activity event to the event's project,
-// self-healing on error (08 §4): the spinner is ephemeral, so a lost push is
-// cosmetic and must never fail the brain pass it brackets.
-func (s *Service) pushThinking(ctx context.Context, projectID string, on bool) {
-	if err := s.activityPusher.PushActivity(ctx, projectID, ActivityEvent{Kind: "thinking", On: &on}); err != nil {
-		slog.Error("runtime: push thinking activity", "on", on, "err", err)
-	}
 }
 
 // deadLetterEvent handles an exhausted event (04 §3's last row): log at error
@@ -434,15 +421,15 @@ func (s *Service) handleOutbox(ctx context.Context, e Entry) error {
 	case topicNotifySend:
 		return wrapOutbox("notify send", s.handleNotifySend(ctx, e))
 	case topicBoardUpdated:
-		return wrapOutbox("push board", s.pusher.PushBoard(ctx, e.ProjectID))
+		return wrapOutbox("push board", s.fanout.PushBoard(ctx, e.ProjectID))
 	case topicFeedUpdated:
-		s.handleFeedUpdated(ctx, e)
+		s.fanout.HandleFeedUpdated(ctx, e)
 		return nil
 	case topicActivityToast:
-		s.handleActivityToast(ctx, e)
+		s.fanout.HandleActivityToast(ctx, e)
 		return nil
 	case topicFeedCompletion:
-		return wrapOutbox("post completion card", s.handleFeedCompletion(ctx, e))
+		return wrapOutbox("post completion card", s.fanout.HandleFeedCompletion(ctx, e))
 	default:
 		return fmt.Errorf("%w %q", errUnknownTopic, e.Kind)
 	}
@@ -490,184 +477,6 @@ func (s *Service) blockOnDeliveryFailure(ctx context.Context, e Entry, cause err
 		"id", e.ID, "project_id", e.ProjectID, "ticket", p.TicketID, "err", cause)
 	return nil
 }
-
-// notifyPayload is the notify.send payload the Notifier decodes (a
-// board.NotifyPayload — Title/Reason → Title/Body), mirrored by value so this
-// module keeps not importing internal/board. Kind names the transition (mirrors
-// board.NotifyKind*) so the mode gate can decide delivery; a feed-update push
-// built here carries notifyKindUpdate.
-type notifyPayload struct {
-	Title  string `json:"title"`
-	Reason string `json:"reason"`
-	Kind   string `json:"kind"`
-}
-
-// toastPayload is the activity.toast outbox payload (08 §4, §7), mirroring the
-// board's ToastPayload by value — this module never imports internal/board.
-type toastPayload struct {
-	Verb        string `json:"verb"`
-	TicketID    string `json:"ticket_id"`
-	TicketTitle string `json:"ticket_title"`
-}
-
-// feedUpdatedPayload mirrors the board's FeedUpdatedPayload (03 §7.1) by value —
-// this module never imports internal/board. Title names the changed ticket;
-// Verb labels the nature of the change and drives the transition push copy (02
-// §10). Empty when a feed.updated carries no descriptor (the update then stays
-// silent — no verb is, by definition, not a state transition).
-type feedUpdatedPayload struct {
-	Title string `json:"title"`
-	Verb  string `json:"verb"`
-}
-
-// completionPayload is the feed.completion outbox payload (08 §7), mirroring the
-// board's CompletionPayload by value — this module never imports internal/board.
-// GitHubURL/GitHubLabel are the link to the landed work rendered as the done
-// card's second line; both empty when no link is available. Summary is the landed
-// work's one-line description rendered as the card body; empty when unavailable.
-type completionPayload struct {
-	TicketID    string `json:"ticket_id"`
-	TicketTitle string `json:"ticket_title"`
-	GitHubURL   string `json:"github_url,omitempty"`
-	GitHubLabel string `json:"github_label,omitempty"`
-	Summary     string `json:"summary,omitempty"`
-}
-
-// handleFeedUpdated realizes the feed.updated topic (08 §3, §7): re-assemble
-// the absolute feed and fan it out. Emitted by both the board (state
-// transitions) and the runtime itself (notification mutations). Self-heals —
-// a failed assembly or push logs-and-drops (like board.updated) rather than
-// wedging the outbox, since the next emission re-renders from scratch.
-func (s *Service) handleFeedUpdated(ctx context.Context, e Entry) {
-	snap, err := s.feed.Feed(ctx, e.ProjectID)
-	if err != nil {
-		slog.Error("runtime: feed.updated assemble", "project_id", e.ProjectID, "err", err)
-		return
-	}
-	if err := s.feedPusher.PushFeed(ctx, e.ProjectID, snap); err != nil {
-		slog.Error("runtime: feed.updated push", "project_id", e.ProjectID, "err", err)
-	}
-	// Decode the change descriptor that drives the transition push. A decode
-	// failure or an empty payload leaves p zero-valued, so the update stays silent
-	// (no verb ⇒ not a state transition).
-	var p feedUpdatedPayload
-	if len(e.Payload) > 0 {
-		if err := json.Unmarshal(e.Payload, &p); err != nil {
-			slog.Error("runtime: feed.updated decode", "id", e.ID, "err", err)
-		}
-	}
-	s.pushFeedUpdateNotification(ctx, e.ProjectID, p)
-}
-
-// pushFeedUpdateNotification fires a Web Push describing a feed update — the
-// broad "activity" stream (a new proposal, a queue, a reshape, a nudge, an
-// archive) that only the "all" notification mode delivers (02 §10). The mode
-// gate lives in Notify.Send: the push carries notifyKindUpdate, which
-// notifyModeAllows admits only under "all" and drops under "default"/"blocked".
-// The genuine milestones (blocked/started/done) do NOT ride this path — they
-// each emit their own dedicated board notify.send with a milestone Kind, so
-// their feed-update twins are suppressed here (verb "blocked"/"finished" absent
-// from feedUpdateVerbBody) to avoid a duplicate push. Progress narration, edits,
-// and mark-seen carry no verb and stay silent in every mode. The push names the
-// ticket and what happened, so it reads at a glance rather than as a generic
-// "board was updated". It routes to the right tenant (Notify resolves the owning
-// user, 11 §3) and self-heals: a send failure logs-and-drops rather than
-// wedging the outbox (best-effort, 04 §3).
-func (s *Service) pushFeedUpdateNotification(ctx context.Context, projectID string, p feedUpdatedPayload) {
-	note, ok := feedUpdateNotification(p)
-	if !ok {
-		return
-	}
-	note.Kind = notifyKindUpdate
-	// The notifier decodes a board.NotifyPayload (Title/Reason → Title/Body);
-	// this marshals the same shape by value so this module keeps not importing
-	// internal/board.
-	payload, err := json.Marshal(note)
-	if err != nil {
-		slog.Error("runtime: feed.updated notify marshal", "err", err)
-		return
-	}
-	if err := s.notify.Send(ctx, projectID, notifyKindUpdate, payload); err != nil {
-		slog.Error("runtime: feed.updated notify send", "project_id", projectID, "err", err)
-	}
-}
-
-// feedUpdateVerbBody maps a feed.updated change verb (board.FeedUpdatedPayload)
-// to the push body describing what happened, keeping the "all"-mode push copy in
-// sync with the board's feed-update verbs (03 §7.1) and the feed's own verb
-// vocabulary (08 §5). These are the broad "activity" pushes only "all" mode
-// delivers (02 §10) — a new proposal, a queue, a reshape, a nudge, an archive.
-// Deliberately absent, so they resolve to ok=false and never push from this
-// path — each has a dedicated board notify.send carrying a milestone Kind, and a
-// second, vaguer push here would duplicate it:
-//   - "blocked":  MarkBlocked emits notify.send with the actual blocker question.
-//   - "finished": AcceptToDone emits notify.send for the completion.
-//
-// An empty/unknown verb (progress narration, edits, mark-seen — the runtime's own
-// signal-only feed.updated rows) is likewise absent and stays silent everywhere.
-var feedUpdateVerbBody = map[string]string{
-	"proposal": "New proposal",
-	"reshaped": "Proposal updated",
-	"queued":   "Queued for work",
-	"nudged":   "Nudged",
-	"archived": "Archived",
-}
-
-// feedUpdateNotification builds the "all"-mode push payload for a feed change,
-// naming the ticket (Title) and what happened (Body). ok is false whenever the
-// change carries no push copy — an unrecognized/empty verb (narration, edits,
-// mark-seen), or a milestone verb (blocked/finished) whose dedicated notify.send
-// already covers it. There is no generic "board was updated" fallback — a change
-// with no descriptive verb is not something to notify about. Whether an ok push
-// actually reaches the user is the mode gate's call (only "all" admits it).
-func feedUpdateNotification(p feedUpdatedPayload) (notifyPayload, bool) {
-	body, known := feedUpdateVerbBody[p.Verb]
-	if !known || p.Title == "" {
-		return notifyPayload{}, false
-	}
-	return notifyPayload{Title: p.Title, Reason: body}, true
-}
-
-// handleActivityToast realizes the activity.toast topic (08 §4, §7): decode
-// the board-emitted verb + ticket title and fan out a toast activity event.
-// Self-heals — a decode or push failure logs-and-drops (the toast is
-// ephemeral, so a lost one is cosmetic).
-func (s *Service) handleActivityToast(ctx context.Context, e Entry) {
-	var p toastPayload
-	if err := json.Unmarshal(e.Payload, &p); err != nil {
-		slog.Error("runtime: activity.toast decode", "id", e.ID, "err", err)
-		return
-	}
-	ev := ActivityEvent{Kind: "toast", Verb: p.Verb, TicketID: p.TicketID, TicketTitle: p.TicketTitle}
-	if err := s.activityPusher.PushActivity(ctx, e.ProjectID, ev); err != nil {
-		slog.Error("runtime: activity.toast push", "id", e.ID, "project_id", e.ProjectID, "err", err)
-	}
-}
-
-// handleFeedCompletion realizes the feed.completion topic (08 §7): post the
-// persistent "done" feed card for a completed ticket. Unlike the ephemeral
-// toast, this card is durable, so a decode failure returns an error (the outbox
-// retries) rather than logging-and-dropping. The post is idempotent on the
-// outbox id (e.ID), so a redelivery is a safe no-op. The card is a "done" kind
-// styled like a poke: notificationToCard renders the ticket title as the label,
-// the client prefixes a ✅, and the body is empty — no prose.
-func (s *Service) handleFeedCompletion(ctx context.Context, e Entry) error {
-	var p completionPayload
-	if err := json.Unmarshal(e.Payload, &p); err != nil {
-		return fmt.Errorf("decode feed.completion: %w", err)
-	}
-	if _, err := s.notifications.PostCompletionCard(
-		ctx, e.ProjectID, e.ID, p.TicketID, completionCardBody, p.GitHubURL, p.GitHubLabel, p.Summary,
-	); err != nil {
-		return fmt.Errorf("post completion card: %w", err)
-	}
-	return nil
-}
-
-// completionCardBody is the body of the auto-posted "done" feed card: empty.
-// The card is a "done" kind, so the client renders it single-line like a poke —
-// the ticket title as the label with a ✅ prefix and no description body.
-const completionCardBody = ""
 
 // wrapOutbox annotates an executor error with the operation name, satisfying
 // the wrap-external-errors rule while keeping each route in handleOutbox a

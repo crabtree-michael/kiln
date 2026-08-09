@@ -137,7 +137,7 @@ which takes the push `kind` and runs gate → owner-resolve → notifier; the ol
 mode gate unbypassable from outside — a caller cannot reach the `Notifier` without
 passing a kind. Step 5's `FanOut` should call this same `Send`, not a raw one.
 
-### 2.5 `FanOut` — the push / SSE coordinator
+### 2.5 `FanOut` — the push / SSE coordinator — **LANDED**
 - **Ports:** `SnapshotPusher`, `FeedPusher`, `ActivityPusher`,
   `NotificationWriter` (only for `PostCompletionCard`).
 - **Collaborators:** `Feed` (to assemble a snapshot), `Notify` (transition push).
@@ -149,6 +149,32 @@ passing a kind. Step 5's `FanOut` should call this same `Send`, not a raw one.
 - This is where **all SSE fan-out and every self-healing UI-topic handler**
   lives. Its methods are the ones with "logs-and-drops" semantics; isolating
   them makes that best-effort contract legible in one file.
+
+**As built (2026-08-09), amending the above in two places.** The four UI-topic
+handlers are **exported** — `PushThinking`, `PushBoard`, `HandleFeedUpdated`,
+`HandleActivityToast`, `HandleFeedCompletion` — rather than kept lowercase as the
+sketch names them. Those names were carried over from their `*Service` originals,
+where they were private because the only caller was the switch two methods up; on
+a unit whose whole job is to be called by the drain, that surface *is* the API,
+and unexported it would also be unreachable from `runtime_test`, where the other
+four extracted units are tested from. Exporting them is what bought this step its
+new coverage. Second, `PushBoard` wraps its port error (`push board snapshot: %w`)
+rather than returning it bare: the pre-split route was wrapped by `wrapOutbox` at
+the call site, and wrapcheck holds the unit to the same rule now that the port
+call lives here. The dispatcher's `wrapOutbox("push board", …)` stays, exactly as
+it already double-wraps `HandleFeedCompletion`.
+
+What the extraction makes legible is the discipline §9 predicted: this is the one
+unit in the runtime whose failures are **logged and dropped**. It emits a *view*
+of state that is already durable — absolute snapshots (04 D7) that the next
+emission re-renders, and ephemeral toasts and spinners — so wedging the outbox on
+a lost frame would cost more than the frame. The two effects inside
+`HandleFeedUpdated` are deliberately independent for the same reason: a client
+that could not be reached live must not also lose the Web Push.
+`HandleFeedCompletion` is the stated exception and the sole reason the unit holds
+a `NotificationWriter` — its "done" card is a persistent row, so both its decode
+and its write failures are returned for the outbox to retry. Those two
+dispositions sat interleaved in one file before; they are now one file each.
 
 ### 2.6 `Dispatcher` — the durable queue core
 - **Ports:** `Store`, `BrainResolver`, `Puller`, `Blocker`, `AgentRuntime`.
@@ -406,7 +432,33 @@ first, spine last, delete last.
    the delegating shims and the wiring comment the hook needs).
 5. **`FanOut`** — move the four UI handlers + `pushThinking` + push helpers +
    the `*Payload` mirror types; wire it over the `Feed`/`Notify`/`NotificationWriter`
-   built above; `Service` delegates. Move `SnapshotPusher` into `feed.go`.
+   built above; `Service` delegates. Move `SnapshotPusher` into `feed.go`. —
+   **DONE 2026-08-09.** `NewService`'s signature is unchanged for the fifth and
+   last time (it builds the `*FanOut` from the same
+   `pusher`/`feedPusher`/`activityPusher`/`notifications` args, handing it the
+   `*Feed` and `*Notify` it already built), so again no caller moved. This is the
+   step that empties the constructor: **every port `NewService` takes now belongs
+   to an extracted unit**, and the five `Service` still holds itself — `store`,
+   `brains`, `puller`, `blocker`, `agents` — are exactly `Dispatcher`'s (§2.6).
+   What is left of `Service` after this is the drain plus delegating shims, which
+   is why step 6 is a rename more than an extraction. `SnapshotPusher` moved to
+   `feed.go` as planned, co-located with the two pushers it is now a peer of on
+   the same unit.
+
+   Test disposition split the difference between steps 1 and 2. The four
+   feed-update *push-copy* tables **moved** — mode-gating, the verb→body map,
+   milestone suppression, narration silence — because they exercised nothing but
+   what FanOut decides, and at the unit level each now names four fakes instead of
+   eleven plus a clock and a worker. One representative routing test per UI topic
+   **stayed** in `feed_test.go`, since "the outbox switch reaches this handler at
+   all" is the assertion step 6 will move to `dispatcher_test.go`. The unit's own
+   suite is 13 tests, and the ones with nowhere to live before are the whole
+   best-effort contract: an assembly failure drops the frame without touching the
+   notifier, a failed SSE push still fires the Web Push, a failed spinner push is
+   swallowed, an undecodable toast is dropped — while both of
+   `HandleFeedCompletion`'s failure modes come back as errors. Reaching any of
+   those through the god object meant staging a failure across the whole graph.
+   `service.go` 680 → 489 LOC — the largest drop of the five steps.
 6. **`Dispatcher`** — move `EnqueueEvent`/`Workers`/`handleEvent`/`handleOutbox`/
    dead-letter paths + topic consts into `dispatcher.go` on `*Dispatcher`,
    collaborating with the `Transcript`/`Notify`/`FanOut` values. At this point

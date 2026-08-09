@@ -37,10 +37,6 @@ const (
 	// kindUpdate tags a feed-update push — the broad activity stream only "all"
 	// mode delivers, as opposed to the three milestones above.
 	kindUpdate = "update"
-
-	// verbProposal is the one feed-update verb that recurs across the
-	// notification tables often enough to trip goconst.
-	verbProposal = "proposal"
 )
 
 // defaultTestProject is the tenant every single-project test seeds under
@@ -699,7 +695,10 @@ type fakeNotificationStore struct {
 	postFn func(
 		ctx context.Context, projectID, kind, body string, ticketID, imageURL *string,
 	) (runtime.Notification, error)
-	retractFn      func(ctx context.Context, projectID string, id int64) error
+	retractFn func(ctx context.Context, projectID string, id int64) error
+	// completionErr fails the durable completion-card write, the one FanOut path
+	// that must return its error rather than log-and-drop it.
+	completionErr  error
 	postProjects   []string
 	markSeenN      []int64
 	edits          []notificationEdit
@@ -750,6 +749,9 @@ func (f *fakeNotificationStore) PostCompletionCard(
 ) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.completionErr != nil {
+		return false, f.completionErr
+	}
 	if f.completionKeys == nil {
 		f.completionKeys = map[int64]bool{}
 	}
@@ -951,17 +953,19 @@ type feedPush struct {
 	snap      runtime.FeedSnapshot
 }
 
-// fakeFeedPusher records every pushed FeedSnapshot (08 §3).
+// fakeFeedPusher records every pushed FeedSnapshot (08 §3). pushErr makes the
+// SSE fan-out fail, which FanOut must log and drop rather than propagate.
 type fakeFeedPusher struct {
-	mu     sync.Mutex
-	pushed []feedPush
+	mu      sync.Mutex
+	pushed  []feedPush
+	pushErr error
 }
 
 func (f *fakeFeedPusher) PushFeed(_ context.Context, projectID string, snap runtime.FeedSnapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pushed = append(f.pushed, feedPush{projectID: projectID, snap: snap})
-	return nil
+	return f.pushErr
 }
 
 func (f *fakeFeedPusher) pushes() []feedPush {
@@ -980,17 +984,20 @@ type activityPush struct {
 	ev        runtime.ActivityEvent
 }
 
-// fakeActivityPusher records every pushed ActivityEvent (08 §4).
+// fakeActivityPusher records every pushed ActivityEvent (08 §4). pushErr makes
+// the ephemeral fan-out fail, which FanOut must log and drop — a lost spinner or
+// toast frame is cosmetic and must never surface to the caller.
 type fakeActivityPusher struct {
-	mu     sync.Mutex
-	pushed []activityPush
+	mu      sync.Mutex
+	pushed  []activityPush
+	pushErr error
 }
 
 func (f *fakeActivityPusher) PushActivity(_ context.Context, projectID string, ev runtime.ActivityEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pushed = append(f.pushed, activityPush{projectID: projectID, ev: ev})
-	return nil
+	return f.pushErr
 }
 
 func (f *fakeActivityPusher) events() []activityPush {

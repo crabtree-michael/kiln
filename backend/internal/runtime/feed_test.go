@@ -1,15 +1,15 @@
 package runtime_test
 
-// Feed/activity unit tests (08 §4, §7) that run THROUGH the Service: the
-// thinking bracket around a brain pass, and the feed.updated / activity.toast /
-// feed.completion outbox routing. Snapshot assembly moved to
-// feed_assembler_test.go with the Feed unit, and the notification-op delegation
-// to notification_service_test.go with the Notifications unit — each needs a
-// port or two, not a wired dispatcher. What is left here is routing, which steps
-// 5 and 6 of the split will move to FanOut and Dispatcher.
+// Outbox and events ROUTING tests (08 §4, §7) that run THROUGH the Service: that
+// each UI topic reaches its handler at all, and that the thinking bracket wraps a
+// real brain pass. What those handlers then do is asserted on the units
+// themselves — snapshot assembly in feed_assembler_test.go, notification ops in
+// notification_service_test.go, and every push, decode and log-and-drop in
+// fanout_test.go, each over a port or two instead of a wired dispatcher. What is
+// left here is the wiring between them, which step 6 of the split moves to
+// Dispatcher along with the drain that owns it.
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -59,16 +59,18 @@ func TestService_EventsWorker_BracketsBrainPassWithThinking(t *testing.T) {
 
 // ---- feed.updated / activity.toast outbox routing (08 §7) -----------------
 
-func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
+// A claimed feed.updated reaches FanOut and fans a snapshot out to the entry's
+// project. WHAT that snapshot contains, and how a failed assembly or push
+// degrades, is fanout_test.go's — here the claim is only that the topic is wired
+// to its handler with the tenant threaded through (11 §3).
+func TestService_Outbox_FeedUpdatedRoutesToTheFeedFanOut(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
-	notes := &fakeNotificationStore{}
-	notes.seed(runtime.Notification{Kind: runtime.KindUpdate, Body: "note"})
 	feed := &fakeFeedPusher{}
 	svc := runtime.NewService(
 		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
 		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
-		notes, &fakeBoardReader{}, feed, &fakeActivityPusher{},
+		&fakeNotificationStore{}, &fakeBoardReader{}, feed, &fakeActivityPusher{},
 		&fakeOwner{},
 	)
 
@@ -80,169 +82,9 @@ func TestService_Outbox_FeedUpdatedAssemblesAndPushesFeed(t *testing.T) {
 
 	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
 	pushes := feed.pushes()
-	if len(pushes) < 1 {
-		t.Fatalf("PushFeed calls = %d, want >= 1", len(pushes))
-	}
-	if len(pushes[0].snap.Cards) != 1 || pushes[0].snap.Cards[0].Body != "note" {
-		t.Errorf("pushed feed = %+v, want the assembled note card", pushes[0].snap)
-	}
 	if pushes[0].projectID != defaultTestProject {
 		t.Errorf("PushFeed projectID = %q, want the outbox entry's %q (11 §3)",
 			pushes[0].projectID, defaultTestProject)
-	}
-}
-
-// A signal-only feed.updated (empty payload) carries no verb — it is the
-// runtime's own re-render trigger for progress narration, edits, and mark-seen.
-// It must never push, in any mode: with the notification mode set to "all" (the
-// firehose), the empty payload still resolves to no push (02 §10).
-func TestService_Outbox_FeedUpdatedNarrationNeverNotifies(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	store := newFakeStore(clock)
-	notifier := &fakeNotifier{}
-	feed := &fakeFeedPusher{}
-	svc := runtime.NewService(
-		store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-		&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
-		&fakeActivityPusher{},
-		&fakeOwner{mode: modeAll},
-	)
-
-	_, outboxWorker := svc.Workers(clock)
-	store.seed(runtime.QueueOutbox, "feed.updated", []byte(`{}`), 0)
-
-	stop := runWorker(t, outboxWorker)
-	defer stop()
-
-	// The feed push confirms the entry was handled; the notifier must stay
-	// untouched — narration has no verb, so it is silent even in "all" mode.
-	testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
-	if got := notifier.count("Send"); got != 0 {
-		t.Errorf("Send calls = %d, want 0 — a payload with no verb must not push", got)
-	}
-}
-
-// Feed-update activity (a proposal, a queue, a reshape, a nudge, an archive) is
-// the broad stream only "all" mode delivers (02 §10). Under the recommended
-// "default" mode it is suppressed — those pushes are chatter next to the genuine
-// milestones, which arrive on their own dedicated notify.send.
-func TestService_Outbox_FeedUpdatedActivitySilentInDefaultMode(t *testing.T) {
-	for _, verb := range []string{verbProposal, "reshaped", "queued", "nudged", "archived"} {
-		t.Run(verb, func(t *testing.T) {
-			clock := testutil.NewFakeClock()
-			store := newFakeStore(clock)
-			notifier := &fakeNotifier{}
-			feed := &fakeFeedPusher{}
-			svc := runtime.NewService(
-				store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
-				&fakeActivityPusher{},
-				&fakeOwner{mode: modeDefault},
-			)
-
-			_, outboxWorker := svc.Workers(clock)
-			store.seed(runtime.QueueOutbox, "feed.updated",
-				[]byte(`{"title":"Login Redesign","verb":"`+verb+`"}`), 0)
-
-			stop := runWorker(t, outboxWorker)
-			defer stop()
-
-			testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
-			if got := notifier.count("Send"); got != 0 {
-				t.Errorf("Send calls = %d, want 0 — %q is feed activity, silent under the default mode", got, verb)
-			}
-		})
-	}
-}
-
-// Under "all" mode every feed-update verb drives a specific push (Title = ticket,
-// Body = what changed) rather than a generic "board was updated" placeholder.
-func TestService_Outbox_FeedUpdatedActivityNotifiesInAllMode(t *testing.T) {
-	cases := []struct{ verb, body string }{
-		{verbProposal, "New proposal"},
-		{"reshaped", "Proposal updated"},
-		{"queued", "Queued for work"},
-		{"nudged", "Nudged"},
-		{"archived", "Archived"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.verb, func(t *testing.T) {
-			clock := testutil.NewFakeClock()
-			store := newFakeStore(clock)
-			notifier := &fakeNotifier{}
-			svc := runtime.NewService(
-				store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{},
-				&fakeActivityPusher{},
-				&fakeOwner{mode: modeAll},
-			)
-
-			_, outboxWorker := svc.Workers(clock)
-			store.seed(runtime.QueueOutbox, "feed.updated",
-				[]byte(`{"title":"Login Redesign","verb":"`+tc.verb+`"}`), 0)
-
-			stop := runWorker(t, outboxWorker)
-			defer stop()
-
-			testutil.Eventually(t, func() bool { return notifier.count("Send") >= 1 })
-			calls := notifier.callsFor("Send")
-			if len(calls) != 1 {
-				t.Fatalf("Send calls = %d, want exactly 1", len(calls))
-			}
-			var got struct {
-				Title  string `json:"title"`
-				Reason string `json:"reason"`
-			}
-			payload, ok := calls[0].Args[1].([]byte)
-			if !ok {
-				t.Fatalf("Send payload arg type = %T, want []byte", calls[0].Args[1])
-			}
-			if err := json.Unmarshal(payload, &got); err != nil {
-				t.Fatalf("decode push payload: %v", err)
-			}
-			if got.Title != "Login Redesign" || got.Reason != tc.body {
-				t.Errorf("push payload = %+v, want title=Login Redesign reason=%q", got, tc.body)
-			}
-		})
-	}
-}
-
-// The milestones (blocked, finished) each emit their own dedicated board
-// notify.send; the feed.updated they also emit must not fire a second, vaguer
-// push — even in "all" mode. Both verbs are absent from feedUpdateVerbBody so
-// the feed path stays silent and the completion/block push is never doubled.
-func TestService_Outbox_FeedUpdatedMilestoneVerbsNeverNotify(t *testing.T) {
-	for _, verb := range []string{"blocked", "finished"} {
-		t.Run(verb, func(t *testing.T) {
-			clock := testutil.NewFakeClock()
-			store := newFakeStore(clock)
-			notifier := &fakeNotifier{}
-			feed := &fakeFeedPusher{}
-			svc := runtime.NewService(
-				store, &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-				&fakeAgentRuntime{}, notifier, &fakeSnapshotPusher{},
-				&fakeSayPusher{}, &fakeNotificationStore{}, &fakeBoardReader{}, feed,
-				&fakeActivityPusher{},
-				&fakeOwner{mode: modeAll},
-			)
-
-			_, outboxWorker := svc.Workers(clock)
-			store.seed(runtime.QueueOutbox, "feed.updated",
-				[]byte(`{"title":"Login Redesign","verb":"`+verb+`"}`), 0)
-
-			stop := runWorker(t, outboxWorker)
-			defer stop()
-
-			// The feed push confirms the entry was handled; the notifier must stay
-			// untouched — the milestone's dedicated notify.send is its only push.
-			testutil.Eventually(t, func() bool { return len(feed.pushes()) >= 1 })
-			if got := notifier.count("Send"); got != 0 {
-				t.Errorf("Send calls = %d, want 0 — %q's push comes from notify.send, not feed.updated", got, verb)
-			}
-		})
 	}
 }
 
@@ -312,32 +154,24 @@ func TestService_Outbox_ActivityToastDecodesAndPushes(t *testing.T) {
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
+	// The decoded toast's fields are fanout_test.go's business; what this pins is
+	// that the topic reaches the handler at all, on the entry's project (11 §3).
 	testutil.Eventually(t, func() bool {
 		for _, p := range activity.events() {
-			if p.ev.Kind == "toast" {
+			if p.ev.Kind == "toast" && p.projectID == defaultTestProject {
 				return true
 			}
 		}
 		return false
 	})
-
-	var toast *runtime.ActivityEvent
-	for _, p := range activity.events() {
-		if p.ev.Kind == "toast" {
-			e := p.ev
-			toast = &e
-			break
-		}
-	}
-	if toast == nil {
-		t.Fatal("no toast activity event pushed")
-	}
-	if toast.Verb != "started" || toast.TicketID != "t-42" || toast.TicketTitle != "Build the widget" {
-		t.Errorf("toast = %+v, want Verb=started TicketID=t-42 TicketTitle='Build the widget'", *toast)
-	}
 }
 
-func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
+// feed.completion is the one UI topic whose handler returns its errors, so the
+// route is wrapped like the durable ones (wrapOutbox) rather than swallowed.
+// The card's shape — empty body, GitHub link, work summary, idempotency key — is
+// asserted on the unit in fanout_test.go; here it is that the topic lands on the
+// notification writer at all, for the entry's project.
+func TestService_Outbox_FeedCompletionRoutesToTheCompletionCard(t *testing.T) {
 	clock := testutil.NewFakeClock()
 	store := newFakeStore(clock)
 	notes := &fakeNotificationStore{}
@@ -349,43 +183,22 @@ func TestService_Outbox_FeedCompletionPostsCard(t *testing.T) {
 	)
 
 	_, outboxWorker := svc.Workers(clock)
-	store.seed(runtime.QueueOutbox, "feed.completion",
-		[]byte(`{"ticket_id":"t1","ticket_title":"Build the widget",`+
-			`"github_url":"https://github.com/o/r/pull/7","github_label":"#7",`+
-			`"summary":"feat(web): build the widget"}`), 0)
+	id := store.seed(runtime.QueueOutbox, "feed.completion",
+		[]byte(`{"ticket_id":"t1","ticket_title":"Build the widget"}`), 0)
 
 	stop := runWorker(t, outboxWorker)
 	defer stop()
 
 	testutil.Eventually(t, func() bool { return len(notes.completionPosts()) >= 1 })
 	posts := notes.completionPosts()
-	if len(posts) != 1 {
-		t.Fatalf("completion posts = %d, want 1", len(posts))
-	}
-	if posts[0].TicketID != "t1" {
-		t.Errorf("completion TicketID = %q, want t1", posts[0].TicketID)
-	}
-	// Styled like a poke: an empty body, with the ticket title rendered
-	// separately as the card label and the client fronting a ✅ (no prose).
-	if posts[0].Body != "" {
-		t.Errorf("completion body = %q, want empty", posts[0].Body)
-	}
-	if posts[0].Key == 0 {
-		t.Error("completion must be keyed on the outbox id for idempotency, got key 0")
-	}
-	// The GitHub link on the payload threads through to the completion card so the
-	// feed can render the done card's clickable second line (08 §7).
-	if posts[0].GitHubURL != "https://github.com/o/r/pull/7" || posts[0].GitHubLabel != "#7" {
-		t.Errorf("completion github link = %q/%q, want the payload's pull-request URL + #7",
-			posts[0].GitHubURL, posts[0].GitHubLabel)
-	}
-	// The work summary on the payload threads through to the completion card so the
-	// feed can render the done card's body (08 §7).
-	if posts[0].WorkSummary != "feat(web): build the widget" {
-		t.Errorf("completion work summary = %q, want the payload's summary", posts[0].WorkSummary)
-	}
 	if posts[0].ProjectID != defaultTestProject {
 		t.Errorf("completion card posted for project %q, want the outbox entry's %q (11 §3)",
 			posts[0].ProjectID, defaultTestProject)
+	}
+	// The claimed entry's id is what travels as the idempotency key (04 §3) — the
+	// routing detail the unit test cannot see, because it is the worker that
+	// supplies it.
+	if posts[0].Key != id {
+		t.Errorf("completion key = %d, want the claimed outbox id %d", posts[0].Key, id)
 	}
 }

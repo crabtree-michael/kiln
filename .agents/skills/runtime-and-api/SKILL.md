@@ -41,10 +41,13 @@ backend/internal/runtime/
   queue.go      QueueName · EventType · Entry/Event · retry constants (BackoffBase/Cap, MaxAttempts=8)
   store.go      Store port (InsertEvent, ClaimNextDue, MarkDone/MarkRetry/MarkDead) · Clock
   worker.go     Worker — serial drain loop, Nudge(), Handler/DeadLetter types
-  service.go    Service — EnqueueEvent + the executor ports: Brain, Puller, Blocker,
-                AgentRuntime (Send/Release — 05 §2.1), SnapshotPusher. Being split
-                into six focused types (docs/god-units-plans/runtime-service.md);
-                until that finishes Service delegates each extracted slice.
+  service.go    Service — EnqueueEvent + the drain and its executor ports: Store,
+                BrainResolver, Puller, Blocker, AgentRuntime (Send/Release —
+                05 §2.1). Being split into six focused types
+                (docs/god-units-plans/runtime-service.md); steps 1-5 have landed,
+                so those five ports are all it still holds — every other port now
+                belongs to a unit below and Service is a delegating shim in front
+                of it. Step 6 turns what is left into Dispatcher.
   notify.go     Notify — the tenant-scoped push choke point (split step 1, DONE):
                 Owner + Notifier ports, mode gate, owner resolution. Every Web Push
                 the runtime emits goes through its one exported Send.
@@ -60,6 +63,14 @@ backend/internal/runtime/
                 MessageStore + SayPusher, PostMessage/Say/Recent, plus the Nudger hook
                 that wakes the events worker after an ingest without holding it
                 (Service is the nudger until Dispatcher takes the worker in step 6).
+  fanout.go     FanOut — the push/SSE coordinator (split step 5, DONE):
+                SnapshotPusher + FeedPusher + ActivityPusher + the completion
+                card's NotificationWriter, over Feed (assemble) and Notify (push).
+                PushThinking/PushBoard + the three UI-topic handlers, the verb→push
+                copy map, and the four board *Payload mirrors. The runtime's one
+                log-and-drop file: everything here is best-effort because it emits
+                a view of already-durable state. HandleFeedCompletion is the
+                exception — a persistent card, so its failures are returned.
   feed.go · notifications.go · transcript.go   the 07/10 additions (feed cards, notify.send, transcript)
   postgres/     store adapter
     migrations/ 0001_events.sql (04 §2; outbox DDL lives in board's 0002_outbox.sql), 0002+ since

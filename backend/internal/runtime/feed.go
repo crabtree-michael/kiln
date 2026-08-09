@@ -124,6 +124,15 @@ type ActivityEvent struct {
 	TicketTitle string // set for kind=toast
 }
 
+// SnapshotPusher executes board.updated entries: fan out a fresh full board
+// snapshot to the project's connected clients (04 §7, 11 §3; implemented by
+// the api SSE hub). Snapshots are absolute, so duplicates are harmless
+// (04 D7). Lives here beside the other two client-facing pushers — all three
+// are FanOut's ports.
+type SnapshotPusher interface {
+	PushBoard(ctx context.Context, projectID string) error
+}
+
 // FeedPusher is the runtime's port onto the api SSE hub's feed fan-out (08
 // §3): push a fresh absolute FeedSnapshot to the project's connected clients
 // (11 §3). Mirrors SayPusher; implemented by the api package's Hub.

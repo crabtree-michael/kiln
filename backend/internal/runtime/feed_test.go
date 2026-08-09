@@ -1,14 +1,14 @@
 package runtime_test
 
-// Feed/activity unit tests (08 §3, §4, §7) that run THROUGH the Service: the
-// notification-op delegation, the thinking bracket around a brain pass, and the
-// feed.updated / activity.toast / feed.completion outbox routing. Snapshot
-// assembly itself moved to feed_assembler_test.go with the Feed unit — it needs
-// two read ports, not a wired dispatcher. What is left here is routing, which
-// steps 5 and 6 of the split will move to FanOut and Dispatcher.
+// Feed/activity unit tests (08 §4, §7) that run THROUGH the Service: the
+// thinking bracket around a brain pass, and the feed.updated / activity.toast /
+// feed.completion outbox routing. Snapshot assembly moved to
+// feed_assembler_test.go with the Feed unit, and the notification-op delegation
+// to notification_service_test.go with the Notifications unit — each needs a
+// port or two, not a wired dispatcher. What is left here is routing, which steps
+// 5 and 6 of the split will move to FanOut and Dispatcher.
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -16,81 +16,6 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
-
-// newFeedService builds a Service with the caller's 08 §7 fakes and inert
-// 04/07 ports, for the feed/activity paths.
-func newFeedService(
-	notes runtime.NotificationStore, board runtime.BoardReader,
-	feed runtime.FeedPusher, activity runtime.ActivityPusher,
-) *runtime.Service {
-	clock := testutil.NewFakeClock()
-	return runtime.NewService(
-		newFakeStore(clock), &fakeMessageStore{}, resolverFor(&fakeBrain{}), &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{},
-		notes, board, feed, activity,
-		&fakeOwner{},
-	)
-}
-
-// ---- notification-op delegation (08 §3) -----------------------------------
-
-func TestService_PostNotification_DelegatesToStore(t *testing.T) {
-	notes := &fakeNotificationStore{}
-	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	if err := svc.PostNotification(context.Background(), defaultTestProject, "update", "hello", nil, nil); err != nil {
-		t.Fatalf("PostNotification: %v", err)
-	}
-	if len(notes.posts) != 1 || notes.posts[0].Body != "hello" || notes.posts[0].Kind != runtime.KindUpdate {
-		t.Errorf("store posts = %+v, want a single update 'hello'", notes.posts)
-	}
-}
-
-func TestService_EditNotification_DelegatesToStore(t *testing.T) {
-	notes := &fakeNotificationStore{}
-	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	img := "https://example.com/p.png"
-	err := svc.EditNotification(context.Background(), defaultTestProject, 7, "preview", "fixed wording", &img)
-	if err != nil {
-		t.Fatalf("EditNotification: %v", err)
-	}
-	if len(notes.edits) != 1 {
-		t.Fatalf("store edits = %d, want 1", len(notes.edits))
-	}
-	e := notes.edits[0]
-	if e.ID != 7 || e.Kind != "preview" || e.Body != "fixed wording" || e.ImageURL == nil || *e.ImageURL != img {
-		t.Errorf("edit = %+v, want id=7 kind=preview body='fixed wording' image=%q", e, img)
-	}
-}
-
-func TestService_ListNotifications_ReturnsActiveNewestFirst(t *testing.T) {
-	notes := &fakeNotificationStore{}
-	seen := notes.seed(runtime.Notification{Body: "first card"})
-	notes.seed(runtime.Notification{Body: "second card"})
-	// Mark the first as seen so it drops out of the active set.
-	if err := notes.MarkSeen(context.Background(), defaultTestProject, seen.ID); err != nil {
-		t.Fatalf("MarkSeen: %v", err)
-	}
-	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-
-	got, err := svc.ListNotifications(context.Background(), defaultTestProject)
-	if err != nil {
-		t.Fatalf("ListNotifications: %v", err)
-	}
-	if len(got) != 1 || got[0].Body != "second card" {
-		t.Fatalf("ListNotifications = %+v, want a single active card 'second card'", got)
-	}
-}
-
-func TestService_MarkSeen_DelegatesHighWaterToStore(t *testing.T) {
-	notes := &fakeNotificationStore{}
-	svc := newFeedService(notes, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{})
-	if err := svc.MarkSeen(context.Background(), defaultTestProject, 42); err != nil {
-		t.Fatalf("MarkSeen: %v", err)
-	}
-	if len(notes.markSeenN) != 1 || notes.markSeenN[0] != 42 {
-		t.Errorf("store MarkSeen calls = %v, want a single call with lastID=42", notes.markSeenN)
-	}
-}
 
 // ---- thinking bracket around a brain pass (08 §4) -------------------------
 

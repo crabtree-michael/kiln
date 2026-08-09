@@ -117,15 +117,19 @@ var errUnknownTopic = errors.New("runtime: unknown outbox topic")
 // and the wiring that routes claimed entries to the ports above. Constructed
 // at the composition root (04 §8).
 type Service struct {
-	store          Store
-	messages       MessageStore
-	brains         BrainResolver
-	puller         Puller
-	blocker        Blocker
-	agents         AgentRuntime
-	pusher         SnapshotPusher
-	sayer          SayPusher
-	notifications  NotificationStore
+	store    Store
+	messages MessageStore
+	brains   BrainResolver
+	puller   Puller
+	blocker  Blocker
+	agents   AgentRuntime
+	pusher   SnapshotPusher
+	sayer    SayPusher
+	// notifications is narrowed to the write half: the read paths moved to Feed
+	// (step 2) and the CRUD to Notifications (step 3), leaving handleFeedCompletion's
+	// PostCompletionCard as the one notification write Service still performs
+	// itself. It goes to FanOut in step 5, and the port leaves with it.
+	notifications  NotificationWriter
 	feedPusher     FeedPusher
 	activityPusher ActivityPusher
 
@@ -142,6 +146,11 @@ type Service struct {
 	// re-render — go through this one value.
 	feed *Feed
 
+	// notifs is the extracted notification CRUD facade (god-unit split step 3):
+	// it owns the transactional feed mutations, and Service's eight
+	// notification methods are now one-line forwards onto it.
+	notifs *Notifications
+
 	// The two workers Workers() builds, retained so anything that commits a
 	// queue row can nudge the matching worker (04 §5). nil until Workers runs.
 	eventsWorker *Worker
@@ -155,9 +164,10 @@ type Service struct {
 //
 // notifier and owner are no longer held directly: they are handed to the
 // extracted Notify, which Service delegates every push to; boardReader likewise
-// goes to the extracted Feed, which Service delegates every feed read to. The
-// signature is unchanged so the composition root and the existing tests keep
-// working while the rest of the split lands
+// goes to the extracted Feed, which Service delegates every feed read to, and
+// notifications to the extracted Notifications, which Service delegates every
+// feed mutation to. The signature is unchanged so the composition root and the
+// existing tests keep working while the rest of the split lands
 // (docs/god-units-plans/runtime-service.md §8).
 func NewService(
 	store Store, messages MessageStore, brains BrainResolver, puller Puller, blocker Blocker,
@@ -181,6 +191,7 @@ func NewService(
 		activityPusher: activityPusher,
 		notify:         NewNotify(notifier, owner),
 		feed:           NewFeed(boardReader, notifications),
+		notifs:         NewNotifications(notifications),
 	}
 }
 
@@ -280,98 +291,60 @@ func (s *Service) FeedHistory(
 	return s.feed.FeedHistory(ctx, projectID, before, limit)
 }
 
-// PostNotification is the brain-facing port for post_update / preview (08 §3,
-// 06 tool set): persist a brain-authored notification and (in the same tx)
-// append a feed.updated row so the live feed re-renders. Delegates to the
-// store; the returned Notification is dropped here because the brain tool
-// handler needs only success/failure.
+// The eight notification methods below delegate to the extracted CRUD facade
+// (notification_service.go) so *Service keeps satisfying api's FeedMutator, the
+// brain's NotificationStore/FeedReader and the steward's Feed while the split
+// lands.
+
+// PostNotification delegates to the CRUD facade — the brain's post_update /
+// preview (08 §3, 06 tool set).
 func (s *Service) PostNotification(
 	ctx context.Context, projectID, kind, body string, ticketID, imageURL *string,
 ) error {
-	if _, err := s.notifications.PostNotification(ctx, projectID, kind, body, ticketID, imageURL); err != nil {
-		return fmt.Errorf("runtime: post notification: %w", err)
-	}
-	return nil
+	return s.notifs.PostNotification(ctx, projectID, kind, body, ticketID, imageURL)
 }
 
-// PostPoke posts the steward's feed-only poke card for a ticket: a KindPoke
-// notification with an empty body, tagged to the ticket so the feed renders its
-// current title with a 👉 (notificationToCard takes the label from the board
-// view). Excluded from the unseen badge and the brain's update list at the store
-// layer — a mechanical signal, not a brain-authored note.
+// PostPoke delegates to the CRUD facade — the steward's feed-only poke card.
 func (s *Service) PostPoke(ctx context.Context, projectID, ticketID string) error {
-	if _, err := s.notifications.PostNotification(ctx, projectID, string(KindPoke), "", &ticketID, nil); err != nil {
-		return fmt.Errorf("runtime: post poke: %w", err)
-	}
-	return nil
+	return s.notifs.PostPoke(ctx, projectID, ticketID)
 }
 
-// RetractNotification is the brain-facing port for retract_update (08 §3):
-// stamp the row retracted and append feed.updated in one tx. Delegates to the
-// store.
+// RetractNotification delegates to the CRUD facade — the brain's retract_update
+// (08 §3).
 func (s *Service) RetractNotification(ctx context.Context, projectID string, id int64) error {
-	if err := s.notifications.RetractNotification(ctx, projectID, id); err != nil {
-		return fmt.Errorf("runtime: retract notification: %w", err)
-	}
-	return nil
+	return s.notifs.RetractNotification(ctx, projectID, id)
 }
 
-// DismissNotification is the api-facing port for POST /api/feed/{id}/dismiss (08
-// §3): the user swiped a single update/preview card away, so clear it for good.
-// The effect is identical to the brain's retract — stamp the row retracted and
-// append feed.updated in one tx — but this is user-initiated, so it lives beside
-// MarkSeen (the other client-driven feed mutation) rather than the brain-facing
-// RetractNotification it delegates to.
+// DismissNotification delegates to the CRUD facade — the user's per-card swipe
+// (POST /api/feed/{id}/dismiss, 08 §3).
 func (s *Service) DismissNotification(ctx context.Context, projectID string, id int64) error {
-	if err := s.notifications.RetractNotification(ctx, projectID, id); err != nil {
-		return fmt.Errorf("runtime: dismiss notification: %w", err)
-	}
-	return nil
+	return s.notifs.DismissNotification(ctx, projectID, id)
 }
 
-// DismissAllNotifications is the api-facing port for POST /api/feed/dismiss-all
-// (08 §3, clear-all): the user tapped the header trash affordance to clear every
-// feed notification at once. Retracts all still-active rows and fans out one
-// feed.updated in a single tx — the bulk sibling of DismissNotification.
+// DismissAllNotifications delegates to the CRUD facade — the user's clear-all
+// (POST /api/feed/dismiss-all, 08 §3).
 func (s *Service) DismissAllNotifications(ctx context.Context, projectID string) error {
-	if err := s.notifications.RetractAllNotifications(ctx, projectID); err != nil {
-		return fmt.Errorf("runtime: dismiss all notifications: %w", err)
-	}
-	return nil
+	return s.notifs.DismissAllNotifications(ctx, projectID)
 }
 
-// EditNotification is the brain-facing port for edit_update (08 §3 amended, 06
-// tool set): amend a still-active card's kind/body/image in place and append
-// feed.updated in one tx. Delegates to the store; the brain tool handler needs
-// only success/failure.
+// EditNotification delegates to the CRUD facade — the brain's edit_update
+// (08 §3 amended, 06 tool set).
 func (s *Service) EditNotification(
 	ctx context.Context, projectID string, id int64, kind, body string, imageURL *string,
 ) error {
-	if err := s.notifications.EditNotification(ctx, projectID, id, kind, body, imageURL); err != nil {
-		return fmt.Errorf("runtime: edit notification: %w", err)
-	}
-	return nil
+	return s.notifs.EditNotification(ctx, projectID, id, kind, body, imageURL)
 }
 
-// ListNotifications is the brain-facing port for list_updates (06 tool set): the
-// active (neither seen nor retracted) feed cards, newest-first, so the brain can
-// see the ids it may edit or retract. Delegates to the store's UnseenNotifications.
+// ListNotifications delegates to the CRUD facade — the brain's list_updates
+// (06 tool set).
 func (s *Service) ListNotifications(ctx context.Context, projectID string) ([]Notification, error) {
-	notes, err := s.notifications.UnseenNotifications(ctx, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("runtime: list notifications: %w", err)
-	}
-	return notes, nil
+	return s.notifs.ListNotifications(ctx, projectID)
 }
 
-// MarkSeen is the api-facing port for POST /api/feed/seen (08 §3): stamp every
-// still-unseen notification up to the client's high-water id, and append
-// feed.updated in one tx. Delegates to the store.
+// MarkSeen delegates to the CRUD facade — the client's seen high-water mark
+// (POST /api/feed/seen, 08 §3).
 func (s *Service) MarkSeen(ctx context.Context, projectID string, lastID int64) error {
-	if err := s.notifications.MarkSeen(ctx, projectID, lastID); err != nil {
-		return fmt.Errorf("runtime: mark seen: %w", err)
-	}
-	return nil
+	return s.notifs.MarkSeen(ctx, projectID, lastID)
 }
 
 // nudgeEvents wakes the events worker if it has been built (04 §5). No-op

@@ -83,17 +83,28 @@
      Both vars are published on the screen root and default to 0px, so an empty
      band with a collapsed dock leaves the idle layout exactly as before.
 
-     A third occupant joins them when the keyboard is up: `--keyboard-inset`, the
-     strip of this region the soft keyboard covers (use-keyboard-viewport). The
-     keyboard overlays rather than resizing (see the column's height above), so
-     without this the last cards would simply be unreachable behind it — with it,
-     the covered strip becomes scroll room and any card can still be brought above
-     the keyboard. It is padding rather than a height change on purpose: growing
-     the reserve BELOW the content moves nothing already on screen, so opening the
-     keyboard costs the user no scroll position. It also carries "Show earlier"
-     with it for free — that control is sticky against this region's CONTENT box,
-     which this padding is what defines (see its rule, and the warning there
-     against naming these vars a second time in its own offset). */
+     For the two overlay vars this is SCROLL allowance and nothing else. Padding
+     on a scroll container shrinks its content box, so on its own it also shortens
+     everything stretched inside it — which is how a toast arriving came to resize
+     the board and lift the pinned "Show earlier" control off the dock. The band's
+     share is handed straight back to the wrapper below (`--feed-overlay-slack`),
+     so the cards keep the room to be scrolled clear of the band while the
+     laid-out board is the same height in every band state.
+
+     `--keyboard-inset` is a third term and the ONE that is deliberately not
+     handed back. It is the strip of this region the soft keyboard covers
+     (use-keyboard-viewport); the keyboard overlays rather than resizing the app
+     (see the column's height above), so without it the last cards would simply be
+     unreachable behind the keyboard. But unlike a toast — a transient overlay the
+     board must hold still under — the covered strip is genuinely gone for as long
+     as the keyboard is up, so the laid-out board SHOULD shorten to what is left:
+     that is what keeps the resting block and the pinned "Show earlier" on screen
+     instead of behind the keyboard, riding up with the dock. Adding it to
+     `--feed-overlay-slack` would strand both under the keyboard, which is the
+     mirror image of the bug the slack exists to fix. Still padding rather than a
+     height change on the column, so growing the reserve BELOW the content moves
+     nothing already scrolled past: opening the keyboard costs the user no scroll
+     position. */
   padding: 8px 26px
     calc(
       8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px) +
@@ -108,11 +119,32 @@
    single pixel taller than the scrollport (below) so the feed is ALWAYS
    scrollable — that is what lets the native rubber-band engage even when the
    backlog is short or empty, giving the whole app an elastic feel instead of
-   feeling stuck. */
+   feeling stuck.
+
+   And it is where the band's share of the region's bottom reserve is handed
+   BACK, which is what makes "a toast is not a layout event" true of the board
+   and not just of the one control pinned to its foot. The region's
+   `padding-bottom` grows with the band; that shrinks the content box this
+   wrapper stretches into, and everything anchored to the bottom of it — the
+   resting block's centring, "Show earlier" — rode the growth. `100% + slack`
+   cancels the two out exactly: the wrapper is the same height whether the band
+   is empty, holding the thinking chip, or holding a stack of toasts, so nothing
+   laid out inside it moves when one arrives. What the padding still buys is the
+   scroll extent past that height, which is all it was ever for.
+
+   The slack is the band's growth PAST its resting height, not its whole height:
+   an empty activity row is not 0px tall, it is `--activity-rest-gap` (the gap
+   that floats the thinking chip off the dock), and that gap is a permanent part
+   of this layout — it is there with nothing to show. Giving it back too would
+   settle the board and the control 12px lower than they have always sat, which
+   is the same bug as the lift, mirrored. `max()` floors it at 0 so the one
+   context that never publishes the var (an ActivityRow mounted outside either
+   shell, in an isolated test) can't shorten the wrapper by the gap instead. */
 [data-role='feed-scroll'] {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
+  min-height: calc(100% + var(--feed-overlay-slack, 0px));
 }
 
 /* Only touch devices have a rubber-band to unlock, and the 1px overflow would
@@ -122,8 +154,11 @@
   [data-role='feed-scroll'] {
     /* +1px over the scrollport keeps scrollHeight > clientHeight at all times so
        iOS/Android treat the feed as scrollable and show the elastic bounce. The
-       pixel is imperceptible and the sticky header/backlog layout is unchanged. */
-    min-height: calc(100% + 1px);
+       pixel is imperceptible and the sticky header/backlog layout is unchanged.
+       It rides ON TOP of the band's slack (above) rather than replacing it —
+       restating this rule without the slack term is how the board would start
+       resizing again on exactly the devices this app is for. */
+    min-height: calc(100% + var(--feed-overlay-slack, 0px) + 1px);
   }
 }
 
@@ -1544,27 +1579,49 @@ button[data-role='feed-card-head']:focus-visible {
        foot at every scroll offset while staying in flow — so at the very bottom
        it settles into its natural slot and no card is ever trapped under it.
 
-   The offset is `0`, and it has to be — even though this is now one of the
-   bottom-anchored layers that the top of this file says must ride the LIVE
-   height of the transcript and the toast band. It does ride them, just not from
-   here (and the band's share is then given back in paint — see the `:has` rule
-   below, which is what keeps a toast from pushing this control up). A sticky
-   box is clamped to its containing block, and this one's
-   (`[data-role='backlog']`) bottom edge is the feed's CONTENT box, which the
-   region's `padding-bottom` above already holds clear of both overlays. The
-   clearance is therefore applied once, by that padding, and the control comes to
-   rest exactly on top of it. Naming the same two vars here would apply it
-   TWICE: at rest that strands a sliver of the next card under the control, and
-   mid-utterance — when the transcript is tall — it floats the control a
-   transcript's height above the dock with the feed showing through the gap. If
-   the reserve ever needs changing, change that padding; this stays 0.
+   The offset rides the band, and NOTHING else — which is the one thing about
+   this control that is not obvious from either of the two declarations above.
+   A sticky box is held inside two rectangles: its containing block
+   (`[data-role='backlog']`) and the scrollport INSET BY THE SCROLL CONTAINER'S
+   PADDING. The second one is the surprise: `bottom: 0` does not mean "the foot
+   of the feed", it means "the foot of the feed's CONTENT box", so the region's
+   `padding-bottom` positions this control directly, whatever the box it lives in
+   is doing. That is why holding the board still (`--feed-overlay-slack` on
+   `[data-role='feed-scroll']`, top of this file) does not hold this still by
+   itself — measured: with the board fixed, a `say` band still lifted the control
+   the full 117px, because the padding it is measured off grew.
+
+   So the same slack is subtracted here, in the only place that can answer for
+   it. A negative `bottom` lets the box sit that much further down the sticky
+   rectangle, landing it exactly on the foot of the wrapper it belongs to: the
+   band's growth cancels out and the control comes to rest in the same place with
+   a stack of toasts up as with none. This is a sticky OFFSET, not a size — it
+   moves this box and nothing else, so no card reflows and no scroll offset
+   shifts as toasts come and go.
+
+   The transcript's share is deliberately NOT subtracted: that overlay is the
+   dock genuinely growing as the user speaks, not a transient notice floating
+   over the feed, and the control clears it as it always has. Never add
+   `--dock-overlay-height` here in either direction — the padding already applies
+   it once, and a second application floats the control a transcript's height
+   above the dock with the feed showing through the gap.
+
+   What that leaves is a band standing over the control rather than pushing it.
+   The band is an opaque full-width surface in the dock layer
+   (`[data-role='dock-region']`'s `z-index: 1`) and covers the control where the
+   two meet, exactly as it covers the last card — briefly untappable, which is
+   what "overlay, don't push" asks for; toasts clear themselves in seconds. The
+   thinking chip is the same trade at a smaller scale: narrow and centred, it
+   hovers over the middle of the control rather than hiding it, and it too moves
+   nothing.
 
    The fill is opaque for the reason the toast band's is — cards scroll UNDER it
    now, and `--surface-page` is the tone they would scroll under anyway, so it
    reads as the feed's own bottom, not a floating panel. The `box-shadow` is that
    same fill continued BELOW the control, and it is what makes it read as the end
-   of the feed rather than as something floating in it. `bottom: 0` pins the
-   control to the feed's content box, but the reserve underneath it is still
+   of the feed rather than as something floating in it. The control ends the feed
+   with the reserve still beneath it, and that reserve is scrollable area —
+   cards pass through it — so without the skirt a line of the
    scrollable area — cards pass through it — so without the skirt a line of the
    next card sits stranded between the control and the dock. It needs no
    measuring: the feed's own `overflow-y: auto` clips it to the region's bottom
@@ -1599,23 +1656,18 @@ button[data-role='feed-card-head']:focus-visible {
    still paints above every card in the feed (positioned boxes paint after
    in-flow content), and the dock region — a later sibling, and lifted over the
    feed by its own rule below — paints over the skirt where the two meet. That
-   last part is now what the toast overlay rests on, so it is doubly not to be
-   undone: the drop below moves the control INTO the band, and only the region's
-   `z-index: 1` puts the band in front of it. The drop's `transform` makes the
-   control a stacking context but does not move it between layers — a stacking
-   context with `z-index: auto` still paints in the z-0 positioned slot, below
-   the region's 1. */
+   last part is what the toast overlay rests on, so it is doubly not to be
+   undone: the control now HOLDS ITS PLACE inside the strip the band occupies,
+   and only the region's `z-index: 1` puts the band in front of it. */
 [data-role='feed-show-earlier'] {
   position: sticky;
-  bottom: 0;
+  /* Negative, so the band's growth in the region's padding-bottom cancels
+     against it and this control rests in one place in every band state — the
+     long note above is about this one line. `0px` when there is no band, which
+     is the plain `bottom: 0` this has always been. */
+  bottom: calc(0px - var(--feed-overlay-slack, 0px));
   box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page);
   margin: auto 0 0;
-  /* The one place this control moves, and both terms are paint-only: the drop
-     that holds it still under a toast band (see the `:has` rule below) and the
-     1px press. Composed here, in ONE `transform`, rather than as two rules that
-     would overwrite each other — a `:active` of its own would cancel the drop
-     and snap the control back up out of the band at the moment of the tap. */
-  transform: translateY(calc(var(--show-earlier-drop, 0px) + var(--show-earlier-press, 0px)));
   width: 100%;
   font-family: inherit;
   font-size: 11px;
@@ -1631,67 +1683,29 @@ button[data-role='feed-card-head']:focus-visible {
 }
 
 [data-role='feed-show-earlier']:active {
-  --show-earlier-press: 1px;
+  transform: translateY(1px);
 }
 
-/* Toasts overlay the control; they do not push it up.
+/* There is no `:has([data-role='toast-stack'])` rule here any more, and the
+   absence is deliberate.
 
-   The reserve the control rests on (`[data-role='feed']`'s `padding-bottom`)
-   grows by the band's live height so the newest card can still be scrolled clear
-   of it — and because the control is pinned to the top of that reserve, every
-   toast that arrived also LIFTED it, and every dismissal dropped it back. The
-   control is the fixed thing at the foot of the feed; it should not ride the
-   band's height like a lift, and the band is an opaque full-width surface in the
-   dock layer (`[data-role='dock-region']`'s `z-index: 1`) that can simply cover
-   it, exactly as it covers the last card.
+   It used to be a paint-only `translateY` gated on a real toast band, cancelling
+   the band's share of the reserve out of the control's painted position. It held
+   THIS control still and nothing else: the reserve is `padding-bottom` on a
+   scroll container, so every toast still shortened the board behind it — the
+   cards' box, the resting block's centring — and the thinking chip, which the
+   gate deliberately excluded, still lifted the control by its own height. Both
+   halves are answered without a gate now: the board by `--feed-overlay-slack` on
+   `[data-role='feed-scroll']`, the control by the same slack on its own sticky
+   `bottom`. Nothing needs to know WHICH kind of notice is standing there, which
+   is why the chip is no longer a special case.
 
-   So the band's share of the reserve is given back HERE, in paint: layout keeps
-   the scroll clearance, and the control is translated back down into the strip
-   the band occupies, landing exactly where it sits with no band at all. A
-   transform is the right instrument for the same reason the dock's keyboard lift
-   uses one — it moves nothing else, so no card reflows and no scroll offset
-   shifts as toasts come and go. Note this leaves the control covered (and, since
-   the band takes its own pointer events, untappable) while a toast is up: that
-   is the trade the overlay asks for, and toasts clear themselves in seconds.
-
-   Gated on the band actually being there, and — when it is — giving back the
-   chip's share of the reserve along with the band's, because the reserve's other
-   occupant, the "Kiln is thinking…" chip, is the opposite kind of object: narrow,
-   centred, floating, with no fill to hide anything behind. Thinking alone must still lift
-   the control clear of it (no band, no drop, the var stays 0). Thinking WITH
-   toasts is safe to drop through, because the chip renders above the band's top
-   edge (`activity-row` is a column with the stack last), which is already above
-   the control's own once the band is taller than the control stands. Measured in
-   Chromium at 390px: the shortest band the app can show — one board toast, no
-   `say` — is 63px, and the dropped control's top edge lands 58px off the dock,
-   so it is covered with 5px to spare. That margin is the one thing to re-measure
-   (with the repro script below) if this control's type or padding grows: past it
-   the control's rounded top edge would show as a hairline over the band's own
-   separator.
-
-   The drop is the band's growth PAST its resting height, not its whole height:
-   an empty activity row is not 0px tall, it is `--activity-rest-gap` (the gap
-   that floats the thinking chip off the dock), and that gap is already in the
-   reserve the control rests on with no toast in sight. Giving it back too would
-   settle the control 12px LOWER under a toast than it sits without one — which
-   is the same bug as the lift, just in the other direction. A browser
-   measurement is what caught it and what holds it now: `tests/layout/`
-   compares the control's standoff from the dock across every band state, and a
-   12px drift in either direction fails there. Nothing in jsdom can see it.
-
-   BOTH shell roots, in one rule, because by now it is one mechanism: the desk
-   grew the same reserve when `--feed-bottom-inset` was taught to reach
-   `[data-role='desktop-screen']` (ActivityRow + DesktopScreen.css), and with it
-   the same lift — a toast there pushed the control up the feed just as it did
-   here. The declaration is identical because the inputs are: the same publisher,
-   the same band, the same control. What differs between the shells is only which
-   region's padding holds the reserve, and neither of those is named here. Stated
-   in this sheet rather than split across two because a second copy in
-   `DesktopScreen.css` is how the two would drift apart. */
-[data-role='primary-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'],
-[data-role='desktop-screen']:has([data-role='toast-stack']) [data-role='feed-show-earlier'] {
-  --show-earlier-drop: calc(var(--feed-bottom-inset, 0px) - var(--activity-rest-gap));
-}
+   The one thing the gate was right about is kept: the slack is the band's growth
+   past its resting height, not its whole height (see `--activity-rest-gap`), so
+   nothing settles 12px low under a toast. And both shells still take it from one
+   declaration — the desk grew this same reserve when `--feed-bottom-inset` was
+   taught to reach `[data-role='desktop-screen']`, and every fix that lived in one
+   shell's stylesheet has been followed by the same bug in the other. */
 
 [data-role='feed-show-earlier']:disabled {
   color: var(--text-faint);
@@ -1902,16 +1916,25 @@ button[data-role='feed-card-head']:focus-visible {
    this gap is suppressed.
 
    It is a var because this padding has a second reader. With no toasts the row
-   is empty and this gap IS its whole height — so it is also the band's share of
-   the feed's bottom reserve at rest, and therefore part of where the pinned
-   "Show earlier" control comes to rest. The drop that holds that control still
-   under a band has to give back everything the row grew PAST this number, not
-   the number itself, or the control settles 12px lower under a toast than it
-   sits without one. One declaration, both readers — and both shell roots, since
-   this row and that control are mounted by the desk too. */
+   is empty and this gap IS its whole height — so it is the row's RESTING height,
+   the one part of `--feed-bottom-inset` that is always there, and therefore a
+   permanent part of the feed's bottom reserve rather than something a band
+   brought with it. `--feed-overlay-slack` below is everything the row grew past
+   this number, and it is what the feed hands back so the board doesn't resize;
+   folding this gap in as well would settle the board and the pinned "Show
+   earlier" control 12px lower than they sit at rest, which is the same bug as
+   the lift, mirrored.
+
+   Both are declared on both shell roots, in one rule, because the row, the band
+   and the control are the same objects in both shells — and because every fix
+   for this that lived in one shell's stylesheet has been followed by the same
+   bug appearing in the other. `--feed-bottom-inset` is published here as an
+   inline style by ActivityRow; `max()` floors the slack at 0 for the contexts
+   where nothing publishes it. */
 [data-role='primary-screen'],
 [data-role='desktop-screen'] {
   --activity-rest-gap: 12px;
+  --feed-overlay-slack: max(0px, var(--feed-bottom-inset, 0px) - var(--activity-rest-gap));
 }
 
 [data-role='activity-row']:not(:has([data-role='toast-stack'])) {

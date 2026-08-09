@@ -61,7 +61,7 @@ function card(provider: string): HTMLElement {
 
 /** Opens a provider's key dialog and returns its key input. */
 function openModal(provider: string, label: string): HTMLElement {
-  fireEvent.click(within(card(provider)).getByRole('button', { name: /Connect|Update key/ }));
+  fireEvent.click(within(card(provider)).getByRole('button', { name: /Connect|Configure/ }));
   return screen.getByLabelText(label);
 }
 
@@ -98,7 +98,7 @@ describe('Integrations', () => {
     expect(card('amika').children).toHaveLength(1);
   });
 
-  it('an unconfigured key card says Connect; a configured one says Update key', () => {
+  it('an unconfigured key card says Connect; a configured one says Configure', () => {
     renderIntegrations({ settingsOverrides: { devin_api_key: { set: true, tail: 'wxyz' } } });
     // The state shows as a dot, not a label — so it's the dot's accessible name
     // that has to keep saying it in words.
@@ -113,7 +113,7 @@ describe('Integrations', () => {
     expect(card('devin')).toHaveAttribute('data-connected', 'true');
     expect(dot('devin')).toHaveAccessibleName('Connected');
     expect(dot('devin')).toHaveAttribute('data-connected', 'true');
-    expect(within(card('devin')).getByRole('button', { name: 'Update key' })).toBeInTheDocument();
+    expect(within(card('devin')).getByRole('button', { name: 'Configure' })).toBeInTheDocument();
 
     // The old text label is gone from the row entirely — it was the thing that
     // read oversized on mobile.

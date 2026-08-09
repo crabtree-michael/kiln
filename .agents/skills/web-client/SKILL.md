@@ -162,13 +162,23 @@ same way — decide which of these your surface is, don't invent a sixth mechani
 | `[data-role='dock-region']` (phone) | `translateY(-inset)` — a compositor transform, no reflow |
 | `[data-role='desktop-composer-region']` | the same transform; the desk shell is width-gated, so a landscape tablet drives it by finger |
 | `[data-role='feed']` / `[data-role='desktop-feed']` | `+ var(--keyboard-inset)` in `padding-bottom` — the covered strip becomes scroll room |
-| `[data-role='ticket-detail']` | `max(safe-area, inset)` in `padding-bottom`, so the sheet's footer stands clear |
+| `[data-role='ticket-detail']` | `bottom: var(--keyboard-inset)` + a `max-height` reduced by it — the panel stands ON the keyboard |
 
-Four things about that table are load-bearing:
+Five things about that table are load-bearing:
 
-- **Padding below the content, never a height change.** Growing the reserve *under* what is
-  already on screen moves nothing — opening the keyboard costs the user no scroll position,
-  which is the entire complaint. A height/`dvh` rule keyed on the inset is the regression.
+- **Padding below the content, never a height change — for a surface anchored at the TOP of
+  its own box.** Growing the reserve *under* what is already on screen moves nothing, so
+  opening the keyboard costs the user no scroll position, which is the entire complaint. A
+  height/`dvh` rule keyed on the inset is the regression.
+- **...and the sheet is the exception, because it is anchored at the BOTTOM.** Padding under a
+  `bottom: 0` box does not sit under the content, it *inflates the box upward*: the sheet
+  cleared the keyboard by growing 300px, which threw a short ticket to the top edge and left a
+  keyboard's worth of blank paper below the controls ("the content flies to the top"). A
+  bottom-anchored panel MOVES instead — `bottom` takes the inset, `max-height` gives it back
+  so a capped sheet shrinks rather than running off the top, and the home-indicator reservation
+  is *cancelled* by the same term (`max(env(...) - inset, 0px)`), since a raised keyboard has
+  already covered the indicator and the sheet is now standing on the keys. It cannot use the
+  dock's `translateY`: vaul owns this panel's transform as an inline style.
 - **It is the ONE reserve that is not handed back through `--feed-overlay-slack`**, and the
   contrast with the section above is the whole point. A band is *transient*, so the board must
   hold still under it and its share of the padding is given straight back to the scroll
@@ -755,6 +765,16 @@ how the row drifts apart on the one surface the app renders. Poke was the last h
 The mic is dressed in the *other* stylesheet (`PrimaryScreen.css`, unscoped, so the sheet's
 footer picks it up wherever it is placed), which is exactly the kind of seam an edit to one
 side walks past. If you restyle the mic, restyle these with it.
+
+**The keyboard toggle wears it too, in BOTH of its placements, off ONE rule.**
+`[data-role='dock-keyboard']` in `PrimaryScreen.css` now states the mic's own numbers (54px,
+strong outline, raised shadow, `--text-muted` glyph, no `:hover`) and dresses the dock's
+toggle and the sheet's from the same declaration — the sheet reuses the data-role exactly as
+it reuses `dock-cancel`/`dock-send`, so a second sheet-local rule is how the two would drift.
+It shipped as the cancel (×)'s 40px bordered circle, which made it a peer of the wrong thing
+twice over: smaller than the mic it stands beside in the dock, and the one small disc in an
+otherwise all-54px sheet footer. Both sizes render, so `tests/layout/ticket-detail.spec.ts`
+measures it in both places against the dock mic's box — no DOM test can see this class of bug.
 
 ### Poke is offered on every working ticket, idle session or not
 

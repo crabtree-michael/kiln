@@ -2537,28 +2537,47 @@ button[data-role='toast-open']:focus-visible {
   border-color: var(--border-strong);
 }
 
-/* Keyboard toggle: the alternate-input entry point (icon-only), parked on the
-   right of the controls row in the resting voice state. Same neutral 40px circle
-   as the cancel (X) box so it reads as a peer control; justify-self:end pins it to
-   the row's right edge while the mic stays centred. */
+/* Keyboard toggle: the alternate-input entry point (icon-only) — the OTHER way to
+   say something, so it wears the same disc as the way it stands beside. Every
+   number here is `[data-role='dock-mic']`'s (below): the 54px circle, the card fill
+   inside a strong outline, the raised shadow that collapses under the thumb, and
+   the muted glyph the mic's own bars are drawn in. It shipped as a 40px
+   border-default circle borrowed from the cancel (X), which read as a lesser
+   control parked next to the mic rather than as its peer — and read wrong twice
+   over in the ticket sheet, whose footer is otherwise all mic-discs
+   (TicketDetail.css).
+
+   One rule dresses BOTH placements, because the sheet reuses this data-role
+   exactly as it reuses dock-cancel/dock-send — so the two can't drift the way a
+   second, sheet-local rule would. `grid-column`/`justify-self` place it in the
+   dock's controls grid (right edge, mic centred) and are inert in the sheet's flex
+   row. No `:hover`, deliberately: the mic and the sheet's footer discs carry none,
+   and a touch device emulates hover — the press IS the feedback. */
 [data-role='dock-keyboard'] {
   grid-column: 3;
   justify-self: end;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 54px;
+  height: 54px;
+  padding: 0;
   border-radius: 50%;
   background: var(--surface-card);
-  border: 1.5px solid var(--border-default);
-  color: var(--text-faint);
+  border: 1.5px solid var(--border-strong);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-muted);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    box-shadow var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
 
-[data-role='dock-keyboard']:hover {
-  color: var(--text-body);
-  border-color: var(--border-strong);
+[data-role='dock-keyboard']:active {
+  transform: translateY(3px);
+  box-shadow: var(--shadow-card);
 }
 
 /* Keyboard mode: no mic glyph in the centre — just the voice toggle (mic) on the

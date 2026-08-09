@@ -32,6 +32,15 @@ export default defineConfig({
     baseURL: `http://localhost:${String(PORT)}`,
     trace: 'retain-on-failure',
     ...devices['Desktop Chrome'],
+    // The dock's speaking arrangement is a layout state like any other, and it
+    // takes a working mic to reach: Chromium's fake capture device stands in for
+    // one (a silent tone — the transcript comes from the mocked provider socket,
+    // see harness.ts `speak`), and the granted permission keeps getUserMedia from
+    // stopping on a prompt no spec can answer.
+    permissions: ['microphone'],
+    launchOptions: {
+      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    },
     // Each spec sets the viewport it is about (the shell switch is width-driven,
     // at 1024px — use-desktop-layout.ts).
     viewport: { width: 390, height: 720 },

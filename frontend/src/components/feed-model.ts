@@ -122,17 +122,6 @@ export function isSeen(card: FeedCard, lastSeenId: number | null): boolean {
   return id !== null && id <= lastSeenId;
 }
 
-/** Whether the feed holds anything the "clear all" trash would actually clear —
- * i.e. any notification-backed card. Blockers and proposals are board state the
- * brain owns and are untouched by a clear, so a feed of nothing but those leaves
- * the affordance disabled rather than silently doing nothing.
- *
- * Asks the taxonomy rather than spelling out "not a blocker and not a proposal",
- * which was a third hand-written copy of the same question. */
-export function hasClearableCards(cards: FeedCard[]): boolean {
-  return cards.some(isNotificationCard);
-}
-
 /** The full ticket a card points at, looked up in the board snapshot by id
  * (08 §5). Proposals are Shaping tickets, but every bucket is scanned so a
  * ticket that moves state between the click and the render still resolves.
@@ -182,8 +171,6 @@ export interface FeedReading {
   isEmpty: boolean;
   /** The resting-state subtext, null when the brain has never spoken. */
   lastWord: string | null;
-  /** Whether "clear all" has anything to clear (mobile's trash affordance). */
-  hasClearable: boolean;
 }
 
 /** Read a feed snapshot into the shape a shell renders.
@@ -216,6 +203,5 @@ export function readFeed(
     })),
     isEmpty: cards.length === 0,
     lastWord: lastWordDetail(summary, now),
-    hasClearable: hasClearableCards(cards),
   };
 }

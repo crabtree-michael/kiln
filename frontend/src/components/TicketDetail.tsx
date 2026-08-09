@@ -121,9 +121,10 @@ export interface TicketDetailProps {
   onPoke?: ((ticketId: string) => void) | undefined;
   /** When provided, the gear menu carries the per-ticket **sandbox option** —
    * "Save sandbox when done", a toggle reading the ticket's own `keep_sandbox`.
-   * Saving a ticket's sandbox stops the board releasing its worker when the
-   * ticket leaves Developing, so the workspace survives and an agent can keep
-   * working in that same sandbox across turns.
+   * Saving a ticket's sandbox turns the recycle its exit from Developing would
+   * otherwise do into a capture: the workspace is frozen into a new snapshot in
+   * the project's catalog and the project is pointed at it, so what the agent
+   * built becomes the base image later workers start from.
    * Unlike Accept/Delete/Poke this is a setting rather than an intent, so the
    * caller writes it directly (POST /api/tickets/{id}/sandbox) rather than routing
    * it through the brain, and the sheet stays open after the toggle — the user may

@@ -7,7 +7,16 @@
 // edge, and what is on screen twice.
 import { test, expect } from '@playwright/test';
 import type { Box } from './harness';
-import { mountShell, settle, box, maybeBox, paintedAt, intersects, stableBox } from './harness';
+import {
+  mountShell,
+  settle,
+  box,
+  maybeBox,
+  paintedAt,
+  intersects,
+  stableBox,
+  speak,
+} from './harness';
 
 const PHONE = { width: 390, height: 720 };
 
@@ -186,6 +195,39 @@ test.describe('ticket sheet — phone', () => {
     // The field stands above the controls in the sheet's own dock, not over them.
     const field = await box(page, "[data-role='ticket-detail-input']");
     expect(field.bottom).toBeLessThanOrEqual(micTyping.top + 1);
+  });
+
+  test('speaking: Send and × are the mic’s disc, like the actions they replace', async ({
+    page,
+  }) => {
+    // The footer is one row of peer discs — that is what the mic-disc test above
+    // pins for Accept and Delete, and it has to hold for the pair that takes
+    // their slot mid-utterance too. It did not: Send and × came over from the
+    // dock at 40px, so starting to speak swapped two mic-sized buttons for two
+    // small ones in the same place. Both sizes render, so only a measurement
+    // sees it.
+    await mountShell(page, { band: 'none' });
+    await openSheet(page);
+    await speak(
+      page,
+      "[data-role='ticket-detail'] [data-role='dock-talk']",
+      'Back off on 5xx and cap it at five attempts',
+    );
+
+    const mic = await box(page, "[data-role='ticket-detail'] [data-role='dock-mic']");
+    const send = await box(page, "[data-role='ticket-detail'] [data-role='dock-send']");
+    const cancel = await box(page, "[data-role='ticket-detail'] [data-role='dock-cancel']");
+
+    for (const [role, disc] of [
+      ['dock-send', send],
+      ['dock-cancel', cancel],
+    ] as const) {
+      expect(disc.width, `${role} is not the mic's disc`).toBe(mic.width);
+      expect(disc.height, `${role} is not the mic's disc`).toBe(mic.height);
+    }
+    // On one optical line with the mic, as the state actions were.
+    const tops = [mic, send, cancel].map((disc) => disc.top + disc.height / 2);
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
   });
 
   test('editing shows one title, not the dialog’s name above the field', async ({ page }) => {

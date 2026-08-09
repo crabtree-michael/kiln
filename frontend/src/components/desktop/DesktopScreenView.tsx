@@ -138,10 +138,10 @@ export function DesktopScreenView({
   now = Date.now(),
 }: DesktopScreenViewProps): JSX.Element {
   // The same reading the phone gets, off the same function (see feed-model.ts):
-  // the rows, which are seen, and where the "Earlier" divider falls. Two fields
-  // this shell does NOT spend: `hasClearable` (no bulk clear on a desk) and each
-  // row's `dismissId` (no swipe — 13 §6, and §13 Q3 is open). Having them in the
-  // reading is not an invitation to grow either affordance here.
+  // the rows, which are seen, and where the "Earlier" divider falls. One field
+  // this shell does NOT spend: each row's `dismissId` (no swipe — 13 §6, and
+  // §13 Q3 is open). Having it in the reading is not an invitation to grow the
+  // affordance here.
   const { summary, rows, isEmpty, lastWord } = readFeed(feed, lastSeenId, now);
   // "Working" for the *selected* project: the brain mid-pass, or agents mid-turn
   // (13 §8.2). Drives the breathing indication — the one thing on this screen

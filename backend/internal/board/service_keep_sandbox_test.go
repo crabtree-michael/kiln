@@ -1,9 +1,11 @@
 // The per-ticket sandbox option (KeepSandbox): the user's "save this ticket's
-// sandbox" choice, set from the ticket detail sheet. Its whole mechanical effect
-// is negative — the agent.release a ticket owes when it gives up its worker is
-// NOT emitted — so these tests pin both halves: the flag round-trips through
-// SetKeepSandbox, and each exit from Developing (AcceptToDone, ArchiveTicket on
-// a blocked ticket) drops the release while every other emission stays.
+// sandbox" choice, set from the ticket detail sheet. Its mechanical effect is a
+// SWAP at each exit from Developing (AcceptToDone, ArchiveTicket on a blocked
+// ticket): agent.snapshot — capture the workspace as a reusable base image — in
+// place of the agent.release that would recycle it. So these tests pin the flag
+// round-tripping through SetKeepSandbox, and then, at each exit, that the
+// release is gone, the capture is there and addresses the right slot, and every
+// other emission is untouched.
 package board_test
 
 import (
@@ -13,6 +15,21 @@ import (
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
 )
+
+// snapshotPayload extracts the single agent.snapshot emission's payload,
+// failing the test when there is not exactly one.
+func snapshotPayload(t *testing.T, ems []board.Emission) board.SnapshotPayload {
+	t.Helper()
+	got := emissionsWithTopic(ems, board.TopicAgentSnapshot)
+	if len(got) != 1 {
+		t.Fatalf("agent.snapshot emissions = %d, want exactly 1", len(got))
+	}
+	p, ok := got[0].Payload.(board.SnapshotPayload)
+	if !ok {
+		t.Fatalf("agent.snapshot payload = %T, want board.SnapshotPayload", got[0].Payload)
+	}
+	return p
+}
 
 // SetKeepSandbox records the option and emits only the universal board.updated —
 // it is a setting, not a transition, so nothing else fires and the state is
@@ -71,11 +88,11 @@ func TestSetKeepSandbox_UnknownIsNotFound(t *testing.T) {
 }
 
 // The point of the option: accepting a ticket whose sandbox is saved emits NO
-// agent.release, so the worker is never destroyed-and-recreated and the workspace
-// survives for the next turn on that slot. Everything else about the transition
+// agent.release and DOES emit agent.snapshot, so the workspace is captured as a
+// reusable base image rather than recycled. Everything else about the transition
 // is unchanged — the binding still clears and the slot is still offered to the
 // pull.
-func TestAcceptToDone_KeepSandboxSuppressesRelease(t *testing.T) {
+func TestAcceptToDone_KeepSandboxCapturesInsteadOfReleasing(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
 	store.seedWorker(projA, worker)
@@ -98,6 +115,16 @@ func TestAcceptToDone_KeepSandboxSuppressesRelease(t *testing.T) {
 	if got := len(emissionsWithTopic(ems, board.TopicAgentRelease)); got != 0 {
 		t.Fatalf("agent.release emissions = %d, want 0 — a saved sandbox is never recycled", got)
 	}
+	// The capture carries what the executor needs: which slot's sandbox to
+	// capture, which ticket's work it came out of, and the emit-time instant the
+	// snapshot's name is derived from (so a redelivery derives the same one).
+	p := snapshotPayload(t, ems)
+	if p.WorkerID != worker || p.TicketID != "t1" {
+		t.Errorf("agent.snapshot payload = %+v, want the ticket's own id and slot", p)
+	}
+	if p.At.IsZero() {
+		t.Error("agent.snapshot payload must carry the emit-time instant its name is derived from")
+	}
 	// The rest of the transition is untouched.
 	for _, topic := range []board.Topic{
 		board.TopicPullEvaluate, board.TopicFeedUpdated, board.TopicActivityToast,
@@ -110,8 +137,8 @@ func TestAcceptToDone_KeepSandboxSuppressesRelease(t *testing.T) {
 }
 
 // The option holds on the other exit from Developing too: deleting a blocked
-// ticket frees the slot but leaves its sandbox alone.
-func TestArchiveTicket_KeepSandboxSuppressesRelease(t *testing.T) {
+// ticket frees the slot and captures its workspace instead of recycling it.
+func TestArchiveTicket_KeepSandboxCapturesInsteadOfReleasing(t *testing.T) {
 	svc, store := newTestService()
 	worker := board.WorkerID("w1")
 	reason := "needs a decision"
@@ -133,6 +160,9 @@ func TestArchiveTicket_KeepSandboxSuppressesRelease(t *testing.T) {
 	if got := len(emissionsWithTopic(ems, board.TopicAgentRelease)); got != 0 {
 		t.Fatalf("agent.release emissions = %d, want 0 — a saved sandbox is never recycled", got)
 	}
+	if p := snapshotPayload(t, ems); p.WorkerID != worker || p.TicketID != "t1" {
+		t.Errorf("agent.snapshot payload = %+v, want the ticket's own id and slot", p)
+	}
 	// The freed slot is still offered to the pull, and the card still leaves.
 	for _, topic := range []board.Topic{
 		board.TopicPullEvaluate, board.TopicFeedUpdated, board.TopicBoardUpdated,
@@ -140,5 +170,28 @@ func TestArchiveTicket_KeepSandboxSuppressesRelease(t *testing.T) {
 		if got := len(emissionsWithTopic(ems, topic)); got != 1 {
 			t.Errorf("%s emissions = %d, want 1", topic, got)
 		}
+	}
+}
+
+// The default is unchanged and stays exclusive: a ticket that did NOT ask for
+// its sandbox to be saved is recycled as before and captures nothing. Pinned
+// because the two emissions are alternatives — a workspace that is being
+// captured must never also be torn down.
+func TestAcceptToDone_WithoutKeepSandboxReleasesAndCapturesNothing(t *testing.T) {
+	svc, store := newTestService()
+	worker := board.WorkerID("w1")
+	store.seedWorker(projA, worker)
+	store.seedTicket(projA, board.Ticket{ID: "t1", Title: "T", State: board.StateWorking, WorkerID: &worker})
+
+	if _, err := svc.AcceptToDone(context.Background(), projA, "t1", board.CompletionLink{}, ""); err != nil {
+		t.Fatalf("AcceptToDone: unexpected error: %v", err)
+	}
+
+	ems := store.outboxSnapshot()
+	if got := len(emissionsWithTopic(ems, board.TopicAgentRelease)); got != 1 {
+		t.Errorf("agent.release emissions = %d, want 1 — the default is still to recycle", got)
+	}
+	if got := len(emissionsWithTopic(ems, board.TopicAgentSnapshot)); got != 0 {
+		t.Errorf("agent.snapshot emissions = %d, want 0 — only a saved sandbox is captured", got)
 	}
 }

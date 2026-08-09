@@ -1391,59 +1391,6 @@ describe('PrimaryScreenView', () => {
     expect(container).toMatchSnapshot();
   });
 
-  describe('clear-all trash affordance (08 §3)', () => {
-    const proposalCard = makeFeedCard({
-      kind: 'proposal',
-      id: 'proposal:t-login',
-      label: 'Login',
-      body: 'Rework the login screen.',
-      ticketId: 't-login',
-      createdAt: minutesAgo(1),
-    });
-
-    it('is absent unless a clear-all handler is wired (presentational default)', () => {
-      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
-      expect(screen.queryByRole('button', { name: 'Clear all notifications' })).toBeNull();
-    });
-
-    it('clears every notification only after the confirm is accepted', () => {
-      const onDismissAll = vi.fn();
-      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-        onDismissAll,
-      });
-      fireEvent.click(screen.getByRole('button', { name: 'Clear all notifications' }));
-      expect(confirm).toHaveBeenCalledWith('Clear all notifications?');
-      expect(onDismissAll).toHaveBeenCalledTimes(1);
-    });
-
-    it('leaves the feed untouched when the confirm is cancelled', () => {
-      const onDismissAll = vi.fn();
-      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }), {
-        onDismissAll,
-      });
-      fireEvent.click(screen.getByRole('button', { name: 'Clear all notifications' }));
-      expect(confirm).toHaveBeenCalledWith('Clear all notifications?');
-      expect(onDismissAll).not.toHaveBeenCalled();
-    });
-
-    it('is disabled when only board cards (or none) are clearable', () => {
-      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [proposalCard] }), {
-        onDismissAll: noop,
-      });
-      expect(screen.getByRole('button', { name: 'Clear all notifications' })).toBeDisabled();
-    });
-
-    it('is enabled when a notification-backed card is present', () => {
-      renderView(
-        makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [proposalCard, rateLimitUpdate] }),
-        { onDismissAll: noop },
-      );
-      expect(screen.getByRole('button', { name: 'Clear all notifications' })).toBeEnabled();
-    });
-  });
-
   describe('header actions', () => {
     // The bar carries no bell and no gear: notifications and the account view are
     // both reached from the project switcher's "Settings" item now (the switcher
@@ -1456,12 +1403,18 @@ describe('PrimaryScreenView', () => {
       expect(document.querySelector("[data-role='header-dashboard']")).toBeNull();
     });
 
-    it('leaves the trash beside the tickets dropdown', () => {
-      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
-        onDismissAll: noop,
-      });
-      const trash = screen.getByRole('button', { name: 'Clear all notifications' });
-      expect(trash.closest("[data-role='header-actions']")).not.toBeNull();
+    // And no bulk clear either: notifications clear themselves now, so the trash
+    // was a manual repeat of what already happens. The per-card swipe stays.
+    it('offers no clear-all trash, whatever the feed holds', () => {
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: updateCards }));
+      expect(screen.queryByRole('button', { name: 'Clear all notifications' })).toBeNull();
+      expect(document.querySelector("[data-role='feed-clear-all']")).toBeNull();
+    });
+
+    it('leaves the tickets dropdown as the bar’s only action', () => {
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }));
+      const actions = document.querySelector("[data-role='header-actions']");
+      expect(actions?.children).toHaveLength(1);
     });
   });
 });

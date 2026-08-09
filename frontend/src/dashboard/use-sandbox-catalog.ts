@@ -6,7 +6,10 @@
 //
 // Capturing a running sandbox as a snapshot used to live here too, as a form on
 // the project card. It is gone: saving a sandbox is a per-TICKET choice now (the
-// ticket detail sheet's sandbox switch), not a project-level setting.
+// ticket detail sheet's sandbox switch), not a project-level setting — and the
+// capture it triggers runs on the server when the ticket is done, so this list
+// can gain a `<project>-<timestamp>` entry (and the project's selection can move
+// onto it) with nothing typed on this card.
 import { useCallback, useEffect, useState } from 'react';
 import { fetchSnapshots } from '@/transport/transport';
 import type { Snapshot } from '@/transport/transport';

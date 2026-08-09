@@ -326,7 +326,7 @@
   pointer-events: auto;
 }
 
-/* The scrolling region: the project list soaks up the overflow so the "Add"
+/* The scrolling region: the project list soaks up the overflow so the "Settings"
  * footer below stays pinned and visible however many projects the user owns. */
 [data-role='project-switcher-list'] {
   list-style: none;
@@ -365,35 +365,7 @@
   font-weight: 650;
 }
 
-/* The "Add" footer sits below the list, separated by its own margin; it never
- * shrinks, so the scrolling list can't push it off-panel. Mirrors the notify
- * menu's permission button. */
-[data-role='project-switcher-new'] {
-  display: block;
-  flex-shrink: 0;
-  width: calc(100% - 12px);
-  margin: 6px;
-  padding: 9px 10px;
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 550;
-  color: var(--text-secondary);
-  text-align: center;
-  background: var(--surface-inset);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-}
-
-[data-role='project-switcher-new']:hover {
-  color: var(--text-body);
-  background: var(--surface-card);
-}
-
-/* The rule under the projects (and their "Add"), separating them from the one
+/* The rule under the projects, separating them from the one
  * item in this panel that is not about a project. Full-bleed: the panel clips to
  * its own radius, so a hairline across it reads as a division of the menu rather
  * than as an underline on the row above. */
@@ -404,9 +376,8 @@
 }
 
 /* "Settings" — the panel's last item, and the way to the account view now that
- * the header has no gear. A quiet text row rather than a second boxed button
- * like "Add": it is a hop to another screen, not an action on this menu's
- * subject, and two framed footers would make the panel read as two peers. */
+ * the header has no gear. A quiet text row rather than a boxed button: it is a
+ * hop to another screen, not an action on this menu's subject. */
 [data-role='project-switcher-settings'] {
   display: block;
   flex-shrink: 0;

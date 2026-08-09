@@ -146,35 +146,30 @@ test.describe('the shared status mark — phone', () => {
     ).toBe(blocked);
   });
 
-  test('the tickets head wears the top row’s mark, and breathes with it', async ({ page }) => {
-    // The phone's half of what the desk's in-progress head already had: one
-    // reading over the list, drawn by the rule that draws the list. Only a
-    // browser can answer either half — jsdom can see that both elements carry
-    // `data-role="status-dot"` and neither what the cascade painted nor whether
-    // the two are at the same point of the same breath.
+  test('the tickets list wears the shared mark, on the shared clock', async ({ page }) => {
+    // This used to be about the dropdown's HEAD — a reading over the list, drawn
+    // by the rule that draws the list. The head is gone (the panel opens from a
+    // button that already names what it holds, and a lone mark with no word is
+    // decoration), so what is left to hold is the list's own marks: painted by
+    // the shared rule, and — the half a shared declaration does not buy — all at
+    // the same point of the same breath. jsdom can see that a row carries
+    // `data-role="status-dot"` and neither what the cascade painted nor when its
+    // animation started.
     await mountShell(page, { band: 'none' });
     await page.click("[data-role='feed-status']");
     await page.waitForSelector("[data-role='header-status-panel']");
     await settle(page);
 
-    const head = "[data-role='header-status-heading'] [data-role='status-dot']";
-    const row = "[data-role='header-status-row']:first-child [data-role='status-dot']";
     // The fixture's top ticket is the working one (`ticketStatuses` ranks working
-    // → blocked → ready), so the head is ember and moving, not the faint default.
-    expect(await page.getAttribute(head, 'data-state')).toBe('working');
-    for (const property of ['width', 'height', 'border-radius', 'background-color']) {
-      expect(
-        await computed(page, head, property),
-        `the head's mark and the row it summarises disagree about ${property}`,
-      ).toBe(await computed(page, row, property));
-    }
-    expect(await computed(page, head, 'background-color')).not.toBe('rgba(0, 0, 0, 0)');
+    // → blocked → ready), so its mark is ember and moving, not the faint default.
+    const row = "[data-role='header-status-row']:first-child [data-role='status-dot']";
+    expect(await page.getAttribute(row, 'data-state')).toBe('working');
+    expect(await computed(page, row, 'background-color')).not.toBe('rgba(0, 0, 0, 0)');
 
-    // Phase, which is the half a shared declaration does not buy: the head starts
-    // breathing when the panel opens and the row's mark when its ticket was picked
-    // up, so without the shared clock these two peak apart forever.
+    // A mark begins breathing when its own element does — a row's when its ticket
+    // was picked up — so without the pinned clock two of them peak apart forever.
     const marks = await breathingMarks(page);
-    expect(marks.length, 'the head and its row should both be breathing').toBeGreaterThan(1);
+    expect(marks.length, 'nothing on the phone is breathing to be checked').toBeGreaterThan(0);
     for (const mark of marks) {
       expect(mark.phase).toBe('shared');
       expect(mark.start).toBe(0);

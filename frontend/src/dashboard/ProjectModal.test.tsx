@@ -13,8 +13,16 @@ import { ProjectModal } from '@/dashboard/ProjectModal';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
 import type { MeProject, ProjectUpdateRequest } from '@/transport/transport';
 
+// `fetchSnapshots` resolves null (no catalog) by default, which is what keeps
+// the capture control out of the dismissal/focus tests below; the one test that
+// wants it makes this resolve a list.
+const fetchSnapshots: Mock<() => Promise<unknown>> = vi.fn(() => Promise.resolve(null));
+const fetchDevBoxes: Mock<() => Promise<unknown>> = vi.fn(() => Promise.resolve([]));
+
 vi.mock('@/transport/transport', () => ({
-  fetchSnapshots: vi.fn(() => Promise.resolve(null)),
+  fetchSnapshots: (): Promise<unknown> => fetchSnapshots(),
+  fetchDevBoxes: (): Promise<unknown> => fetchDevBoxes(),
+  saveSnapshot: vi.fn(() => Promise.resolve(null)),
 }));
 
 function connectedGitHub(): GitHubRepos {
@@ -239,6 +247,37 @@ describe('ProjectModal', () => {
     } finally {
       confirm.mockRestore();
     }
+  });
+
+  // The capture belongs to the project being looked at, so it is mounted here
+  // rather than on the panel behind — and it reads the dev boxes through a
+  // callback that has to survive a re-render, since it loads them in an effect
+  // keyed on that callback. Wrapping it per render would refetch on every one.
+  it('offers the snapshot capture for a project whose provider has a catalog, and loads its dev boxes once', async () => {
+    // A non-null list is what "this provider has a catalog" means to the hook.
+    fetchSnapshots.mockResolvedValueOnce([
+      {
+        ref: 'org/base:1',
+        name: 'base',
+        description: '',
+        source: '',
+        state: 'ready',
+        created_at: '2026-07-01T10:00:00Z',
+      },
+    ]);
+    fetchDevBoxes.mockResolvedValueOnce([{ ref: 'sb-1', name: 'pacman', status: 'ready' }]);
+
+    await renderModal();
+
+    expect(await screen.findByRole('combobox', { name: /dev box/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save snapshot/i })).toBeInTheDocument();
+    // Typing in the form re-renders the whole tree; the dev-box load must not
+    // run again behind it.
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'renamed' } });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetchDevBoxes).toHaveBeenCalledTimes(1);
   });
 
   it('create mode: the repo alone, no name field, no delete, same save path', async () => {

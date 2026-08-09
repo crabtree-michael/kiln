@@ -176,9 +176,18 @@ load). Note `KILN_AGENT` / `KILN_WORKER_AUTO_STOP` exist as struct-comment inten
 - **`auto_delete` must stay off** — it would yank a worker out from under a Blocked ticket
   waiting on the user overnight (05 D6). In Amika v0beta1 the "off" sentinel is a **negative**
   interval (`-1`).
-- **Out-of-credits is fail-fast and terminal.** The adapter maps the credit-exhausted response
-  to `ErrOutOfCredits` and the Service treats it as a terminal turn outcome rather than
-  retrying forever.
+- **Out-of-credits is fail-fast, terminal, AND raises a project-wide alert.** The adapter maps
+  the credit-exhausted response to `ErrOutOfCredits`; the Service treats it as a terminal turn
+  outcome rather than retrying forever, and records it per project (`OutOfCredits`, read by the
+  api and rendered as the board's persistent alert band). It is a separate alert from
+  sandbox_health on purpose: credits stop every worker create too, so the pool reads as broken
+  sandboxes and "N of N sandboxes failing" sends the reader to debug infrastructure instead of
+  a payment method — which is how one outage ran for hours. **Set it from an observed
+  rejection, never infer it.** It is raised at the two places a rejection actually surfaces (a
+  failed turn, a failed provision) and **cleared only by a reconcile sweep that got through its
+  provider calls** — that sweep is the heartbeat, so a topped-up account puts the band away by
+  itself while a project with no work running does not silently drop an alert that is still
+  true.
 - **Worker-health feeds the board.** The liveness loop reports per-worker health through the
   optional `BoardRefresher.SetWorkerHealth`, so the pull binds Ready tickets only to healthy
   sandboxes (see `board-mechanism`).

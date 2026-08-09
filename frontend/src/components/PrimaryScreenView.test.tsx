@@ -754,7 +754,9 @@ describe('PrimaryScreenView', () => {
     // The setting lives behind the sheet's sandbox gear, beside the status row.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sandbox options' }));
     fireEvent.click(
-      within(dialog).getByRole('menuitemcheckbox', { name: /save sandbox when done/i }),
+      within(dialog).getByRole('menuitemcheckbox', {
+        name: /start future tickets from this sandbox/i,
+      }),
     );
 
     expect(onSetKeepSandbox).toHaveBeenCalledWith('t-keep', true);

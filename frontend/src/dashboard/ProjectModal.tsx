@@ -71,11 +71,14 @@ interface ProjectBodyProps {
   onSave: (body: ProjectUpdateRequest) => Promise<void>;
 }
 
-/** An existing project's fields, plus its own sandbox catalog. Split into its
- * own component because `useSandboxCatalog` is keyed by project id: there is no
- * id to load in create mode, and a hook can't be called conditionally. Mounting
- * it here (rather than per panel, as the old inline cards did) also means the
- * catalog is fetched for the one project actually being looked at. */
+/** An existing project's fields, plus its own sandbox catalog — the snapshot
+ * picker and the capture that adds to it. Split into its own component because
+ * `useSandboxCatalog` is keyed by project id: there is no id to load in create
+ * mode, and a hook can't be called conditionally. Mounting it here (rather than
+ * per panel, as the old inline cards did) also means the catalog is fetched for
+ * the one project actually being looked at — and that a project being CREATED
+ * offers no capture, which is right: there are no dev boxes to capture into a
+ * project that does not exist yet. */
 function ExistingProjectBody({
   project,
   providers,
@@ -93,6 +96,12 @@ function ExistingProjectBody({
       providers={providers}
       snapshots={catalog.snapshots}
       catalogAvailable={catalog.catalogAvailable}
+      devBoxes={catalog.devBoxes}
+      // Both handed over as the catalog's own functions rather than wrapped: the
+      // capture control loads the dev boxes in an effect keyed on the refresh
+      // callback, so a fresh closure per render would refetch on every one.
+      onRefreshDevBoxes={catalog.refreshDevBoxes}
+      onSaveSnapshot={catalog.saveSnapshot}
       footerLead={footerLead}
       saving={saving}
       onSave={onSave}

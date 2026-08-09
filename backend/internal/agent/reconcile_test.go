@@ -33,6 +33,9 @@ type reconcileProvider struct {
 	conflictsLeft  int
 	alwaysConflict bool
 	conflicted     []string
+	// createErr makes every CreateWorker fail with it until it is cleared —
+	// the billing rejection a provider returns once the account's credits run out.
+	createErr error
 }
 
 func newReconcileProvider(seed ...agent.ProviderWorker) *reconcileProvider {
@@ -48,6 +51,9 @@ func (p *reconcileProvider) ListWorkers(ctx context.Context) ([]agent.ProviderWo
 func (p *reconcileProvider) CreateWorker(ctx context.Context, name string) (agent.ProviderWorker, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.createErr != nil {
+		return agent.ProviderWorker{}, p.createErr
+	}
 	if p.alwaysConflict || p.conflictsLeft > 0 {
 		if p.conflictsLeft > 0 {
 			p.conflictsLeft--
@@ -93,6 +99,14 @@ func (p *reconcileProvider) CheckTurn(
 
 func (p *reconcileProvider) ReadLatestOutput(ctx context.Context, w agent.ProviderWorker) (agent.TurnOutput, error) {
 	return agent.TurnOutput{}, nil
+}
+
+// setCreateErr makes (or stops making) every CreateWorker fail, so one test can
+// drive a sweep that hits the failure and then a sweep that doesn't.
+func (p *reconcileProvider) setCreateErr(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.createErr = err
 }
 
 func (p *reconcileProvider) wasCreated(name string) bool {
@@ -188,6 +202,45 @@ func TestRun_ReconcileScopesSweepToConfiguredPrefix(t *testing.T) {
 			t.Errorf("the orphan sweep must only touch workers under this instance's own"+
 				" prefix %q, but destroyed foreign %q", prefix, name)
 		}
+	}
+}
+
+// Credit exhaustion is the failure that stalls a whole project with nothing on
+// screen saying why: every create fails, so the pool reads as broken sandboxes
+// and the reader is sent to debug infrastructure instead of a payment method.
+// The reconcile sweep is what makes it visible — and, once the account is topped
+// up, what makes it go away again without the user doing anything else.
+func TestReconcile_OutOfCredits_RaisedBySweep_ClearedByTheNextCleanOne(t *testing.T) {
+	const prefix = "kiln-credits-worker-"
+	provider := newReconcileProvider()
+	provider.setCreateErr(fmt.Errorf("reconcileProvider: %w", agent.ErrOutOfCredits))
+	resolver := &fakeResolver{def: &resolved{provider: provider, prefix: prefix}}
+	clock := testutil.NewFakeClock()
+	svc := agent.NewService(newFakeStore(), resolver, oneProject(), &fakeEvents{},
+		&fakeSlots{ids: []string{reconcileWorkerA}}, clock, nil)
+
+	stop := runService(t, svc, clock)
+	defer stop()
+
+	testutil.Eventually(t, func() bool { return svc.OutOfCredits(testProject) })
+
+	// Topped up: the next sweep gets its worker and the alert goes with it. The
+	// sweep is the heartbeat on purpose — nothing else reliably talks to the
+	// provider on a project whose tickets have all stopped failing.
+	provider.setCreateErr(nil)
+	testutil.Eventually(t, func() bool { return !svc.OutOfCredits(testProject) })
+	if !provider.wasCreated(prefix + reconcileWorkerA) {
+		t.Errorf("the clearing sweep must be one that actually provisioned the slot")
+	}
+}
+
+// A project nobody has resolved credits for reports none — the alert is raised
+// from an observed rejection, never assumed.
+func TestOutOfCredits_DefaultsToFalse(t *testing.T) {
+	svc := agent.NewService(newFakeStore(), &fakeResolver{}, oneProject(), &fakeEvents{},
+		nil, testutil.NewFakeClock(), nil)
+	if svc.OutOfCredits(testProject) {
+		t.Error("OutOfCredits must default to false for a project with no observed rejection")
 	}
 }
 

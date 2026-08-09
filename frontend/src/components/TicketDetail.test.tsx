@@ -792,7 +792,9 @@ describe('TicketDetail — sandbox menu', () => {
     fireEvent.click(gear());
   }
   function keepToggle(): HTMLElement {
-    return screen.getByRole('menuitemcheckbox', { name: /save sandbox when done/i });
+    return screen.getByRole('menuitemcheckbox', {
+      name: /start future tickets from this sandbox/i,
+    });
   }
   function recreateItem(): HTMLElement {
     return screen.getByRole('menuitem', { name: /re-create sandbox/i });
@@ -860,7 +862,11 @@ describe('TicketDetail — sandbox menu', () => {
     expect(row?.children).toHaveLength(1);
   });
 
-  describe('save sandbox when done', () => {
+  // The per-ticket sandbox option. Deliberately NOT called "save" anywhere: the
+  // settings page owns the verb (its "Save snapshot" captures a dev box on
+  // demand), and this switch is a standing instruction the server acts on when
+  // the ticket leaves Developing.
+  describe('start future tickets from this sandbox', () => {
     it('reflects the ticket’s own keep_sandbox and reports a turn-on with the id', () => {
       const onSetKeepSandbox = vi.fn();
       render(

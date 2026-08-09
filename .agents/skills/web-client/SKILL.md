@@ -123,7 +123,11 @@ notification hub (toasts / "Kiln is thinking") sits on top.
   driven by the board snapshot's `alerts`, persisting until the condition clears. It returns
   `null` for an empty array, so the healthy layout is byte-for-byte unchanged. Keep it
   **error-agnostic** — it renders each alert's `detail` verbatim and never switches on `kind`,
-  so the same band serves any future persistent failure.
+  so the same band serves any future persistent failure. That is why the server added the
+  out-of-credits alert (`agent_credits`, ordered above `sandbox_health` because credits are the
+  cause and failing sandboxes the symptom) with **no frontend change at all** — the band already
+  rendered it. **Keep it that way: a `kind` switch here is how the next alert needs a client
+  release to be visible.**
 - **Activity pills are one tap target, never two.** No pill carries a close control in any
   state. One button fills the pill and the tap means whatever that pill has left to do: route
   to a ticket and dismiss; expand in place *if and only if* its clamp is actually hiding
@@ -282,13 +286,20 @@ Read-only inspection over a read-only board as far as the ticket's *state* goes 
 Delete and Poke express intent and route **through the brain**. Three things bypass it, each
 for its own reason (the API-side table is in `runtime-and-api`):
 
-- **The sandbox toggle** ("Save sandbox when done") — a *setting on the ticket*, so
-  round-tripping it through an LLM pass would be slow and non-deterministic for no gain.
-  Nothing happens on the tap: it is a standing instruction that, when the ticket leaves
+- **The sandbox toggle** ("Start future tickets from this sandbox") — a *setting on the
+  ticket*, so round-tripping it through an LLM pass would be slow and non-deterministic for no
+  gain. Nothing happens on the tap: it is a standing instruction that, when the ticket leaves
   Developing, the server captures the workspace as a snapshot and points the project at it
   instead of recycling the slot. `SandboxInfo` in the settings modal is the only place the app
   explains that — including that this toggle changes the project's snapshot selection on its
   own — so don't delete that copy without replacing what it says.
+  **It is deliberately not called "save", and that is a scar.** As "Save sandbox when done" it
+  promised a backup while doing nothing of the sort (it only spared the box from recycling),
+  and a project came within minutes of losing a workspace whose owner believed it was saved.
+  It captures for real now, but the verb still belongs to the settings page's **"Save
+  snapshot"** button, which captures a dev box *on demand* — two controls a user reads as the
+  same promise, one of which only fires when a ticket finishes, is how that misreading happens
+  again. **Don't rename it back toward "save".**
 - **The text edit** — skips the brain for the opposite reason: **an LLM pass is the thing being
   avoided.** Describing a wording change and letting the brain rewrite the ticket is the drift
   the affordance exists to prevent, so the typed text has to land verbatim. **Never "improve"
@@ -588,11 +599,30 @@ laptop: a two-column shell (sticky section nav + section cards) with compact con
   stays open — with everything typed into it — on `false`. **Don't "simplify" these to
   `Promise<void>`.**
 - `SandboxInfo`'s `default` copy is the app's **only** explanation of what snapshots are for,
-  and its only warning that "Save sandbox when done" adds one to this list and selects it
+  and its only warning that a ticket's own sandbox option adds one to this list and selects it
   unasked. It stays until something else in the product says those things.
 - The per-project sandbox catalog mounts **inside the open modal**, so only the project being
   looked at fetches its catalog. **Do not put snapshot state in the global dashboard store** —
   it can't serve N project cards.
+- **The Sandbox section holds both halves: the picker chooses among the images a project has,
+  "Save snapshot" makes another one** (`SnapshotCapture` → `POST /api/projects/{id}/snapshots`).
+  The capture was deleted once as redundant with the ticket toggle and it is not — the toggle
+  only fires when a ticket finishes, so without this there is **no way at all** to save a
+  workspace on demand, which is the hole the Pac-Man incident fell into. Four things to keep:
+  - **It self-gates on `catalogAvailable` + both callbacks**, so onboarding, the app-native
+    projects page and the modal's create mode render exactly what they did before it existed.
+  - **The capture CONSUMES its source** — the provider scrubs the dev box's injected secrets
+    and deletes it — so it is gated behind a `window.confirm` naming the box, like the ticket
+    sheet's destructive overrides. Say it in the hint too; it is what the user is agreeing to.
+  - **The name is derived, never typed**: `snapshotNameFor` gives `<project>-YYYYMMDDHHMMSS`,
+    the same shape the server derives for a ticket-triggered capture (`snapshotName` in
+    `backend/cmd/kiln/adapters.go`), so a catalog holds one kind of name however it filled up.
+    The two implementations are separate on purpose — the server's is an idempotency key on an
+    at-least-once outbox and must come from an instant the board stamped. **Change one, change
+    the other.**
+  - **Hand `useSandboxCatalog`'s own functions down, not wrappers.** The control loads the dev
+    boxes in an effect keyed on the refresh callback, so a fresh closure per render refetches
+    on every render.
 
 ### Creating a project asks for the REPO and takes the name from it
 

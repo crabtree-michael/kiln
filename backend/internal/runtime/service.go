@@ -117,14 +117,12 @@ var errUnknownTopic = errors.New("runtime: unknown outbox topic")
 // and the wiring that routes claimed entries to the ports above. Constructed
 // at the composition root (04 §8).
 type Service struct {
-	store    Store
-	messages MessageStore
-	brains   BrainResolver
-	puller   Puller
-	blocker  Blocker
-	agents   AgentRuntime
-	pusher   SnapshotPusher
-	sayer    SayPusher
+	store   Store
+	brains  BrainResolver
+	puller  Puller
+	blocker Blocker
+	agents  AgentRuntime
+	pusher  SnapshotPusher
 	// notifications is narrowed to the write half: the read paths moved to Feed
 	// (step 2) and the CRUD to Notifications (step 3), leaving handleFeedCompletion's
 	// PostCompletionCard as the one notification write Service still performs
@@ -151,6 +149,13 @@ type Service struct {
 	// notification methods are now one-line forwards onto it.
 	notifs *Notifications
 
+	// transcript is the extracted conversation surface (god-unit split step 4):
+	// it owns the MessageStore and SayPusher ports, and Service delegates
+	// PostMessage/Say/Recent to it. Service is also its Nudger for now — it still
+	// holds the events worker — so the ingest→nudge edge routes back here through
+	// NudgeEvents until Dispatcher takes the worker in step 6.
+	transcript *Transcript
+
 	// The two workers Workers() builds, retained so anything that commits a
 	// queue row can nudge the matching worker (04 §5). nil until Workers runs.
 	eventsWorker *Worker
@@ -164,11 +169,12 @@ type Service struct {
 //
 // notifier and owner are no longer held directly: they are handed to the
 // extracted Notify, which Service delegates every push to; boardReader likewise
-// goes to the extracted Feed, which Service delegates every feed read to, and
+// goes to the extracted Feed, which Service delegates every feed read to,
 // notifications to the extracted Notifications, which Service delegates every
-// feed mutation to. The signature is unchanged so the composition root and the
-// existing tests keep working while the rest of the split lands
-// (docs/god-units-plans/runtime-service.md §8).
+// feed mutation to, and messages/sayer to the extracted Transcript, which
+// Service delegates every conversation operation to. The signature is unchanged
+// so the composition root and the existing tests keep working while the rest of
+// the split lands (docs/god-units-plans/runtime-service.md §8).
 func NewService(
 	store Store, messages MessageStore, brains BrainResolver, puller Puller, blocker Blocker,
 	agents AgentRuntime, notifier Notifier,
@@ -177,22 +183,26 @@ func NewService(
 	activityPusher ActivityPusher,
 	owner Owner,
 ) *Service {
-	return &Service{
+	s := &Service{
 		store:          store,
-		messages:       messages,
 		brains:         brains,
 		puller:         puller,
 		blocker:        blocker,
 		agents:         agents,
 		pusher:         pusher,
-		sayer:          sayer,
 		notifications:  notifications,
 		feedPusher:     feedPusher,
 		activityPusher: activityPusher,
 		notify:         NewNotify(notifier, owner),
 		feed:           NewFeed(boardReader, notifications),
 		notifs:         NewNotifications(notifications),
+		transcript:     NewTranscript(messages, sayer),
 	}
+	// Service still owns the events worker, so it is the Transcript's Nudger
+	// (§4 of the split plan). Step 6 hands both the worker and this role to
+	// Dispatcher; the wiring line moves with them.
+	s.transcript.SetNudger(s)
+	return s
 }
 
 // EnqueueEvent ingests one of the two 01 event types (04 §6): INSERT into
@@ -214,61 +224,38 @@ func (s *Service) EnqueueEvent(
 	}
 	// A deduped redelivery (id 0) still nudges — harmless, and it keeps the
 	// wakeup path uniform; the events worker just finds nothing new to claim.
-	s.nudgeEvents()
+	s.NudgeEvents()
 	return id, nil
 }
 
-// PostMessage is the runtime's port for POST /api/message (07 §3–§4, api's
-// MessagePoster): append the project's user transcript row and enqueue the
-// human.message event {text} in one transaction (MessageStore's job), then
-// nudge the events worker. Returns both ids for the 202 response
-// ({event_id, message_id}); a failed append surfaces as an error with no
-// invented, partial ids (07 §3 — the transcript and the queue cannot disagree).
+// The three conversation methods below delegate to the extracted Transcript
+// (transcript_service.go) so *Service keeps satisfying api's MessagePoster and
+// MessagesReader, and the brain's Say and ConversationReader, while the split
+// lands.
+
+// PostMessage delegates to the Transcript — POST /api/message's transactional
+// append+enqueue, which nudges the events worker back through Service (07 §3–§4).
 func (s *Service) PostMessage(ctx context.Context, projectID, text string) (int64, int64, error) {
-	messageID, eventID, err := s.messages.AppendUserMessageAndEnqueueEvent(ctx, projectID, text)
-	if err != nil {
-		return 0, 0, fmt.Errorf("runtime: post message: %w", err)
-	}
-	s.nudgeEvents()
-	return messageID, eventID, nil
+	return s.transcript.PostMessage(ctx, projectID, text)
 }
 
-// Say is the runtime's Say port (07 §3, §6; also brain.Say, matched
-// structurally with no adapter): append the project's kiln transcript row,
-// then push a say SSE event ({message_id, text, at}) to that project via
-// SayPusher. Append-then-push — a crash between them costs a live push, not
-// history (07 §3), so the push only ever fires once the row is durable. Every
-// user-visible reply goes through this, including the dead-letter
-// system-error message.
+// Say delegates to the Transcript — the append-then-push kiln reply (07 §3, §6).
 func (s *Service) Say(ctx context.Context, projectID, text string) error {
-	m, err := s.messages.AppendKilnMessage(ctx, projectID, text)
-	if err != nil {
-		return fmt.Errorf("runtime: say append: %w", err)
-	}
-	if err := s.sayer.PushSay(ctx, projectID, m); err != nil {
-		return fmt.Errorf("runtime: say push: %w", err)
-	}
-	return nil
+	return s.transcript.Say(ctx, projectID, text)
 }
 
-// Recent is the runtime's ConversationReader-shaped read (07 §3): the
-// project's last n transcript rows, oldest first. Backs GET /api/messages
-// (api's MessagesReader) directly, and the brain's ConversationReader port
-// through a composition-root adapter (brain.Message is a distinct type —
-// 06 §3.2).
+// Recent delegates to the Transcript — the oldest-first tail behind
+// GET /api/messages and the brain's ConversationReader (07 §3).
 func (s *Service) Recent(ctx context.Context, projectID string, n int) ([]Message, error) {
-	msgs, err := s.messages.Recent(ctx, projectID, n)
-	if err != nil {
-		return nil, fmt.Errorf("runtime: recent: %w", err)
-	}
-	return msgs, nil
+	return s.transcript.Recent(ctx, projectID, n)
 }
 
 // Workers builds the two serial workers (04 §3–§4): the events worker over
 // the Brain port, and the outbox worker routing per-topic to the executor
 // ports, each with its dead-letter action. The returned pair is
 // (eventsWorker, outboxWorker); both are also retained on the Service so
-// EnqueueEvent/PostMessage can nudge the events worker (04 §5).
+// EnqueueEvent — and the Transcript's ingest, through NudgeEvents — can nudge
+// the events worker (04 §5).
 func (s *Service) Workers(clock Clock) (*Worker, *Worker) {
 	events := NewWorker(s.store, QueueEvents, s.handleEvent, s.deadLetterEvent, clock)
 	outbox := NewWorker(s.store, QueueOutbox, s.handleOutbox, s.deadLetterOutbox, clock)
@@ -347,10 +334,12 @@ func (s *Service) MarkSeen(ctx context.Context, projectID string, lastID int64) 
 	return s.notifs.MarkSeen(ctx, projectID, lastID)
 }
 
-// nudgeEvents wakes the events worker if it has been built (04 §5). No-op
+// NudgeEvents wakes the events worker if it has been built (04 §5). No-op
 // before Workers runs, so ingestion still works (the poll fallback catches
-// the row) during startup.
-func (s *Service) nudgeEvents() {
+// the row) during startup. Exported because Service is the Transcript's Nudger
+// while it still owns the worker (split plan §4); the role moves to Dispatcher
+// with the worker in step 6.
+func (s *Service) NudgeEvents() {
 	if s.eventsWorker != nil {
 		s.eventsWorker.Nudge()
 	}
@@ -392,7 +381,7 @@ func (s *Service) handleEvent(ctx context.Context, e Entry) error {
 		// deadLetterEvent, then swallow so the worker marks the entry done.
 		slog.ErrorContext(ctx, "runtime.event.brain_unresolved",
 			"event_id", e.ID, "project_id", e.ProjectID, "event_type", e.Kind, "err", err)
-		if sayErr := s.Say(ctx, e.ProjectID, brainUnavailableMessage); sayErr != nil {
+		if sayErr := s.transcript.Say(ctx, e.ProjectID, brainUnavailableMessage); sayErr != nil {
 			slog.ErrorContext(ctx, "runtime: brain-unresolved say", "project_id", e.ProjectID, "err", sayErr)
 		}
 		return nil
@@ -419,7 +408,7 @@ func (s *Service) pushThinking(ctx context.Context, projectID string, on bool) {
 // ticket keeps its state and nobody is left waiting silently.
 func (s *Service) deadLetterEvent(ctx context.Context, e Entry, cause error) error {
 	slog.Error("runtime: event dead-lettered", "id", e.ID, "project_id", e.ProjectID, "type", e.Kind, "err", cause)
-	if err := s.Say(ctx, e.ProjectID, systemErrorMessage); err != nil {
+	if err := s.transcript.Say(ctx, e.ProjectID, systemErrorMessage); err != nil {
 		return fmt.Errorf("runtime: dead-letter say: %w", err)
 	}
 	return nil

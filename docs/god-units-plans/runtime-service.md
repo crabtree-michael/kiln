@@ -76,10 +76,19 @@ package-level (same package — see §5 for why not sub-packages).
                        └──────────────┘                    └──────────────┘
 ```
 
-### 2.1 `Transcript` — the conversation surface
+### 2.1 `Transcript` — the conversation surface — **LANDED**
 - **Ports:** `MessageStore`, `SayPusher`, plus a `Nudger` hook (see §4).
 - **Methods:** `PostMessage`, `Say`, `Recent`.
 - Backs api `MessagePoster` + `MessagesReader`, brain `Say` + `ConversationReader`.
+
+**As built (2026-08-09).** Exactly as specified, including the `Nudger` hook §4
+prescribes — this is the first unit whose extraction required breaking an edge
+rather than just re-homing methods. What the three methods share, and what the
+file now says in one place, is *durability before visibility*: `PostMessage`
+nudges only after its append+enqueue transaction commits, and `Say` pushes the
+SSE event only once the kiln row is durable. Neither is best-effort — a failed
+persist is returned, never logged and dropped — which is what separates this
+unit from `FanOut` and puts it beside `Notifications`.
 
 ### 2.2 `Notifications` — notification CRUD — **LANDED**
 - **Ports:** `NotificationStore` (writer + reader; `List*` needs the read half).
@@ -380,7 +389,21 @@ first, spine last, delete last.
    §9 predicts showing up as coverage rather than as brevity.
    `service.go` 718 → 691 LOC.
 4. **`Transcript`** — move `PostMessage`/`Say`/`Recent`; add `Nudger` hook;
-   `Service` delegates and passes itself as the nudger for now.
+   `Service` delegates and passes itself as the nudger for now. — **DONE
+   2026-08-09.** `NewService`'s signature is unchanged for the fourth time (it
+   builds the `*Transcript` from the same `messages`/`sayer` args and calls
+   `SetNudger(s)` on itself), so again no caller moved; `Service` drops both
+   transcript ports and its two internal `Say` call sites — the dead-letter
+   system-error and the brain-unresolved reply — go through the new value.
+   `Service.nudgeEvents` is exported as `NudgeEvents` to satisfy `Nudger`; the
+   method keeps the worker it already held, so the hook is the only new edge and
+   it points the harmless way (§4). The five transcript tests **moved** rather
+   than being duplicated, and the hook bought four more that had nowhere to live
+   before: a committed ingest nudges, a failed one does not, and an unwired
+   nudger neither panics nor loses the row — the nil contract §4 asserts in prose
+   is now asserted in a test. `service.go` 691 → 680 LOC (the smallest drop of
+   the four steps: what left was ~45 lines of method bodies, and ~35 came back as
+   the delegating shims and the wiring comment the hook needs).
 5. **`FanOut`** — move the four UI handlers + `pushThinking` + push helpers +
    the `*Payload` mirror types; wire it over the `Feed`/`Notify`/`NotificationWriter`
    built above; `Service` delegates. Move `SnapshotPusher` into `feed.go`.

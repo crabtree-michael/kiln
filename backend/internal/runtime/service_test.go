@@ -1,21 +1,21 @@
 package runtime_test
 
-// Service unit tests: EnqueueEvent/PostMessage/Say/Recent's delegation
-// contracts (04 §6, 07 §3), and Workers(clock)'s wiring — events -> Brain
-// exactly once per event, and the outbox's per-topic executor routing plus
-// the exhausted-agent.send -> MarkBlocked dead-letter action (04 §2-§3).
+// Service unit tests: EnqueueEvent's ingest contract (04 §6) and
+// Workers(clock)'s wiring — events -> Brain exactly once per event, and the
+// outbox's per-topic executor routing plus the exhausted-agent.send ->
+// MarkBlocked dead-letter action (04 §2-§3). The transcript operations these
+// routes reach for (the system-error and brain-unresolved Says) are asserted
+// as a unit in transcript_service_test.go; what is pinned here is that the
+// drain reaches them at all.
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/crabtree-michael/kiln/backend/internal/runtime"
 	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
-
-var errStoreFailed = errors.New("fakeMessageStore: synthetic failure")
 
 // newTestService builds a Service over the 04/07 ports, defaulting the 08 §7
 // ports (notifications, board reader, feed/activity pushers) and the 11 §3
@@ -68,130 +68,6 @@ func TestService_EnqueueEvent_InsertsIntoStore(t *testing.T) {
 	}
 	if string(entry.Payload) != string(payload) {
 		t.Errorf("inserted payload = %s, want %s", entry.Payload, payload)
-	}
-}
-
-// ---- PostMessage (07 §3-§4) ------------------------------------------------
-
-func TestService_PostMessage_DelegatesToMessageStoreAndReturnsBothIDs(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	messages := &fakeMessageStore{}
-	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
-
-	msgID, evID, err := svc.PostMessage(context.Background(), defaultTestProject, "build the widget")
-	if err != nil {
-		t.Fatalf("PostMessage: unexpected error: %v", err)
-	}
-	if messages.appendUserCalls != 1 {
-		t.Fatalf("AppendUserMessageAndEnqueueEvent called %d times, want exactly 1", messages.appendUserCalls)
-	}
-	if msgID == 0 || evID == 0 {
-		t.Errorf("PostMessage returned (messageID=%d, eventID=%d), want both non-zero", msgID, evID)
-	}
-}
-
-// TestService_PostMessage_PropagatesStoreErrorWithoutPartialIDs pins that
-// PostMessage does not invent ids or otherwise paper over a failed
-// transactional append+enqueue (07 §3: "the transcript and the event queue
-// cannot disagree" — a failure here must be visible, not silently partial).
-func TestService_PostMessage_PropagatesStoreErrorWithoutPartialIDs(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	messages := &fakeMessageStore{
-		appendUserFn: func(context.Context, string, string) (int64, int64, error) {
-			return 0, 0, errStoreFailed
-		},
-	}
-	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
-
-	msgID, evID, err := svc.PostMessage(context.Background(), defaultTestProject, "hello")
-	if !errors.Is(err, errStoreFailed) {
-		t.Fatalf("PostMessage error = %v, want errStoreFailed", err)
-	}
-	if msgID != 0 || evID != 0 {
-		t.Errorf("PostMessage on failure returned (messageID=%d, eventID=%d), want (0,0)", msgID, evID)
-	}
-}
-
-// ---- Say: append-then-push (07 §3, §6) ------------------------------------
-
-func TestService_Say_AppendsThenPushes(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	messages := &fakeMessageStore{}
-	sayer := &fakeSayPusher{}
-	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer)
-
-	if err := svc.Say(context.Background(), defaultTestProject, "hi there"); err != nil {
-		t.Fatalf("Say: unexpected error: %v", err)
-	}
-	if messages.appendKilnCalls != 1 {
-		t.Fatalf("AppendKilnMessage called %d times, want exactly 1", messages.appendKilnCalls)
-	}
-	pushed := sayer.pushedMessages()
-	if len(pushed) != 1 {
-		t.Fatalf("PushSay called %d times, want exactly 1", len(pushed))
-	}
-	if pushed[0].m.Text != "hi there" || pushed[0].m.Role != runtime.RoleKiln {
-		t.Errorf("pushed message = %+v, want Text=%q Role=kiln", pushed[0].m, "hi there")
-	}
-	if pushed[0].projectID != defaultTestProject {
-		t.Errorf("PushSay projectID = %q, want %q (the say fan-out is per-project, 11 §3)",
-			pushed[0].projectID, defaultTestProject)
-	}
-}
-
-// TestService_Say_DoesNotPushWhenAppendFails proves the append-then-push
-// ordering is real, not incidental: a failed append must never reach the
-// SSE push (07 §3 — "a crash between them costs a live push, not history",
-// implying the push only happens once the row is durable).
-func TestService_Say_DoesNotPushWhenAppendFails(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	messages := &fakeMessageStore{
-		appendKilnFn: func(context.Context, string, string) (runtime.Message, error) {
-			return runtime.Message{}, errStoreFailed
-		},
-	}
-	sayer := &fakeSayPusher{}
-	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer)
-
-	if err := svc.Say(context.Background(), defaultTestProject, "hi"); !errors.Is(err, errStoreFailed) {
-		t.Fatalf("Say error = %v, want errStoreFailed", err)
-	}
-	if got := len(sayer.pushedMessages()); got != 0 {
-		t.Errorf("PushSay called %d times after a failed append, want 0", got)
-	}
-}
-
-// ---- Recent (07 §3-§4) ------------------------------------------------------
-
-func TestService_Recent_DelegatesToMessageStore(t *testing.T) {
-	clock := testutil.NewFakeClock()
-	messages := &fakeMessageStore{}
-	ctx := context.Background()
-	if _, _, err := messages.AppendUserMessageAndEnqueueEvent(ctx, defaultTestProject, "one"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := messages.AppendKilnMessage(ctx, defaultTestProject, "two"); err != nil {
-		t.Fatal(err)
-	}
-	svc := newTestService(newFakeStore(clock), messages, &fakeBrain{}, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, &fakeSayPusher{})
-
-	got, err := svc.Recent(ctx, defaultTestProject, 20)
-	if err != nil {
-		t.Fatalf("Recent: unexpected error: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("Recent returned %d messages, want 2", len(got))
-	}
-	if got[0].Text != "one" || got[1].Text != "two" {
-		t.Errorf("Recent order = [%q, %q], want oldest-first [one, two]", got[0].Text, got[1].Text)
-	}
-	if len(messages.recentCalls) != 1 || messages.recentCalls[0] != 20 {
-		t.Errorf("MessageStore.Recent calls = %v, want a single call with n=20", messages.recentCalls)
 	}
 }
 

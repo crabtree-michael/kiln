@@ -52,6 +52,14 @@ backend/internal/runtime/
                 the read half of the notification store, Feed/FeedHistory,
                 notificationToCard. Read-only by construction — it cannot write a
                 row or append an outbox entry.
+  notification_service.go  Notifications — notification CRUD (split step 3, DONE):
+                the eight feed mutations over NotificationStore. Every method is one
+                transactional store call that writes its row and appends feed.updated
+                together, and returns its failure rather than dropping it.
+  transcript_service.go  Transcript — the conversation surface (split step 4, DONE):
+                MessageStore + SayPusher, PostMessage/Say/Recent, plus the Nudger hook
+                that wakes the events worker after an ingest without holding it
+                (Service is the nudger until Dispatcher takes the worker in step 6).
   feed.go · notifications.go · transcript.go   the 07/10 additions (feed cards, notify.send, transcript)
   postgres/     store adapter
     migrations/ 0001_events.sql (04 §2; outbox DDL lives in board's 0002_outbox.sql), 0002+ since

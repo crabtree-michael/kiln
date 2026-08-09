@@ -209,18 +209,46 @@ func TestDoMapsToolUseResponse(t *testing.T) {
 	}
 }
 
-// TestDoMapsNonToolUseStopReasonToEndTurn covers fromSDKMessage's rule that
-// only tool_use continues the loop; any other stop reason ends the pass.
-func TestDoMapsNonToolUseStopReasonToEndTurn(t *testing.T) {
+// TestDoMapsUnhandledStopReasonToEndTurn covers fromSDKMessage's default: a
+// stop reason this module has no handling for ends the pass. max_tokens is
+// deliberately not one of them — see the test below.
+func TestDoMapsUnhandledStopReasonToEndTurn(t *testing.T) {
 	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
-		message("max_tokens", textBlock("cut off")))
+		message("refusal", textBlock("declined")))
 
 	resp, err := adapter.Do(context.Background(), brain.LLMRequest{})
 	if err != nil {
 		t.Fatalf("Do: unexpected error: %v", err)
 	}
 	if resp.StopReason != brain.StopEndTurn {
-		t.Errorf("StopReason = %q, want %q (non-tool_use ends the pass)", resp.StopReason, brain.StopEndTurn)
+		t.Errorf("StopReason = %q, want %q (an unhandled stop reason ends the pass)",
+			resp.StopReason, brain.StopEndTurn)
+	}
+}
+
+// TestDoMapsMaxTokensToItsOwnStopReason pins the distinction the pass loop runs
+// on: a round cut off at the output ceiling must not come back wearing
+// end_turn's clothes. Folded together, "the model finished" and "the model was
+// stopped mid-call" were indistinguishable, and runPass returned from a
+// truncated round as though the pass were done — taking the calls it carried
+// with it, silently.
+func TestDoMapsMaxTokensToItsOwnStopReason(t *testing.T) {
+	adapter, _ := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		message("max_tokens",
+			textBlock("cut off"),
+			toolUseBlock(callID1, string(brain.ToolGetTicket), map[string]any{"id": ticketT1}),
+		))
+
+	resp, err := adapter.Do(context.Background(), brain.LLMRequest{})
+	if err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+	if resp.StopReason != brain.StopMaxTokens {
+		t.Fatalf("StopReason = %q, want %q — truncation must be distinguishable from a finished turn",
+			resp.StopReason, brain.StopMaxTokens)
+	}
+	if len(resp.Calls) != 1 {
+		t.Errorf("len(Calls) = %d, want 1 — a truncated round's calls still reach the loop", len(resp.Calls))
 	}
 }
 
@@ -235,6 +263,30 @@ func TestDoConcatenatesTextBlocks(t *testing.T) {
 	}
 	if resp.Text != "part one part two" {
 		t.Errorf("Text = %q, want %q", resp.Text, "part one part two")
+	}
+}
+
+// TestDoSendsARoomyOutputCeiling guards the ceiling from drifting back down.
+// The number itself is not the contract — the floor is: 4096 was low enough
+// that a batched read round followed by a few send_to_agent instructions ran
+// into it, and a round that hits the ceiling is a round the loop has to repair.
+// Anything at or below the old value puts that back.
+func TestDoSendsARoomyOutputCeiling(t *testing.T) {
+	adapter, stub := newAdapterAgainst(t, brain.Config{Model: modelOverride}, http.StatusOK,
+		message("end_turn", textBlock("ok")))
+
+	if _, err := adapter.Do(context.Background(), brain.LLMRequest{}); err != nil {
+		t.Fatalf("Do: unexpected error: %v", err)
+	}
+
+	const oldCeiling = 4096
+	got, ok := stub.lastBody["max_tokens"].(float64)
+	if !ok {
+		t.Fatalf("request max_tokens = %v, want a number", stub.lastBody["max_tokens"])
+	}
+	if got <= oldCeiling {
+		t.Errorf("request max_tokens = %v, want more than the old %d ceiling that truncated a real round",
+			got, oldCeiling)
 	}
 }
 

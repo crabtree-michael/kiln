@@ -7,6 +7,7 @@ package brain_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/crabtree-michael/kiln/backend/internal/board"
@@ -330,6 +331,139 @@ func TestHandleEvent_MalformedOutput_RepeatedFailsThePass(t *testing.T) {
 	if got := fs.said(); len(got) != 0 {
 		t.Errorf("a failed pass's dead-letter say is the runtime's job (06 §8), not this method's; recorded %v", got)
 	}
+}
+
+// TestHandleEvent_TruncatedRound_DispatchesTheCompleteCallsAndContinues pins
+// the failure this whole path exists for. A large round comes back cut off at
+// the output ceiling: the calls before the cut are whole, the last one is the
+// one the API sliced. The pass must not treat that as a finished turn. It
+// dispatches everything up to the cut, drops the last call *without running
+// it*, and asks the model to continue — so a truncated round costs a re-issue,
+// not a silently dropped decision.
+func TestHandleEvent_TruncatedRound_DispatchesTheCompleteCallsAndContinues(t *testing.T) {
+	fb := &fakeBoard{}
+	fs := &fakeSay{}
+
+	llm := &scriptedLLM{responses: []brain.LLMResponse{
+		truncated("working through the queue",
+			newToolCall(t, "whole-1", brain.ToolSendToAgent,
+				brain.SendToAgentInput{ID: ticketT1, Instruction: "land the fix"}),
+			// The cut fell inside this one: it must never reach a port.
+			newToolCall(t, "cut-off", brain.ToolUpdateTicket,
+				brain.UpdateTicketInput{ID: ticketT7, State: new("blocked"), BlockedReason: new("needs a decision")}),
+		),
+		toolUse(newToolCall(t, "retry", brain.ToolUpdateTicket,
+			brain.UpdateTicketInput{ID: ticketT7, State: new("blocked"), BlockedReason: new("needs a decision")})),
+		endTurn(""),
+	}}
+
+	svc := newTestService(fb, fs, &fakeConvo{}, llm)
+	if err := svc.HandleEvent(context.Background(), humanMessageEvent(20, "get the queue moving")); err != nil {
+		t.Fatalf("HandleEvent returned error: %v, want nil — a truncated round is recoverable", err)
+	}
+
+	// The pass kept going instead of returning at the truncated round.
+	if got := llm.callCount(); got != 3 {
+		t.Fatalf("LLM.Do was called %d times, want 3 (truncated round, its re-prompt, the end-turn) — "+
+			"a truncated round must resume the loop, not end the pass", got)
+	}
+
+	// Exactly the complete call ran, then the model's own re-issue. The
+	// half-written one never reached the board on the round it was cut in.
+	recorded := fb.recordedCalls()
+	methods := make([]string, 0, len(recorded))
+	for _, c := range recorded {
+		methods = append(methods, c.Method)
+	}
+	want := []string{"SendToAgent", "MarkBlocked"}
+	if len(methods) != len(want) {
+		t.Fatalf("BoardAPI calls = %v, want %v — the cut-off call must not be dispatched", methods, want)
+	}
+	for i, m := range want {
+		if methods[i] != m {
+			t.Errorf("BoardAPI call[%d] = %q, want %q (full sequence: %v)", i, methods[i], m, methods)
+		}
+	}
+
+	// The re-prompt carries the complete call's result and says the dropped one
+	// never ran — otherwise the model has no way to know it must re-issue it.
+	round2 := llm.requestAt(t, 1)
+	if _, ok := findToolResult(round2, "whole-1"); !ok {
+		t.Errorf("re-prompt is missing the ToolResult for the complete call; messages: %#v", round2.Messages)
+	}
+	if _, ok := findToolResult(round2, "cut-off"); ok {
+		t.Errorf("re-prompt carries a ToolResult for the cut-off call, which was never dispatched")
+	}
+	if !requestMentionsTruncation(round2) {
+		t.Errorf("re-prompt never tells the model its previous round was cut off; messages: %#v", round2.Messages)
+	}
+}
+
+// TestHandleEvent_TruncatedRoundWithNothingUsable_FailsThePass pins the one
+// truncation the loop cannot carry forward: no text and a single call whose
+// arguments alone filled the entire budget. There is nothing to dispatch and
+// nothing to say, so the pass fails into the runtime's retry/dead-letter path
+// (04 §3) — loudly — rather than returning as though the round had happened.
+func TestHandleEvent_TruncatedRoundWithNothingUsable_FailsThePass(t *testing.T) {
+	fb := &fakeBoard{}
+	fs := &fakeSay{}
+	llm := &scriptedLLM{responses: []brain.LLMResponse{
+		truncated("", newToolCall(t, "giant", brain.ToolSendToAgent,
+			brain.SendToAgentInput{ID: ticketT1, Instruction: "…"})),
+	}}
+
+	svc := newTestService(fb, fs, &fakeConvo{}, llm)
+	err := svc.HandleEvent(context.Background(), humanMessageEvent(21, "do the thing"))
+	if err == nil {
+		t.Fatalf("HandleEvent returned nil, want an error — a round that produced nothing usable " +
+			"must not end the pass quietly")
+	}
+	if calls := fb.recordedCalls(); len(calls) != 0 {
+		t.Errorf("nothing in a cut-off round may reach the board; recorded %v", calls)
+	}
+	if got := llm.callCount(); got != 1 {
+		t.Errorf("LLM.Do was called %d times, want 1 — the pass fails rather than looping", got)
+	}
+}
+
+// TestHandleEvent_EndTurnWithUndispatchedCalls_IsNotSilent pins the "never exit
+// silently" half. A turn the model ends while still carrying tool_use blocks —
+// which is also how a stop reason this module maps onto end_turn arrives — has
+// its calls dropped by design. Dropping them is fine; doing it without a word
+// is not, so the pass logs which calls went nowhere before it returns.
+func TestHandleEvent_EndTurnWithUndispatchedCalls_IsNotSilent(t *testing.T) {
+	fb := &fakeBoard{}
+	fs := &fakeSay{}
+	orphan := newToolCall(t, "orphan", brain.ToolSay, brain.SayInput{Text: "never sent"})
+	llm := &scriptedLLM{responses: []brain.LLMResponse{
+		{StopReason: brain.StopEndTurn, Text: "done", Calls: []brain.ToolCall{orphan}},
+	}}
+
+	logs := captureLogs(t)
+	svc := newTestService(fb, fs, &fakeConvo{}, llm)
+	if err := svc.HandleEvent(context.Background(), humanMessageEvent(22, "anything")); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	if got := fs.said(); len(got) != 0 {
+		t.Errorf("an undispatched say must not reach the port; recorded %v", got)
+	}
+	if !logs.mentions("say#orphan") {
+		t.Errorf("the pass dropped a tool call without logging it — that is the silent swallow " +
+			"this rule exists to prevent")
+	}
+}
+
+// requestMentionsTruncation reports whether any user turn in req tells the
+// model its previous round was cut off. Matched on the substring rather than
+// the exact constant so the notice's wording stays free to change.
+func requestMentionsTruncation(req brain.LLMRequest) bool {
+	for _, msg := range req.Messages {
+		if msg.Role == brain.LLMRoleUser && strings.Contains(msg.Text, "cut off") {
+			return true
+		}
+	}
+	return false
 }
 
 // findToolResult looks through req's messages for a ToolResult matching

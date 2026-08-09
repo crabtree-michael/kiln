@@ -158,6 +158,13 @@ func (s *Service) runPass(ctx context.Context, input PassInput) error {
 	// tool results as it goes.
 	messages := []LLMMessage{{Role: LLMRoleUser, Text: userText}}
 
+	// memo is this pass's memory of the calls it has already made (memo.go), so
+	// a read the model asks for twice is answered from the conversation it is
+	// already holding rather than the port, and a mutation the board refused is
+	// not re-attempted while nothing has changed. Created here, discarded with
+	// the pass: across passes the board does move.
+	memo := newPassMemo()
+
 	// reprompted tracks whether the previous round's malformed output has
 	// already spent its single re-prompt (06 §8).
 	reprompted := false
@@ -177,7 +184,7 @@ func (s *Service) runPass(ctx context.Context, input PassInput) error {
 			Role: LLMRoleAssistant, Text: resp.Text, Calls: resp.Calls,
 		})
 
-		results, malformed := s.dispatchAll(ctx, resp.Calls)
+		results, malformed := s.dispatchAll(ctx, memo, resp.Calls)
 		if malformed {
 			if reprompted {
 				return errMalformedRepeated
@@ -191,18 +198,23 @@ func (s *Service) runPass(ctx context.Context, input PassInput) error {
 	}
 
 	// Round cap reached (06 §5, D4): one forced wrap-up round, at most a say.
-	return s.forceWrapUp(ctx, system, messages)
+	return s.forceWrapUp(ctx, memo, system, messages)
 }
 
 // dispatchAll runs every tool call in a round against the ports, collecting
 // the ToolResults and reporting whether any call was malformed (unknown tool
 // name or unparseable arguments, 06 §8) as opposed to a plain tool error
 // (a typed Board API error, fed back verbatim and not counted as malformed).
-func (s *Service) dispatchAll(ctx context.Context, calls []ToolCall) ([]ToolResult, bool) {
+//
+// The pass's memo (memo.go) threads through, so a call repeated within a round
+// is caught by the same rule as one repeated a round later — the calls in a
+// round run in order, so the first has already been recorded by the time the
+// second is reached.
+func (s *Service) dispatchAll(ctx context.Context, memo *passMemo, calls []ToolCall) ([]ToolResult, bool) {
 	results := make([]ToolResult, 0, len(calls))
 	malformed := false
 	for _, call := range calls {
-		res, m := s.dispatchOne(ctx, call)
+		res, m := s.dispatchOne(ctx, memo, call)
 		if m {
 			malformed = true
 		}
@@ -214,7 +226,7 @@ func (s *Service) dispatchAll(ctx context.Context, calls []ToolCall) ([]ToolResu
 // forceWrapUp makes the single wrap-up call at the round cap (06 §5): the
 // model is told to close out with at most a say, and only a say from that
 // round is executed. The pass then ends regardless of what the model does.
-func (s *Service) forceWrapUp(ctx context.Context, system string, messages []LLMMessage) error {
+func (s *Service) forceWrapUp(ctx context.Context, memo *passMemo, system string, messages []LLMMessage) error {
 	messages = append(messages, LLMMessage{
 		Role: LLMRoleUser,
 		Text: "You have reached the tool-round limit for this turn. " +
@@ -228,7 +240,7 @@ func (s *Service) forceWrapUp(ctx context.Context, system string, messages []LLM
 	}
 	for _, call := range resp.Calls {
 		if call.Name == ToolSay {
-			if res, _ := s.dispatchOne(ctx, call); res.IsError {
+			if res, _ := s.dispatchOne(ctx, memo, call); res.IsError {
 				slog.ErrorContext(ctx, "brain: wrap-up say failed", "err", res.Content)
 			}
 		}

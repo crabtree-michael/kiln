@@ -103,6 +103,69 @@ func TestTools_ReadDescriptionsInviteBatching(t *testing.T) {
 	}
 }
 
+// TestTools_ReadDescriptionsDiscourageRepeats pins the point-of-use half of the
+// duplicate-read fix (§10). The tool description is what the model is reading
+// when it decides whether it already has this answer, so each memoizable read
+// says how long its result stays good, in its own terms — per ticket, per
+// worker, per query. The list is memo.go's readOnlyTools: bash is deliberately
+// not on it, since a shell command is not guaranteed to leave the clone as it
+// found it and its output is time-varying.
+func TestTools_ReadDescriptionsDiscourageRepeats(t *testing.T) {
+	memoized := map[brain.ToolName]bool{
+		brain.ToolListTickets:     true,
+		brain.ToolGetTicket:       true,
+		brain.ToolSearchTickets:   true,
+		brain.ToolListUpdates:     true,
+		brain.ToolListAgents:      true,
+		brain.ToolGetAgentUpdates: true,
+	}
+	seen := 0
+	for _, tool := range brain.Tools {
+		if !memoized[tool.Name] {
+			continue
+		}
+		seen++
+		if !strings.Contains(tool.Description, "per turn") {
+			t.Errorf("%s's description does not tell the model how long its result stays "+
+				"good, so nothing at the point of use says not to ask twice:\n%s",
+				tool.Name, tool.Description)
+		}
+	}
+	if seen != len(memoized) {
+		t.Errorf("checked %d memoizable reads, want %d — a read tool was renamed or dropped "+
+			"from brain.Tools without this pin and memo.go's readOnlyTools following it",
+			seen, len(memoized))
+	}
+}
+
+// TestTools_UpdateTicketRedirectsAWorkingTicketEdit pins §11's point-of-use
+// half. The "allowed now" line already says a working ticket's fields cannot be
+// edited, and 10.3% of update_ticket calls still try; a permission list does not
+// answer what the model was reaching for, so the description names the tool that
+// does, and says a refusal is not worth a second attempt.
+func TestTools_UpdateTicketRedirectsAWorkingTicketEdit(t *testing.T) {
+	var desc string
+	for _, tool := range brain.Tools {
+		if tool.Name == brain.ToolUpdateTicket {
+			desc = tool.Description
+		}
+	}
+	if desc == "" {
+		t.Fatal("update_ticket is missing from brain.Tools")
+	}
+	for _, want := range []string{
+		// Where a working ticket's agent is actually reached.
+		toolNameSendToAgent,
+		"already has its brief",
+		// And that the same call will not fare better a second time.
+		"Take a refusal as final",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("update_ticket's description should contain %q:\n%s", want, desc)
+		}
+	}
+}
+
 // TestDispatch_RoutesEachToolToItsPortMethod is the golden tool -> port
 // mapping table (06 §4).
 func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {

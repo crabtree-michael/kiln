@@ -116,7 +116,7 @@ func TestHandleEvent_BatchedReadRound_OneRoundCarriesEveryRead(t *testing.T) {
 	}
 	var sawGetTicket bool
 	for _, c := range fb.recordedCalls() {
-		if c.Method == "GetTicket" {
+		if c.Method == methodGetTicket {
 			sawGetTicket = true
 		}
 	}

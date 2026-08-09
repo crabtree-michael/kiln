@@ -313,6 +313,196 @@ func TestVerifyOnMain_FetchesFreshCommits(t *testing.T) {
 	}
 }
 
+// scriptedGit is a fake git runner for the fetch-reuse tests. It answers from a
+// tiny model of the clone: `landed` is whether the refs it currently holds
+// contain the commit, and a `fetch` sets it (i.e. the commit is on the remote
+// and arrives with the fetch). Every subcommand it is asked for is recorded, so
+// a test can assert how many fetches the gate actually ran.
+func scriptedGit(calls *[]string, landed bool) func(args ...string) (int, string) {
+	return func(args ...string) (int, string) {
+		*calls = append(*calls, args[0])
+		switch args[0] {
+		case "fetch":
+			landed = true
+			return 0, ""
+		case "rev-parse", "merge-base":
+			if !landed {
+				return 1, ""
+			}
+			return 0, ""
+		case "show":
+			return 0, "feat: land the work"
+		default:
+			return 1, "unexpected git " + args[0]
+		}
+	}
+}
+
+// count is how many of calls equal name.
+func count(calls []string, name string) int {
+	n := 0
+	for _, c := range calls {
+		if c == name {
+			n++
+		}
+	}
+	return n
+}
+
+// TestVerifyOnMain_ReusesAFreshFetch pins the whole point of the freshness
+// window: when origin was fetched moments ago (normally by the model's own
+// `git fetch origin` earlier in the same pass), an accepted done costs ZERO
+// further fetches — one per done, not two. It also pins what freshness may not
+// do: a negative is never returned on reused refs, and a stale window always
+// fetches first, so the gate still fails closed against fetched refs.
+func TestVerifyOnMain_ReusesAFreshFetch(t *testing.T) {
+	const sha = "abc1234"
+	s := Shell{cfg: Config{RepoURL: "https://github.com/o/r"}}
+
+	t.Run("fresh refs already prove it: no fetch", func(t *testing.T) {
+		var calls []string
+		v, fetched := s.verifyOnMain(sha, true, scriptedGit(&calls, true))
+		if !v.OnMain {
+			t.Fatalf("expected OnMain on refs that already contain the commit; got %+v", v)
+		}
+		if n := count(calls, "fetch"); n != 0 {
+			t.Fatalf("a fresh fetch must be reused, not repeated; git fetch ran %d times (%v)", n, calls)
+		}
+		if fetched {
+			t.Fatal("expected fetched=false when the recent fetch was reused")
+		}
+		if v.Ref != shortSHA(sha) || v.Summary != "feat: land the work" {
+			t.Fatalf("reused-fetch positive must carry the same link and summary; got %+v", v)
+		}
+	})
+
+	t.Run("stale refs: fetches first", func(t *testing.T) {
+		var calls []string
+		v, fetched := s.verifyOnMain(sha, false, scriptedGit(&calls, false))
+		if !v.OnMain || !fetched {
+			t.Fatalf("expected a fetch to land the commit and yield OnMain; got %+v (fetched=%v)", v, fetched)
+		}
+		if len(calls) == 0 || calls[0] != "fetch" {
+			t.Fatalf("a stale window must fetch before deciding anything; calls = %v", calls)
+		}
+	})
+
+	t.Run("fresh refs say no: re-fetches and re-decides", func(t *testing.T) {
+		// The commit landed on origin AFTER the fetch we would have reused — the one
+		// case reused refs can get wrong. It must not be reported as not-on-main.
+		var calls []string
+		v, fetched := s.verifyOnMain(sha, true, scriptedGit(&calls, false))
+		if !v.OnMain || !fetched {
+			t.Fatalf("a negative on reused refs must be re-decided after a real fetch; got %+v (fetched=%v)", v, fetched)
+		}
+		if n := count(calls, "fetch"); n != 1 {
+			t.Fatalf("the fallback must fetch exactly once; git fetch ran %d times (%v)", n, calls)
+		}
+	})
+}
+
+// TestVerifyOnMain_ReusesAFreshFetch_RealGit is the reuse proved against real
+// git rather than a scripted runner: the model fetches through Run, then the
+// remote is moved out from under the clone so that ANY fetch would fail. A
+// verify that still says OnMain can only have reused the model's fetch — the
+// one fetch per accepted done this whole change is about.
+func TestVerifyOnMain_ReusesAFreshFetch_RealGit(t *testing.T) {
+	bare, onMain, _ := seedRemoteWithBranch(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	s := New(context.Background(), Config{RepoURL: bare, Dir: dir})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	// The model's own `git fetch origin`, as the prompt tells it to run before it
+	// looks up the ticket's commit.
+	if res := s.Run(context.Background(), "git fetch origin"); res.ExitCode != 0 {
+		t.Fatalf("model fetch failed (exit %d): %s", res.ExitCode, res.Output)
+	}
+	// Break the remote: from here a fetch cannot succeed.
+	if err := os.Rename(bare, bare+".moved"); err != nil {
+		t.Fatal(err)
+	}
+
+	v := s.VerifyOnMain(context.Background(), onMain)
+	if !v.OnMain {
+		t.Fatalf("expected the gate to reuse the model's fetch instead of running its own; got %+v", v)
+	}
+	if v.Summary != "seed: initial commit" {
+		t.Fatalf("reused-fetch positive must still carry the commit message; got %q", v.Summary)
+	}
+}
+
+// TestVerifyOnMain_FreshWindowStillSeesALaterPush is the previous test's
+// fallback against real git: FETCH_HEAD is fresh, but the commit reached
+// origin/main after that fetch. The gate must fetch again rather than reject
+// work that is genuinely on main.
+func TestVerifyOnMain_FreshWindowStillSeesALaterPush(t *testing.T) {
+	bare, onMain, _ := seedRemoteWithBranch(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	s := New(context.Background(), Config{RepoURL: bare, Dir: dir})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	// A first verify leaves a FETCH_HEAD seconds old — the state the model's own
+	// `git fetch origin` leaves behind mid-pass.
+	if v := s.VerifyOnMain(context.Background(), onMain); !v.OnMain {
+		t.Fatalf("expected OnMain for the seeded commit; got %+v", v)
+	}
+	if !s.fetchIsFresh() {
+		t.Fatal("expected the clone to read as freshly fetched after a verify")
+	}
+
+	// Now land a commit on origin/main that those fresh refs cannot know about.
+	work := filepath.Join(t.TempDir(), "work2")
+	gitOut(t, filepath.Dir(work), "clone", bare, work)
+	if err := os.WriteFile(filepath.Join(work, "later.txt"), []byte("later\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, work, "add", "later.txt")
+	gitOut(t, work, "commit", "-m", "landed after the last fetch")
+	later := gitOut(t, work, "rev-parse", "HEAD")
+	gitOut(t, work, "push", "origin", "main")
+
+	if v := s.VerifyOnMain(context.Background(), later); !v.OnMain {
+		t.Fatalf("expected the gate to re-fetch and recognize %s on origin/main; got %+v", later, v)
+	}
+}
+
+// TestFetchIsFresh proves the freshness signal is read from the clone itself, so
+// it sees the fetch the MODEL ran through Run (an opaque `sh -c` string this
+// package never parses) — the fetch the gate is there to reuse.
+func TestFetchIsFresh(t *testing.T) {
+	bare, _ := seedRemote(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	s := New(context.Background(), Config{RepoURL: bare, Dir: dir})
+	if s.disabled {
+		t.Fatalf("shell disabled: %s", s.reason)
+	}
+
+	// A clone writes no FETCH_HEAD, so a never-fetched clone reads as stale.
+	if s.fetchIsFresh() {
+		t.Fatal("a freshly cloned, never-fetched repo must read as stale")
+	}
+
+	if res := s.Run(context.Background(), "git fetch origin"); res.ExitCode != 0 {
+		t.Fatalf("model fetch failed (exit %d): %s", res.ExitCode, res.Output)
+	}
+	if !s.fetchIsFresh() {
+		t.Fatal("expected the model's own git fetch to make the clone read as fresh")
+	}
+
+	// Age FETCH_HEAD past the window: an old fetch is not reusable.
+	old := time.Now().Add(-fetchFreshness - time.Minute)
+	if err := os.Chtimes(filepath.Join(dir, ".git", "FETCH_HEAD"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if s.fetchIsFresh() {
+		t.Fatalf("a fetch older than %s must read as stale", fetchFreshness)
+	}
+}
+
 // TestVerifyInPR drives the pure decision over a fake gh runner: the outcome
 // hinges only on gh's exit code and the "<number>\t<html_url>\t<title>\n\n<body>"
 // text the --jq program prints, so a stubbed runner exercises every branch

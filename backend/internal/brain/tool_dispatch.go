@@ -44,28 +44,59 @@ const (
 // (06 §5, §8). The idempotency rule (06 §6) depends on ErrInvalidTransition
 // reaching the model exactly this way. See
 // docs/specs/06-orchestrator-brain.md §4, §6, §8.
+//
+// A single call with no pass behind it, so nothing is remembered between two
+// Dispatches — the per-pass memo (memo.go) belongs to runPass, and inventing a
+// one-call one here would only ever dedupe a call against itself.
 func (s *Service) Dispatch(ctx context.Context, call ToolCall) ToolResult {
-	res, _ := s.dispatchOne(ctx, call)
+	res, _ := s.dispatchOne(ctx, nil, call)
 	return res
 }
 
 // dispatchOne routes one tool call to its handler and logs it as a structured
 // board-mutating action (turn_id injected from context): the tool name, an
 // args summary + content hash (ticket id lives in the args; args_hash makes a
-// duplicated send_to_agent instruction greppable — the 841fb6cc smell), and
-// the outcome. It additionally reports whether the call was malformed — an
-// unknown tool name or unparseable arguments (06 §8) — which the pass loop
-// counts toward its one-re-prompt-then-fail rule.
-func (s *Service) dispatchOne(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	res, malformed := s.routeTool(ctx, call)
+// duplicated send_to_agent instruction greppable — the 841fb6cc smell), whether
+// the pass answered it from memory rather than the port, and the outcome. It
+// additionally reports whether the call was malformed — an unknown tool name or
+// unparseable arguments (06 §8) — which the pass loop counts toward its
+// one-re-prompt-then-fail rule.
+//
+// `reused` is emitted on every record, not only the suppressed ones, so the
+// duplicate-rate query that measured §10 (args_hash repeated within a turn_id)
+// can split what the model still emits from what actually cost a port call. The
+// record stays honest about what the model asked for: a suppressed call is
+// logged, because the call was made.
+func (s *Service) dispatchOne(ctx context.Context, memo *passMemo, call ToolCall) (ToolResult, bool) {
+	res, malformed, reused := s.routeOrReuse(ctx, memo, call)
 	slog.InfoContext(ctx, "brain.tool",
 		"tool", string(call.Name),
 		"args", obs.Summary(string(call.Input), toolArgsSummaryBytes),
 		"args_hash", obs.Hash(string(call.Input)),
+		"reused", reused,
 		"is_error", res.IsError,
 		"result", obs.Summary(res.Content, toolResultSummaryBytes),
 	)
 	return res, malformed
+}
+
+// routeOrReuse answers a call from the pass's memo when it is an exact repeat
+// of one already made, and otherwise routes it to its handler and files the
+// outcome. A malformed call is never filed: 06 §8's one-re-prompt-then-fail
+// rule needs a repeated malformed call to be dispatched and counted as
+// malformed again, not suppressed into a clean result.
+//
+// Returns the result, whether the call was malformed, and whether it was
+// answered from memory rather than a port.
+func (s *Service) routeOrReuse(ctx context.Context, memo *passMemo, call ToolCall) (ToolResult, bool, bool) {
+	if res, ok := memo.reuse(call); ok {
+		return res, false, true
+	}
+	res, malformed := s.routeTool(ctx, call)
+	if !malformed {
+		memo.record(call, res)
+	}
+	return res, malformed, false
 }
 
 // routeTool is dispatchOne's flat tool → handler table, in the same order as

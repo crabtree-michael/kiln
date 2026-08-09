@@ -23,6 +23,16 @@ const (
 	// dirPerm is the permission for directories this shell creates (the clone
 	// parent and allowed-bin): owner rwx, group rx, no world access.
 	dirPerm = 0o750
+	// fetchFreshness is how recently origin must have been fetched for a verify to
+	// reuse that fetch instead of running its own. The prompt has the model fetch
+	// via `bash` before it looks up a done ticket's commit, so the merge gate then
+	// ran a second full fetch seconds later, inside the model loop with the user
+	// waiting. A window comfortably wider than that gap (pass wall-clock is ~14 s
+	// at p50, ~33 s at p90) collapses the pair to one fetch. It is only ever an
+	// optimization: a negative decided on reused refs is re-decided after a real
+	// fetch (see verifyOnMain), so a stale window can cost a fetch, never a wrong
+	// answer.
+	fetchFreshness = 60 * time.Second
 )
 
 // allowlist is the set of binaries symlinked into allowed-bin; PATH points there
@@ -190,9 +200,10 @@ func (s *Shell) Run(ctx context.Context, command string) Result {
 	return res
 }
 
-// VerifyOnMain fetches origin and reports whether sha is a real commit that is
-// an ancestor of origin/main (i.e. merged to main). Best-effort like Run: an
-// infra failure yields OnMain=false with a Reason, never an error.
+// VerifyOnMain reports whether sha is a real commit that is an ancestor of
+// origin/main (i.e. merged to main), against refs fetched within
+// fetchFreshness. Best-effort like Run: an infra failure yields OnMain=false
+// with a Reason, never an error.
 //
 // git is invoked via argv (not sh -c), so sha is never shell-interpreted — a
 // belt-and-suspenders pairing with the caller's hex validation. Each step runs
@@ -205,8 +216,9 @@ func (s *Shell) VerifyOnMain(ctx context.Context, sha string) Verify {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	v := s.verifyOnMain(sha, s.argvRunner(ctx, "git"))
-	slog.InfoContext(ctx, "repo.shell.verify", "sha", sha, "on_main", v.OnMain, "reason", v.Reason)
+	v, fetched := s.verifyOnMain(sha, s.fetchIsFresh(), s.argvRunner(ctx, "git"))
+	slog.InfoContext(ctx, "repo.shell.verify",
+		"sha", sha, "on_main", v.OnMain, "fetched", fetched, "reason", v.Reason)
 	return v
 }
 
@@ -257,13 +269,35 @@ func (s *Shell) argvRunner(ctx context.Context, bin string) func(args ...string)
 }
 
 // verifyOnMain is VerifyOnMain's pure decision over an injected git runner:
-// fetch origin, require the commit to exist, then require it to be an ancestor
-// of origin/main. Split out so the sequencing is testable and VerifyOnMain owns
-// only the exec/log wiring.
-func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string)) Verify {
-	if code, out := run("fetch", "origin"); code != 0 {
-		return Verify{Reason: fmt.Sprintf("git fetch origin failed (exit %d): %s", code, out)}
+// establish fetched refs, require the commit to exist, then require it to be an
+// ancestor of origin/main. Split out so the sequencing is testable and
+// VerifyOnMain owns only the exec/log wiring. The second return reports whether
+// this call actually fetched.
+//
+// fresh says origin was fetched within fetchFreshness — normally by the model's
+// own `git fetch origin` moments earlier in the same pass. A POSITIVE decided on
+// those refs needs no fetch of our own: origin/main only grows, so a commit that
+// is already an ancestor of the refs we hold is an ancestor of the remote's, and
+// re-fetching could only re-prove it. A NEGATIVE is the case reused refs can get
+// wrong (the commit may have landed after that fetch), so it is never returned
+// on reused refs — we fetch and decide again. The gate therefore still fails
+// closed against freshly-fetched refs, at one fetch per done instead of two.
+func (s *Shell) verifyOnMain(sha string, fresh bool, run func(args ...string) (int, string)) (Verify, bool) {
+	if fresh {
+		if v := s.decideOnMain(sha, run); v.OnMain {
+			return v, false
+		}
 	}
+	if code, out := run("fetch", "origin"); code != 0 {
+		return Verify{Reason: fmt.Sprintf("git fetch origin failed (exit %d): %s", code, out)}, true
+	}
+	return s.decideOnMain(sha, run), true
+}
+
+// decideOnMain is the local half of the gate, over whatever refs the clone
+// currently holds: the commit must exist and be an ancestor of origin/main.
+// No network — the caller owns the fetch.
+func (s *Shell) decideOnMain(sha string, run func(args ...string) (int, string)) Verify {
 	if code, out := run("rev-parse", "--verify", "--quiet", sha+"^{commit}"); code != 0 {
 		return Verify{Reason: fmt.Sprintf("commit %s not found in repo: %s", sha, out)}
 	}
@@ -278,6 +312,24 @@ func (s *Shell) verifyOnMain(sha string, run func(args ...string) (int, string))
 	default:
 		return Verify{Reason: fmt.Sprintf("git merge-base failed (exit %d): %s", code, out)}
 	}
+}
+
+// fetchIsFresh reports whether origin was fetched into the clone less than
+// fetchFreshness ago, read from the mtime of .git/FETCH_HEAD — git rewrites that
+// file on every successful fetch, including one that brings nothing new.
+//
+// Reading the repo rather than remembering our own fetches is what makes this
+// work at all: the fetch we want to reuse is the model's, run through Run as an
+// opaque `sh -c` string, so there is nothing to remember and nothing to parse.
+// It also needs no lock, and a `git clone` writes no FETCH_HEAD, so a clone that
+// has never been fetched reads as stale. Anything unreadable is stale too: the
+// only cost of a false negative is the fetch we already do today.
+func (s *Shell) fetchIsFresh() bool {
+	fi, err := os.Stat(filepath.Join(s.cfg.Dir, ".git", "FETCH_HEAD"))
+	if err != nil {
+		return false
+	}
+	return time.Since(fi.ModTime()) < fetchFreshness
 }
 
 // verifyInPR is VerifyInPR's pure decision over an injected gh runner: ask the

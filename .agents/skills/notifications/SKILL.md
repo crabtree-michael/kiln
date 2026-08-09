@@ -45,6 +45,12 @@ The `notify.send` outbox contract (03 §7.1) is unchanged — only its executor 
   `useNotificationMode`), selecting one of which runs the opt-in too when the browser
   hasn't subscribed yet. So the selection shown is the stored mode only once subscribed —
   an unsubscribed browser reads "Off" whatever mode the account holds.
+- **The bell is a DESK affordance now — on a phone, that Settings row is the only entry.**
+  The phone's top bar dropped it (the bar had grown too many icons), so
+  `NotificationSettingsMenu` mounts in the desktop rail's foot and nowhere else. The way in
+  from a phone is the project switcher's last item, "Settings", which opens `/dashboard`.
+  Both halves of the setting live there, so nothing became unreachable — but a change to
+  the bell menu alone no longer reaches the majority surface.
 - **Service worker:** `frontend/public/push-sw.js` — a **static, hand-written** worker
   (`push` + `notificationclick` only). It suppresses the notification when a Kiln tab is
   already foregrounded, and the deep link (`/app?project=<id>[&ticket=<id>]`; `/` is the
@@ -111,7 +117,8 @@ Run these every time you touch this area, not just the change in front of you.
   button reachable no matter how many mode options the list carries. It regressed once when
   a mode option was added and the panel — then one `overflow: hidden` block — clipped its
   bottom off-screen. So: whenever you **add, remove, or reword a mode option** (or change
-  option copy, padding, or the panel's `max-height`), open the bell on a short viewport and
+  option copy, padding, or the panel's `max-height`), open the bell — in the desktop rail's
+  foot, its one remaining placement — on a short viewport and
   confirm all options + the permission button stay visible and the list scrolls instead of
   the panel overflowing. Keep the heading and permission button `flex-shrink: 0` and the
   scroll region on the list, not the panel.

@@ -1166,8 +1166,24 @@ html:has([data-role='settings']) {
   color: var(--text-faint);
 }
 
+/* The × alone, pushed to the trailing edge. Same treatment as the delete glyph:
+   square, and a ghost at rest — an icon-only control is quieter without a box
+   around it until the pointer is on it. */
 [data-role='settings'] [data-role='close-project-modal'] {
   margin-left: auto;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  border-radius: var(--radius-pill);
+}
+
+[data-role='settings'] [data-role='close-project-modal'] svg[data-icon] {
+  /* Sized in px, not the tree's em: there is no label text beside it for the
+     glyph to stay proportional to. */
+  width: 16px;
+  height: 16px;
 }
 
 [data-role='project-modal-body'] {

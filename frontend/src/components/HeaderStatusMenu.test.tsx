@@ -179,6 +179,81 @@ describe('HeaderStatusMenu', () => {
     expect(dots.map((dot) => dot?.dataset.status)).toEqual(['building', 'building', 'idle']);
   });
 
+  // The head over the list, which used to be the bare word "Tickets" while the
+  // desk's in-progress head had worn its rows' own mark for three fixes. These
+  // pin the two halves of "the same exact one": the same ELEMENT (so size, ink,
+  // texture and cadence are the one rule that paints the rows), keyed on the TOP
+  // ticket (so the head cannot disagree with the row directly beneath it).
+  const headingDot = (): HTMLElement | null =>
+    screen
+      .getByText('Tickets')
+      .closest('[data-role="header-status-heading"]')
+      ?.querySelector<HTMLElement>('[data-role="status-dot"]') ?? null;
+
+  it('heads the list with the shared status mark of the top ticket', () => {
+    render(<HeaderStatusMenu summary={summary} board={board} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    const head = headingDot();
+    expect(head).not.toBeNull();
+    // The first row is w1 (working, building), so that is what the head says.
+    const first = screen
+      .getAllByRole('listitem')[0]
+      ?.querySelector<HTMLElement>('[data-role="status-dot"]');
+    expect(head?.dataset.state).toBe(first?.dataset.state);
+    expect(head?.dataset.status).toBe(first?.dataset.status);
+    expect(head?.dataset.state).toBe('working');
+    expect(head?.dataset.status).toBe('building');
+    // Decoration: the head's word is what is read out, not a second status.
+    expect(head).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('follows the top ticket when the loudest thing on the board changes', () => {
+    // With nothing working, `ticketStatuses` puts the blocked ticket first — and
+    // the head is fire, because the head is that row.
+    const blockedFirst = makeBoard({
+      blocked: [
+        makeTicket({
+          ...baseFields,
+          id: 'b1',
+          title: 'Billing',
+          body: '',
+          state: 'blocked',
+          priority: 0,
+        }),
+      ],
+      ready: [
+        makeTicket({
+          ...baseFields,
+          id: 'r1',
+          title: 'Export',
+          body: '',
+          state: 'ready',
+          priority: 0,
+        }),
+      ],
+    });
+    render(<HeaderStatusMenu summary={summary} board={blockedFirst} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(headingDot()?.dataset.state).toBe('blocked');
+    expect(headingDot()?.dataset.status).toBe('idle');
+  });
+
+  it('leaves the head stateless when there is no ticket to report', () => {
+    // An empty board and a board still loading both land here. The mark stays —
+    // the heading's geometry must not shift when the first ticket arrives under
+    // it — and falls back to the shared mark's flat, faint default rather than
+    // claiming a state nothing on the board is in.
+    render(<HeaderStatusMenu summary={makeFeedSummary()} board={makeBoard()} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    const head = headingDot();
+    expect(head).not.toBeNull();
+    expect(head?.dataset.state).toBeUndefined();
+    expect(head?.dataset.status).toBeUndefined();
+  });
+
   it('renders a compact time-in-status age subtext on every ticket row', () => {
     render(<HeaderStatusMenu summary={summary} board={board} />);
     fireEvent.click(screen.getByRole('button'));

@@ -88,6 +88,35 @@ test.describe('desk shell', () => {
     expect(paintedOnTop['say']).not.toBe('feed-show-earlier');
   });
 
+  test('the desk feed is one size in every band state', async ({ page }) => {
+    // The desk half of "a toast is not a layout event" (the phone's is in
+    // bottom-stack.spec.ts). The band's live height is reserved as this region's
+    // `padding-bottom`, which extends the scroll AND shrinks the content box —
+    // so a toast, or Kiln thinking, resized the feed behind it and carried
+    // everything anchored to its foot along. The wrapper hands that growth back.
+    const heights: Record<string, number> = {};
+    for (const state of [
+      { key: 'rest', band: 'none', thinking: false },
+      { key: 'thinking', band: 'none', thinking: true },
+      { key: 'say', band: 'say', thinking: false },
+    ] as const) {
+      await mountShell(page, { band: state.band, thinking: state.thinking, cards: 0 });
+      const row = await box(page, "[data-role='activity-row']");
+      expect(row.height, `${state.key}: no band to be unaffected by`).toBeGreaterThan(
+        state.key === 'rest' ? 0 : 12,
+      );
+      heights[state.key] = Math.round(
+        (await box(page, "[data-role='desktop-feed-scroll']")).height,
+      );
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
+    for (const key of ['thinking', 'say']) {
+      expect(heights[key], `the desk feed resized when the band was "${key}"`).toBe(
+        heights['rest'],
+      );
+    }
+  });
+
   test('"Show earlier" ends the desk feed and shares the cards’ column', async ({ page }) => {
     await mountShell(page, { band: 'none', cards: 0 });
     const control = await box(page, "[data-role='feed-show-earlier']");

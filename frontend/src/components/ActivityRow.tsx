@@ -259,13 +259,20 @@ export function ActivityRow({
   // whenever a toast was up. `closest` is null outside either shell (isolated
   // tests), where the whole effect is a no-op.
   //
-  // The reserve is for the CARDS, though, and the control now spends it
-  // differently: it cancels this inset back out of its own position (a
-  // paint-only `transform`, both stylesheets) so a toast OVERLAYS it rather than
-  // pushing it up the screen. That reader assumes exactly what is published here
-  // — THIS ROW's whole height, including the gap it rests at when empty.
-  // Narrowing it to, say, the toast stack alone would quietly move the control
-  // instead of holding it still.
+  // The reserve is for the CARDS, and for nothing else — a band arriving must
+  // not be a layout event. Padding on a scroll container shrinks its content box
+  // as well as extending its scroll, so this inset on its own resized the whole
+  // board behind the band (the cards' box, the resting block's centring, and the
+  // "Show earlier" control pinned to the foot, which visibly hopped up the
+  // screen every time Kiln started thinking). Each shell's scroll wrapper
+  // therefore hands the band's growth straight back — `--feed-overlay-slack`,
+  // declared for both roots in PrimaryScreen.css — so the laid-out board is one
+  // height in every band state and only the scroll extent moves.
+  //
+  // That reader assumes exactly what is published here: THIS ROW's whole height,
+  // including the gap it rests at when empty (the slack subtracts that resting
+  // gap itself, since it is there with nothing to show). Narrowing this to, say,
+  // the toast stack alone would put the resize back.
   useEffect(() => {
     const el = rowRef.current;
     const root =

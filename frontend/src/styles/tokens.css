@@ -56,6 +56,13 @@
   --surface-inset: var(--paper-200);
   --surface-subtle: var(--paper-100);
 
+  /* The one deliberately theme-invariant surface: third-party brand marks are
+     drawn for light backgrounds, so their disc stays white in both themes and
+     is NOT re-declared under [data-theme='dark']. It lives here as a token so
+     no component stylesheet has to carry the literal. */
+  --surface-brand-disc: #ffffff;
+  --text-on-brand-disc: #191815;
+
   --text-body: var(--ink-900);
   --text-secondary: var(--ink-700);
   --text-muted: var(--ink-500);

@@ -721,13 +721,39 @@
   pointer-events: auto;
 }
 
+/* The list's head — a label, and now a reading of what is under it.
+ *
+ * It carries the shared status mark of the TOP ticket (see HeaderStatusMenu),
+ * which is what the desk's in-progress head has worn since it stopped drawing a
+ * dot of its own. There are no geometry, colour or animation rules for the mark
+ * here either, and that absence is the design: it is the same element the rows
+ * render, so it is the same 7px circle, the same ink, the same breath, from the
+ * one rule above that paints the whole list.
+ *
+ * Two things the head does have to say. First, hold the box — the mark is a flex
+ * child, and without this a long heading would take its pixels before wrapping,
+ * and a squeezed circle is an oval (the rows never risk it: they lay the mark out
+ * in a grid column instead).
+ *
+ * Second, the column. The gap is the rows' `column-gap` and the padding carries
+ * the mark to where a row's mark sits (a row is inset 6px by the list's padding
+ * and 10px by its own), so the head's mark and every mark under it stand in one
+ * vertical line rather than a hair apart — which is the whole of reading them as
+ * one reading and its list. */
 [data-role='header-status-heading'] {
-  padding: 11px 14px 7px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 16px 7px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+[data-role='header-status-heading'] [data-role='status-dot'] {
+  flex: none;
 }
 
 [data-role='header-status-list'] {
@@ -2628,12 +2654,12 @@ button[data-role='toast-open']:focus-visible {
      express. Two alphas: the ring is stronger at its tight resting stop and
      fades as it breathes outward. Everything else in this file reads tokens. */
   --mic-level: 0;
-  --mic-glow-strong: oklch(
-    calc(0.82 - var(--mic-level) * 0.25) calc(0.07 + var(--mic-level) * 0.16) 29 / 0.55
-  ); /* sanctioned computed colour */
-  --mic-glow-weak: oklch(
-    calc(0.82 - var(--mic-level) * 0.25) calc(0.07 + var(--mic-level) * 0.16) 29 / 0.28
-  ); /* sanctioned computed colour */
+  /* Lightness and chroma as functions of the mic level, hoisted so each stop
+     below is one line that carries its own audit marker. */
+  --mic-l: calc(0.82 - var(--mic-level) * 0.25);
+  --mic-c: calc(0.07 + var(--mic-level) * 0.16);
+  --mic-glow-strong: oklch(var(--mic-l) var(--mic-c) 29 / 0.55); /* sanctioned */
+  --mic-glow-weak: oklch(var(--mic-l) var(--mic-c) 29 / 0.28); /* sanctioned */
   position: absolute;
   inset: 0;
   margin: auto;
@@ -2743,20 +2769,23 @@ button[data-role='toast-open']:focus-visible {
    language. The ring is now the full fire accent (redder and crisper than the old
    soft tone), and the halo is intensified — wider blur and spread, breathing harder
    — so the ember reads stronger now that the chip floats free of the dock band. A
-   soft downward drop shadow rides along, deepening as the halo swells, so the pill
-   feels lifted off the page. */
+   soft downward drop shadow rides along, climbing the elevation ladder from
+   --shadow-raised to --shadow-overlay as the halo swells, so the pill feels
+   lifted off the page — and so the lift tracks the theme (the tokens carry warm
+   tints on paper, deeper black at night). Both tokens are two layers, so the
+   four-layer shadow interpolates stop to stop. */
 @keyframes kiln-thinking-glow {
   0%,
   100% {
     box-shadow:
       0 0 0 1px var(--accent),
-      0 5px 12px rgba(0, 0, 0, 0.18),
+      var(--shadow-raised),
       0 0 20px 4px var(--accent-soft);
   }
   50% {
     box-shadow:
       0 0 0 1px var(--accent),
-      0 9px 20px rgba(0, 0, 0, 0.26),
+      var(--shadow-overlay),
       0 0 34px 9px var(--accent-soft);
   }
 }
@@ -2842,7 +2871,7 @@ button[data-role='toast-open']:focus-visible {
     transform: none;
     box-shadow:
       0 0 0 1px var(--accent),
-      0 5px 12px rgba(0, 0, 0, 0.18),
+      var(--shadow-raised),
       0 0 20px 4px var(--accent-soft);
   }
 

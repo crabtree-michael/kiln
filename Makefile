@@ -1,15 +1,27 @@
 # Kiln hard gate + task runner (docs/specs/02 §4).
 #
-# `make check` is the wall: lint -> type-check/build -> unit -> integration.
-# Red means you cannot land. Git hooks (make hooks) and CI both run this.
+# `make check` is the wall: contract freshness -> lint -> type-check/build ->
+# unit -> integration. Red means you cannot land. Git hooks (make hooks) and CI
+# both run this.
 #
-# Toolchain: Go 1.23+, golangci-lint, oapi-codegen (backend); Node 22 + pnpm
-# (frontend). `make setup` installs what it can.
+# Toolchain: Go 1.23+, golangci-lint (backend); Node 22 + pnpm (frontend).
+# `make setup` installs what it can; oapi-codegen needs no install (see below).
 
 BACKEND  := backend
 FRONTEND := frontend
 SCHEMA   := schema
 TESTS    := tests
+
+# Codegen tooling is version-pinned, not floating: `make schema` must produce
+# byte-identical output for everyone, or `schema-verify` (in the hard gate
+# below) turns into a coin flip that fails on whoever regenerated last with a
+# different tool build. The Go side pins here; the TS side pins as an exact
+# version in frontend/package.json (openapi-typescript, no caret).
+#
+# Bumping either is a deliberate two-step: change the pin, run `make schema`,
+# and commit the regenerated output in the same commit.
+OAPI_CODEGEN_VERSION := v2.7.1
+OAPI_CODEGEN := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION)
 
 .DEFAULT_GOAL := help
 
@@ -30,9 +42,10 @@ setup: ## Install dependencies and dev tools
 	# tests package and its Chromium are part of the hard gate's toolchain now,
 	# not just the deliberately-run e2e suite's.
 	cd $(TESTS) && pnpm install && pnpm run install-browser
-	@echo "Install golangci-lint + oapi-codegen if missing:"
+	# oapi-codegen is not installed: `make schema` runs it via `go run` at the
+	# pinned OAPI_CODEGEN_VERSION, so there is no local build to drift.
+	@echo "Install golangci-lint if missing:"
 	@echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
-	@echo "  go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest"
 
 .PHONY: sandbox
 sandbox: ## Provision a bare dev box: toolchain, test database, docker, hooks, deps
@@ -56,7 +69,7 @@ hooks: ## Install the git pre-commit / pre-push hard-gate hooks
 ## ----------------------------------------------------------------------------
 
 .PHONY: check
-check: lint typecheck test ## Full hard gate: lint + type-check/build + tests
+check: schema-verify lint typecheck test ## Full hard gate: contract freshness + lint + type-check/build + tests
 
 .PHONY: lint
 lint: lint-backend lint-frontend ## Lint + format-check both surfaces
@@ -136,12 +149,19 @@ e2e-keyless: ## Keyless e2e: the @keyless specs against the mocked stack — no 
 .PHONY: schema
 schema: ## Regenerate Go + TS types from schema/openapi.yaml
 	cd $(FRONTEND) && pnpm exec openapi-typescript ../$(SCHEMA)/openapi.yaml -o src/schema/generated.ts
-	cd $(SCHEMA) && oapi-codegen -config oapi-codegen.yaml openapi.yaml
+	cd $(SCHEMA) && $(OAPI_CODEGEN) -config oapi-codegen.yaml openapi.yaml
 
+# In `make check` (02 §3: schema and both generated sides version together
+# atomically) — a forgotten regen is a contract drift between client and server,
+# and until this ran in the gate it passed CI silently while both surfaces
+# compiled fine against their own stale copy.
+#
+# Note this regenerates in place, so a failure leaves the fresh output already in
+# your working tree: read the diff, then commit it.
 .PHONY: schema-verify
 schema-verify: schema ## Fail if checked-in generated types are stale
-	git diff --exit-code -- $(FRONTEND)/src/schema $(BACKEND)/internal/wire \
-		|| { echo "generated types are stale: run 'make schema' and commit"; exit 1; }
+	@git diff --exit-code -- $(FRONTEND)/src/schema $(BACKEND)/internal/wire \
+		|| { echo "generated types are stale: schema/openapi.yaml changed without a regen. The diff above is the fresh output, now in your working tree — commit it alongside the schema change."; exit 1; }
 
 .PHONY: build
 build: ## Production build of both surfaces

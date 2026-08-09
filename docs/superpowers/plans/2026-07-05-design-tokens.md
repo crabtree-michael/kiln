@@ -2,6 +2,45 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Status — delivered (audited 2026-08-09)
+
+**This plan is done. Do not re-run it.** A board ticket re-raised it in August 2026 on the
+premise that zero tasks had been started; that premise was stale. An audit on 2026-08-09 found
+Tasks 1–4 already landed, and closed the only real gap — drift in stylesheets written *after*
+the plan. The step text below is kept as the record of intent; the checkboxes reflect reality.
+
+| Task | State |
+|---|---|
+| 1 — Token layer + self-hosted fonts | **Done pre-session.** `src/styles/tokens.css` carries the full system; the three `@fontsource-variable` packages are dependencies and are imported ahead of `tokens.css` in `main.tsx`; `index.html` has no Google Fonts links and its `theme-color` is `#faf6ef`. |
+| 2 — Theme mechanism | **Done pre-session.** `src/theme.ts`, `src/theme.test.ts`, and a rewritten `ThemeColorSync.tsx` all exist and pass. |
+| 3 — Primary screen restyle | **Done pre-session.** `PrimaryScreen.css` and `TicketDetail.css` read semantic tokens throughout. |
+| 4 — Debug shell restyle | **Moot — superseded.** The shell refactor (`c3e9b99`) deleted `/debug` and `App.css` outright, taking the `--kiln-*` palette with them. Nothing was left to restyle. `TicketDetail`'s `surface: 'debug' \| 'primary'` prop survives as a skin name only. |
+| 5 — Verification pass | **Audit greps clean.** Both Step 1 greps return nothing; `pnpm run check` green (73 files, 1057 tests), `format:write` a no-op, production build emits 8 self-hosted woff2 files. Step 3's visual eyeball is the one piece outstanding — see below. |
+
+**Two amendments the audit had to make to reach a clean Step 1 grep:**
+
+1. Three stylesheets written after this plan had reintroduced raw literals. `Dashboard.css` and
+   `Landing2.css` hardcoded a white disc behind third-party brand marks; that disc is now
+   `--surface-brand-disc` / `--text-on-brand-disc` in `tokens.css`, deliberately **not**
+   re-declared under `[data-theme='dark']` — vendor logos are drawn for light backgrounds, so
+   that one surface must not flip with the theme. `PrimaryScreen.css`'s thinking-chip glow had
+   three raw `rgba(0, 0, 0, …)` drop shadows; they now climb the elevation ladder
+   `--shadow-raised` → `--shadow-overlay` across the breathe (both tokens are two-layer, so the
+   four-layer shadow still interpolates), with the reduced-motion static state on
+   `--shadow-raised`.
+2. The sanctioned mic-glow `oklch()` stops were failing Step 1's own grep, because the
+   `sanctioned` marker sat on each declaration's *closing* line. The shared `calc()`s are
+   hoisted into `--mic-l` / `--mic-c` so each stop is a single line carrying its own marker —
+   which also de-duplicates the expressions. This is Task 5 Step 1's documented escape hatch,
+   taken rather than loosening the grep.
+
+**Outstanding follow-up (non-blocking).** Task 5 Step 3's visual pass was never run — the
+auditing session had no browser or screenshot tool, so no rendered screen was inspected. The
+amendment worth eyeballing is the thinking-chip lift shadow: moving off hardcoded
+`rgba(0, 0, 0, …)` onto the elevation tokens is a real, if small, visual delta (warmer and
+softer on paper, deeper at night). Everything else is a literal-for-token swap at equal value.
+This was explicitly judged not to block the merge.
+
 **Goal:** Replace the frontend's two ad-hoc palettes with the single Kiln design system (`docs/ui/Kiln Colors.html`): tokens in `tokens.css`, self-hosted fonts, a `data-theme` mechanism (light/dark), and full restyles of the primary screen and `/debug` shell.
 
 **Architecture:** One global `tokens.css` (primitive ramps + semantic aliases, light on `:root`, dark on `[data-theme='dark']`) imported first in `main.tsx`. A pure `theme.ts` module resolves route + system preference to a theme; `ThemeColorSync` applies it to `<html data-theme>` and the `theme-color` meta. Component CSS consumes only semantic tokens.
@@ -30,7 +69,7 @@
 **Interfaces:**
 - Produces: every `--paper-*/--ink-*/--fire-*/--glaze-*/--ember-*` primitive; semantic tokens `--surface-page/card/raised/inset/subtle`, `--text-body/secondary/muted/faint/on-accent`, `--accent[-hover/-press/-soft/-faint]`, `--calm[-strong/-soft]`, `--warn[-strong/-soft]`, `--danger[-soft]`, `--border-default/strong/hairline`, `--focus-ring`, `--scrim`; fonts `--font-sans/editorial/mono`; type scale `--type-display/title/heading/body/body-strong/small/caption/editorial/mono`, `--tracking-caps/display`; `--space-1/2/3/4/5/6/8/10/12/16`; `--page-gutter/content-max/marketing-max/touch-target`; `--radius-sm/md/lg/xl/pill`; `--shadow-card/raised/overlay`; `--ease-settle/in-out`, `--duration-fast/base/slow`, `--pulse-duration`. Tasks 3–4 consume these names exactly.
 
-- [ ] **Step 1: Add font packages**
+- [x] **Step 1: Add font packages**
 
 ```bash
 cd frontend
@@ -38,7 +77,7 @@ pnpm add @fontsource-variable/hanken-grotesk @fontsource-variable/newsreader @fo
 npm install --package-lock-only
 ```
 
-- [ ] **Step 2: Create `frontend/src/styles/tokens.css`**
+- [x] **Step 2: Create `frontend/src/styles/tokens.css`**
 
 ```css
 /* ─────────────────────────────────────────────
@@ -272,7 +311,7 @@ a {
 }
 ```
 
-- [ ] **Step 3: Wire imports in `frontend/src/main.tsx`**
+- [x] **Step 3: Wire imports in `frontend/src/main.tsx`**
 
 Add at the top of the import block (fonts first, then tokens, before any component import so component CSS wins the cascade where it overrides base styles):
 
@@ -283,7 +322,7 @@ import '@fontsource-variable/spline-sans-mono';
 import '@/styles/tokens.css';
 ```
 
-- [ ] **Step 4: Update `frontend/index.html`**
+- [x] **Step 4: Update `frontend/index.html`**
 
 Remove the two `<link rel="preconnect">` lines and the Google Fonts stylesheet `<link>` (and the "Primary-screen (08) type" comment above them). Change the theme-color meta to the paper token value and update its comment to say ThemeColorSync overrides it per theme/route:
 
@@ -291,18 +330,18 @@ Remove the two `<link rel="preconnect">` lines and the Google Fonts stylesheet `
 <meta name="theme-color" content="#faf6ef" />
 ```
 
-- [ ] **Step 5: Update PWA manifest colors in `frontend/vite.config.ts`**
+- [x] **Step 5: Update PWA manifest colors in `frontend/vite.config.ts`**
 
 Lines ~74-75: `theme_color: '#f3efee'` → `'#faf6ef'`, `background_color: '#f3efee'` → `'#faf6ef'` (manifest is static; light paper is the install-time default).
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 pnpm run check && pnpm run build
 ```
 Expected: lint, typecheck, 204 tests pass; build succeeds and emits woff2 assets.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A && git commit -m "feat(web): add Kiln design tokens + self-hosted variable fonts"
@@ -321,7 +360,7 @@ git add -A && git commit -m "feat(web): add Kiln design tokens + self-hosted var
 - Consumes: `[data-theme='dark']` overrides from tokens.css (Task 1).
 - Produces: `type Theme = 'light' | 'dark'`; `resolveTheme(pathname: string, prefersDark: boolean): Theme`; `applyTheme(theme: Theme): void`; `THEME_COLORS: Record<Theme, string>` (`light: '#faf6ef'`, `dark: '#16110d'` — must equal the two `--surface-page` values in tokens.css). Task 4 relies on `/debug` forcing dark.
 
-- [ ] **Step 1: Write the failing test `frontend/src/theme.test.ts`**
+- [x] **Step 1: Write the failing test `frontend/src/theme.test.ts`**
 
 ```ts
 // Route + system preference → data-theme (design spec 2026-07-05 §3):
@@ -368,14 +407,14 @@ describe('applyTheme', () => {
 });
 ```
 
-- [ ] **Step 2: Run it — expect failure**
+- [x] **Step 2: Run it — expect failure**
 
 ```bash
 pnpm vitest run src/theme.test.ts
 ```
 Expected: FAIL — cannot resolve `@/theme`.
 
-- [ ] **Step 3: Create `frontend/src/theme.ts`**
+- [x] **Step 3: Create `frontend/src/theme.ts`**
 
 ```ts
 // One theme mechanism: `data-theme` on <html>, consumed by tokens.css.
@@ -406,14 +445,14 @@ export function applyTheme(theme: Theme): void {
 }
 ```
 
-- [ ] **Step 4: Run the test — expect pass**
+- [x] **Step 4: Run the test — expect pass**
 
 ```bash
 pnpm vitest run src/theme.test.ts
 ```
 Expected: 4 tests PASS.
 
-- [ ] **Step 5: Rewrite `frontend/src/components/ThemeColorSync.tsx`**
+- [x] **Step 5: Rewrite `frontend/src/components/ThemeColorSync.tsx`**
 
 Replace the whole file:
 
@@ -444,14 +483,14 @@ export function ThemeColorSync(): null {
 }
 ```
 
-- [ ] **Step 6: Full gate**
+- [x] **Step 6: Full gate**
 
 ```bash
 pnpm run check
 ```
 Expected: all tests pass (204 + 4 new).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A && git commit -m "feat(web): data-theme mechanism — /debug forces dark, / follows system"
@@ -469,11 +508,11 @@ git add -A && git commit -m "feat(web): data-theme mechanism — /debug forces d
 
 This is a mechanical remap plus five deliberate redesign points. Do NOT change selectors, layout properties (flex/grid/position/size), or the `data-*` contract — colors, fonts, radii, shadows, and animation timings only.
 
-- [ ] **Step 1: Delete the local token blocks**
+- [x] **Step 1: Delete the local token blocks**
 
 Remove the `html:has([data-role='primary-screen'])` and `body:has([data-role='primary-screen'])` rules entirely (tokens.css now paints `--surface-page` on html/body in both themes; the gradient is gone per strict-flat decision). Remove the local var definitions on `[data-role='primary-screen']` (`--ember`, `--ember-strong`, `--ember-soft`, `--ink`, `--ink-soft`, `--muted`, `--faint`, `--hairline`, `--hairline-faint`, `--surface`, `--paper-flat`) and their explanatory comments. Update the file-top comment to name the new system (`docs/ui/Kiln Colors.html`, tokens in `src/styles/tokens.css`, Hanken Grotesk / Spline Sans Mono / Newsreader).
 
-- [ ] **Step 2: Apply the variable remap across the whole file (and TicketDetail.css lines 140-228)**
+- [x] **Step 2: Apply the variable remap across the whole file (and TicketDetail.css lines 140-228)**
 
 | Old | New |
 |---|---|
@@ -512,7 +551,7 @@ Then the color literals:
 | glow/shadow tints `oklch(0.58 0.2 27 / …)` on dots, toasts, accept buttons | drop the glow; use `var(--shadow-card)` (dots/pills) or `var(--shadow-raised)` (buttons, image) |
 | `rgba(70, 28, 20, …)` shadows | `var(--shadow-card)` (1-3px blur) / `var(--shadow-raised)` (larger) |
 
-- [ ] **Step 3: Five deliberate redesign points**
+- [x] **Step 3: Five deliberate redesign points**
 
 (a) **Flat accent fills** — kiln glyph, empty-state mark, proposal Accept (PrimaryScreen.css) and detail Accept (TicketDetail.css): replace each `background: linear-gradient(160deg, oklch(...), var(--ember-strong))` with `background: var(--accent)`. Accept buttons additionally get `border-radius: var(--radius-pill)` (design: "controls are pills") and hover/active states:
 
@@ -550,11 +589,11 @@ Then the color literals:
      a volume-reactive fire glow (fire-500 hue), driven by --mic-level. */
 ```
 
-- [ ] **Step 4: Radii snap (within 2px of a token step only)**
+- [x] **Step 4: Radii snap (within 2px of a token step only)**
 
 `7px` (feed-status hover) → `var(--radius-sm)`; `10px` (accept buttons — now pill per Step 3a); `12px` (dropdown, toast-pill) → `var(--radius-md)`; `14px` (say-pill) → `var(--radius-md)`; `16px` (detail sheet, card image) → `var(--radius-lg)`; `8px` focus-ring radius → `var(--radius-sm)`. Leave the glyph's asymmetric radii and all `50%` circles as-is.
 
-- [ ] **Step 5: Verify no stray colors, tests, visual**
+- [x] **Step 5: Verify no stray colors, tests, visual**
 
 ```bash
 grep -nE '#[0-9a-fA-F]{3,8}|oklch|rgba\(' src/components/PrimaryScreen.css | grep -v 'sanctioned' # only the marked glow block lines may remain
@@ -562,7 +601,7 @@ pnpm run check
 ```
 Expected: grep shows only the mic-glow calc lines; all tests pass (DOM snapshots untouched).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(web): restyle primary screen on Kiln design tokens (flat paper, fire accent, new type)"
@@ -571,6 +610,12 @@ git add -A && git commit -m "feat(web): restyle primary screen on Kiln design to
 ---
 
 ### Task 4: Debug shell restyle (App.css + TicketDetail.css base rules)
+
+> **Superseded — never executed, and must not be.** The shell refactor (`c3e9b99`) deleted the
+> `/debug` route and `App.css` outright, which removed the `--kiln-*` palette this task was
+> written to replace. Both files named below are gone. The steps stay unchecked because they
+> did not happen; the outcome they aimed at — no `--kiln-*` palette anywhere — holds anyway.
+> `TicketDetail.css` was tokenized under Task 3.
 
 **Files:**
 - Modify: `frontend/src/App.css` (full-file token remap), `frontend/src/components/TicketDetail.css:1-125` (base rules)
@@ -633,7 +678,7 @@ git add -A && git commit -m "feat(web): restyle /debug shell as Kiln-at-night on
 
 **Files:** none new (fixes only if verification finds issues).
 
-- [ ] **Step 1: Whole-repo stray-color audit**
+- [x] **Step 1: Whole-repo stray-color audit**
 
 ```bash
 cd frontend
@@ -642,7 +687,7 @@ grep -rn "fonts.googleapis\|Space Grotesk\|IBM Plex Mono\|Instrument Serif\|f3ef
 ```
 Expected: both return nothing (first grep: the sanctioned mic-glow lines are excluded by marker; if any line of that block still matches, extend the inline marker comment so each matching line's rule block is clearly the sanctioned one, or adjust the grep to `-A6` context review).
 
-- [ ] **Step 2: Gate + build**
+- [x] **Step 2: Gate + build**
 
 ```bash
 pnpm run check && pnpm run format:write && pnpm run build
@@ -657,7 +702,7 @@ Bring the app up (per local-environment skill / `pnpm dev`), then screenshot and
 - `/debug`: dark tokens, blocked=fire / working=ember / done=glaze mapping visible, accent chat send button.
 - Ticket-detail overlay on both routes.
 
-- [ ] **Step 4: Commit any fixes; final commit**
+- [x] **Step 4: Commit any fixes; final commit**
 
 ```bash
 git add -A && git commit -m "chore(web): verification fixes for design-token rollout" # only if needed

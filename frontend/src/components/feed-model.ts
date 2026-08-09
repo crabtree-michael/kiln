@@ -37,8 +37,14 @@
 // cards. It type-checks, and nothing else in the gate would notice. Hence two
 // names, and the first describe block of `feed-model.test.ts`, which exists
 // solely to fail if the two sets are ever made to agree.
+//
+// The two SETS themselves now live in `feed-kinds.ts` with the rest of the
+// taxonomy (`isNotificationCard` / `isAuthoredUpdate`, two columns of one
+// matrix); what stays here is the pair of id readers built on them, because
+// they are about the nullable `notification_id` field as much as the kind.
 import type { Board, FeedCard, FeedSnapshot, FeedSummary, Ticket } from '@/transport/transport';
 import { lastWordDetail } from '@/components/feed-format';
+import { isAuthoredUpdate, isNotificationCard } from '@/components/feed-kinds';
 
 /** The summary a shell renders before any feed snapshot has landed. Shared so
  * the two shells cannot drift on what "nothing yet" counts as. */
@@ -49,24 +55,6 @@ export const EMPTY_SUMMARY: FeedSummary = {
   building: 0,
   idle: 0,
 };
-
-/** Whether a card is notification-backed — one of the four kinds that is a row
- * in the `notifications` table (08 §3, §7): the brain-authored update/preview,
- * the steward's mechanical `poke` stall nudge, and the runtime's mechanical
- * `done` completion notice. The other two kinds (blocker/proposal) are
- * board-derived, carry no notification_id, and are replaced wholesale by every
- * snapshot.
- *
- * This is the taxonomy the STORE accumulates by and the swipe gesture clears by.
- * It is NOT the divider's taxonomy — see the header, and `isAuthoredUpdate`. */
-export function isNotificationCard(card: FeedCard): boolean {
-  return (
-    card.kind === 'update' ||
-    card.kind === 'preview' ||
-    card.kind === 'poke' ||
-    card.kind === 'done'
-  );
-}
 
 /** A notification-backed card's numeric notification_id, or null. Narrows both
  * the kind and the nullable wire field in one step, so callers get a plain
@@ -80,14 +68,6 @@ export function notificationId(card: FeedCard): number | null {
   return isNotificationCard(card) && typeof card.notification_id === 'number'
     ? card.notification_id
     : null;
-}
-
-/** Whether a card is one Kiln AUTHORED — an `update` or a `preview`, written by
- * the brain. A strict subset of `isNotificationCard`: the mechanical `poke` and
- * `done` notices are notification-backed but nobody wrote them, so they are not
- * part of "what the user has caught up on reading". */
-export function isAuthoredUpdate(card: FeedCard): boolean {
-  return card.kind === 'update' || card.kind === 'preview';
 }
 
 /** A brain-authored card's numeric notification_id, or null — the last-seen

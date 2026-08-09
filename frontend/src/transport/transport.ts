@@ -11,6 +11,12 @@
 // trusting its own backend, not a public API boundary — but they are enough
 // to keep every value flowing through here statically typed, never `any`.
 import type { components } from '@/schema/generated';
+// The card-kind guard is the feed taxonomy's, not the transport's: the set of
+// kinds the wire may carry and the set every screen has had to decide about are
+// the same set, stated once in `feed-kinds.ts`. This module's own type export
+// (`FeedCard`) travels back the other way, but only as a type — erased at
+// compile time, so the two files do not form a runtime cycle.
+import { isFeedCardKind } from '@/components/feed-kinds';
 
 export type Ticket = components['schemas']['Ticket'];
 export type Board = components['schemas']['Board'];
@@ -202,17 +208,6 @@ function isSayEvent(value: unknown): value is SayEvent {
 
 function isNullableNumber(value: unknown): value is number | null | undefined {
   return value === undefined || value === null || typeof value === 'number';
-}
-
-function isFeedCardKind(value: unknown): value is FeedCard['kind'] {
-  return (
-    value === 'blocker' ||
-    value === 'proposal' ||
-    value === 'update' ||
-    value === 'preview' ||
-    value === 'poke' ||
-    value === 'done'
-  );
 }
 
 function isFeedCard(value: unknown): value is FeedCard {

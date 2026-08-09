@@ -176,7 +176,7 @@ a `NotificationWriter` — its "done" card is a persistent row, so both its deco
 and its write failures are returned for the outbox to retry. Those two
 dispositions sat interleaved in one file before; they are now one file each.
 
-### 2.6 `Dispatcher` — the durable queue core
+### 2.6 `Dispatcher` — the durable queue core — **LANDED**
 - **Ports:** `Store`, `BrainResolver`, `Puller`, `Blocker`, `AgentRuntime`.
 - **Collaborators:** `Transcript` (`Say` for the system-error / brain-unresolved
   replies), `Notify` (`notify.send`), `FanOut` (the four UI topics +
@@ -187,6 +187,36 @@ dispositions sat interleaved in one file before; they are now one file each.
   `brainUnavailableMessage`, `wrapOutbox`.
 - This is the module's spine — the deploy-resumable drain (04 §5). It routes,
   but no longer *implements* the feed/notification/transcript work it routes to.
+
+**As built (2026-08-09), with two small additions to the method list.** The five
+ports, the three collaborators and every method above landed as specified, plus
+`handleNotifySend` — the notify.send decode that step 1 left on `Service` when it
+took the send itself — which travels with the route that calls it. The
+constructor is the 8-arg positional form §6 sketches rather than the `Deps`
+struct it offers as an escape hatch; grouped as five ports then three
+collaborators it reads fine, and none of the six constructors now carries the
+"append at the end" comment. One comment was corrected in the move:
+`errUnknownTopic` claimed the switch routed "five" topics, which stopped being
+true when 08 §7 added three.
+
+The interesting part is §4's edge, which this step closes for real. Step 4 had
+`Service` satisfy `Nudger` because it still owned the events worker; the worker
+moved here with `Workers`, so `Dispatcher` is the Transcript's nudger now and
+`Service.NudgeEvents` is gone rather than forwarded — it only ever existed to
+serve the hook. The cycle the plan worried about never materializes: the
+`Transcript` → `Dispatcher` direction is the one-method interface, the
+`Dispatcher` → `Transcript` direction is the concrete type, and wiring sets the
+former after building the latter.
+
+What the extraction makes legible is the discipline that is the exact inverse of
+`FanOut`'s: **at-least-once durability**. A handler that returns an error is
+retried with backoff and then handed to a dead-letter action (04 §3); returning
+nil marks the entry done. Every route in `handleOutbox` is a deliberate choice
+between those, and the file can now state the two that swallow rather than retry
+and why — an unresolvable brain is a settings problem eight spaced retries cannot
+fix, and the two log-and-drop UI topics own their failures inside `FanOut`.
+Before, that reasoning sat interleaved with the best-effort pushes it is defined
+against.
 
 ### Dependency count, before vs after
 | Type          | Ports | Collaborators | vs. today |
@@ -462,7 +492,38 @@ first, spine last, delete last.
 6. **`Dispatcher`** — move `EnqueueEvent`/`Workers`/`handleEvent`/`handleOutbox`/
    dead-letter paths + topic consts into `dispatcher.go` on `*Dispatcher`,
    collaborating with the `Transcript`/`Notify`/`FanOut` values. At this point
-   `Service` is a thin aggregate that only holds the six and forwards.
+   `Service` is a thin aggregate that only holds the six and forwards. —
+   **DONE 2026-08-09.** `NewService`'s signature is unchanged for the sixth and
+   final time, so no caller moved; what changed is that it now builds all six
+   values and keeps none of the ports. `Service` holds **zero ports** and does
+   **zero work** — every one of its methods is a one-line forward — which is
+   exactly the shape steps 7–9 delete. `service.go` 489 → 187 LOC; across the six
+   steps, 941 → 187.
+
+   Test disposition is the end state steps 1–5 were converging on: everything
+   moved. `service_test.go` and `feed_test.go` are **deleted**, not thinned —
+   between them they held nothing but drain assertions (the ingest contract, the
+   per-topic routing, the dead-letter table, the thinking bracket, the four
+   representative UI-topic routes step 5 deliberately left behind), and all of it
+   is now `dispatcher_test.go` built over `NewDispatcher`. `degradation_test.go`
+   retargets the same way. Where §7 predicted a `buildRuntime` helper, what the
+   suite wanted was step 5's rig pattern: `newDispatcherRig` wires one
+   `Dispatcher` over fresh fakes kept to hand, and because every fake reads its
+   behaviour field at call time, a test stages a failure by assigning to
+   `rig.agents.sendFn` before starting a worker instead of re-listing fourteen
+   constructor args. Unlike the leaf units the rig is deliberately the *whole*
+   graph — real `Transcript`/`Notify`/`FanOut` values over fakes, one shared
+   `Notify` as wiring builds it — because the drain's subject *is* the wiring
+   between them. Two tests had nowhere to live before: the unknown-topic route
+   (04 §2's contract violation retries like any handler error and lands dead
+   without touching an executor or the `Blocker`, a `default:` arm with no
+   coverage at all until now) and the un-nudged ingest seen from the side that
+   owns the worker — `EnqueueEvent` before `Workers` still commits a claimable
+   row, the nil contract §4 states, now asserted from both ends.
+
+   With this the six units exist and `Service` is a shim. Steps 7–9 are a
+   separate follow-up: flip `wiring.go`/`adapters.go` to the six values, wire
+   `tx.SetNudger(disp)`, and delete `service.go`.
 7. **Flip the composition root** (`wiring.go`, `adapters.go`) and the api/brain/
    steward slots to the six concrete values per §6; wire `tx.SetNudger(disp)`.
 8. **Flip the tests** (§7) to build the focused types.

@@ -23,6 +23,7 @@ import {
 } from '@/transport/transport';
 import type { ConnectionState, FeedCard, FeedSnapshot } from '@/transport/transport';
 import { notificationId } from '@/components/feed-model';
+import { isBlockerCard, isBoardCard, isProposalCard } from '@/components/feed-kinds';
 import { FeedStoreContext, type FeedStoreValue } from '@/stores/feed-context';
 import { cacheFeed, readCachedFeed } from '@/stores/project-cache';
 import { subscribeStream } from '@/stores/stream-connection';
@@ -54,6 +55,11 @@ const OPTIMISTIC_ACCEPT_TTL_MS = 5 * 60 * 1000;
 // update/preview only), which was ALSO called `updateId` before the split. Read
 // feed-model.ts's header before touching either: collapsing them is a silent,
 // type-checking way to slide the "Earlier" divider onto the poke and done cards.
+//
+// Both sets, and every other question this store asks about a card's kind
+// (`isBoardCard` for the reconciliation below, `isBlockerCard`/`isProposalCard`
+// for the merge order), come from `@/components/feed-kinds` — the one matrix a
+// new kind has to be added to before anything here can see it.
 //
 // A card that isn't accumulated here never reaches the merged feed, so it
 // silently vanishes even though FeedCardItem renders it.
@@ -127,8 +133,8 @@ function mergeFeed(
 ): FeedSnapshot {
   const hidden = (card: FeedCard): boolean =>
     card.ticket_id != null && hiddenTicketIds.has(card.ticket_id);
-  const blockers = server.cards.filter((card) => card.kind === 'blocker' && !hidden(card));
-  const proposals = server.cards.filter((card) => card.kind === 'proposal' && !hidden(card));
+  const blockers = server.cards.filter((card) => isBlockerCard(card) && !hidden(card));
+  const proposals = server.cards.filter((card) => isProposalCard(card) && !hidden(card));
   const sortedUpdates = [...updates.values()]
     .filter(
       (card) =>
@@ -406,7 +412,7 @@ export function FeedProvider({ children }: FeedProviderProps): JSX.Element {
       // of `has_more_history` (which is about update history only).
       const liveCardTicketIds = new Set<string>();
       for (const card of snapshot.cards) {
-        if ((card.kind === 'proposal' || card.kind === 'blocker') && card.ticket_id != null) {
+        if (isBoardCard(card) && card.ticket_id != null) {
           liveCardTicketIds.add(card.ticket_id);
         }
       }

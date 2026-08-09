@@ -41,13 +41,22 @@ backend/internal/runtime/
   queue.go      QueueName · EventType · Entry/Event · retry constants (BackoffBase/Cap, MaxAttempts=8)
   store.go      Store port (InsertEvent, ClaimNextDue, MarkDone/MarkRetry/MarkDead) · Clock
   worker.go     Worker — serial drain loop, Nudge(), Handler/DeadLetter types
-  service.go    Service — EnqueueEvent + the drain and its executor ports: Store,
-                BrainResolver, Puller, Blocker, AgentRuntime (Send/Release —
-                05 §2.1). Being split into six focused types
-                (docs/god-units-plans/runtime-service.md); steps 1-5 have landed,
-                so those five ports are all it still holds — every other port now
-                belongs to a unit below and Service is a delegating shim in front
-                of it. Step 6 turns what is left into Dispatcher.
+  service.go    Service — all six extractions have landed, so this is now a thin
+                aggregate that holds the six units below, no port of its own, and
+                forwards every method in one line. It exists only so the
+                composition root and the consumer role interfaces keep working;
+                steps 7-9 of docs/god-units-plans/runtime-service.md flip cmd/kiln
+                to the six values and delete it. Add nothing here — add it to the
+                unit that owns the responsibility.
+  dispatcher.go Dispatcher — the durable queue core (split step 6, DONE): Store +
+                BrainResolver + Puller + Blocker + AgentRuntime (Send/Release —
+                05 §2.1), EnqueueEvent, Workers, the events/outbox handlers, the
+                dead-letter paths and the topic consts, over Transcript (the
+                system-error and brain-unresolved Says), Notify (notify.send) and
+                FanOut (the four UI topics + the thinking bracket). The spine: an
+                at-least-once drain where a returned error retries and then
+                dead-letters — the exact inverse of fanout.go. It is also the
+                Transcript's Nudger, since it owns the events worker.
   notify.go     Notify — the tenant-scoped push choke point (split step 1, DONE):
                 Owner + Notifier ports, mode gate, owner resolution. Every Web Push
                 the runtime emits goes through its one exported Send.
@@ -62,7 +71,7 @@ backend/internal/runtime/
   transcript_service.go  Transcript — the conversation surface (split step 4, DONE):
                 MessageStore + SayPusher, PostMessage/Say/Recent, plus the Nudger hook
                 that wakes the events worker after an ingest without holding it
-                (Service is the nudger until Dispatcher takes the worker in step 6).
+                (Dispatcher is the nudger — it owns the worker).
   fanout.go     FanOut — the push/SSE coordinator (split step 5, DONE):
                 SnapshotPusher + FeedPusher + ActivityPusher + the completion
                 card's NotificationWriter, over Feed (assemble) and Notify (push).

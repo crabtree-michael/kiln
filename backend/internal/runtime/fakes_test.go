@@ -19,9 +19,13 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
-// statusDone is the terminal delivery status a successful entry lands in
-// (04 §3), shared across the runtime unit tests.
-const statusDone = "done"
+// The two terminal statuses an entry lands in (04 §3), shared across the
+// runtime unit tests: done after a successful handler, dead once the retries
+// are exhausted and the per-topic dead-letter action has run.
+const (
+	statusDone = "done"
+	statusDead = "dead"
+)
 
 // Notification modes and transition kinds (02 §10), hoisted so the mode/kind
 // matrix in the notification tests names them once rather than repeating string
@@ -242,7 +246,7 @@ func (s *fakeStore) MarkDead(ctx context.Context, q runtime.QueueName, id int64,
 		return err
 	}
 	row := s.rows[q][id]
-	row.status = "dead"
+	row.status = statusDead
 	row.lastError = lastError
 	s.deadCalls = append(s.deadCalls, deadCall{queue: q, id: id, lastError: lastError, calledAt: s.clock.Now()})
 	return nil

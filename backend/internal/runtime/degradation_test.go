@@ -5,8 +5,9 @@ package runtime_test
 // per-project brain resolution means a project whose brain won't resolve
 // dead-letters its own event feed-visibly (a system-error Say + marked done,
 // no retry storm), while a healthy project's event on the same queue keeps
-// processing normally. This is the isolation sibling of
-// service_test.go's single-project BrainResolutionFailureSaysAndMarksDone.
+// processing normally. This is the isolation sibling of dispatcher_test.go's
+// single-project BrainResolutionFailureSaysAndMarksDone, and like it targets
+// the Dispatcher — cross-tenant containment is a property of the drain.
 
 import (
 	"context"
@@ -17,37 +18,30 @@ import (
 	"github.com/crabtree-michael/kiln/backend/internal/testutil"
 )
 
-// TestService_EventsWorker_BrainOutageDegradesOnlyTheFailingTenant seeds one
+// TestDispatcher_EventsWorker_BrainOutageDegradesOnlyTheFailingTenant seeds one
 // event for a project whose brain won't resolve (proj-A) and one for a healthy
 // project (proj-B) onto the same events queue, then proves the outage is
 // contained to A: A's event is marked done after a single attempt with a
 // feed-visible system Say to A only and no brain invocation, while B's event
 // is handled by its brain exactly once with no spurious Say — a genuine
 // tenant-scoped degradation, not a queue-wide stall.
-func TestService_EventsWorker_BrainOutageDegradesOnlyTheFailingTenant(t *testing.T) {
+func TestDispatcher_EventsWorker_BrainOutageDegradesOnlyTheFailingTenant(t *testing.T) {
 	const projA = "proj-A-degraded"
 	const projB = "proj-B-healthy"
 
 	clock := testutil.NewFakeClock()
-	store := newFakeStore(clock)
-	brainB := &fakeBrain{} // resolves only for the healthy project.
-	resolver := &fakeBrainResolver{
-		forFn: func(_ context.Context, projectID string) (runtime.Brain, error) {
-			if projectID == projA {
-				return nil, errStoreFailed // A's brain is down (bad/decrypt-fail config).
-			}
-			return brainB, nil
-		},
+	rig := newDispatcherRig(clock)
+	store := rig.store
+	brainB := rig.brain // the rig's brain resolves only for the healthy project.
+	rig.brains.forFn = func(_ context.Context, projectID string) (runtime.Brain, error) {
+		if projectID == projA {
+			return nil, errStoreFailed // A's brain is down (bad/decrypt-fail config).
+		}
+		return brainB, nil
 	}
-	sayer := &fakeSayPusher{}
-	svc := runtime.NewService(
-		store, &fakeMessageStore{}, resolver, &fakePuller{}, &fakeBlocker{},
-		&fakeAgentRuntime{}, &fakeNotifier{}, &fakeSnapshotPusher{}, sayer,
-		&fakeNotificationStore{}, &fakeBoardReader{}, &fakeFeedPusher{}, &fakeActivityPusher{},
-		&fakeOwner{},
-	)
+	sayer := rig.sayer
 
-	eventsWorker, _ := svc.Workers(clock)
+	eventsWorker, _ := rig.dispatcher.Workers(clock)
 	idA := store.seedProject(runtime.QueueEvents, projA, string(runtime.EventHumanMessage), []byte(`{"text":"a"}`), 0)
 	idB := store.seedProject(runtime.QueueEvents, projB, string(runtime.EventHumanMessage), []byte(`{"text":"b"}`), 0)
 

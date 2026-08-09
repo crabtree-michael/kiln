@@ -65,6 +65,75 @@ func TestHandleEvent_BoundedToolLoop_DispatchesInOrder(t *testing.T) {
 	}
 }
 
+// TestHandleEvent_BatchedReadRound_OneRoundCarriesEveryRead pins the pass shape
+// the prompt's Rounds section now asks for: the three opening reads an
+// agent.turn_completed pass needs — the roster, the ticket the event names, the
+// output of the worker it names — arrive as one round, are all dispatched, and
+// all come back in the single following request. That shape is what makes the
+// nudge worth making: each round it removes is a full rewrite of the
+// conversation prefix, which is ~50% of brain spend
+// (docs/brain-optimization-2026-08-08-measured.md §1, §7). The loop already
+// supported it (dispatchAll iterates every call); this keeps it supported, so a
+// model that takes the prompt at its word is never punished by the harness.
+func TestHandleEvent_BatchedReadRound_OneRoundCarriesEveryRead(t *testing.T) {
+	fb := &fakeBoard{}
+	fs := &fakeSay{}
+	agents := &fakeInspector{update: brain.AgentUpdate{WorkerID: workerW1, LatestOutput: "pushed the branch"}}
+
+	readIDs := []string{"read-roster", "read-ticket", "read-agent"}
+	llm := &scriptedLLM{responses: []brain.LLMResponse{
+		toolUse(
+			newToolCall(t, readIDs[0], brain.ToolListTickets, brain.ListTicketsInput{}),
+			newToolCall(t, readIDs[1], brain.ToolGetTicket, brain.GetTicketInput{ID: ticketT1}),
+			newToolCall(t, readIDs[2], brain.ToolGetAgentUpdates, brain.GetAgentUpdatesInput{WorkerID: workerW1}),
+		),
+		toolUse(newToolCall(t, "act", brain.ToolUpdateTicket,
+			brain.UpdateTicketInput{ID: ticketT1, State: new("blocked"), BlockedReason: new("needs a decision")})),
+		endTurn(""),
+	}}
+
+	svc := newTestServiceI(fb, fs, &fakeConvo{}, agents, llm)
+	err := svc.HandleEvent(context.Background(), agentTurnCompletedEvent(8, brain.AgentTurnCompletedPayload{
+		TicketID: ticketT1, WorkerID: workerW1, Output: "pushed the branch",
+	}))
+	if err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	// Three reads batched into one round cost three LLM calls in total, not five:
+	// the batched round, the action round, and the end-turn.
+	if got := llm.callCount(); got != 3 {
+		t.Fatalf("LLM.Do was called %d times, want exactly 3 — three batched reads must "+
+			"cost one round, not one round each", got)
+	}
+
+	// Every call in the round actually ran against its port.
+	if got := fb.getBoardCount(); got != 1 {
+		t.Errorf("GetBoard called %d times, want 1", got)
+	}
+	if got := agents.gotWorkerID; got != workerW1 {
+		t.Errorf("GetAgentUpdates worker id = %q, want %q", got, workerW1)
+	}
+	var sawGetTicket bool
+	for _, c := range fb.recordedCalls() {
+		if c.Method == "GetTicket" {
+			sawGetTicket = true
+		}
+	}
+	if !sawGetTicket {
+		t.Errorf("get_ticket in a batched round never reached BoardReader; recorded %v", fb.recordedCalls())
+	}
+
+	// …and all three results come back together, in the very next request.
+	round2 := llm.requestAt(t, 1)
+	for _, id := range readIDs {
+		if _, ok := findToolResult(round2, id); !ok {
+			t.Errorf("round 2's request is missing the ToolResult for %q — a batched round must "+
+				"feed back every call's result at once; messages: %#v", id, round2.Messages)
+		}
+	}
+}
+
 // TestHandleEvent_ToolErrorFedBackVerbatim pins 06 §5/§6/§8: when a port
 // call returns a typed error, the very next LLMRequest carries that error
 // text verbatim as the tool's ToolResult — not summarized, not dropped —

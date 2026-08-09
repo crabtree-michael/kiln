@@ -97,6 +97,18 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   as "already in that state, treat as done, never retry"; offering alternatives at that moment
   invites the retry the rule forbids. `TestUpdateTicket_RefusalStaysVerbatim` pins it.
 
+- Trimming the prompt's **`## Rounds`** section, or the "same round" clause on a read
+  tool's description, as redundant prose. They are the whole of the read-batching fix
+  (`docs/brain-optimization-2026-08-08-measured.md` §7): 11–14% of all measured rounds
+  were a read round foldable into the one before it, and *nothing* had ever told the
+  model it may ask for several reads at once — it batches in 22% of rounds unprompted,
+  so this is a nudge, not a new capability. The rule is stated once in the prompt and
+  repeated on each read tool because the tool description is what the model is reading
+  when it decides what a round contains. `TestRenderSystemPrompt_BatchesReadsIntoOneRound`
+  (prompt_test.go) and `TestTools_ReadDescriptionsInviteBatching` (dispatch_test.go) pin
+  both halves; `TestHandleEvent_BatchedReadRound_OneRoundCarriesEveryRead`
+  (pass_loop_test.go) pins that the loop honours the shape.
+
 ## Potential gotchas
 
 - **The done gate is configurable per project (merge-gate mode).** `update_ticket` with

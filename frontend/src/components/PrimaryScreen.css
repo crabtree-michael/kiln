@@ -1010,9 +1010,11 @@
 
 /* The breathing ring, in whatever hue the element it lands on has named. The
    status mark sets `--dot-ring` from the TICKET's state (see above), so a
-   working ticket breathes ember and nothing has to restate the palette here;
-   the accent fallbacks are for `feed-empty-pulse`, which names no ink and is
-   the app's own liveness mark rather than any one ticket's. */
+   working ticket breathes ember and nothing has to restate the palette here.
+   Every mark that uses this now names both rings — including the all-clear
+   screen's liveness pulse, which is the app's own mark rather than any one
+   ticket's — so the accent fallbacks are a floor, not a live default: reaching
+   them means a new caller forgot to say what colour it breathes in. */
 @keyframes kiln-status-pulse {
   0%,
   100% {
@@ -1764,9 +1766,24 @@ button[data-role='feed-card-head']:focus-visible {
   background: var(--text-muted);
 }
 
+/* Live — one or more agents are mid-turn. Ember, not fire, and for the same
+   reason the `building` status dot stopped painting the accent (see the note
+   above [data-role='status-dot']): fire is spent only where a person is needed
+   (13 §4), and `--danger` IS `--accent` in the dark register, so a healthy
+   working board wore the exact mark a BLOCKED ticket wears in the list — the
+   loudest colour on screen for the calmest state the app has. The ink it takes
+   now is the one the working marks and the sheet's IN PROGRESS badge already
+   wear, so "N building" here and a working row there read as one thing.
+
+   The ring vars are named rather than left to the keyframes' accent fallbacks,
+   which would have put the fire back in the halo the moment this mark breathed;
+   naming them also gives this mark the same breath as every working dot — soft
+   ring in, nothing out. */
 [data-role='feed-empty-pulse'][data-active='true'] {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  --dot-ring: var(--warn-soft);
+  --dot-ring-far: transparent;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--dot-ring);
   animation: kiln-status-pulse var(--pulse-duration) ease-in-out infinite;
 }
 

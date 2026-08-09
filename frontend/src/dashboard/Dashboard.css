@@ -1312,6 +1312,56 @@ html:has([data-role='settings']) {
   color: var(--text-body);
 }
 
+/* Save a snapshot. The picker above chooses among the images this project
+   already has; this makes another one. It sits under the picker as a named
+   sub-block rather than a second form beside it, because it is an occasional act
+   and the section's own question is still "which image do workers start from". */
+[data-role='save-snapshot'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+[data-role='settings'] [data-role='save-snapshot'] h4 {
+  margin: 0;
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+[data-role='save-snapshot-hint'],
+[data-role='save-snapshot-empty'],
+[data-role='save-snapshot-status'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+
+/* The one line that is a problem rather than a description. */
+[data-role='save-snapshot-status'][data-state='failed'] {
+  color: var(--danger);
+}
+
+[data-role='save-snapshot-status'] code {
+  font: var(--type-mono);
+  color: var(--text-body);
+}
+
+/* The select and its button on one line, the select taking the room the button
+   does not need. It wraps rather than shrinks below the group grid's own column
+   floor: a dev box's name is the whole of what the select says, so squeezing it
+   to fit a button beside it defeats the control. */
+[data-role='save-snapshot-controls'] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+[data-role='save-snapshot-controls'] label {
+  flex: 1;
+  min-width: 180px;
+}
+
 /* The dialog's one action bar, echoing the title bar at the other end of the
    panel: destructive on the left, committing on the right, nothing in between.
    `flex-end` rather than `space-between` so create mode — which has no delete —

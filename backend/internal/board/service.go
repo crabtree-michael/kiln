@@ -344,15 +344,17 @@ const acceptEmissionCount = 6
 // per-ticket option holds identically on each.
 //
 // The default is agent.release: recycle the slot's sandbox to a fresh workspace.
-// With the sandbox SAVED (KeepSandbox) it is agent.snapshot instead — capture
-// that workspace as a reusable base image. Saving used to mean only the
+// With the sandbox KEPT (KeepSandbox) it is agent.snapshot instead — capture
+// that workspace as a reusable base image. Keeping used to mean only the
 // suppression, emitting nothing at all: the release was skipped, so the box was
 // not destroyed and the next turn on the slot found the same workspace. That
 // half-kept the promise. The sandbox survived only as long as the box did —
 // nothing was ever persisted to the provider's snapshot catalog, so the
-// workspace still died with the box, and the "Save sandbox when done" switch
-// quietly delivered a stay of execution rather than a save (ticket 0549b739).
-// Emitting the capture is what makes the option mean what it says.
+// workspace still died with the box, and a switch then labelled "Save sandbox
+// when done" quietly delivered a stay of execution rather than a save (ticket
+// 0549b739). Emitting the capture is what makes the option mean what it says;
+// the client's label was rewritten to name the consequence rather than promise
+// a backup.
 //
 // Exactly one of the two is emitted, never both: a captured workspace must not
 // also be recycled out from under the capture. The binding is cleared and

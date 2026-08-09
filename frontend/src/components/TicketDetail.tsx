@@ -120,8 +120,9 @@ export interface TicketDetailProps {
    * affordance (read-only inspection). */
   onPoke?: ((ticketId: string) => void) | undefined;
   /** When provided, the gear menu carries the per-ticket **sandbox option** —
-   * "Save sandbox when done", a toggle reading the ticket's own `keep_sandbox`.
-   * Saving a ticket's sandbox turns the recycle its exit from Developing would
+   * "Start future tickets from this sandbox", a toggle reading the ticket's own
+   * `keep_sandbox`.
+   * Keeping a ticket's sandbox turns the recycle its exit from Developing would
    * otherwise do into a capture: the workspace is frozen into a new snapshot in
    * the project's catalog and the project is pointed at it, so what the agent
    * built becomes the base image later workers start from.

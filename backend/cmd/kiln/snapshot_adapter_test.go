@@ -1,7 +1,7 @@
 package main
 
-// The saved-sandbox capture executor (agentRuntimeAdapter.Snapshot) — the whole
-// of what "Save sandbox when done" does once the board has emitted
+// The kept-sandbox capture executor (agentRuntimeAdapter.Snapshot) — the whole
+// of what the ticket's sandbox option does once the board has emitted
 // agent.snapshot (05 §4, §6). It spans two modules, so it lives in the
 // composition root and is tested here: capture through the agent service, then
 // point the project at what came back.
@@ -25,8 +25,8 @@ import (
 var capturedAt = time.Date(2026, 8, 9, 12, 30, 45, 0, time.UTC)
 
 const (
-	capturedName   = "acme-widgets-20260809-123045"
-	fallbackName   = "kiln-20260809-123045"
+	capturedName   = "acme-widgets-20260809123045"
+	fallbackName   = "kiln-20260809123045"
 	captureProject = "Acme Widgets"
 	captureTicket  = "t-1"
 	captureSlug    = "kiln"
@@ -96,8 +96,8 @@ func snapshotEntry(t *testing.T) []byte {
 
 // The whole point of the fix: the capture actually happens, it is named
 // <project>-<timestamp> off the project's name and the emit-time instant, and
-// the project ends up pointed at it. Before this, "Save sandbox when done" only
-// suppressed the recycle and nothing was ever written to the catalog.
+// the project ends up pointed at it. Before this, the ticket's sandbox option
+// only suppressed the recycle and nothing was ever written to the catalog.
 func TestAgentRuntimeAdapter_SnapshotCapturesAndSelects(t *testing.T) {
 	projects := &fakeProjects{project: identity.Project{ID: captureProjID, Name: captureProject}}
 	a, provider := snapshotRig(t, projects)
@@ -202,6 +202,9 @@ func TestAgentRuntimeAdapter_SnapshotCapturesWithoutIdentity(t *testing.T) {
 
 // The name is the capture's idempotency key, so its shape is a contract, not a
 // cosmetic: a stable UTC timestamp behind a slug of the project's own name.
+// The timestamp carries no separator of its own — <project>-YYYYMMDDHHMMSS —
+// so the dash between stem and timestamp stays the only one a reader has to
+// find, and a name taken by hand against the provider looks the same.
 func TestSnapshotName(t *testing.T) {
 	cases := []struct {
 		name    string

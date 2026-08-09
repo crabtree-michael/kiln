@@ -4,15 +4,17 @@
 // GitHub account, never typed. Those tests cover the connect prompt, preselecting
 // an existing repo_url across the URL spellings hand-entry produced, and keeping
 // an unlistable repo selectable so a save can't silently drop it.
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ProjectFields } from '@/dashboard/ConfigFields';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
 import type {
+  DevBox,
   MeProject,
   ProjectUpdateRequest,
   ProviderDescriptor,
+  SaveSnapshotRequest,
   Snapshot,
 } from '@/transport/transport';
 
@@ -289,11 +291,77 @@ describe('ProjectFields — snapshot selection (sandbox selection)', () => {
   });
 });
 
-// The project card no longer captures a sandbox as a snapshot: saving a sandbox
-// is a per-TICKET choice now (the ticket detail sheet's sandbox switch), so the
-// project form must offer no trace of the old capture section.
-describe('ProjectFields — no sandbox capture section', () => {
-  it('offers no dev-box capture form, even with a catalog', () => {
+// Save a snapshot: capturing a running dev box as a base image, the counterpart
+// to the picker that chooses among the images a project already has. It is the
+// only affordance that puts a snapshot in the catalog on demand — the per-ticket
+// sandbox option's capture runs server-side when a ticket finishes — so a
+// project's sandbox can be saved at the moment its owner decides it is worth
+// saving, rather than only by finishing a ticket.
+describe('ProjectFields — the snapshot capture', () => {
+  const devBoxes: DevBox[] = [
+    { ref: 'sb-1', name: 'pacman', status: 'ready' },
+    { ref: 'sb-2', name: 'spare', status: 'stopped' },
+  ];
+
+  /** Renders the capture wired up, on a project called `pacman`. Returns the two
+   * mocked callbacks so a test can read what the capture asked for. */
+  function renderCapture(
+    overrides: {
+      devBoxes?: DevBox[];
+      onSaveSnapshot?: Mock<(body: SaveSnapshotRequest) => Promise<Snapshot>>;
+    } = {},
+  ): {
+    onRefreshDevBoxes: Mock<() => Promise<void>>;
+    onSaveSnapshot: Mock<(body: SaveSnapshotRequest) => Promise<Snapshot>>;
+  } {
+    const onRefreshDevBoxes: Mock<() => Promise<void>> = vi.fn(() => Promise.resolve());
+    const onSaveSnapshot =
+      overrides.onSaveSnapshot ??
+      vi.fn((): Promise<Snapshot> =>
+        Promise.resolve({
+          ref: 'org/pacman-20260809141304',
+          name: 'pacman-20260809141304',
+          description: '',
+          source: 'pacman',
+          state: 'capturing',
+          created_at: '2026-08-09T14:13:04Z',
+        }),
+      );
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject({ name: 'pacman' })}
+        catalogAvailable
+        devBoxes={overrides.devBoxes ?? devBoxes}
+        onRefreshDevBoxes={onRefreshDevBoxes}
+        onSaveSnapshot={onSaveSnapshot}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+    return { onRefreshDevBoxes, onSaveSnapshot };
+  }
+
+  // Both of this suite's stubs outlive the test that installed them — a frozen
+  // clock and a stubbed confirm would otherwise follow the file's later cases.
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function devBoxSelect(): HTMLElement {
+    return screen.getByRole('combobox', { name: /dev box/i });
+  }
+  function captureButton(): HTMLElement {
+    return screen.getByRole('button', { name: /save snapshot/i });
+  }
+
+  // The capture self-gates on its callbacks, so the surfaces that don't pass
+  // them — onboarding, the app-native projects page, and the modal's create mode
+  // (a project with no id has no catalog to capture into) — render exactly what
+  // they rendered before it existed.
+  it('is absent when the surface does not wire it, even with a catalog', () => {
     render(
       <ProjectFields
         github={connectedGitHub()}
@@ -304,8 +372,97 @@ describe('ProjectFields — no sandbox capture section', () => {
       />,
     );
     expect(screen.queryByRole('combobox', { name: /dev box/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save snapshot' })).toBeNull();
-    expect(screen.queryByRole('textbox', { name: /snapshot name/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /save snapshot/i })).toBeNull();
+  });
+
+  // A provider with no snapshot catalog has nothing to capture INTO, and the
+  // snapshot field beside it is a free-text handle for the same reason.
+  it('is absent when the provider offers no catalog, even when wired', () => {
+    render(
+      <ProjectFields
+        layout="detail"
+        github={connectedGitHub()}
+        project={baseProject()}
+        devBoxes={devBoxes}
+        onRefreshDevBoxes={vi.fn(() => Promise.resolve())}
+        onSaveSnapshot={vi.fn()}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /save snapshot/i })).toBeNull();
+  });
+
+  it('loads the dev boxes on mount and lists them as capture sources', () => {
+    const { onRefreshDevBoxes } = renderCapture();
+    expect(onRefreshDevBoxes).toHaveBeenCalledTimes(1);
+    expect(
+      within(devBoxSelect())
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Select a dev box…', 'pacman (ready)', 'spare (stopped)']);
+  });
+
+  it('says so rather than offering an empty select when there is nothing to capture', () => {
+    renderCapture({ devBoxes: [] });
+    expect(screen.queryByRole('combobox', { name: /dev box/i })).toBeNull();
+    expect(document.querySelector('[data-role="save-snapshot-empty"]')).not.toBeNull();
+  });
+
+  it('cannot be pressed until a dev box is picked', () => {
+    renderCapture();
+    expect(captureButton()).toBeDisabled();
+    fireEvent.change(devBoxSelect(), { target: { value: 'sb-1' } });
+    expect(captureButton()).toBeEnabled();
+  });
+
+  it('captures the picked box under a <project>-<timestamp> name, and reports it back', async () => {
+    vi.setSystemTime(new Date('2026-08-09T14:13:04Z'));
+    const { onSaveSnapshot } = renderCapture();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.change(devBoxSelect(), { target: { value: 'sb-1' } });
+    fireEvent.click(captureButton());
+
+    expect(onSaveSnapshot).toHaveBeenCalledWith({
+      dev_box_ref: 'sb-1',
+      name: 'pacman-20260809141304',
+    });
+    // The name is what the user has to look for in the picker, so it is said
+    // back to them — the capture runs in the background and the picker will not
+    // change for minutes.
+    expect(await screen.findByText('pacman-20260809141304')).toBeInTheDocument();
+    // The box it consumed can't be captured again, so nothing is left selected.
+    expect(devBoxSelect()).toHaveValue('');
+  });
+
+  // The capture CONSUMES its source — the provider scrubs the dev box and
+  // deletes it — so it is gated like the ticket sheet's destructive overrides.
+  it('names the box it is about to consume, and captures nothing if declined', () => {
+    const { onSaveSnapshot } = renderCapture();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    fireEvent.change(devBoxSelect(), { target: { value: 'sb-1' } });
+    fireEvent.click(captureButton());
+
+    expect(confirm.mock.calls.at(0)?.at(0)).toContain('pacman');
+    expect(confirm.mock.calls.at(0)?.at(0)).toContain('deleted');
+    expect(onSaveSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('reports a capture that never started, and claims no snapshot name', async () => {
+    const onSaveSnapshot: Mock<(body: SaveSnapshotRequest) => Promise<Snapshot>> = vi.fn(() =>
+      Promise.reject(new Error('saveSnapshot: HTTP 502')),
+    );
+    renderCapture({ onSaveSnapshot });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.change(devBoxSelect(), { target: { value: 'sb-1' } });
+    fireEvent.click(captureButton());
+
+    const failure = await screen.findByRole('alert');
+    expect(failure).toHaveAttribute('data-state', 'failed');
+    expect(document.querySelector('[data-state="captured"]')).toBeNull();
   });
 });
 

@@ -88,6 +88,21 @@ function workingTicket(id: string, title: string, statusChangedAt: string) {
   });
 }
 
+/** A ticket stopped dead waiting on the user, for the blocked cases. */
+function blockedTicket(id: string, title: string, statusChangedAt: string) {
+  return makeTicket({
+    id,
+    title,
+    body: 'the full record',
+    state: 'blocked',
+    priority: 1,
+    createdAt: '2026-08-04T09:00:00Z',
+    updatedAt: statusChangedAt,
+    statusChangedAt,
+    blockedReason: 'Which region should this deploy to?',
+  });
+}
+
 /** A ticket waiting rather than running, for the backlog cases. */
 function waitingTicket(
   id: string,
@@ -599,20 +614,7 @@ describe('DesktopScreenView', () => {
     // breathing rule; with the shared mark it is simply not given a session
     // status, and `building` is the only status that mark moves for.
     const { container } = renderShell({
-      board: makeBoard({
-        blocked: [
-          makeTicket({
-            id: 'b1',
-            title: 'auth refresh',
-            body: 'the full record',
-            state: 'blocked',
-            priority: 1,
-            createdAt: '2026-08-04T09:00:00Z',
-            updatedAt: '2026-08-04T11:00:00Z',
-            statusChangedAt: '2026-08-04T11:00:00Z',
-          }),
-        ],
-      }),
+      board: makeBoard({ blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
       // The case the old override existed for: the brain mid-pass over a stuck
       // board, which lights the panel without putting anything in Working.
       thinking: true,
@@ -657,20 +659,7 @@ describe('DesktopScreenView', () => {
 
   it('blocked: nothing running because a ticket needs a decision reads as blocked, not idle', () => {
     const { container } = renderShell({
-      board: makeBoard({
-        blocked: [
-          makeTicket({
-            id: 'b1',
-            title: 'auth refresh',
-            body: 'the full record',
-            state: 'blocked',
-            priority: 1,
-            createdAt: '2026-08-04T09:00:00Z',
-            updatedAt: '2026-08-04T11:00:00Z',
-            statusChangedAt: '2026-08-04T11:00:00Z',
-          }),
-        ],
-      }),
+      board: makeBoard({ blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
     });
     const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
     expect(head).toHaveTextContent('blocked');
@@ -678,32 +667,137 @@ describe('DesktopScreenView', () => {
     // detail sheet's badge is keyed on (the tokens are pinned in
     // DesktopScreen.css).
     expect(head).toHaveAttribute('data-state', 'blocked');
-    // The cause is said in words too — the head's one word cannot carry the
-    // difference between "nothing to run" and "nothing it may run".
-    expect(screen.getByText('Nothing in progress — a ticket needs you.')).toBeInTheDocument();
   });
 
-  it('blocked: a live ticket outranks it — the head names the work it can list', () => {
+  // The reported gap: on a desk the blocked tickets were a COUNT. The head went
+  // fire and the resting line said a ticket needed the user, and neither said
+  // WHICH — so the only way to the blocker was a feed card that scrolls away, or
+  // opening tickets one at a time. These cases are that fixed.
+  it('blocked: NAMES the tickets waiting on the user, not just that some are', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        blocked: [
+          blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z'),
+          blockedTicket('b2', 'which region?', '2026-08-04T11:30:00Z'),
+        ],
+      }),
+    });
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[data-role="desktop-working-title"]'),
+      ).map((node) => node.textContent),
+    ).toEqual(['auth refresh', 'which region?']);
+    // …and the panel is a list again, not a stated absence with the blockers
+    // hiding behind it.
+    expect(screen.queryByText('Nothing in progress.')).not.toBeInTheDocument();
+  });
+
+  it('blocked: the rows sit ABOVE the working ones', () => {
+    // A row that wants a decision has no business under rows that want nothing:
+    // in a column read top-down at a glance, last is the same as absent.
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [workingTicket('t1', 'poller', '2026-08-04T10:00:00Z')],
+        blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')],
+      }),
+    });
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[data-role="desktop-working-ticket"]'),
+      ).map((row) => row.dataset.state),
+    ).toEqual(['blocked', 'working']);
+  });
+
+  it('blocked: a row wears the ticket’s own fire and holds still', () => {
+    // The same mark, the same rules, the same ink as the sheet the row opens —
+    // and no session status on it at all, so nothing about a stopped ticket
+    // breathes. A blocked row painted ember (the literal this list used to pass)
+    // would be the head, the row and the sheet disagreeing about one ticket.
+    const { container } = renderShell({
+      board: makeBoard({
+        blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')],
+        // A worker can still be bound to a blocked ticket — it asked and is
+        // waiting. That is not the row's subject and must not texture its mark.
+        agents: [makeAgentStatus('b1', 'idle')],
+      }),
+      thinking: true,
+    });
+    const mark = container.querySelector<HTMLElement>(
+      '[data-role="desktop-working-ticket"] [data-role="status-dot"]',
+    );
+    expect(mark).toHaveAttribute('data-state', 'blocked');
+    expect(mark).not.toHaveAttribute('data-status');
+  });
+
+  it('blocked: the row says "needs you" in words, not in colour alone', () => {
+    const { container } = renderShell({
+      board: makeBoard({
+        working: [workingTicket('t1', 'poller', '2026-08-04T10:00:00Z')],
+        blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')],
+      }),
+    });
+    // Visible, because fire is the only other thing separating this row from the
+    // one under it — and stated in the accessible name, where no ink survives.
+    // Queried within the panel: the rail says "needs you" about the whole
+    // project, which is the same phrase deliberately (one wording, two scopes).
+    const panel = container.querySelector<HTMLElement>('[data-role="desktop-working-panel"]');
+    expect(panel).not.toBeNull();
+    expect(within(panel ?? container).getByText('needs you')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open blocked ticket: auth refresh — needs you for 1h' }),
+    ).toBeInTheDocument();
+  });
+
+  it('blocked: opening a row opens that ticket over the feed', () => {
+    // The point of naming them: the blocker is one click from the column, with
+    // no hunting through the feed for the card that mentioned it.
+    renderShell({
+      board: makeBoard({ blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open blocked ticket: auth refresh — needs you for 1h' }),
+    );
+    expect(screen.getByRole('dialog', { name: 'auth refresh' })).toBeInTheDocument();
+  });
+
+  it('blocked: the REASON stays in the feed and the sheet — the column lists titles', () => {
+    // The panel is a column of titles at a desk's density; a blocker's reason is
+    // a paragraph. It is on the pinned card beside this column and in the sheet
+    // the row opens, both of which can hold it.
+    const { container } = renderShell({
+      board: makeBoard({ blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+    });
+    const panel = container.querySelector('[data-role="desktop-working-panel"]');
+    expect(panel?.textContent).not.toContain('Which region should this deploy to?');
+  });
+
+  it('blocked: a live ticket outranks it in the HEAD — the row still says its own state', () => {
     const { container } = renderShell({
       board: makeBoard({
         working: [workingTicket('t1', 'poller', '2026-08-04T11:00:00Z')],
-        blocked: [
-          makeTicket({
-            id: 'b1',
-            title: 'auth refresh',
-            body: 'the full record',
-            state: 'blocked',
-            priority: 1,
-            createdAt: '2026-08-04T09:00:00Z',
-            updatedAt: '2026-08-04T11:00:00Z',
-            statusChangedAt: '2026-08-04T11:00:00Z',
-          }),
-        ],
+        blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')],
       }),
     });
     const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
     expect(head).toHaveTextContent('working now');
     expect(head).toHaveAttribute('data-state', 'working');
+    // The head is the project's reading, not the list's ceiling: the stuck row
+    // under it is still fire, and still says so.
+    expect(
+      container.querySelector<HTMLElement>('[data-role="desktop-working-ticket"]'),
+    ).toHaveAttribute('data-state', 'blocked');
+  });
+
+  it('blocked: listing them does not set the panel breathing', () => {
+    // Liveness is the working rows, not the row count. A stuck panel that
+    // started breathing the moment its blockers became visible would report
+    // motion where the whole news is that there is none.
+    const { container } = renderShell({
+      board: makeBoard({ blocked: [blockedTicket('b1', 'auth refresh', '2026-08-04T11:00:00Z')] }),
+    });
+    const head = container.querySelector<HTMLElement>('[data-role="desktop-working-head"]');
+    expect(head).toHaveAttribute('data-active', 'false');
+    expect(headMark(container)).not.toHaveAttribute('data-status');
   });
 
   it('working: a worked ticket keeps the head reading "working now"', () => {

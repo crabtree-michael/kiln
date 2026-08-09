@@ -21,6 +21,8 @@ import {
   putNotificationMode,
   setActiveProjectId,
   fetchGitHubRepos,
+  fetchDevBoxes,
+  saveSnapshot,
   setTicketSandbox,
   killTicketSandbox,
   reassignTicketSandbox,
@@ -480,6 +482,86 @@ describe('transport', () => {
       expect(urlOf(requestedUrl)).toContain('/api/project');
       expect(init?.method).toBe('PUT');
       expect(result).toEqual(me);
+    });
+  });
+
+  // The two calls behind the settings capture form. Both are project-scoped —
+  // each project resolves its own provider, so a dev box and a snapshot belong
+  // to one project's catalog, not to the account.
+  describe('fetchDevBoxes (GET /api/projects/{id}/dev-boxes)', () => {
+    it('GETs the project’s dev boxes and resolves the list', async () => {
+      const boxes = { dev_boxes: [{ ref: 'sb-1', name: 'pacman', status: 'ready' }] };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(boxes))),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await fetchDevBoxes('p-1');
+
+      const [requestedUrl] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/projects/p-1/dev-boxes');
+      expect(result).toEqual(boxes.dev_boxes);
+    });
+
+    it('resolves null on 404 — the provider offers no catalog, so no capture', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
+      );
+      await expect(fetchDevBoxes('p-1')).resolves.toBeNull();
+    });
+
+    it('throws on a non-2xx that is not the no-catalog 404', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 502 }))),
+      );
+      await expect(fetchDevBoxes('p-1')).rejects.toThrow('HTTP 502');
+    });
+
+    it('throws on an unexpected response shape', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(JSON.stringify({ dev_boxes: [{ ref: 1 }] })))),
+      );
+      await expect(fetchDevBoxes('p-1')).rejects.toThrow('unexpected response shape');
+    });
+  });
+
+  describe('saveSnapshot (POST /api/projects/{id}/snapshots)', () => {
+    it('POSTs the capture request and resolves the (still capturing) snapshot', async () => {
+      const snapshot = {
+        ref: 'acme/pacman-20260809141304',
+        name: 'pacman-20260809141304',
+        state: 'capturing',
+      };
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(new Response(JSON.stringify(snapshot), { status: 202 })),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await saveSnapshot('p-1', {
+        dev_box_ref: 'sb-1',
+        name: 'pacman-20260809141304',
+      });
+
+      const [requestedUrl, init] = fetchMock.mock.calls[0] ?? [];
+      expect(urlOf(requestedUrl)).toContain('/api/projects/p-1/snapshots');
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBe(
+        JSON.stringify({ dev_box_ref: 'sb-1', name: 'pacman-20260809141304' }),
+      );
+      expect(result).toEqual(snapshot);
+    });
+
+    it('rejects on a non-2xx, so the form reports a capture that never started', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 502 }))),
+      );
+      await expect(saveSnapshot('p-1', { dev_box_ref: 'sb-1', name: 'x' })).rejects.toThrow(
+        'HTTP 502',
+      );
     });
   });
 

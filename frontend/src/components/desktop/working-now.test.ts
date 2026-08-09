@@ -1,14 +1,15 @@
-// What the working strip says is being worked on (13 §8.2). The rules asserted
-// here are the ones that decide whether the strip can be trusted at a glance:
-// it reads the board rather than the curated feed, it reports the session's real
-// state instead of assuming the column, and it never reorders under the eye.
+// What the panel says is open (13 §8.2). The rules asserted here are the ones
+// that decide whether it can be trusted at a glance: it reads the board rather
+// than the curated feed, it names the tickets that need a person as well as the
+// ones that need nothing, it reports the session's real state instead of
+// assuming the column, and it never reorders under the eye.
 import { describe, it, expect } from 'vitest';
 import {
-  blockedCount,
+  activeStatusNote,
+  activeTickets,
   workingPanelLabel,
   workingPanelState,
   workingStatusNote,
-  workingTickets,
 } from '@/components/desktop/working-now';
 import { makeAgentStatus, makeBoard, makeTicket } from '@/test/fixtures';
 
@@ -24,7 +25,25 @@ const ticket = (id: string, title: string, statusChangedAt: string) =>
     statusChangedAt,
   });
 
-describe('workingTickets', () => {
+const blocked = (id: string, title: string, statusChangedAt: string) =>
+  makeTicket({
+    id,
+    title,
+    body: 'body',
+    state: 'blocked',
+    priority: 1,
+    createdAt: '2026-08-04T09:00:00Z',
+    updatedAt: '2026-08-04T09:00:00Z',
+    statusChangedAt,
+    blockedReason: 'Which region should this deploy to?',
+  });
+
+/** The panel's rows as `[id, state]`, which is what most of these cases are
+ * about: which tickets are listed, and in what order. */
+const rows = (board: Parameters<typeof activeTickets>[0]) =>
+  activeTickets(board).map((entry) => [entry.id, entry.state]);
+
+describe('activeTickets', () => {
   it('names every ticket in the board Working bucket', () => {
     const board = makeBoard({
       working: [
@@ -32,17 +51,46 @@ describe('workingTickets', () => {
         ticket('t2', 'poller', '2026-08-04T11:30:00Z'),
       ],
     });
-    expect(workingTickets(board).map((entry) => entry.title)).toEqual(['auth refresh', 'poller']);
+    expect(activeTickets(board).map((entry) => entry.title)).toEqual(['auth refresh', 'poller']);
   });
 
-  it('orders oldest-started first, so a ticket starting never moves the rows above it', () => {
+  it('names the BLOCKED tickets too — the state that wants a person is not a count', () => {
+    // The panel used to take the blocked bucket as a number: enough to colour
+    // the head, never enough to say which ticket. On the one surface a user
+    // keeps open all day, the only thing waiting on them was the only thing this
+    // column would not point at.
+    const board = makeBoard({
+      blocked: [blocked('b1', 'which region?', '2026-08-04T11:00:00Z')],
+    });
+    expect(activeTickets(board).map((entry) => entry.title)).toEqual(['which region?']);
+  });
+
+  it('puts blocked above working — a row that wants a decision does not sit under rows that want nothing', () => {
+    const board = makeBoard({
+      working: [ticket('t1', 'auth refresh', '2026-08-04T10:00:00Z')],
+      blocked: [blocked('b1', 'which region?', '2026-08-04T11:00:00Z')],
+    });
+    // Blocked leads even though it entered its state LAST — the ordering within
+    // a group is by age, the ordering between the groups is by what it costs to
+    // miss one.
+    expect(rows(board)).toEqual([
+      ['b1', 'blocked'],
+      ['t1', 'working'],
+    ]);
+  });
+
+  it('orders each group oldest-first, so a ticket arriving never moves the rows above it', () => {
     const board = makeBoard({
       working: [
         ticket('t2', 'poller', '2026-08-04T11:30:00Z'),
         ticket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
       ],
+      blocked: [
+        blocked('b2', 'which region?', '2026-08-04T11:40:00Z'),
+        blocked('b1', 'drop the column?', '2026-08-04T11:10:00Z'),
+      ],
     });
-    expect(workingTickets(board).map((entry) => entry.id)).toEqual(['t1', 't2']);
+    expect(activeTickets(board).map((entry) => entry.id)).toEqual(['b1', 'b2', 't1', 't2']);
   });
 
   it('does not mutate the board it was handed', () => {
@@ -50,9 +98,14 @@ describe('workingTickets', () => {
       ticket('t2', 'poller', '2026-08-04T11:30:00Z'),
       ticket('t1', 'auth refresh', '2026-08-04T11:00:00Z'),
     ];
-    const board = makeBoard({ working });
-    workingTickets(board);
+    const stuck = [
+      blocked('b2', 'which region?', '2026-08-04T11:40:00Z'),
+      blocked('b1', 'drop the column?', '2026-08-04T11:10:00Z'),
+    ];
+    const board = makeBoard({ working, blocked: stuck });
+    activeTickets(board);
     expect(working.map((entry) => entry.id)).toEqual(['t2', 't1']);
+    expect(stuck.map((entry) => entry.id)).toEqual(['b2', 'b1']);
   });
 
   it("reports the worker's REAL session state, not the column's implication", () => {
@@ -62,12 +115,24 @@ describe('workingTickets', () => {
       working: [ticket('t1', 'auth refresh', '2026-08-04T11:00:00Z')],
       agents: [makeAgentStatus('t1', 'errored')],
     });
-    expect(workingTickets(board)[0]?.status).toBe('errored');
+    expect(activeTickets(board)[0]?.status).toBe('errored');
   });
 
   it('falls back to building for a ticket whose status join has not landed yet', () => {
     const board = makeBoard({ working: [ticket('t1', 'auth refresh', '2026-08-04T11:00:00Z')] });
-    expect(workingTickets(board)[0]?.status).toBe('building');
+    expect(activeTickets(board)[0]?.status).toBe('building');
+  });
+
+  it('carries NO session status on a blocked row, even when a worker is still bound', () => {
+    // A session state is how the work is faring, and a blocked ticket's work has
+    // stopped by definition. Carrying one through would texture the mark with a
+    // session nobody is watching — and a `building` reading would set the alarm
+    // ink breathing, which is more than "one ticket needs a decision" is worth.
+    const board = makeBoard({
+      blocked: [blocked('b1', 'which region?', '2026-08-04T11:00:00Z')],
+      agents: [makeAgentStatus('b1', 'building')],
+    });
+    expect(activeTickets(board)[0]?.status).toBeNull();
   });
 
   it('clocks time-in-status from state_changed_at, which a same-state nudge does not bump', () => {
@@ -81,26 +146,17 @@ describe('workingTickets', () => {
       updatedAt: '2026-08-04T11:59:00Z',
       statusChangedAt: '2026-08-04T10:00:00Z',
     });
-    expect(workingTickets(makeBoard({ working: [nudged] }))[0]?.since).toBe('2026-08-04T10:00:00Z');
+    expect(activeTickets(makeBoard({ working: [nudged] }))[0]?.since).toBe('2026-08-04T10:00:00Z');
   });
 
   it('is empty for a board that has not arrived, rather than claiming nothing runs', () => {
-    expect(workingTickets(null)).toEqual([]);
+    expect(activeTickets(null)).toEqual([]);
   });
 
-  it('ignores every other bucket — blocked and ready are not being worked', () => {
+  it('ignores the queued and finished buckets — this section is what has STARTED', () => {
+    // Ready and shaping have their own section under this one (Backlog); done
+    // has none, and neither belongs in a list of tickets that are open.
     const board = makeBoard({
-      blocked: [
-        makeTicket({
-          id: 'b1',
-          title: 'blocked one',
-          body: 'body',
-          state: 'blocked',
-          priority: 1,
-          createdAt: '2026-08-04T09:00:00Z',
-          updatedAt: '2026-08-04T09:00:00Z',
-        }),
-      ],
       ready: [
         makeTicket({
           id: 'r1',
@@ -112,8 +168,30 @@ describe('workingTickets', () => {
           updatedAt: '2026-08-04T09:00:00Z',
         }),
       ],
+      shaping: [
+        makeTicket({
+          id: 's1',
+          title: 'shaping one',
+          body: 'body',
+          state: 'shaping',
+          priority: 1,
+          createdAt: '2026-08-04T09:00:00Z',
+          updatedAt: '2026-08-04T09:00:00Z',
+        }),
+      ],
+      done: [
+        makeTicket({
+          id: 'd1',
+          title: 'done one',
+          body: 'body',
+          state: 'done',
+          priority: 1,
+          createdAt: '2026-08-04T09:00:00Z',
+          updatedAt: '2026-08-04T09:00:00Z',
+        }),
+      ],
     });
-    expect(workingTickets(board)).toEqual([]);
+    expect(activeTickets(board)).toEqual([]);
   });
 });
 
@@ -130,9 +208,37 @@ describe('workingStatusNote', () => {
   });
 });
 
+describe('activeStatusNote', () => {
+  it('says "needs you" on a blocked row — fire alone is not a reading', () => {
+    // The mark carries the alarm ink, and ink is not a reading: it fails anyone
+    // who cannot pick the hue out, and on a two-state list it fails everyone at
+    // a glance. The phrase is the rail's, verbatim, so the two surfaces say the
+    // same thing about the same board.
+    expect(activeStatusNote({ state: 'blocked', status: null })).toBe('needs you');
+  });
+
+  it('says it even when a session is still bound — the worker is not why the row is stuck', () => {
+    expect(activeStatusNote({ state: 'blocked', status: 'idle' })).toBe('needs you');
+  });
+
+  it('leaves a plainly building ticket wordless, and names every other session', () => {
+    expect(activeStatusNote({ state: 'working', status: 'building' })).toBe('');
+    expect(activeStatusNote({ state: 'working', status: 'errored' })).toBe('failing');
+  });
+});
+
 describe('workingPanelState', () => {
+  const working = {
+    id: 't1',
+    title: 'auth refresh',
+    state: 'working',
+    status: 'building',
+  } as const;
+  const stuck = { id: 'b1', title: 'which region?', state: 'blocked', status: null } as const;
+  const since = '2026-08-04T11:00:00Z';
+
   it('says working while any ticket is being worked', () => {
-    expect(workingPanelState(2, 0)).toBe('working');
+    expect(workingPanelState([{ ...working, since }])).toBe('working');
   });
 
   it('says blocked when nothing is running and a ticket waits on the user', () => {
@@ -140,20 +246,25 @@ describe('workingPanelState', () => {
     // to do, a blocked one has nothing it CAN do until the user decides. Reading
     // both as the same rest is how a blocker goes unnoticed on a screen the user
     // is looking at.
-    expect(workingPanelState(0, 1)).toBe('blocked');
+    expect(workingPanelState([{ ...stuck, since }])).toBe('blocked');
   });
 
   it('says idle when the board holds neither', () => {
-    expect(workingPanelState(0, 0)).toBe('idle');
+    expect(workingPanelState([])).toBe('idle');
   });
 
-  it('lets working outrank blocked — the panel names the work it can show', () => {
+  it('lets working outrank blocked — the head names the project, the row names itself', () => {
     // Both are true at once often enough (one agent building, another ticket
-    // waiting). This panel's subject is the work in motion, and it lists those
-    // tickets underneath; the blocker is stated in the feed, pinned, with its
-    // reason. A head that said "blocked" over a list of live rows would
-    // contradict the rows it heads.
-    expect(workingPanelState(1, 3)).toBe('working');
+    // waiting). The head is the project's reading and each row states its own
+    // state, in its own ink, with its own word — the same division the rows'
+    // session statuses already live under. Letting one stuck ticket retitle a
+    // column of live work would be the inversion of it.
+    expect(
+      workingPanelState([
+        { ...stuck, since },
+        { ...working, since },
+      ]),
+    ).toBe('working');
   });
 });
 
@@ -171,28 +282,5 @@ describe('workingPanelLabel', () => {
       const label = workingPanelLabel(state);
       expect(label).toBe(label.toLowerCase());
     }
-  });
-});
-
-describe('blockedCount', () => {
-  it('counts the board blocked bucket', () => {
-    const board = makeBoard({
-      blocked: [
-        makeTicket({
-          id: 'b1',
-          title: 'blocked one',
-          body: 'body',
-          state: 'blocked',
-          priority: 1,
-          createdAt: '2026-08-04T09:00:00Z',
-          updatedAt: '2026-08-04T09:00:00Z',
-        }),
-      ],
-    });
-    expect(blockedCount(board)).toBe(1);
-  });
-
-  it('is zero before the first snapshot, rather than raising an alarm on an unknown board', () => {
-    expect(blockedCount(null)).toBe(0);
   });
 });

@@ -17,15 +17,25 @@
 // Per-user credentials are NOT here — they live in `Integrations.tsx` as a card
 // per provider (GitHub via that OAuth grant, the rest via a paste-your-key
 // modal).
-import { useState, type ChangeEvent, type FormEvent, type JSX, type ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type JSX,
+  type ReactNode,
+} from 'react';
 import type {
+  DevBox,
   MeProject,
   ProjectUpdateRequest,
   ProviderDescriptor,
+  SaveSnapshotRequest,
   Snapshot,
 } from '@/transport/transport';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
 import { projectNameFromRepoUrl } from '@/dashboard/project-name';
+import { snapshotNameFor } from '@/dashboard/snapshot-name';
 import { GITHUB_DASHBOARD_RETURN_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 
 // The merge-gate knob (06 §7): which condition marks a ticket done — its work
@@ -192,10 +202,22 @@ export interface ProjectFieldsProps {
    * picker from these instead of a free-text handle. */
   snapshots?: Snapshot[];
   /** `true` when the project's provider is known to expose a snapshot catalog —
-   * the snapshot field becomes a picker. `false` (the default) keeps the
-   * free-text snapshot input, so a provider without a catalog (or onboarding,
-   * before a project exists) is unchanged. */
+   * the snapshot field becomes a picker and the capture control appears beneath
+   * it. `false` (the default) keeps the free-text snapshot input, so a provider
+   * without a catalog (or onboarding, before a project exists) is unchanged. */
   catalogAvailable?: boolean;
+  /** This project's running dev boxes — what the capture control offers as
+   * sources. Populated by `onRefreshDevBoxes`. */
+  devBoxes?: DevBox[];
+  /** Loads/refreshes `devBoxes` (GET /api/projects/{id}/dev-boxes). Pass the
+   * catalog's own function, not a wrapper: the capture control loads the list in
+   * an effect keyed on this callback, so a fresh closure per render would refetch
+   * on every one of them. */
+  onRefreshDevBoxes?: () => Promise<void>;
+  /** Captures a dev box as a new snapshot (POST /api/projects/{id}/snapshots).
+   * Absent on every surface but the settings modal, which is what keeps the
+   * capture off onboarding and the app-native projects page. */
+  onSaveSnapshot?: (body: SaveSnapshotRequest) => Promise<Snapshot>;
   /** Which shell the same fields render in (projects-in-a-modal):
    *
    *  * `form` (the default) — the flat field list onboarding and the app-native
@@ -234,7 +256,7 @@ interface SandboxInfoProps {
  * field is a free-text handle that speaks for itself.
  *
  * This copy is the only in-product explanation of how snapshots work, and the
- * only warning that "Save sandbox when done" will change this selection by
+ * only warning that a ticket's own sandbox option will change this selection by
  * itself, so it stays until something else says those things. */
 function SandboxInfo({
   catalogAvailable,
@@ -251,8 +273,9 @@ function SandboxInfo({
         <p>
           Workers start from the deployment&apos;s default Amika image. Pick a snapshot to start
           them pre-warmed instead — dependencies installed, repo cloned, tools already authenticated
-          — so a ticket begins with work rather than with setup. Turning on &ldquo;Save sandbox when
-          done&rdquo; for a ticket adds its finished workspace here as a snapshot and selects it.
+          — so a ticket begins with work rather than with setup. Save one below, or turn on
+          &ldquo;Start future tickets from this sandbox&rdquo; for a ticket, which adds its finished
+          workspace here as a snapshot and selects it without asking again.
         </p>
       </div>
     );
@@ -273,12 +296,165 @@ function SandboxInfo({
   );
 }
 
+interface SnapshotCaptureProps {
+  /** The project's name, which the captured snapshot is named after. */
+  projectName: string;
+  devBoxes: DevBox[];
+  onRefresh: () => Promise<void>;
+  onCapture: (body: SaveSnapshotRequest) => Promise<Snapshot>;
+}
+
+/** Save a snapshot: capture one of this project's running dev boxes as a base
+ * image its workers can start from. The counterpart to the snapshot PICKER above
+ * it — that one chooses among the images you have, this one makes another.
+ *
+ * It is deliberately not the same thing as the ticket sheet's "Start future
+ * tickets from this sandbox", and the difference is worth keeping straight: that
+ * switch is a standing instruction the server acts on when a ticket finishes,
+ * and it repoints the project at what it captured. This is a thing the user does
+ * now, to a box they picked, and it changes no selection — the new snapshot
+ * lands in the picker and waits to be chosen.
+ *
+ * Three things shape it:
+ *
+ *  * **The capture consumes its source.** The provider scrubs the dev box's
+ *    injected secrets and deletes it. That is not a detail to bury in a hint: it
+ *    is what the user is agreeing to, so it is said above the control AND in a
+ *    confirm naming the box, the same gate the ticket sheet's destructive
+ *    overrides use.
+ *  * **The name is derived, not typed** (`snapshotNameFor`) — the same
+ *    `<project>-<timestamp>` shape the server gives a capture a finished ticket
+ *    triggered, so a catalog holds one kind of name however its entries got
+ *    there. The name is reported back after the fact, which is when it is
+ *    actually useful: it is what to look for in the picker.
+ *  * **A capture is slow and runs in the background**, so a submit resolves long
+ *    before the snapshot is selectable. The status line says so rather than
+ *    leaving the user watching a picker that hasn't changed. */
+function SnapshotCapture({
+  projectName,
+  devBoxes,
+  onRefresh,
+  onCapture,
+}: SnapshotCaptureProps): JSX.Element {
+  const [selectedRef, setSelectedRef] = useState('');
+  const [capturing, setCapturing] = useState(false);
+  const [captured, setCaptured] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // Load the dev boxes when the control appears, so its select is populated
+  // without the user hunting for a refresh button. `onRefresh` is a stable
+  // store-backed callback, so this runs once per open.
+  useEffect(() => {
+    void onRefresh();
+  }, [onRefresh]);
+
+  const selected = devBoxes.find((box) => box.ref === selectedRef);
+
+  const handleCapture = (): void => {
+    if (selected === undefined || capturing) {
+      return;
+    }
+    // The one destructive gate. A native confirm naming the box it is about to
+    // consume, like the ticket sheet's sandbox overrides — the user is spending
+    // a dev box, not just filing a copy of it.
+    if (
+      !window.confirm(
+        `Save “${selected.name}” as a snapshot? The dev box is deleted once it has been captured, and that can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    const name = snapshotNameFor(projectName, new Date());
+    setCapturing(true);
+    setFailed(false);
+    setCaptured(null);
+    void onCapture({ dev_box_ref: selected.ref, name })
+      .then(() => {
+        setCaptured(name);
+        // The box this captured is gone, so the selection that named it is too.
+        setSelectedRef('');
+      })
+      .catch(() => {
+        setFailed(true);
+      })
+      .finally(() => {
+        setCapturing(false);
+      });
+  };
+
+  return (
+    <div data-role="save-snapshot">
+      <h4>Save a snapshot</h4>
+      <p data-role="save-snapshot-hint">
+        Capture a running dev box as a base image this project&apos;s workers can start from. The
+        dev box is deleted once it has been captured.
+      </p>
+      {devBoxes.length === 0 ? (
+        <p data-role="save-snapshot-empty">
+          No running dev boxes to capture. Start one with your coding-agent provider and it appears
+          here.
+        </p>
+      ) : (
+        <div data-role="save-snapshot-controls">
+          <label>
+            Dev box
+            <select
+              data-role="dev-box-select"
+              value={selectedRef}
+              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                setSelectedRef(event.target.value);
+              }}
+            >
+              <option value="">Select a dev box…</option>
+              {devBoxes.map((box) => (
+                <option key={box.ref} value={box.ref}>
+                  {box.name} ({box.status})
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* type="button" is load-bearing: this control lives inside the
+              project form, and a default submit button would save the project
+              instead of capturing anything.
+
+              Not dressed as destructive, though it consumes the box: what the
+              user came here to do is SAVE something, and a red button on that
+              verb reads as a warning about the wrong half of it. The consequence
+              is said in words above and again in the confirm. */}
+          <button
+            type="button"
+            data-role="save-snapshot-submit"
+            disabled={selected === undefined || capturing}
+            onClick={handleCapture}
+          >
+            {capturing ? 'Saving…' : 'Save snapshot'}
+          </button>
+        </div>
+      )}
+      {captured !== null && (
+        <p data-role="save-snapshot-status" data-state="captured">
+          Saving <code>{captured}</code>. It appears in the picker above, ready to select, once the
+          capture finishes.
+        </p>
+      )}
+      {failed && (
+        <p data-role="save-snapshot-status" data-state="failed" role="alert">
+          That capture didn&apos;t start, so the dev box is untouched. Try again.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function ProjectFields({
   project,
   github,
   providers,
   snapshots,
   catalogAvailable = false,
+  devBoxes,
+  onRefreshDevBoxes,
+  onSaveSnapshot,
   layout = 'form',
   footerLead,
   saving,
@@ -547,6 +723,18 @@ export function ProjectFields({
           snapshots={snapshots ?? []}
           selectedRef={amikaSnapshot}
         />
+        {/* The capture self-gates on both its callbacks and on the provider
+            actually having a catalog to capture into, so a surface that doesn't
+            pass them renders nothing extra — which is what keeps it off
+            onboarding and the app-native projects page. */}
+        {catalogAvailable && onRefreshDevBoxes !== undefined && onSaveSnapshot !== undefined && (
+          <SnapshotCapture
+            projectName={creating ? derivedName : name}
+            devBoxes={devBoxes ?? []}
+            onRefresh={onRefreshDevBoxes}
+            onCapture={onSaveSnapshot}
+          />
+        )}
       </section>
 
       {/* One action bar: the destructive action at the leading edge (the shell's,

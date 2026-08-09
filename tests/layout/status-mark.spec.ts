@@ -60,9 +60,13 @@ test.describe('the shared status mark — desk', () => {
       "[data-role='desktop-working-head'] [data-role='status-dot']",
       'background-color',
     );
+    // The WORKING row specifically. The panel lists the blocked tickets above
+    // the working ones, and a blocked row is fire on purpose — comparing the
+    // head against whichever row happens to come first would be asserting that
+    // two different states paint the same, which is the opposite of the claim.
     const row = await computed(
       page,
-      "[data-role='desktop-working-ticket'] [data-role='status-dot']",
+      "[data-role='desktop-working-ticket'][data-state='working'] [data-role='status-dot']",
       'background-color',
     );
     expect(head).toBe(row);
@@ -73,7 +77,7 @@ test.describe('the shared status mark — desk', () => {
 
     // ...and the sheet the row opens agrees with the row. Two rules, two
     // stylesheets, one ticket: this is the assertion the reported bug failed.
-    await page.click("[data-role='desktop-working-ticket']");
+    await page.click("[data-role='desktop-working-ticket'][data-state='working']");
     await page.waitForSelector("[data-role='ticket-detail']");
     await stableBox(page, "[data-role='ticket-detail']");
     expect(await page.getAttribute("[data-role='ticket-detail-status']", 'data-state')).toBe(

@@ -86,8 +86,9 @@ export interface TicketDetailProps {
   /** The tickets this one waits for (0013), already resolved to titles by the
    * screen from its board snapshot (`ticketDependencies`). The sheet is the one
    * place the whole list belongs: the board rows only have room for the count,
-   * and "waiting on 2" is exactly the answer that provokes "on what?". Omitted
-   * or empty → no section, so a ticket with no dependencies is unchanged. */
+   * and "waiting on 2" is exactly the answer that provokes "on what?". Omitted,
+   * empty, or every entry done → no section, so a ticket with no dependencies is
+   * unchanged and one whose dependencies have all landed reads as unheld. */
   dependencies?: TicketDependency[];
   /** When provided, the detail is a proposal reached via click-through and shows
    * an Accept action (08 §5) — accept after reading the full ticket. Omitted →
@@ -844,11 +845,15 @@ export function TicketDetail({
                   rather than the scrolling body because it explains the ticket's
                   *position* — the same class of fact as the status badge beside
                   it — and because on a held ticket it is the reason the sheet was
-                  opened at all. A landed dependency stays listed, struck through:
-                  the list is progress ("2 of 3 done"), and dropping the finished
-                  ones would make a nearly-unblocked ticket look identical to one
-                  that has not started. */}
-              {dependencies.length > 0 && (
+                  opened at all. While anything is still outstanding a landed
+                  dependency stays listed, struck through: the list is progress
+                  ("2 of 3 done"), and dropping the finished ones would make a
+                  nearly-unblocked ticket look identical to one that has not
+                  started. Once every one has landed there is no progress left to
+                  show and nothing holding the ticket, so the whole section goes:
+                  a fully-checked list is history, and it would otherwise sit in
+                  the header claiming the same space as a live constraint. */}
+              {dependencies.some((dep) => !dep.done) && (
                 <div data-role="ticket-detail-dependencies">
                   <span data-role="ticket-detail-dependencies-label">
                     {ticket.waiting_on_dependencies ? 'Waiting on' : 'Depends on'}

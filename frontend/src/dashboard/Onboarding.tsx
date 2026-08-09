@@ -3,7 +3,9 @@
 // actually depend on each other — not the single crammed form it replaces:
 //
 //   1. Connect GitHub   — the repo-scoped OAuth grant Kiln reads repos through.
-//   2. Choose a project — pick the repo, from that account's listing.
+//   2. Choose a project — pick the repo, from that account's listing. The
+//      project is NAMED after it (auto-name from repository), so the step is one
+//      decision rather than a pick plus a field seeded from the pick.
 //   3. Choose a provider — which coding agent runs the work, and its API key.
 //
 // The ordering is load-bearing, not cosmetic: step 2 can only list repos once
@@ -26,6 +28,7 @@
 import { useRef, useState, type ChangeEvent, type JSX } from 'react';
 import { useDashboardStore, type CredentialName } from '@/dashboard/dashboard-context';
 import { RepoField } from '@/dashboard/ConfigFields';
+import { projectNameFromRepoUrl } from '@/dashboard/project-name';
 import { secretStatusText } from '@/dashboard/secret-status';
 import {
   CHECK_NAME_FOR_CREDENTIAL,
@@ -379,10 +382,6 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
 
   const [step, setStep] = useState<StepId>('github');
   const [repoUrl, setRepoUrl] = useState('');
-  const [name, setName] = useState('');
-  // Whether the user has typed a project name themselves. Until they do, picking
-  // a repo keeps the name in sync with it; after, their text is never overwritten.
-  const [nameEdited, setNameEdited] = useState(false);
   const [providerKey, setProviderKey] = useState('');
   const [keyDraft, setKeyDraft] = useState('');
   // Guards the key save the same way CredentialFields' does: "Finish setup" is a
@@ -452,23 +451,18 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
     }
   };
 
-  const pickRepo = (url: string): void => {
-    setRepoUrl(url);
-    if (nameEdited) {
-      return;
-    }
-    // Default the project name to the repo's own name — the answer is right
-    // essentially always, so the step reduces to a single decision.
-    const picked = github.repos.find((repo) => repo.url === url);
-    setName(picked === undefined ? '' : (picked.full_name.split('/').at(-1) ?? ''));
-  };
+  // The project's name, taken from the repo rather than asked for (auto-name
+  // from repository). The step used to carry a name field seeded from the pick
+  // and left editable; the seed was the answer essentially every time, so the
+  // step is now the single decision it always effectively was.
+  const name = projectNameFromRepoUrl(repoUrl);
 
   const finish = (): void => {
     void (async () => {
       if (!(await commitKey())) {
         return;
       }
-      const body: ProjectUpdateRequest = { name: name.trim(), repo_url: repoUrl.trim() };
+      const body: ProjectUpdateRequest = { name, repo_url: repoUrl.trim() };
       // Only sent when the user actually chose one; otherwise the project
       // resolves to the deployment default, unchanged. Worker count, merge gate
       // and snapshot are deliberately omitted — the server defaults them, and
@@ -483,7 +477,7 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
   // What each step needs before the flow may leave it.
   const stepReady: Record<StepId, boolean> = {
     github: github.connected,
-    project: repoUrl.trim() !== '' && name.trim() !== '',
+    project: repoUrl.trim() !== '',
     provider:
       providerKey !== '' &&
       (storedStatus === undefined || storedStatus.set || keyDraft.trim() !== ''),
@@ -550,19 +544,19 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
 
           {current.id === 'project' && (
             <>
-              <RepoField value={repoUrl} onChange={pickRepo} github={github} />
-              <label>
-                Project name
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                    setNameEdited(true);
-                    setName(event.target.value);
-                  }}
-                  required
-                />
-              </label>
+              <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />
+              {/* What the removed name field is replaced by: the derived name,
+                  said out loud, so the board's name is never a surprise. */}
+              <p data-role="project-name-note" data-state={name === '' ? 'unpicked' : 'named'}>
+                {name === '' ? (
+                  'This project will take its name from the repository you pick.'
+                ) : (
+                  <>
+                    This project will be called{' '}
+                    <strong data-role="project-name-value">{name}</strong>.
+                  </>
+                )}
+              </p>
             </>
           )}
 

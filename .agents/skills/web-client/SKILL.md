@@ -546,6 +546,25 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
   in place + the repo picker, together — there is no raw URL field anywhere) over grouped
   Agent and Sandbox sections. Both branches render the *same* field elements, built once above
   the branch, so the two shells can't drift in what they render or submit.
+- **Creating a project asks for the REPO and takes the name from it.** `project === undefined`
+  is the create mode, and it drops the name field entirely: the submit body's `name` is
+  `projectNameFromRepoUrl(repoUrl)` (`dashboard/project-name.ts` — the URL's last segment,
+  `.git`/trailing-`/` stripped, so `Crabtree-Michael/Pac-Man` is a board called `Pac-Man`).
+  Three surfaces read that one helper — the app-native create step, the settings modal's create
+  mode, and Onboarding's step 2 — so a repo cannot end up named three ways. Points to keep:
+  - **Editing is untouched.** The name field is still there whenever a `project` is passed, and
+    nothing re-derives on save: a board someone deliberately renamed must not snap back to its
+    repo's name the next time an unrelated field is edited.
+  - **`[data-role='project-name-note']` is what replaced the field** (`data-state`:
+    `unpicked` / `named`, with the derived name in `[data-role='project-name-value']`). Rendered
+    by both `ProjectFields` layouts *and* hand-rolled in `Onboarding` — without it the naming is
+    invisible and a board appears called something nobody was shown. Don't drop it.
+  - **The submit reads "Create project" in create mode**, "Save project" when editing; e2e and
+    DOM tests bind to both.
+  - **The `form` layout has a create arrangement** (`data-mode="new"`): the picker alone in
+    `[data-role='new-project-repo']`, the note under it, and everything with a working default
+    demoted into `[data-role='new-project-options']`. Demoted, **not dropped** — a
+    multi-provider deployment still has to be able to name the agent at creation.
 - **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words **only
   where the picker leaves something unsaid** — two states (`data-state`: `default` /
   `unlisted`). It renders `null` when the provider exposes no catalog (the free-text handle
@@ -566,6 +585,30 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
   project actually being looked at fetches its catalog. E2e that asserts on the snapshot
   picker or the dev-box capture form must click `[data-role="project-panel"]` first
   (`tests/tests/keyless-sandbox-selection.spec.ts`).
+
+### `/projects` — the app-native page, and its full-screen create step
+
+`projects/ProjectsManager.tsx` is the mobile, app-styled view over the same dashboard store
+(the desk rail's "New" routes here with `?new=1`; the phone's project menu dropped its own
+"Add", so on a phone the way in is this page's own affordance). The
+list is a column of collapsible rows; **creating is a step that takes the screen**, not a card
+at the foot of that list.
+
+- **`creating` lives in `ProjectsScreen`, not in `ProjectsBody`** — the page header renders
+  from it. While the step is up the `h1` reads "New project" and the leading control is
+  `[data-role='cancel-new-project']` (icon-only, so it carries `aria-label` + `title`, and it
+  wears the same round box as `[data-role='projects-back']`) instead of the link to `/app`. It
+  is gated on the body actually being on screen, so `?new=1` arriving before `me` does still
+  leaves a way back during the load.
+- **The body returns the step INSTEAD of the list** (`[data-role='new-project-step']`), which
+  is what "full-screen" means here — the rows and "Add project" are not under it.
+- **The step's geometry is measured, not asserted in jsdom** (`tests/layout/other-shells.spec.ts`
+  → `new project`): the picker on screen without scrolling, spanning the column, at a real
+  touch height, with the derived-name note and the options below it, and the create action
+  spanning the column at the foot. Every one of those passes as a DOM assertion while looking
+  wrong — the shape it replaced was a name field over a picker in a card.
+- **The layout harness stubs `GET /api/github/repos` as connected** (`tests/layout/harness.ts`),
+  because a disconnected picker is a paragraph of prose rather than the control being measured.
 
 ## Common footguns
 
@@ -1434,6 +1477,29 @@ and `tests/layout/` measures the geometry.
     directions: the brain thinks (`thinking`) with nothing in Working, and a board snapshot
     can name a working ticket before the feed summary's `building` catches up. Either
     lights the strip; only the list names anything.
+- **The tickets column's width belongs to the USER, and it is published imperatively**
+  (`use-working-panel-width.ts`). The boundary between that column and the feed is a
+  draggable separator: the grid reads `var(--desk-working-width, 248px)`, the floor is the
+  248px the column shipped at and the ceiling is twice it. Four things to keep:
+  - **The live width is a ref written straight to the DOM — a custom property on the shell
+    root and the separator's `aria-valuenow` — never React state.** A drag fires a move per
+    frame, and re-rendering the shell (the whole feed card list with it) on each one is how
+    a handle comes to feel like it drags through treacle. Both targets are single-writer, so
+    a re-render behind a drag cannot fight it. What *is* state is `dragging`, which flips
+    twice a drag and publishes `data-resizing` on the root for the window-wide resize cursor
+    and the selection lock.
+  - **The rule IS the handle.** The 1px `--border-strong` line moved off the panel's
+    `border-right` onto the separator's `border-left`, so the boundary sits at the same x and
+    the resting screen gains nothing to look at. A `::after` reaching 4px LEFT is the grab
+    room — left only, because the feed's region paints after the separator and would win the
+    hit test on its right.
+  - **It is the ARIA window splitter**, so the keyboard path is the pointer's: arrows step,
+    Home/End go to the ends. Home is also the reset, since the default width *is* the
+    minimum — don't add a double-click or a menu item for it.
+  - **The bounds are stated as literals in three places** (the hook, the CSS fallback, the
+    layout spec) and that is deliberate: `tests/layout/desktop-shell.spec.ts` measures the
+    resting width, the drag, and both clamps in a real browser, which is the only thing that
+    can catch the three disagreeing.
 - **The rail carries a working COUNT, and it must never paint one** (13 D9). `RailProject`
   has a required `working: number` and `railHint` folds it into the row's `title` plus the
   mark's visually-hidden text — nothing else. Two reasons it exists at all: 13 §8 rules out
@@ -1480,22 +1546,15 @@ The opt-in lives on the one rule both surfaces render, so there is exactly one p
   the ticket's own detail badge compared as **resolved colours**, which is the claim the old
   `status-mark.test.ts` could only approximate by matching two token *names* across two
   stylesheets.
-- **The phone's tickets dropdown heads its list with the same mark, keyed on the TOP ticket.**
-  The desk's in-progress head took three fixes to become one of its own rows' marks; the
-  phone's `[data-role='header-status-heading']` had the marks in the list and no reading over
-  them, so the one line naming the list said nothing about the state of it. It now renders the
-  shared `status-dot` (`HeaderStatusMenu.tsx`) and, because that is the same element under the
-  same rule, the design match and the phase sync both come for free — the `--pulse-phase:
-  shared` opt-in rides on `[data-status='building']`, so the head breathes *with* the row it is
-  reporting rather than merely at its tempo. Three things to keep: it is the **first ticket of
-  `ticketStatuses`**, not a state re-derived here (that list already ranks working → blocked →
-  ready, so the top row IS the loudest thing on the board, and a second rule is how a head ends
-  up contradicting the row beneath it); it stays **stateless** — mark present, no `data-state`
-  — on an empty or not-yet-loaded board, so the heading's geometry doesn't shift when the first
-  ticket lands under it; and it carries **no `role="status"`**, unlike the desk's permanent
-  panel, because a live region inside a dropdown re-announces on every re-render behind it. The
-  heading rule owns only the flex box, the rows' 9px column gap and the padding that stands its
-  mark in the rows' own column — never a size, ink or animation of its own.
+- **The phone's tickets dropdown has NO head — the list is the panel's first content.**
+  `[data-role='header-status-heading']` is gone, mark included: the panel opens from a button
+  that already reports what it holds and every row carries its own status mark, so the line
+  above them named the list a second time and spent the panel's first 42px doing it. It had
+  just been given the shared `status-dot` keyed on the top ticket when it went; if a reading
+  over the list is ever wanted back, that history is in `HeaderStatusMenu.tsx`'s log — don't
+  reintroduce it as a lone mark with no word. **Mobile only: the desk's in-progress panel keeps
+  its head**, so `tests/layout/status-mark.spec.ts` measures the head-vs-row match there; the
+  phone's case in that file now holds the list's own marks — shared rule, shared clock.
 - **A glow is geometry too — an opaque band anchored to a region's edge will cut it.** The
   listening mic radiates a box-shadow ring ~20px past the button's edge (`kiln-mic-glow`),
   and the activity row is anchored to the composer region's *top* edge carrying an opaque

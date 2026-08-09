@@ -240,33 +240,35 @@ describe('Onboarding — the guided setup flow', () => {
 
   // ------------------------------------------------------------- step 2
 
-  it('asks only for the repo and a name, and prefills the name from the repo picked', async () => {
+  it('asks for the repo and nothing else — no name field at all', async () => {
     renderDashboard();
     await reachProjectStep();
 
-    // Only what this step needs: the picker and the name. Worker count, merge
-    // gate and snapshot are settings concerns, not first-run questions.
+    // Only what this step needs: the picker. The name comes from the repo
+    // (auto-name from repository); worker count, merge gate and snapshot are
+    // settings concerns, not first-run questions.
     expect(screen.getByRole('combobox', { name: 'Repository' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Project name')).toHaveValue('');
+    expect(screen.queryByLabelText('Project name')).toBeNull();
     expect(screen.queryByLabelText('Worker count')).toBeNull();
     expect(screen.queryByLabelText('Merge gate')).toBeNull();
-
-    fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
-      target: { value: 'https://github.com/octocat/atlas' },
-    });
-    expect(screen.getByLabelText('Project name')).toHaveValue('atlas');
   });
 
-  it('never overwrites a name the user typed themselves', async () => {
+  it('says back the name the picked repo gives the project', async () => {
     renderDashboard();
     await reachProjectStep();
 
-    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'my-thing' } });
+    // Before a pick it states where the name will come from; after, it names it
+    // — the org is dropped, so `octocat/atlas` is a board called `atlas`.
+    expect(document.querySelector('[data-role="project-name-note"]')).toHaveAttribute(
+      'data-state',
+      'unpicked',
+    );
+
     fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
       target: { value: 'https://github.com/octocat/atlas' },
     });
 
-    expect(screen.getByLabelText('Project name')).toHaveValue('my-thing');
+    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent('atlas');
   });
 
   it('blocks the flow until a repo is picked', async () => {
@@ -473,7 +475,9 @@ describe('Onboarding — the guided setup flow', () => {
 
     await screen.findByRole('heading', { name: 'Choose your project' });
     expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue(REPOS[0]?.url);
-    expect(screen.getByLabelText('Project name')).toHaveValue('hello-world');
+    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent(
+      'hello-world',
+    );
     // Step 1 is the first step, so it offers no way further back.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await screen.findByRole('heading', { name: 'Connect GitHub' });

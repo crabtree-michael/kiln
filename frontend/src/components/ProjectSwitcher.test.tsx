@@ -1,7 +1,7 @@
 // ProjectSwitcher tests (12 §4.1): the current project's name is the wordmark
 // trigger; opening it lists the user's projects, marks the current one, switches
-// on click (by project_id), and offers an "Add" affordance. Rendered under a stub
-// current-project context + MemoryRouter (it navigates).
+// on click (by project_id), and offers no create affordance. Rendered under a
+// stub current-project context + MemoryRouter (it navigates).
 import type { JSX } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -86,11 +86,12 @@ describe('ProjectSwitcher', () => {
     expect(selectProject).toHaveBeenCalledWith('p2');
   });
 
-  it('offers an "Add" affordance', () => {
+  it("offers no way to create a project — the phone's menu only switches between them", () => {
     const projects = [makeProject('p1', 'one')];
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
     fireEvent.click(screen.getByRole('button', { name: /one/ }));
-    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="project-switcher-new"]')).toBeNull();
   });
 
   it('ends the menu with "Settings", separated from the projects, opening the account view', () => {

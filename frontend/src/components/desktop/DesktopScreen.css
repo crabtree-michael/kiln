@@ -37,14 +37,27 @@ html:has([data-role='desktop-screen']) body {
 
 [data-role='desktop-screen'] {
   display: grid;
-  /* Three regions (13 §3, amended): rail, in-progress panel, feed. Both fixed
-     columns are sized to hold their content comfortably and no more — they are
-     peripheral-vision furniture, so every pixel beyond what a project name and a
-     ticket title need is width stolen from the feed's legibility. The panel is
-     wider than the rail only because a ticket title is longer than a project
-     name; at the 1024px shell threshold the pair still leaves the feed a full
-     reading measure. */
-  grid-template-columns: 236px 248px minmax(0, 1fr);
+  /* Three regions (13 §3, amended): rail, in-progress panel, feed — with the
+     separator that moves the boundary between the last two standing as a column
+     of its own between them. Both fixed columns are sized to hold their content
+     comfortably and no more — they are peripheral-vision furniture, so every
+     pixel beyond what a project name and a ticket title need is width stolen
+     from the feed's legibility. The panel is wider than the rail only because a
+     ticket title is longer than a project name; at the 1024px shell threshold
+     the pair still leaves the feed a full reading measure.
+
+     The tickets column's width is the one number here the USER owns: the
+     separator publishes it on this element as `--desk-working-width` (see
+     use-working-panel-width.ts, which also states the bounds — this floor, and
+     twice it). The literal is the fallback rather than the value, so the column
+     lays out at its resting width before anything has been dragged and in any
+     render that mounts the panel without the handle. The rail is NOT
+     negotiable: a project name is a fixed thing to fit, so there is nothing for
+     a reader to gain by trading the feed's width for more of it.
+
+     `auto` for the separator: its width is a fact about the handle, so it is
+     stated in the handle's own rule rather than restated here. */
+  grid-template-columns: 236px var(--desk-working-width, 248px) auto minmax(0, 1fr);
   height: 100dvh;
   background: var(--surface-page);
   color: var(--text-body);
@@ -562,20 +575,11 @@ html:has([data-role='desktop-screen']) body {
    than above it, so it cannot be scrolled out of sight while reading back
    through the history.
 
-   The rule on its RIGHT edge is the whole point of the region's placement. The
-   rail sets itself apart with a recessed surface (it is furniture — a switcher,
-   not content), but this column and the feed are two readings of the SAME
-   project, so they share the page surface and a line is what tells them apart.
-   It is `--border-strong` rather than the rail's `--border-hairline`, and that
-   is the one place this shell deliberately overspends 13 §4's "where a line is
-   genuinely needed it is a hairline": a hairline between two regions of the same
-   surface is a seam you have to look for, and the whole read of this column
-   depends on it not being mistaken for the feed's left margin. Still 1px — the
-   ink is louder, the line is not thicker.
-
-   It scrolls on its own if a very busy project overruns it, and it never grows:
-   a column that widened with the longest ticket title would move the feed
-   sideways whenever an agent picked something up. */
+   It scrolls on its own if a very busy project overruns it, and it never grows
+   on its own: a column that widened with the longest ticket title would move the
+   feed sideways whenever an agent picked something up. Its width answers to the
+   separator on its right edge and to nothing else — see the rule below, which is
+   also where the line that was once this element's `border-right` now lives. */
 [data-role='desktop-working-panel'] {
   display: flex;
   flex-direction: column;
@@ -583,7 +587,81 @@ html:has([data-role='desktop-screen']) body {
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-5) var(--space-4) var(--space-4);
-  border-right: 1px solid var(--border-strong);
+}
+
+/* ---- the boundary, and the handle that moves it
+
+   The rule on the column's RIGHT edge is the whole point of the region's
+   placement. The rail sets itself apart with a recessed surface (it is
+   furniture — a switcher, not content), but this column and the feed are two
+   readings of the SAME project, so they share the page surface and a line is
+   what tells them apart. It is `--border-strong` rather than the rail's
+   `--border-hairline`, and that is the one place this shell deliberately
+   overspends 13 §4's "where a line is genuinely needed it is a hairline": a
+   hairline between two regions of the same surface is a seam you have to look
+   for, and the whole read of this column depends on it not being mistaken for
+   the feed's left margin. Still 1px — the ink is louder, the line is not
+   thicker.
+
+   The line is drawn as this element's LEFT border rather than the panel's right
+   one, which puts it at exactly the x it has always been at while making it the
+   thing you grab. That is the whole design of the handle: there is no second
+   mark, no grip dots, nothing new on the screen at rest — the boundary the eye
+   already reads as the boundary is the control. What the handle adds beside it
+   is 4px of grab room on the feed's side, and the pointer's own answer to
+   "this can move" (`col-resize`), which costs no ink at all. */
+[data-role='desktop-working-resizer'] {
+  position: relative;
+  width: 5px;
+  border-left: 1px solid var(--border-strong);
+  background: none;
+  cursor: col-resize;
+  /* This shell is width-gated, so a landscape tablet gets it driven by a finger
+     (13 §11). Without this a drag on the handle scrolls the panel instead. */
+  touch-action: none;
+  /* A drag that crosses the panel must not select the ticket titles it passes
+     over — the same reason the shell takes it while `data-resizing` is up. */
+  user-select: none;
+  transition: border-color var(--duration-fast) var(--ease-settle);
+}
+
+/* The grab room the layout does not pay for. A 5px column is an honest width for
+   a 1px rule and a mean target for a pointer, so the hit area is widened by a
+   pseudo-element reaching back over the panel's last few pixels — which costs
+   the far right edge of a row's hover wash and buys a target you can hit without
+   aiming. It reaches LEFT only, on purpose: to its right is the feed's region,
+   painted after this element, which would win the hit test anyway. */
+[data-role='desktop-working-resizer']::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 -4px;
+}
+
+/* Hover reveals; it never acts (13 §9). Pointing at the boundary firms it up to
+   the faintest ink on the screen — enough to say the line is a thing rather than
+   a seam, nowhere near enough to make a permanent divider the loudest edge in
+   the window. The same reading is held for as long as a drag lasts, so the line
+   under the pointer does not go quiet the moment it starts moving. */
+[data-role='desktop-working-resizer']:hover,
+[data-role='desktop-screen'][data-resizing='true'] [data-role='desktop-working-resizer'] {
+  border-left-color: var(--text-faint);
+}
+
+/* Focus is visible and uses the existing ring token, not a new invention
+   (13 §9) — this is a real tab stop, because the width is settable from the
+   keyboard (arrows step it, Home/End go to the ends). */
+[data-role='desktop-working-resizer']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  border-left-color: var(--text-faint);
+}
+
+/* While a drag is in flight the WHOLE window wears the resize cursor and stops
+   selecting text: the pointer is captured by the handle and is going to spend
+   most of the drag somewhere else entirely, and a cursor that changed back the
+   moment it left a 5px column would read as the drag having been dropped. */
+[data-role='desktop-screen'][data-resizing='true'] {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* The indication itself: slow, low-contrast, breathing. It is the one element on

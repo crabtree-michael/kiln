@@ -162,6 +162,65 @@ test.describe('onboarding', () => {
   });
 });
 
+// Starting a project (full-screen repo picker): the claim is geometric — the
+// picker IS the step, on a phone, without scrolling — and every part of it
+// passes as a DOM assertion while looking wrong. The predecessor was a card at
+// the foot of the project list, under a name field, which is exactly the shape
+// jsdom cannot tell this apart from.
+test.describe('new project', () => {
+  const PHONE = { width: 390, height: 720 };
+  test.use({ viewport: PHONE });
+
+  test('the repo picker is the step: one control, on screen, spanning the column', async ({
+    page,
+  }) => {
+    await mountShell(page, {
+      route: '/projects?new=1',
+      hasEarlier: false,
+      ready: "[data-role='new-project-step']",
+    });
+
+    const step = await box(page, "[data-role='new-project-step']");
+    const picker = await box(page, "[data-role='repo-select']");
+    const options = await box(page, "[data-role='new-project-options']");
+
+    // Above the fold, at the column's full width, and a real touch target —
+    // not one field among six in a scrolled form.
+    expect(picker.bottom).toBeLessThanOrEqual(PHONE.height);
+    expect(picker.width).toBeGreaterThan(step.width - 4);
+    expect(picker.height).toBeGreaterThanOrEqual(44);
+    // Everything with a working default is BELOW it, and below the derived name
+    // — the picker leads, the rest is subordinate.
+    const note = await box(page, "[data-role='project-name-note']");
+    expect(note.top).toBeGreaterThanOrEqual(picker.bottom);
+    expect(options.top).toBeGreaterThan(note.top);
+    // The step takes the screen: the list it was reached from is not under it.
+    expect(await page.locator("[data-role='project-row']").count()).toBe(0);
+  });
+
+  test('the create action ends the step, spanning the column at its foot', async ({ page }) => {
+    await mountShell(page, {
+      route: '/projects?new=1',
+      hasEarlier: false,
+      ready: "[data-role='new-project-step']",
+    });
+
+    const step = await box(page, "[data-role='new-project-step']");
+    const submit = await box(page, "[data-role='new-project-step'] button[type='submit']");
+    const options = await box(page, "[data-role='new-project-options']");
+
+    expect(submit.top).toBeGreaterThanOrEqual(options.bottom);
+    expect(submit.width).toBeGreaterThan(step.width - 4);
+    expect(submit.height).toBeGreaterThanOrEqual(44);
+    // The header's cancel replaces the back link while the step is up, and stays
+    // a header control rather than a pill somewhere in the form.
+    const cancel = await box(page, "[data-role='cancel-new-project']");
+    const heading = await box(page, "[data-role='projects-header'] h1");
+    expect(cancel.right).toBeLessThanOrEqual(heading.left + 1);
+    expect(cancel.top).toBeLessThan(step.top);
+  });
+});
+
 test.describe('settings', () => {
   test.use({ viewport: DESK });
 

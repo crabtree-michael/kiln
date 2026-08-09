@@ -1,12 +1,13 @@
 // Project switcher (12 §4.1): the app header's brand control. The wordmark shows
 // the current project's name in Kiln's brand styling (the big red accent
 // wordmark + glyph) and is itself the dropdown trigger — clicking it opens a menu
-// listing the user's projects (the current one marked) plus an "Add" button that
-// routes to the app-native project-management page (`/projects`, 12 follow-up), opening it
-// on the create form (`?new=1`) — it used to dump the user on the `/dashboard`
-// account view — and, below a rule, "Settings", which opens that account view.
-// Settings is here because the header's standalone gear is gone: one dropdown
-// now holds what the top bar used to spend an icon each on.
+// listing the user's projects (the current one marked) and, below a rule,
+// "Settings", which opens the `/dashboard` account view. Settings is here
+// because the header's standalone gear is gone: one dropdown now holds what the
+// top bar used to spend an icon each on. Creating a project is NOT one of the
+// phone's jobs here — the "Add" button that routed to `/projects?new=1` is gone,
+// leaving this menu to do the one thing it is for: switch between the projects
+// that exist. The project-management page still creates them.
 // The client references and keys each project by
 // its `project_id` (DP5); selecting one re-scopes every board/feed/stream/message
 // call (the current-project store tears down and re-opens the EventSource against
@@ -99,22 +100,12 @@ export function ProjectSwitcher(): JSX.Element | null {
             </li>
           ))}
         </ul>
-        <button
-          type="button"
-          data-role="project-switcher-new"
-          onClick={() => {
-            setOpen(false);
-            void navigate('/projects?new=1');
-          }}
-        >
-          Add
-        </button>
         {/* Settings is the panel's last item, below a rule, because it is the one
             entry here that is not about a project: it opens the account view
             (`/dashboard`) the header's standalone gear used to. That gear is
             gone, so this is the way in — hence a router navigation rather than
             the gear's full-page anchor, which this component can do because it
-            is already router-dependent (see "Add" above). */}
+            is already router-dependent. */}
         <div data-role="project-switcher-divider" aria-hidden="true" />
         <button
           type="button"

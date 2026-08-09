@@ -413,8 +413,8 @@ describe('ProjectFields — repo picker', () => {
     // back on the form rather than dropping the user into the app.
     const connect = screen.getByRole('link', { name: 'Connect GitHub account' });
     expect(connect).toHaveAttribute('href', '/auth/github/connect?next=dashboard');
-    // Nothing to save: the repo is required and can't be supplied yet.
-    expect(screen.getByRole('button', { name: 'Save project' })).toBeDisabled();
+    // Nothing to create: the repo is required and can't be supplied yet.
+    expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled();
   });
 
   // An existing project keeps its repo while the account is disconnected — the
@@ -486,6 +486,99 @@ describe('ProjectFields — repo picker', () => {
     expect(within(repoSelect()).getAllByRole('option')).toHaveLength(12);
     expect(screen.queryByLabelText('Filter')).not.toBeInTheDocument();
     expect(document.querySelector('[data-role="repo-filter"]')).toBeNull();
+  });
+});
+
+// Creating a project (auto-name from repository): the repo is the whole
+// question, and the name is derived from it rather than typed. Editing one is
+// unchanged — the name field is still there, and a board someone deliberately
+// renamed must not snap back to its repo's name on the next save.
+describe('ProjectFields — create mode', () => {
+  function nameNote(): HTMLElement | null {
+    return document.querySelector('[data-role="project-name-note"]');
+  }
+
+  it('offers no name field, and leads with the repo picker', () => {
+    render(
+      <ProjectFields
+        github={connectedGitHub()}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Project name')).toBeNull();
+    expect(document.querySelector('[data-role="new-project-repo"]')).not.toBeNull();
+    // The fields with a working default are still reachable — demoted, not
+    // dropped, so a multi-provider deployment can still say which agent runs
+    // this project at the moment it is created.
+    expect(document.querySelector('[data-role="new-project-options"]')).not.toBeNull();
+    expect(screen.getByRole('spinbutton', { name: /worker count/i })).toBeInTheDocument();
+  });
+
+  it('states where the name will come from, then names it', () => {
+    render(
+      <ProjectFields
+        github={connectedGitHub()}
+        saving={false}
+        onSave={vi.fn(() => Promise.resolve())}
+      />,
+    );
+
+    expect(nameNote()).toHaveAttribute('data-state', 'unpicked');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
+      target: { value: 'https://github.com/acme/demo' },
+    });
+    expect(nameNote()).toHaveAttribute('data-state', 'named');
+    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent('demo');
+  });
+
+  it('submits the repo’s own name — the org is not part of it', () => {
+    const onSave: SaveMock = vi.fn(() => Promise.resolve());
+    render(
+      <ProjectFields
+        github={connectedGitHub({
+          repos: [
+            {
+              full_name: 'Crabtree-Michael/Pac-Man',
+              url: 'https://github.com/Crabtree-Michael/Pac-Man',
+              private: false,
+            },
+          ],
+        })}
+        saving={false}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
+      target: { value: 'https://github.com/Crabtree-Michael/Pac-Man' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
+
+    expect(lastBody(onSave)).toMatchObject({
+      name: 'Pac-Man',
+      repo_url: 'https://github.com/Crabtree-Michael/Pac-Man',
+    });
+  });
+
+  it('leaves an existing project’s name field alone', () => {
+    const onSave: SaveMock = vi.fn(() => Promise.resolve());
+    render(
+      <ProjectFields
+        github={connectedGitHub()}
+        project={baseProject({ name: 'the-board' })}
+        saving={false}
+        onSave={onSave}
+      />,
+    );
+
+    // A rename survives a save that never touched the repo — the derivation is
+    // a create-time answer, not a rule the form enforces afterwards.
+    expect(screen.getByLabelText('Project name')).toHaveValue('the-board');
+    expect(nameNote()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(lastBody(onSave).name).toBe('the-board');
   });
 });
 

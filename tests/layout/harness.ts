@@ -264,6 +264,20 @@ export async function mountShell(page: Page, options: ShellOptions = {}): Promis
     if (url.pathname.endsWith('/activity')) {
       return route.fulfill({ json: { thinking: options.thinking === true } });
     }
+    // A connected GitHub account, so every repo picker in the client renders its
+    // dropdown rather than the connect prompt — the create flows' whole layout
+    // is that one control, and the prompt is a paragraph of text instead.
+    if (url.pathname.endsWith('/github/repos')) {
+      return route.fulfill({
+        json: {
+          connected: true,
+          repos: [
+            { full_name: 'acme/kiln', url: 'https://github.com/acme/kiln', private: false },
+            { full_name: 'acme/Pac-Man', url: 'https://github.com/acme/Pac-Man', private: true },
+          ],
+        },
+      });
+    }
     if (url.pathname.includes('/stream')) {
       return route.fulfill({
         status: 200,

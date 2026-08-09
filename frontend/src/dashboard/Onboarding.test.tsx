@@ -244,31 +244,21 @@ describe('Onboarding — the guided setup flow', () => {
     renderDashboard();
     await reachProjectStep();
 
-    // Only what this step needs: the picker. The name comes from the repo
-    // (auto-name from repository); worker count, merge gate and snapshot are
-    // settings concerns, not first-run questions.
+    // Only what this step needs: the picker. The name still comes from the repo
+    // (auto-name from repository), but the step no longer says so — no field,
+    // and no note about the naming either; worker count, merge gate and snapshot
+    // are settings concerns, not first-run questions.
     expect(screen.getByRole('combobox', { name: 'Repository' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Project name')).toBeNull();
+    expect(document.querySelector('[data-role="project-name-note"]')).toBeNull();
     expect(screen.queryByLabelText('Worker count')).toBeNull();
     expect(screen.queryByLabelText('Merge gate')).toBeNull();
-  });
-
-  it('says back the name the picked repo gives the project', async () => {
-    renderDashboard();
-    await reachProjectStep();
-
-    // Before a pick it states where the name will come from; after, it names it
-    // — the org is dropped, so `octocat/atlas` is a board called `atlas`.
-    expect(document.querySelector('[data-role="project-name-note"]')).toHaveAttribute(
-      'data-state',
-      'unpicked',
-    );
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
       target: { value: 'https://github.com/octocat/atlas' },
     });
 
-    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent('atlas');
+    expect(document.querySelector('[data-role="project-name-note"]')).toBeNull();
   });
 
   it('blocks the flow until a repo is picked', async () => {
@@ -475,9 +465,6 @@ describe('Onboarding — the guided setup flow', () => {
 
     await screen.findByRole('heading', { name: 'Choose your project' });
     expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue(REPOS[0]?.url);
-    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent(
-      'hello-world',
-    );
     // Step 1 is the first step, so it offers no way further back.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await screen.findByRole('heading', { name: 'Connect GitHub' });

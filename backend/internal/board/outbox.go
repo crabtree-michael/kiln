@@ -1,5 +1,7 @@
 package board
 
+import "time"
+
 // Topic enumerates the outbox emissions the board may append (03 §7.1). The
 // board owns this emission contract; delivery — drain loop, retries,
 // dead-lettering — is the runtime's (04 §2–§3). The outbox is distinct from
@@ -9,6 +11,7 @@ type Topic string
 const (
 	TopicAgentSend      Topic = "agent.send"      // RunPull (work order) and SendToAgent (instruction)
 	TopicAgentRelease   Topic = "agent.release"   // AcceptToDone: recycle the worker to a fresh workspace
+	TopicAgentSnapshot  Topic = "agent.snapshot"  // a saved sandbox's exit: capture the workspace, don't recycle it
 	TopicNotifySend     Topic = "notify.send"     // start/blocked/done: push notification to the user (02 §10)
 	TopicPullEvaluate   Topic = "pull.evaluate"   // MarkReady, AcceptToDone: trigger RunPull
 	TopicBoardUpdated   Topic = "board.updated"   // every mutation: full-snapshot push (03 D7)
@@ -40,6 +43,28 @@ type SendPayload struct {
 // ReleasePayload — agent.release (03 §7.1, 05 §4).
 type ReleasePayload struct {
 	WorkerID WorkerID `json:"worker_id"`
+}
+
+// SnapshotPayload — agent.snapshot (03 §7.1, 05 §4, §6): the saved-sandbox
+// counterpart to ReleasePayload. Where a release recycles the slot's sandbox to
+// a fresh workspace, this asks the agent-runtime module to CAPTURE that
+// workspace as a reusable base image, so what the ticket's agent built survives
+// beyond the sandbox itself. Emitted in place of agent.release by every exit
+// from Developing on a ticket whose sandbox is saved (KeepSandbox).
+//
+// TicketID names the work the workspace came out of (it labels the capture);
+// WorkerID is the slot whose sandbox to capture. At is the emit-time instant,
+// carried rather than read at execution time for the usual emit-time-snapshot
+// reason (03 §7) AND for a second one that matters here: the executor derives
+// the snapshot's NAME from it, so an at-least-once redelivery derives the SAME
+// name and is recognised as the capture that already ran rather than starting a
+// second one. The board deliberately does not name the snapshot itself — what a
+// saved workspace is called is a presentation choice, and the board knows the
+// project only by id.
+type SnapshotPayload struct {
+	TicketID TicketID  `json:"ticket_id"`
+	WorkerID WorkerID  `json:"worker_id"`
+	At       time.Time `json:"at"`
 }
 
 // NotifyPayload — notify.send (03 §7.1). The user is pushed on exactly three

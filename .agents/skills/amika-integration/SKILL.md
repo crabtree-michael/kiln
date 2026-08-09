@@ -20,8 +20,10 @@ adding an agent platform touches only a Provider adapter + config. *(The skill i
 registered providers.)*
 
 **Two seams (05 §2).**
-- *Consumer contract:* `AgentRuntime{Send, Release}` executes `agent.send` / `agent.release`
-  outbox entries — record-and-return, idempotent by outbox id. Inbound: `EnqueueEvent` with an
+- *Consumer contract:* `AgentRuntime{Send, Release, Snapshot}` executes `agent.send` /
+  `agent.release` / `agent.snapshot` outbox entries. The first two are record-and-return,
+  idempotent by outbox id; `Snapshot` is the odd one out and calls the provider inline (see
+  the catalog section). Inbound: `EnqueueEvent` with an
   `idempotencyKey`, carrying `{ticket_id, worker_id, is_error, output, cost_usd}` for **every
   terminal outcome, mechanical failures included** (D3). The key makes completion
   **exactly-once at the event seam**. No provider handles in the payload.
@@ -77,7 +79,7 @@ Amika is **one registered provider among several**, not *the* provider
 - **Devin** (`internal/agent/devin`) is the *virtual-worker* shape: no managed sandbox, empty
   worker listing, synthetic workers, session created lazily on the first turn, ACU→USD
   best-effort cost. It is the proof the abstraction holds for a provider unlike Amika.
-- **Still frozen, and that is the whole point:** `AgentRuntime{Send,Release}`, the
+- **Still frozen, and that is the whole point:** `AgentRuntime`'s shape, the
   `agent.turn_completed` payload, the `agent_turns` dedupe, the reconciler/poller. **A provider
   addition that touches board/brain/runtime/wire (beyond the dashboard descriptor) means the
   abstraction is leaking.**
@@ -97,6 +99,32 @@ plus "save a running dev box as a snapshot" — and stays provider-neutral.
   frontend consequences (per-project hook, no global store) are `web-client`'s.
 - Amika's impl filters dev boxes to the **complement** of the worker prefix — the user's own
   boxes, not the pooled workers.
+
+**The catalog's other consumer is the board, not a user.** When a ticket whose sandbox is
+*saved* leaves Developing the board emits `agent.snapshot` (see `board-mechanism`), and
+`Service.SaveWorkerSnapshot` captures that slot's sandbox. Three things about it are
+load-bearing:
+
+- **`ErrNoCatalog` / `ErrNoLiveWorker` are terminal facts, not failures.** There is nothing to
+  capture and retrying cannot change that, so the caller reports and completes the outbox entry
+  rather than burning the retry budget to the same end.
+- **The NAME is the idempotency key.** The provider API has none and the outbox is
+  at-least-once, so the capture first asks the catalog whether one exists under that name. This
+  only works because the name derives from the emit-time instant the board stamped into the
+  payload — derive it from the execution clock and every redelivery captures again. A catalog
+  read that *fails* deliberately falls through to capturing: losing the workspace is the worse
+  way to be wrong.
+- **The capture consumes its source.** `scrub_and_delete` is the only safe mode — a Kiln worker
+  holds the owner's git credential and the project's injected secrets, and this image is about
+  to become the base every future worker starts from, so **never switch it to `full`**. The
+  provider deletes the box, so the slot is dropped from the worker cache and the reconciler
+  re-provisions it, the same heal `advanceRelease` leans on.
+
+Naming (`<project>-<timestamp>`) and pointing the project at the result live in
+`agentRuntimeAdapter.Snapshot` at the composition root, because that spans this module and
+identity. The repoint happens while the capture is still running, so the project briefly names
+a not-yet-ready image and worker creation retries until it lands; waiting instead would not
+converge, since a capture routinely outlives the outbox's ~3-minute retry budget.
 
 ## Config
 

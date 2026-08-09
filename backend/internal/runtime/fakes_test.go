@@ -62,6 +62,39 @@ func (realTestClock) After(d time.Duration) <-chan time.Time { return time.After
 
 var _ runtime.Clock = realTestClock{}
 
+// samplingClock wraps a runtime.Clock and records every Now() reading taken
+// through it, so a test can recover the exact instant the worker sampled.
+//
+// This matters only while Pump is running. process computes next_attempt_at as
+// Now()+backoff and then calls MarkRetry, which samples the clock a second time
+// for retryCall.calledAt — and a pump heartbeat landing between those two
+// readings shortens the calledAt-based delay by a full pumpStep. Measuring against
+// the worker's own sample removes that skew; measuring against calledAt is
+// still exact in the unpumped tests, where the clock cannot move at all.
+type samplingClock struct {
+	runtime.Clock
+
+	mu   sync.Mutex
+	nows []time.Time
+}
+
+func (c *samplingClock) Now() time.Time {
+	now := c.Clock.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nows = append(c.nows, now)
+	return now
+}
+
+// samples returns every reading taken so far, oldest first.
+func (c *samplingClock) samples() []time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]time.Time(nil), c.nows...)
+}
+
+var _ runtime.Clock = (*samplingClock)(nil)
+
 // runWorker starts w.Run in the background and returns a stop func that
 // cancels the context and waits (bounded) for Run to return.
 func runWorker(t *testing.T, w *runtime.Worker) func() {
@@ -347,12 +380,6 @@ func (s *fakeStore) retryCallsFor(id int64) []retryCall {
 	return out
 }
 
-func (s *fakeStore) deadCallCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.deadCalls)
-}
-
 func (s *fakeStore) deadCallsFor(id int64) []deadCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -527,8 +554,9 @@ var _ runtime.Blocker = (*fakeBlocker)(nil)
 type fakeAgentRuntime struct {
 	callRecorder
 
-	sendFn    func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
-	releaseFn func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	sendFn     func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	releaseFn  func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
+	snapshotFn func(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error
 }
 
 func (f *fakeAgentRuntime) Send(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
@@ -543,6 +571,14 @@ func (f *fakeAgentRuntime) Release(ctx context.Context, projectID string, idempo
 	f.record("Release", projectID, idempotencyKey, append([]byte(nil), payload...))
 	if f.releaseFn != nil {
 		return f.releaseFn(ctx, projectID, idempotencyKey, payload)
+	}
+	return nil
+}
+
+func (f *fakeAgentRuntime) Snapshot(ctx context.Context, projectID string, idempotencyKey int64, payload []byte) error {
+	f.record("Snapshot", projectID, idempotencyKey, append([]byte(nil), payload...))
+	if f.snapshotFn != nil {
+		return f.snapshotFn(ctx, projectID, idempotencyKey, payload)
 	}
 	return nil
 }

@@ -270,7 +270,7 @@ func buildGraph(cfg Config, db *sql.DB, idSvc *identity.Service, log *slog.Logge
 	// registry (11 §3).
 	rtSvc = runtime.NewService(
 		runtimepg.New(db), runtimepg.New(db), &brainResolver{registry: registry}, boardSvc,
-		&blockerAdapter{inner: boardSvc}, &agentRuntimeAdapter{inner: agentSvc},
+		&blockerAdapter{inner: boardSvc}, newAgentRuntimeAdapter(agentSvc, idSvc),
 		newNotifier(cfg, pushStore, owner, log),
 		hub, hub,
 		runtimepg.New(db), &boardViewAdapter{inner: boardSvc}, hub, hub,

@@ -42,13 +42,20 @@ unspent commit — so an allowed op can still fail.
 ## The three sandbox controls, and the one seam they share
 
 **`KeepSandbox`** (a *setting*, not a transition — no precondition, legal in any state, emits
-only `board.updated`) is the user's "save this ticket's sandbox" choice. Its whole mechanical
-effect is one **suppression**: the `agent.release` a ticket owes when it gives up its worker
-— `AcceptToDone`, and `ArchiveTicket` on a blocked ticket — is not emitted, so the agent
-module never destroys-and-recreates the slot's sandbox and the workspace survives for the next
-turn. Everything else is unchanged: the binding still clears and `pull.evaluate` still fires,
-so the *slot* is freed; only the sandbox behind it is kept. **`releaseEmissions` is the single
-seam** both exits go through.
+only `board.updated`) is the user's "save this ticket's sandbox" choice. Its mechanical effect
+is one **swap**: the `agent.release` a ticket owes when it gives up its worker —
+`AcceptToDone`, and `ArchiveTicket` on a blocked ticket — becomes **`agent.snapshot`**, which
+has the agent module capture that workspace as a reusable base image and (in the composition
+root) points the project at it. Exactly one of the two is emitted: a workspace being captured
+must never also be recycled. Everything else is unchanged: the binding still clears and
+`pull.evaluate` still fires, so the *slot* is freed; only the fate of the sandbox behind it
+differs. **`sandboxExitEmissions` is the single seam** both exits go through. Nothing happens
+when the option is *set* — it is a standing instruction for when the ticket is done.
+
+The capture used to be missing: the option only suppressed the release, so the box lingered
+but nothing reached the provider's snapshot catalog and the workspace still died with the
+sandbox (ticket 0549b739). Preserve the property that the option produces a durable artefact,
+not a stay of execution.
 
 **`KillSandbox` / `ReassignSandbox`** are the user's direct escape from a wedged workspace.
 Both act on the sandbox behind a slot, not on the ticket's place on the board, and both
@@ -63,10 +70,11 @@ require `state ∈ {working, blocked}` with a bound worker.
   `SendToAgent` leaves things. **No `pull.evaluate`** — one slot is vacated and one taken, so
   free capacity is unchanged.
 
-**Both deliberately ignore `KeepSandbox`** — the one place `releaseEmissions` is bypassed. The
-option means "don't recycle this behind my back"; these are the user in front of it asking for
-the recycle now, and a saved sandbox is exactly the case where a silent no-op would be worst.
-**If you add a third exit from Developing, route it through `releaseEmissions`; if you add
+**Both deliberately ignore `KeepSandbox`** — the one place `sandboxExitEmissions` is bypassed.
+The option means "capture this when the work is done, don't recycle it behind my back"; these
+are the user in front of it asking for the recycle now, and a saved sandbox is exactly the case
+where a silent no-op — or baking a corrupted tree into a base image — would be worst.
+**If you add a third exit from Developing, route it through `sandboxExitEmissions`; if you add
 another override, don't.**
 
 ## Deterministic pull (03 §5)
@@ -128,6 +136,9 @@ proving no double-binding.
   column has a `CHECK (topic IN (...))`; a new topic needs a migration to widen it or every
   transition that emits it fails the CHECK at commit. This has bitten twice — `0006`'s header
   records that leaving out `feed.completion` made "every 'done' transition fail the CHECK."
+  `0014` widened it for `agent.snapshot`; the guard against a third time is that the
+  keep-sandbox integration test reads its `agent.snapshot` row back out of Postgres, so a
+  missing widening fails there rather than in production.
 - Re-inlining a state check instead of adding a `statePreconditions` row (see above).
 
 ## Potential gotchas

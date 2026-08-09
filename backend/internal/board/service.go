@@ -277,11 +277,11 @@ type CompletionLink struct {
 // work, carried onto the completion card so the feed can link to the commit or
 // pull request that landed it.
 //
-// A ticket with KeepSandbox set emits everything EXCEPT agent.release: the user
-// asked to save that ticket's sandbox, so the worker is not destroyed and
-// recreated and the workspace survives for the next turn on that slot. The
-// binding is still cleared and pull.evaluate still fires, so the slot is free —
-// it is only the sandbox behind it that is kept.
+// A ticket with KeepSandbox set emits agent.snapshot in place of agent.release:
+// the user asked to save that ticket's sandbox, so the workspace is captured as
+// a reusable base image rather than recycled (sandboxExitEmissions). The binding
+// is still cleared and pull.evaluate still fires, so the slot is free — it is
+// only the fate of the sandbox behind it that differs.
 func (s *Service) AcceptToDone(
 	ctx context.Context, projectID string, id TicketID, link CompletionLink, doneCommit string,
 ) (Ticket, error) {
@@ -303,13 +303,13 @@ func (s *Service) AcceptToDone(
 			return Ticket{}, fmt.Errorf("board: update ticket: %w", err)
 		}
 		// Emitted in order: pull.evaluate, agent.release (recycle the freed
-		// worker — skipped when the ticket's sandbox is saved), feed.updated, the
+		// worker — agent.snapshot instead when the sandbox is saved), feed.updated, the
 		// ephemeral finished toast, the persistent completion card (so a done is
 		// never missed when the agent forgets — 08 §7), and notify.send (done is
 		// one of the three pushed transitions, 02 §10).
 		emissions := make([]Emission, 0, acceptEmissionCount)
 		emissions = append(emissions, Emission{Topic: TopicPullEvaluate})
-		emissions = append(emissions, releaseEmissions(*t, worker)...)
+		emissions = append(emissions, sandboxExitEmissions(*t, worker)...)
 		emissions = append(emissions,
 			Emission{Topic: TopicFeedUpdated, Payload: FeedUpdatedPayload{Title: updated.Title, Verb: FeedVerbFinished}},
 			Emission{Topic: TopicActivityToast, Payload: ToastPayload{
@@ -333,29 +333,47 @@ func (s *Service) AcceptToDone(
 }
 
 // acceptEmissionCount is AcceptToDone's full emission count — pull.evaluate,
-// agent.release, feed.updated, the finished toast, the completion card, and
-// notify.send — so the slice is sized once up front. A saved sandbox drops the
-// release and simply leaves one slot of capacity unused.
+// the sandbox-exit emission, feed.updated, the finished toast, the completion
+// card, and notify.send — so the slice is sized once up front. A saved sandbox
+// swaps agent.release for agent.snapshot, so the count is the same either way.
 const acceptEmissionCount = 6
 
-// releaseEmissions is the agent.release a ticket owes when it gives up the
-// worker it held (05 §4) — recycle the slot's sandbox to a fresh workspace. It
-// is EMPTY when the ticket's sandbox is saved (KeepSandbox), which is precisely
-// what saving means: no destroy-and-recreate, so the workspace and everything in
-// it survive and an agent can keep working in that same sandbox across turns.
-// The binding is cleared either way — only the sandbox behind the slot is kept.
-// Shared by AcceptToDone and ArchiveTicket so the option holds on both exits.
-func releaseEmissions(t Ticket, worker WorkerID) []Emission {
+// sandboxExitEmissions is what a ticket owes for the sandbox behind the worker
+// it is giving up (05 §4) — the single seam both exits from Developing
+// (AcceptToDone, ArchiveTicket on a blocked ticket) route through, so the
+// per-ticket option holds identically on each.
+//
+// The default is agent.release: recycle the slot's sandbox to a fresh workspace.
+// With the sandbox SAVED (KeepSandbox) it is agent.snapshot instead — capture
+// that workspace as a reusable base image. Saving used to mean only the
+// suppression, emitting nothing at all: the release was skipped, so the box was
+// not destroyed and the next turn on the slot found the same workspace. That
+// half-kept the promise. The sandbox survived only as long as the box did —
+// nothing was ever persisted to the provider's snapshot catalog, so the
+// workspace still died with the box, and the "Save sandbox when done" switch
+// quietly delivered a stay of execution rather than a save (ticket 0549b739).
+// Emitting the capture is what makes the option mean what it says.
+//
+// Exactly one of the two is emitted, never both: a captured workspace must not
+// also be recycled out from under the capture. The binding is cleared and
+// pull.evaluate fires either way — the slot is freed in both cases; only what
+// becomes of the sandbox behind it differs.
+func sandboxExitEmissions(t Ticket, worker WorkerID) []Emission {
 	if t.KeepSandbox {
-		return nil
+		return []Emission{{Topic: TopicAgentSnapshot, Payload: SnapshotPayload{
+			TicketID: t.ID, WorkerID: worker, At: time.Now().UTC(),
+		}}}
 	}
 	return []Emission{{Topic: TopicAgentRelease, Payload: ReleasePayload{WorkerID: worker}}}
 }
 
 // SetKeepSandbox records the per-ticket sandbox option: keep=true saves this
-// ticket's sandbox (its agent.release is suppressed on every exit from
-// Developing, so the workspace survives), keep=false returns it to the default
-// recycle. Unlike every other Board API operation this is a setting rather than
+// ticket's sandbox (every exit from Developing captures the workspace as a
+// reusable snapshot instead of recycling the slot — sandboxExitEmissions),
+// keep=false returns it to the default recycle. Nothing happens at the moment
+// the option is set: it is a standing instruction about what to do when the
+// ticket is done, so a ticket can be marked long before it reaches a worker.
+// Unlike every other Board API operation this is a setting rather than
 // a transition — it touches no state, holds no precondition, and is legal in any
 // state (a ticket can be marked before it ever reaches a worker) — so it emits
 // only mutate's own board.updated, which carries the new value to every client.
@@ -460,11 +478,12 @@ func (s *Service) RemoveDependency(
 // sandbox to kill before a ticket reaches one.
 //
 // KeepSandbox is deliberately IGNORED here, unlike on every automatic exit from
-// Developing (releaseEmissions). Saving a sandbox says "don't recycle this one
-// behind my back"; pressing Kill is the user in front of it, saying to recycle
-// this one now. Honoring the flag would make the one control that exists to
-// escape a corrupted workspace silently do nothing on exactly the tickets most
-// likely to have one.
+// Developing (sandboxExitEmissions). Saving a sandbox says "capture this one
+// when the work is done, don't recycle it behind my back"; pressing Kill is the
+// user in front of it, saying to recycle this one now. Honoring the flag would
+// make the one control that exists to escape a corrupted workspace either
+// silently do nothing or bake the corruption into a base image, on exactly the
+// tickets most likely to have one.
 //
 // The kill sends no new work: the ticket sits on a fresh, unbriefed sandbox
 // until it is poked or reassigned. That is the point of the pair — Kill stops a
@@ -688,8 +707,8 @@ func buildSeedTicket(ctx context.Context, tx Tx, projectID string, spec SeedSpec
 //     is the one active state that can be deleted directly
 //     (2026-07-11-delete-blocked-ticket-design.md). Archiving it releases the
 //     worker it holds: null WorkerID and emit agent.release (tear the sandbox
-//     down, 05 §4 — suppressed when the ticket's sandbox is saved, KeepSandbox)
-//     plus pull.evaluate (let a waiting ready ticket claim the freed
+//     down, 05 §4 — agent.snapshot instead when the ticket's sandbox is saved,
+//     KeepSandbox) plus pull.evaluate (let a waiting ready ticket claim the freed
 //     slot) — mirroring AcceptToDone's release. Archive is orthogonal to State,
 //     so the row keeps state=blocked and its BlockedReason as historical truth;
 //     the blocked-with-no-worker shape is permitted because I3 is scoped to live
@@ -710,7 +729,7 @@ func (s *Service) ArchiveTicket(ctx context.Context, projectID string, id Ticket
 		if t.State == StateBlocked && t.WorkerID != nil {
 			worker := *t.WorkerID
 			t.WorkerID = nil
-			emissions = append(emissions, releaseEmissions(*t, worker)...)
+			emissions = append(emissions, sandboxExitEmissions(*t, worker)...)
 			emissions = append(emissions, Emission{Topic: TopicPullEvaluate})
 		}
 		// Anything waiting on this ticket is released by archiving it: an archived

@@ -254,6 +254,20 @@ func (s *fakeStore) UpdateProject(_ context.Context, p identity.Project) (identi
 	return p, nil
 }
 
+// SetProjectSnapshot writes only a live project's snapshot — no owner check, as
+// its caller is a background capture rather than a request.
+func (s *fakeStore) SetProjectSnapshot(_ context.Context, id, snapshot string) (identity.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.projects[id]
+	if !ok || s.deletedProjects[id] {
+		return identity.Project{}, identity.ErrNotFound
+	}
+	existing.AmikaSnapshot = snapshot
+	s.projects[id] = existing
+	return existing, nil
+}
+
 // SoftDeleteProject marks a live project the owner owns deleted; ErrNotFound
 // otherwise (12 DP6).
 func (s *fakeStore) SoftDeleteProject(_ context.Context, id, ownerUserID string) error {

@@ -282,8 +282,13 @@ Read-only inspection over a read-only board as far as the ticket's *state* goes 
 Delete and Poke express intent and route **through the brain**. Three things bypass it, each
 for its own reason (the API-side table is in `runtime-and-api`):
 
-- **The sandbox toggle** — a *setting on the ticket*, so round-tripping it through an LLM pass
-  would be slow and non-deterministic for no gain.
+- **The sandbox toggle** ("Save sandbox when done") — a *setting on the ticket*, so
+  round-tripping it through an LLM pass would be slow and non-deterministic for no gain.
+  Nothing happens on the tap: it is a standing instruction that, when the ticket leaves
+  Developing, the server captures the workspace as a snapshot and points the project at it
+  instead of recycling the slot. `SandboxInfo` in the settings modal is the only place the app
+  explains that — including that this toggle changes the project's snapshot selection on its
+  own — so don't delete that copy without replacing what it says.
 - **The text edit** — skips the brain for the opposite reason: **an LLM pass is the thing being
   avoided.** Describing a wording change and letting the brain rewrite the ticket is the drift
   the affordance exists to prevent, so the typed text has to land verbatim. **Never "improve"
@@ -582,6 +587,9 @@ laptop: a two-column shell (sticky section nav + section cards) with compact con
   than rejecting, so the boolean is the only signal a caller has. The modal closes on `true` and
   stays open — with everything typed into it — on `false`. **Don't "simplify" these to
   `Promise<void>`.**
+- `SandboxInfo`'s `default` copy is the app's **only** explanation of what snapshots are for,
+  and its only warning that "Save sandbox when done" adds one to this list and selects it
+  unasked. It stays until something else in the product says those things.
 - The per-project sandbox catalog mounts **inside the open modal**, so only the project being
   looked at fetches its catalog. **Do not put snapshot state in the global dashboard store** —
   it can't serve N project cards.

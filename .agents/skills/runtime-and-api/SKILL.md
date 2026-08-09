@@ -28,7 +28,11 @@ delete it. **Add nothing to `service.go`** — add it to the unit that owns the 
 
 Two orientation points that are easy to get backwards:
 - **`dispatcher.go` is the spine** — an at-least-once drain where a returned error retries and
-  then dead-letters.
+  then dead-letters. It routes nine outbox topics; the three `agent.*` ones go together through
+  `routeAgent`. `agent.snapshot` is the newest and the one exception to `AgentRuntime`'s
+  record-and-return rule: a saved sandbox's exit from Developing captures the workspace rather
+  than recycling it, and its executor calls the provider inline, leaning on this queue's own
+  retry/dead-letter policy for durability because there is no turn to progress afterwards.
 - **`fanout.go` is its exact inverse** — the runtime's one log-and-drop file, because
   everything it emits is a *view* of already-durable state. `HandleFeedCompletion` is the
   exception (a persistent card), so its failures are returned.

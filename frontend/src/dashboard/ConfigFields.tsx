@@ -227,10 +227,15 @@ interface SandboxInfoProps {
 
 /** What the snapshot picker above actually means, in words (projects-in-a-modal,
  * "sandbox info"). Only rendered where the picker itself leaves something unsaid:
- * nothing picked (what "default" gets you, and why a snapshot is worth picking),
- * or a stored handle the catalog no longer lists. A snapshot picked *from* the
- * catalog needs no reading — the option label above already names it — and with
- * no catalog at all the field is a free-text handle that speaks for itself. */
+ * nothing picked (what "default" gets you, why a snapshot is worth picking, and
+ * that a saved ticket sandbox lands here on its own), or a stored handle the
+ * catalog no longer lists. A snapshot picked *from* the catalog needs no reading
+ * — the option label above already names it — and with no catalog at all the
+ * field is a free-text handle that speaks for itself.
+ *
+ * This copy is the only in-product explanation of how snapshots work, and the
+ * only warning that "Save sandbox when done" will change this selection by
+ * itself, so it stays until something else says those things. */
 function SandboxInfo({
   catalogAvailable,
   snapshots,
@@ -246,7 +251,8 @@ function SandboxInfo({
         <p>
           Workers start from the deployment&apos;s default Amika image. Pick a snapshot to start
           them pre-warmed instead — dependencies installed, repo cloned, tools already authenticated
-          — so a ticket begins with work rather than with setup.
+          — so a ticket begins with work rather than with setup. Turning on &ldquo;Save sandbox when
+          done&rdquo; for a ticket adds its finished workspace here as a snapshot and selects it.
         </p>
       </div>
     );

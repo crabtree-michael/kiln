@@ -127,18 +127,34 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 	store := newFakeStore(clock)
 	id := store.seed(runtime.QueueEvents, string(runtime.EventHumanMessage), []byte(`{}`), 0)
 
+	// The worker gets a sampling view of the same clock the store reads: with
+	// Pump running, MarkRetry's calledAt is a second, later reading, so only the
+	// worker's own sample is a sound baseline for the delay (see samplingClock).
+	workerClock := &samplingClock{Clock: clock}
+
 	handle := func(_ context.Context, _ runtime.Entry) error { return errHandlerFailed }
 
+	// The dead-letter action runs on the dispatcher's goroutine, so its capture
+	// needs its own lock — the store mutex orders nothing here, the callback
+	// running strictly after retire's MarkDead has already released it.
+	var dlMu sync.Mutex
 	var deadLetterCalls []runtime.Entry
 	deadLetter := func(_ context.Context, e runtime.Entry, err error) error {
+		dlMu.Lock()
 		deadLetterCalls = append(deadLetterCalls, e)
+		dlMu.Unlock()
 		if !errors.Is(err, errHandlerFailed) {
 			t.Errorf("dead-letter received err = %v, want errHandlerFailed", err)
 		}
 		return nil
 	}
+	deadLettered := func() []runtime.Entry {
+		dlMu.Lock()
+		defer dlMu.Unlock()
+		return append([]runtime.Entry(nil), deadLetterCalls...)
+	}
 
-	w := runtime.NewWorker(store, runtime.QueueEvents, handle, deadLetter, clock)
+	w := runtime.NewWorker(store, runtime.QueueEvents, handle, deadLetter, workerClock)
 	stop := runWorker(t, w)
 	defer stop()
 
@@ -147,7 +163,10 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 	defer close(stopPump)
 
 	testutil.Eventually(t, func() bool { return store.retryCallCount() >= 7 })
-	testutil.Eventually(t, func() bool { return store.deadCallCount() >= 1 })
+	// Gate on the dead-letter callback, not on the store's MarkDead record:
+	// retire marks the row dead first and runs the action after, so waiting on
+	// the mark lets the assertions below observe the pass one step early.
+	testutil.Eventually(t, func() bool { return len(deadLettered()) >= 1 })
 
 	wantDelays := []time.Duration{
 		1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
@@ -158,8 +177,16 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 		t.Fatalf("got %d MarkRetry calls, want exactly %d (MaxAttempts=8: 7 retries then dead-letter)",
 			len(calls), len(wantDelays))
 	}
+	// process samples the clock exactly once per retry-marked attempt, and this
+	// entry is the only work in flight, so sample i is the base next_attempt_at i
+	// was computed from. The count check keeps that pairing honest.
+	bases := workerClock.samples()
+	if len(bases) != len(calls) {
+		t.Fatalf("worker sampled the clock %d times, want %d (one per retry-marked attempt) — "+
+			"the samples no longer pair 1:1 with the MarkRetry calls", len(bases), len(calls))
+	}
 	for i, c := range calls {
-		gotDelay := c.nextAttemptAt.Sub(c.calledAt)
+		gotDelay := c.nextAttemptAt.Sub(bases[i])
 		if gotDelay != wantDelays[i] {
 			t.Errorf("retry %d (attempt %d): backoff delay = %s, want %s (min(1s*2^(attempts-1),60s), 04 D8)",
 				i+1, i+1, gotDelay, wantDelays[i])
@@ -176,11 +203,12 @@ func TestWorker_RetryBackoffSchedule_ExactSequence(t *testing.T) {
 	if got := store.attempts(id); got != 8 {
 		t.Errorf("final attempts = %d, want 8 (MaxAttempts, 04 §3)", got)
 	}
-	if len(deadLetterCalls) != 1 {
-		t.Fatalf("dead-letter callback invoked %d times, want exactly 1", len(deadLetterCalls))
+	dl := deadLettered()
+	if len(dl) != 1 {
+		t.Fatalf("dead-letter callback invoked %d times, want exactly 1", len(dl))
 	}
-	if deadLetterCalls[0].ID != id || deadLetterCalls[0].Attempts != 8 {
-		t.Errorf("dead-letter callback got entry %+v, want ID=%d Attempts=8", deadLetterCalls[0], id)
+	if dl[0].ID != id || dl[0].Attempts != 8 {
+		t.Errorf("dead-letter callback got entry %+v, want ID=%d Attempts=8", dl[0], id)
 	}
 }
 

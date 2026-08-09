@@ -4,8 +4,9 @@
 // project" affordance dumped the user on the `/dashboard` account view. Where
 // `/dashboard` is a settings surface (account + credentials + projects, visited
 // as often from a laptop), this page is styled like the app itself and is
-// project-only: the header switcher's "Add" routes here (opening on the create
-// step via `?new=1`).
+// project-only: the desk rail's "New" routes here, opening on the create step
+// via `?new=1` (the phone's project menu dropped its own "Add" — creation lives
+// on this page, and that menu's subject is the projects that already exist).
 //
 // Creating is a STEP, not a card in the list: it takes the whole screen, asks
 // for the repository and nothing that has an answer already, and names the
@@ -217,8 +218,8 @@ function ProjectsBody({ creating, onOpenCreate, onCloseCreate }: ProjectsBodyPro
 function ProjectsScreen(): JSX.Element {
   const { phase, me } = useDashboardStore();
   const [params, setParams] = useSearchParams();
-  // The switcher's "Add" routes here with `?new=1`, so the create step opens
-  // straight away (preserving the old one-tap "Add" feel); a bare `/projects`
+  // The desk rail's "New" routes here with `?new=1`, so the create step opens
+  // straight away (one tap from the rail to the picker); a bare `/projects`
   // visit lands on the list.
   const [creating, setCreating] = useState(() => params.get('new') === '1');
 

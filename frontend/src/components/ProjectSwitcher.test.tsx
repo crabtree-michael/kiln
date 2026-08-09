@@ -86,7 +86,7 @@ describe('ProjectSwitcher', () => {
     expect(selectProject).toHaveBeenCalledWith('p2');
   });
 
-  it('offers no way to create a project — the phone\'s menu only switches between them', () => {
+  it("offers no way to create a project — the phone's menu only switches between them", () => {
     const projects = [makeProject('p1', 'one')];
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
     fireEvent.click(screen.getByRole('button', { name: /one/ }));

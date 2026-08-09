@@ -589,7 +589,8 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
 ### `/projects` — the app-native page, and its full-screen create step
 
 `projects/ProjectsManager.tsx` is the mobile, app-styled view over the same dashboard store
-(the header switcher's "Add" and the desk rail's "New" both route here with `?new=1`). The
+(the desk rail's "New" routes here with `?new=1`; the phone's project menu dropped its own
+"Add", so on a phone the way in is this page's own affordance). The
 list is a column of collapsible rows; **creating is a step that takes the screen**, not a card
 at the foot of that list.
 

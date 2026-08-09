@@ -148,35 +148,54 @@ describe('ProjectsManager', () => {
     });
   });
 
-  it('the ?new=1 deep-link opens the create form on mount', async () => {
+  it('the ?new=1 deep-link opens the create step on mount', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe({ projects: [makeProject()] }));
     renderManager('/projects?new=1');
 
     await screen.findByRole('heading', { name: 'New project' });
-    expect(document.querySelector('[data-role="new-project-form"]')).not.toBeNull();
+    expect(document.querySelector('[data-role="new-project-step"]')).not.toBeNull();
   });
 
-  it('the Add button opens a blank create form that posts through createProject', async () => {
+  // The create step takes the SCREEN (full-screen repo picker): the list it was
+  // reached from is out of the way, the page header names the step, and its back
+  // control cancels rather than leaving for the app.
+  it('the create step replaces the list, and cancelling gives it back', async () => {
+    vi.mocked(transport.fetchMe).mockResolvedValue(makeMe({ projects: [makeProject()] }));
+    renderManager('/projects?new=1');
+
+    await screen.findByRole('heading', { name: 'New project' });
+    expect(document.querySelectorAll('[data-role="project-row"]')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Add project' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Back to the app' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel new project' }));
+
+    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-role="project-row"]')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Back to the app' })).toBeInTheDocument();
+  });
+
+  it('the Add button opens a create step that names the project after the repo', async () => {
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     vi.mocked(transport.createProject).mockResolvedValue(
-      makeProject({ id: 'proj-new', name: 'new-one' }),
+      makeProject({ id: 'proj-new', name: 'b' }),
     );
     renderManager();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add project' }));
-    const form = document.querySelector('[data-role="new-project-form"] form');
-    expect(form).not.toBeNull();
+    expect(document.querySelector('[data-role="new-project-step"] form')).not.toBeNull();
 
-    // Fill the name and pick the repo from the connected account — the repo is
-    // no longer typed (settings repo picker).
-    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'new-one' } });
+    // The repo is the only question: there is no name field, and the picked
+    // repo's own name is what the project is called (auto-name from repository).
+    expect(screen.queryByLabelText('Project name')).toBeNull();
     const repoSelect = await screen.findByRole('combobox', { name: 'Repository' });
     fireEvent.change(repoSelect, { target: { value: 'https://github.com/a/b' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent('b');
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
 
     await waitFor(() => {
       expect(transport.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'new-one', repo_url: 'https://github.com/a/b' }),
+        expect.objectContaining({ name: 'b', repo_url: 'https://github.com/a/b' }),
       );
     });
   });

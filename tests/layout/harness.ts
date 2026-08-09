@@ -15,7 +15,7 @@
 // the fixtures below. That is what makes this cheap enough to sit in `make
 // check` alongside the unit tests, unlike the e2e suite next door (../tests),
 // which drives a live backend and a real LLM.
-import type { Page } from '@playwright/test';
+import type { Page, WebSocketRoute } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 /** A rectangle in viewport coordinates — what every assertion here is about. */
@@ -229,8 +229,27 @@ function streamBody(options: ShellOptions): string {
  * is what decides which shell mounts (the switch is `useIsDesktop`, at 1024px).
  */
 export async function mountShell(page: Page, options: ShellOptions = {}): Promise<void> {
+  await stubSpeech(page);
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/voice/token')) {
+      // A well-formed token, so the client gets past `fetchVoiceToken` and opens
+      // its socket — which `stubSpeech` above has already intercepted, so the
+      // value is never presented to anyone.
+      //
+      // Twenty minutes out, NOT some far-future date: the store schedules its
+      // proactive refresh (09 §5) as `setTimeout(expiry - now - buffer)`, and a
+      // delay past the 32-bit millisecond ceiling wraps to ~immediately. A 2099
+      // expiry therefore tears the stream down mid-setup — the AudioContext
+      // closes while `addModule` is still fetching, which surfaces as a bare
+      // AbortError from the worklet and a mic stuck in Retry.
+      return route.fulfill({
+        json: {
+          token: 'layout-gate',
+          expires_at: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+        },
+      });
+    }
     if (url.pathname.endsWith('/me')) {
       return route.fulfill({
         json: options.noProject === true ? { ...ME, projects: [] } : ME,
@@ -244,6 +263,20 @@ export async function mountShell(page: Page, options: ShellOptions = {}): Promis
     }
     if (url.pathname.endsWith('/activity')) {
       return route.fulfill({ json: { thinking: options.thinking === true } });
+    }
+    // A connected GitHub account, so every repo picker in the client renders its
+    // dropdown rather than the connect prompt — the create flows' whole layout
+    // is that one control, and the prompt is a paragraph of text instead.
+    if (url.pathname.endsWith('/github/repos')) {
+      return route.fulfill({
+        json: {
+          connected: true,
+          repos: [
+            { full_name: 'acme/kiln', url: 'https://github.com/acme/kiln', private: false },
+            { full_name: 'acme/Pac-Man', url: 'https://github.com/acme/Pac-Man', private: true },
+          ],
+        },
+      });
     }
     if (url.pathname.includes('/stream')) {
       return route.fulfill({
@@ -268,6 +301,96 @@ export async function mountShell(page: Page, options: ShellOptions = {}): Promis
   if (options.thinking === true) {
     await page.waitForSelector("[data-role='thinking-indicator']");
   }
+  await settle(page);
+}
+
+/** The intercepted STT socket, per page — how `speak` reaches the client with a
+ * transcript after `mountShell` has installed the route. */
+const speechSockets = new WeakMap<Page, WebSocketRoute>();
+
+/** A stand-in for the PCM downsample worklet, as an inline module.
+ *
+ * Vite's DEV server cannot serve `pcm-worklet.ts?worker&url` as an AudioWorklet
+ * module — it hands back an ES module with the HMR preamble, and a worklet global
+ * scope has no import machinery, so `addModule` rejects with a bare `AbortError`
+ * and the store lands in Retry with no mic. (A production build inlines the
+ * worklet, which is why the app itself is fine; this gate runs the dev server.)
+ * Registering the same processor NAME with an empty `process` keeps the real
+ * audio graph, the real client and the real store — only the DSP is absent, and
+ * nothing here is about PCM. The name must match `PCM_WORKLET_NAME` in
+ * assemblyai-client.ts.
+ *
+ * Handed over as a `data:` URL, which is the one form that reliably survives the
+ * trip: a worklet fetches its module in its own realm, so `page.route` never sees
+ * the request (it reaches the dev server, comes back as the SPA's index.html, and
+ * fails to parse — as the same opaque AbortError), and a blob URL minted in the
+ * page races its own registration and fails the same way. A data URL carries the
+ * source with it and needs neither. */
+const WORKLET_STUB =
+  "registerProcessor('pcm16-downsample', class extends AudioWorkletProcessor {" +
+  ' process() { return true; } });';
+
+/**
+ * Everything the client needs to believe it has a mic and a provider, minus the
+ * mic and the provider.
+ *
+ * The dock's speaking arrangement — send and × flanking the mic — is otherwise
+ * unreachable in this gate: it needs a live transcript, and a transcript needs a
+ * mic, an audio graph, a minted token and a provider socket. The mic is
+ * Chromium's fake capture device (see playwright.layout.config.ts), the token is
+ * stubbed with the rest of `/api`, the worklet is swapped for the stub above, and
+ * the socket is intercepted here. Nothing is proxied to AssemblyAI — the route is
+ * fully mocked, so no key, no network and no billing.
+ */
+async function stubSpeech(page: Page): Promise<void> {
+  await page.addInitScript((source: string) => {
+    const load = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = function stubbed(this: AudioWorklet): Promise<void> {
+      return load.call(this, `data:application/javascript,${encodeURIComponent(source)}`);
+    };
+  }, WORKLET_STUB);
+  await page.routeWebSocket(/streaming\.assemblyai\.com/, (ws) => {
+    speechSockets.set(page, ws);
+    // The PCM frames the worklet streams up, discarded: nothing here transcribes
+    // audio, and `speak` supplies the words directly.
+    ws.onMessage(() => {
+      /* the mic's own audio, dropped on the floor */
+    });
+    // `Begin` is what the client reads as "the socket is up" — it clears the
+    // mic's connecting spinner, which would otherwise sit over the orb and
+    // change what the specs are measuring.
+    ws.send(JSON.stringify({ type: 'Begin', id: 'layout-gate', expires_at: 4102444800 }));
+  });
+}
+
+/**
+ * Turn the mic on and put words on screen: click `micSelector`, then push one
+ * still-forming turn down the intercepted socket.
+ *
+ * Deliberately a PARTIAL (`end_of_turn: false`), not a formatted final. A final
+ * arms the auto-send countdown, which fires on a wall clock and would take the
+ * transcript — and the very controls a spec is measuring — off screen mid-run. A
+ * partial holds the speaking arrangement open indefinitely.
+ */
+export async function speak(page: Page, micSelector: string, text: string): Promise<void> {
+  await page.click(micSelector);
+  let ws = speechSockets.get(page);
+  for (let attempt = 0; attempt < 100 && ws === undefined; attempt += 1) {
+    await page.waitForTimeout(50);
+    ws = speechSockets.get(page);
+  }
+  expect(ws, 'the STT socket never opened — is the fake mic device wired up?').not.toBeUndefined();
+  ws?.send(
+    JSON.stringify({
+      type: 'Turn',
+      transcript: text,
+      end_of_turn: false,
+      turn_is_formatted: false,
+    }),
+  );
+  // The send button is the arrangement's tell: it renders on the first word,
+  // whichever surface the mic was tapped on.
+  await page.waitForSelector("[data-role='dock-send']");
   await settle(page);
 }
 

@@ -55,8 +55,12 @@
 }
 
 /* The back control is a round, tappable target the size of a touch minimum, not
-   a text link — this is the app, not the dashboard's quiet "← Go to app". */
-[data-role='projects-back'] {
+   a text link — this is the app, not the dashboard's quiet "← Go to app". The
+   create step swaps it for a cancel that reads and behaves identically (same
+   glyph, same box) — only where it goes differs, so it must not look different
+   either. */
+[data-role='projects-back'],
+[data-role='cancel-new-project'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -72,7 +76,17 @@
   transition: background var(--duration-fast) ease;
 }
 
-[data-role='projects-back']:hover {
+/* Reset the button chrome the anchor never had, so the two are one control. */
+[data-role='cancel-new-project'] {
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+[data-role='projects-back']:hover,
+[data-role='cancel-new-project']:hover {
   background: var(--surface-inset);
   color: var(--text-body);
 }
@@ -81,7 +95,7 @@
 
 /* The content below the header is one centered, app-width column. */
 [data-role='projects-list'],
-[data-role='new-project-form'],
+[data-role='new-project-step'],
 [data-role='projects-loading'],
 [data-role='projects-signed-out'] {
   width: 100%;
@@ -175,23 +189,87 @@
   border-top: 1px solid var(--border-hairline);
 }
 
-/* ------------------------------------------------------- new-project section */
+/* ---------------------------------------------------------- new-project step */
 
-[data-role='new-project-form'] {
+/* Creating a project is a screen, not a card in the list (full-screen repo
+   picker): the list is gone while it is up, the page header names it, and this
+   is the only thing under that header — so it takes the column's free height
+   and stands its one question at the top rather than centring it in a box. */
+[data-role='new-project-step'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1;
+}
+
+[data-role='new-project-lede'] {
+  margin: 0;
+  font: var(--type-editorial);
+  color: var(--text-secondary);
+}
+
+/* The picker IS the step. It reads a size up from every other control on the
+   page, fills the column, and is the only thing above the fold. */
+[data-role='new-project-repo'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+[data-role='new-project-repo'] [data-role='repo-field'] > label {
+  gap: var(--space-2);
+}
+
+[data-role='new-project-repo'] select {
+  width: 100%;
+  min-height: var(--touch-target);
+  font: var(--type-body-strong);
+}
+
+/* The name the picked repo implies — what replaced the name field, so it has to
+   be legible rather than fine print, and it must not shift the layout when it
+   changes from the prompt to the answer. */
+[data-role='project-name-note'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-muted);
+}
+
+[data-role='project-name-note'][data-state='named'] {
+  color: var(--text-secondary);
+}
+
+[data-role='project-name-value'] {
+  font: var(--type-body-strong);
+  color: var(--text-body);
+}
+
+/* Everything with a working default, kept reachable but plainly subordinate to
+   the picker — a rule below a hairline, under one quiet word. */
+[data-role='new-project-options'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-5);
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-hairline);
 }
 
-[data-role='new-project-form'] h2 {
+[data-role='new-project-options'] h3 {
   margin: 0;
-  font: var(--type-heading);
-  color: var(--text-body);
+  font: var(--type-caption);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The step's own action is the one commitment on the screen, so it spans the
+   column like the "Add project" affordance it was reached from — the flat
+   form's left-aligned pill would read as one more option. */
+[data-role='new-project-step'] button[type='submit'] {
+  width: 100%;
+  min-height: var(--touch-target);
+  align-self: center;
+  margin-top: auto;
 }
 
 /* -------------------------------------------------- reused ProjectFields form */
@@ -293,8 +371,8 @@
   cursor: default;
 }
 
-/* De-emphasized ghost buttons: cancel, delete. */
-[data-role='cancel-new-project'],
+/* De-emphasized ghost button: delete. (Cancel is the create step's header
+   control now — see the back/cancel rule above — not a pill under the form.) */
 [data-role='delete-project'] {
   align-self: flex-start;
   font: var(--type-caption);
@@ -304,11 +382,6 @@
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-4);
   cursor: pointer;
-}
-
-[data-role='cancel-new-project']:hover {
-  background: var(--surface-subtle);
-  border-color: var(--border-strong);
 }
 
 /* Delete reads as destructive: ember text/border, filling on hover. */

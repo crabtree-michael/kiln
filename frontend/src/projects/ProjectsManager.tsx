@@ -4,8 +4,13 @@
 // project" affordance dumped the user on the `/dashboard` account view. Where
 // `/dashboard` is a settings surface (account + credentials + projects, visited
 // as often from a laptop), this page is styled like the app itself and is
-// project-only: the header switcher's "Add" routes here (opening on the create
-// form via `?new=1`).
+// project-only: the desk rail's "New" routes here, opening on the create step
+// via `?new=1` (the phone's project menu dropped its own "Add" — creation lives
+// on this page, and that menu's subject is the projects that already exist).
+//
+// Creating is a STEP, not a card in the list: it takes the whole screen, asks
+// for the repository and nothing that has an answer already, and names the
+// project after the repo it is pointed at (auto-name from repository).
 //
 // It reuses the dashboard store as its data layer — `DashboardProvider` owns the
 // `GET /api/me` load and the project create/update/delete mutations (12 §3.1,
@@ -98,17 +103,22 @@ function ProjectRow({
   );
 }
 
-/** The signed-in body of the page: the project list + a create affordance. Only
- * rendered once the store's `phase` is `ready` with a populated `me`. */
-function ProjectsBody(): JSX.Element {
+interface ProjectsBodyProps {
+  /** Whether the create step has taken the screen. Owned by `ProjectsScreen`
+   * because the header renders from it too — while the step is up it names it
+   * and its back control cancels it rather than leaving the app. */
+  creating: boolean;
+  onOpenCreate: () => void;
+  onCloseCreate: () => void;
+}
+
+/** The signed-in body of the page: the project list + a create affordance, or —
+ * while creating — the create step alone. Only rendered once the store's `phase`
+ * is `ready` with a populated `me`. */
+function ProjectsBody({ creating, onOpenCreate, onCloseCreate }: ProjectsBodyProps): JSX.Element {
   const { me, saving, error, createProject, updateProject, removeProject } = useDashboardStore();
-  const [params, setParams] = useSearchParams();
-  // The switcher's "Add" routes here with `?new=1`, so the create form opens
-  // straight away (preserving the old one-tap "Add" feel); a bare `/projects`
-  // visit lands on the list.
-  const [creating, setCreating] = useState(() => params.get('new') === '1');
   // One fetch for the page: the GitHub connection is per-user, so every row's
-  // picker and the create form share the same repo list.
+  // picker and the create step share the same repo list.
   const github = useGitHubRepos();
 
   if (me === null) {
@@ -118,28 +128,38 @@ function ProjectsBody(): JSX.Element {
   }
   const providers = me.providers ?? [];
 
-  const openCreate = useCallback((): void => {
-    setCreating(true);
-  }, []);
-
-  const closeCreate = useCallback((): void => {
-    setCreating(false);
-    // Drop the `?new=1` deep-link once the form is dismissed so a refresh doesn't
-    // silently reopen it.
-    if (params.has('new')) {
-      const next = new URLSearchParams(params);
-      next.delete('new');
-      setParams(next, { replace: true });
-    }
-  }, [params, setParams]);
-
   const handleCreate = useCallback(
     async (body: ProjectUpdateRequest): Promise<void> => {
       await createProject(body);
-      closeCreate();
+      onCloseCreate();
     },
-    [createProject, closeCreate],
+    [createProject, onCloseCreate],
   );
+
+  if (creating) {
+    // Starting a project is one question — which repository — so it gets the
+    // whole screen rather than a card at the foot of the list, and the list is
+    // out of the way while it is answered. The name is no longer asked for at
+    // all: `ProjectFields` derives it from the repo (auto-name from repository).
+    return (
+      <section data-role="new-project-step">
+        <p data-role="new-project-lede">
+          Pick the repository Kiln should work in. The project takes its name from it.
+        </p>
+        <ProjectFields
+          providers={providers}
+          github={github}
+          saving={saving}
+          onSave={handleCreate}
+        />
+        {error !== null ? (
+          <p data-role="projects-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <>
@@ -163,36 +183,15 @@ function ProjectsBody(): JSX.Element {
         </div>
       )}
 
-      {creating ? (
-        <section data-role="new-project-form">
-          <h2>New project</h2>
-          <ProjectFields
-            providers={providers}
-            github={github}
-            saving={saving}
-            onSave={handleCreate}
-          />
-          <button
-            type="button"
-            data-role="cancel-new-project"
-            onClick={() => {
-              closeCreate();
-            }}
-          >
-            Cancel
-          </button>
-        </section>
-      ) : (
-        <button
-          type="button"
-          data-role="add-project"
-          onClick={() => {
-            openCreate();
-          }}
-        >
-          Add project
-        </button>
-      )}
+      <button
+        type="button"
+        data-role="add-project"
+        onClick={() => {
+          onOpenCreate();
+        }}
+      >
+        Add project
+      </button>
 
       {error !== null ? (
         <p data-role="projects-error" role="alert">
@@ -210,33 +209,79 @@ function ProjectsBody(): JSX.Element {
 /** Branches on the shared dashboard store's `phase`, exactly like `Dashboard.tsx`
  * but rendered inside the app-native chrome: a loading spinner, a native GitHub
  * sign-in prompt (this page sits behind the app, so a signed-out visit is an
- * edge case), or the project list. */
+ * edge case), or the project list — and, while creating, the create step in
+ * place of all of it.
+ *
+ * The create state lives here rather than in `ProjectsBody` because the header
+ * renders from it: the create step is a screen of its own, so the title names it
+ * and the back control cancels it instead of leaving for the app. */
 function ProjectsScreen(): JSX.Element {
   const { phase, me } = useDashboardStore();
+  const [params, setParams] = useSearchParams();
+  // The desk rail's "New" routes here with `?new=1`, so the create step opens
+  // straight away (one tap from the rail to the picker); a bare `/projects`
+  // visit lands on the list.
+  const [creating, setCreating] = useState(() => params.get('new') === '1');
+
+  const openCreate = useCallback((): void => {
+    setCreating(true);
+  }, []);
+
+  const closeCreate = useCallback((): void => {
+    setCreating(false);
+    // Drop the `?new=1` deep-link once the step is dismissed so a refresh doesn't
+    // silently reopen it.
+    if (params.has('new')) {
+      const next = new URLSearchParams(params);
+      next.delete('new');
+      setParams(next, { replace: true });
+    }
+  }, [params, setParams]);
+
+  const signedOut = phase === 'signed-out';
+  const loading = !signedOut && (phase === 'loading' || me === null);
+  // `?new=1` can arrive before `me` does; the header only takes on the step's
+  // chrome once the step is actually on screen, so a slow load still offers the
+  // way back to the app.
+  const inCreate = creating && !signedOut && !loading;
 
   return (
-    <div data-role="projects-manager">
+    <div data-role="projects-manager" data-mode={inCreate ? 'new' : 'list'}>
       <header data-role="projects-header">
-        <Link to="/app" data-role="projects-back" aria-label="Back to the app">
-          <span aria-hidden="true">←</span>
-        </Link>
-        <h1>Projects</h1>
+        {inCreate ? (
+          // Icon-only, so its accessible name has to come from `aria-label`
+          // (and `title` gives a pointer user the same word on hover).
+          <button
+            type="button"
+            data-role="cancel-new-project"
+            aria-label="Cancel new project"
+            title="Cancel new project"
+            onClick={closeCreate}
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+        ) : (
+          <Link to="/app" data-role="projects-back" aria-label="Back to the app">
+            <span aria-hidden="true">←</span>
+          </Link>
+        )}
+        <h1>{inCreate ? 'New project' : 'Projects'}</h1>
       </header>
 
-      {phase === 'signed-out' ? (
+      {signedOut ? (
         <div data-role="projects-signed-out">
           <p>Sign in to manage your projects.</p>
           <a href={GITHUB_CONNECT_PATH} data-role="projects-sign-in-link">
             Continue with GitHub
           </a>
         </div>
-      ) : phase === 'loading' || me === null ? (
+      ) : loading ? (
         <div data-role="projects-loading">
           <span data-role="projects-spinner" />
           Loading…
         </div>
       ) : (
-        <ProjectsBody />
+        <ProjectsBody creating={creating} onOpenCreate={openCreate} onCloseCreate={closeCreate} />
       )}
     </div>
   );

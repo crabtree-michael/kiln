@@ -75,9 +75,19 @@ z-order is only a backstop for mid-resize frames.
 **The reserve is for the CARDS, not for whatever the feed pins into it.** The feed's
 `padding-bottom` grows with the overlays so the newest card can be scrolled clear of
 them. That is a scroll allowance and nothing more. **A toast arriving is not a layout
-event** — it must not move anything the user is looking at. "Show earlier" sits at the
-top of that reserve, so it has to give the band's share back in paint and let the band
-overlay it, rather than riding the growth like a lift.
+event** — it must not move anything the user is looking at, and "anything" means the
+board and not merely the one control pinned to its foot.
+
+Padding on a scroll container does two things, and only one of them is wanted:
+it extends the scroll AND it shrinks the content box. The second is what let the
+band resize the board behind it (measured at 390px: 529 → 500 → 478 → 411px as the
+chip, a toast and a `say` band arrived) and lift everything anchored to the feed's
+bottom edge. So each shell's scroll wrapper hands the band's growth straight back —
+`--feed-overlay-slack` = the row's live height minus its resting gap, `min-height:
+calc(100% + slack)` — and the sticky control subtracts the same slack from its own
+`bottom`, because a sticky box is measured off the scroll container's **content** box
+and would otherwise ride the padding whatever its wrapper does. Net: one board height
+and one control position in every band state, and the band simply stands over them.
 
 **The layer order is a lookup, not a paragraph.** `--layer-*` in `styles/tokens.css`
 states it once: on screen, `detail-panel > detail-scrim > popover > header > dock >
@@ -761,17 +771,19 @@ retracted, so this is unrelated to swipe-dismiss above.
   `margin: auto auto 0` (three values, so the horizontal `auto` that holds it to the
   cards' 720px measure survives) and deliberately restates neither `position` nor
   `bottom`.
-- **The sticky offset is `0`, and adding the overlay vars to it is the trap.** A sticky
-  box is clamped to its containing block, whose bottom edge is the feed's CONTENT box —
-  which the region's `padding-bottom` already holds clear of the transcript and the toast
-  band. Naming `--dock-overlay-height` / `--feed-bottom-inset` here applies that clearance
-  a second time: a sliver of card stranded under the control at rest, and — far worse —
-  the control floating a whole transcript's height off the dock mid-utterance. If the
-  reserve needs changing, change the padding. (This is the one place the "anchor to the
-  dynamic height of the layers below you" principle is satisfied *indirectly*.) The band
-  half of that clearance is then handed back by a `transform` — see the toast-overlay
-  bullet below — which is not a contradiction: `bottom` moves the sticky box and takes
-  the reserve with it, a transform moves only the paint.
+- **The sticky offset is `calc(0px - var(--feed-overlay-slack, 0px))`, and adding an
+  overlay var *positively* is the trap.** A sticky box is held inside two rectangles: its
+  containing block, and the scrollport **inset by the scroll container's padding**. The
+  second is the one people miss — `bottom: 0` means "the foot of the feed's CONTENT box",
+  so the region's `padding-bottom` positions this control directly, whatever the wrapper
+  it lives in is doing. (Measured: with the board's height held fixed, a `say` band still
+  lifted the control the full 117px.) So the band's share is *subtracted* here, landing
+  the control on the foot of its own wrapper. Naming `--dock-overlay-height` or a bare
+  `--feed-bottom-inset` positively applies the clearance a second time: a sliver of card
+  stranded under the control at rest, and — far worse — the control floating a whole
+  transcript's height off the dock mid-utterance. If the reserve needs changing, change
+  the padding. The transcript's share is deliberately *not* subtracted: that overlay is
+  the dock genuinely growing while the user speaks, not a transient notice.
 - **The control needs an opaque fill AND an opaque skirt below it** (`background` +
   `box-shadow: 0 var(--space-5) 0 var(--space-5) var(--surface-page)`). Cards scroll under
   it now, and the reserve beneath it is still scrollable area they pass through — without
@@ -790,33 +802,36 @@ retracted, so this is unrelated to swipe-dismiss above.
   own side: its keyboard-lift `transform` makes it a stacking context, sealing the band's
   `z-index: 6` inside, so only a number on the REGION speaks for the layer. The control
   needs no lift of its own — a positioned box already paints above the in-flow cards.
-- **A toast OVERLAYS the control; it does not push it up.** The reserve still grows with
-  the band (the cards need it), but the control gives that growth back in paint:
-  `:has([data-role='toast-stack'])` on **either shell root** sets `--show-earlier-drop`,
-  a term in the control's one `transform`, so it holds its place — 20px off the dock on
-  the phone, 12px off the composer region on the desk, both measured — and the band,
-  opaque and full-width, covers it. One rule for both roots, in `PrimaryScreen.css`: the
-  publisher, the band and the control are the same objects in both shells, and a second
-  copy in `DesktopScreen.css` is how the two would drift apart. Three things about that
-  rule, each of which was a bug on the way in:
-  - **The drop is `--feed-bottom-inset` MINUS `--activity-rest-gap`**, not the whole
+- **A band OVERLAYS the board; it never pushes it.** The reserve still grows with the
+  band (the cards need the scroll allowance), but nothing laid out gives way to it. Two
+  declarations, off one var, in both shells:
+  - `--feed-overlay-slack` on **either shell root** (`PrimaryScreen.css`, one rule for
+    both, since the publisher, the band and the control are the same objects in both
+    shells — a second copy in `DesktopScreen.css` is how they drift apart), read by each
+    shell's scroll wrapper as `min-height: calc(100% + slack)`. That is what holds the
+    **board** still: 529px on the phone / 710px on the desk with a chip, a toast, a `say`
+    band, or nothing at all.
+  - The same slack subtracted from the control's sticky `bottom` (see above), which holds
+    the **control** still: 20px off the dock on the phone, 12px off the composer region on
+    the desk, in every band state — both measured, both the same numbers as at rest.
+  - **The slack is `--feed-bottom-inset` MINUS `--activity-rest-gap`**, not the whole
     inset. An empty activity row is not 0px tall — it is that 12px gap (the same
-    declaration that floats the thinking chip off the dock, which is why it is a var
-    read by both) — and that much is already under the control at rest. Give it back
-    too and the control settles 12px *lower* under a toast: the same bug, mirrored.
-  - **It is gated on a real toast stack.** The reserve's other occupant is the thinking
-    chip: narrow, centred, floating, no fill to hide anything behind it. Dropping
-    through that lands the chip on the control's label. Thinking alone must keep its
-    lift; thinking *with* toasts is safe, because the chip renders above the band's top.
-  - **One `transform`, composed from vars** (`--show-earlier-drop` + `--show-earlier-press`).
-    A `:active { transform: translateY(1px) }` of its own would overwrite the drop and
-    snap the control up out of the band at the moment of the tap.
+    declaration that floats the thinking chip off the dock, which is why it is a var read
+    by both) — and it is there with nothing to show, so it is a permanent part of the
+    layout. Give it back too and the board and the control settle 12px *lower* under a
+    toast: the same bug, mirrored.
+  - **Nothing is gated on which kind of notice it is.** The predecessor was a paint-only
+    `transform` gated on `:has([data-role='toast-stack'])`, which held the control alone
+    (the board still resized behind it) and deliberately excluded the thinking chip — so
+    Kiln starting to think lifted the control ~29px and dropped it back. The chip is a
+    transient notice like a toast and now moves nothing either; being narrow and centred,
+    it hovers over the middle of the control instead of covering it.
   The trade this accepts: while a toast is up the control is covered, and the band takes
   its own pointer events, so it is briefly untappable. That is what "overlay, don't push"
   asks for; toasts clear themselves in seconds. The margin is thin — the shortest band
   the app can show (one board toast, no `say`) is 63px against a control whose top edge
-  lands 58px off the dock — so **re-measure with the repro script if this control's type
-  or padding grows**, or its rounded top edge will show over the band's separator.
+  lands 58px off the dock — so **re-measure if this control's type or padding grows**, or
+  its rounded top edge will show over the band's separator.
 - **`[data-role='desktop-feed']` is a flex column in every state, with no STATIC bottom
   pad and one dynamic term.** Both were previously gated on a `data-empty` attribute,
   which is gone — nothing read it once the anchoring stopped being conditional. Its old
@@ -826,13 +841,15 @@ retracted, so this is unrelated to swipe-dismiss above.
   on the region would only sit under the control and show cards through it. What the
   region does carry is `padding-bottom: var(--feed-bottom-inset, 0px)` — the band's live
   height, so the desk can scroll its last card clear of the toasts the same way the phone
-  does. That reserve is for the cards; the control cancels it back out of its own painted
-  position (see the toast-overlay bullet above), so a desk toast covers it rather than
-  moving it.
+  does. That reserve is for the cards and nothing else: `[data-role='desktop-feed-scroll']`
+  cancels it back out of the laid-out height and the control cancels it out of its sticky
+  offset (see the overlay bullet above), so a desk toast covers both rather than moving
+  either.
 - **jsdom sees none of this, so it is measured instead.** `tests/layout/` renders both
-  shells and asserts the geometry directly: the control's standoff from the dock is the
-  same number with a band up as at rest (the "toasts overlay, never push" claim, in both
-  shells), the band is what hit-tests over the control — top edge included — and the
+  shells and asserts the geometry directly: the board is one height in every band state
+  and the control's standoff from the dock is one number in every band state (the
+  "overlay, never push" claim, in both shells), the band is what hit-tests over the
+  control — top edge included — the thinking chip is what hit-tests over it too, and the
   control still ends the feed at every card count and on a viewport too short to spare the
   room. The DOM half — the control being the LAST child of `[data-role='backlog']` / the
   feed region, which is the containing block the anchoring hangs off — stays in the two
@@ -1109,8 +1126,11 @@ and `tests/layout/` measures the geometry.
   scroller whose content fits has nothing to scroll *and no rubber-band to give*, so the desk
   now carries the phone's answer: one wrapper, `[data-role='desktop-feed-scroll']`, holding
   everything the region scrolls (the cards or the resting block, **and** the pinned "Show
-  earlier"), held `min-height: calc(100% + 1px)` under `@media (hover: none) and (pointer:
-  coarse)`. Four things to keep:
+  earlier"), held one pixel past the scrollport under `@media (hover: none) and (pointer:
+  coarse)`. That pixel is a *term* in the wrapper's `min-height`, not the whole of it — the
+  band's `--feed-overlay-slack` is the other, and a coarse-pointer rule that restates
+  `calc(100% + 1px)` alone puts the toast-resizes-the-board bug back on the tablet this rule
+  exists for. Four more things to keep:
   - **The control must stay INSIDE the wrapper.** The wrapper is its containing block now, so
     the sticky half of its anchoring hangs off it; lifted out to sit beside the wrapper it
     would stick to a box it isn't in, and the wrapper's extra height would become scrollable

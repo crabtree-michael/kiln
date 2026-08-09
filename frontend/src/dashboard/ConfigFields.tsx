@@ -7,6 +7,13 @@
 // the picker's disconnected state is the ordinary state until the user runs it,
 // and it points at the same grant the Integrations card does.
 //
+// CREATING a project asks for the repo and nothing else that has an answer
+// already (auto-name from repository): there is no name field, the name comes
+// from the picked repo via `projectNameFromRepoUrl`, and the picker leads the
+// form instead of sitting under a name box the user had to fill in before they
+// had chosen anything. Editing an existing project still offers the name field —
+// the two modes differ only in that one field and in the arrangement around it.
+//
 // Per-user credentials are NOT here — they live in `Integrations.tsx` as a card
 // per provider (GitHub via that OAuth grant, the rest via a paste-your-key
 // modal).
@@ -18,6 +25,7 @@ import type {
   Snapshot,
 } from '@/transport/transport';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
+import { projectNameFromRepoUrl } from '@/dashboard/project-name';
 import { GITHUB_DASHBOARD_RETURN_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 
 // The merge-gate knob (06 §7): which condition marks a ticket done — its work
@@ -166,7 +174,8 @@ function snapshotOptionLabel(snap: Snapshot): string {
 }
 
 export interface ProjectFieldsProps {
-  /** Absent in onboarding (no project yet) — every field starts blank. */
+  /** Absent when a project is being CREATED — the form then drops its name field
+   * (the name comes from the picked repo) and leads with the repo picker. */
   project?: MeProject;
   /** The caller's connected GitHub account and its repos (settings repo picker).
    * Required, and deliberately not optional: the repo is always chosen from the
@@ -193,9 +202,10 @@ export interface ProjectFieldsProps {
    *    projects page have always used. Unchanged, deliberately: those two
    *    surfaces style it themselves and their DOM must not move under them.
    *  * `detail` — the settings project modal: an identity header (the name,
-   *    edited in place, beside the repository it is linked to) over grouped
-   *    Agent and Sandbox sections. Same state, same submit body — only the
-   *    arrangement differs. */
+   *    edited in place, beside the repository it is linked to — or, creating,
+   *    the repository alone with the name it implies) over grouped Agent and
+   *    Sandbox sections. Same state, same submit body — only the arrangement
+   *    differs. */
   layout?: 'form' | 'detail';
   /** An extra control for the leading (left) edge of the `detail` footer, beside
    * the save button — in practice the modal's delete. A rendered node rather
@@ -302,6 +312,9 @@ export function ProjectFields({
   saving,
   onSave,
 }: ProjectFieldsProps): JSX.Element {
+  // Creating vs editing. The only two things it changes: where the name comes
+  // from (the repo, vs the field below) and how the fields are arranged.
+  const creating = project === undefined;
   const [name, setName] = useState(project?.name ?? '');
   const [repoUrl, setRepoUrl] = useState(project?.repo_url ?? '');
   // The per-project coding-agent provider (multi-provider design §9): the stored
@@ -316,9 +329,16 @@ export function ProjectFields({
   const [mergeGateMode, setMergeGateMode] = useState<MergeGateMode>(
     project?.merge_gate_mode ?? 'main',
   );
+  // What a new project will be called. Derived on every render rather than held
+  // in state, so it can never fall out of step with the picked repo — there is
+  // no field to type into and therefore nothing to preserve.
+  const derivedName = projectNameFromRepoUrl(repoUrl);
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const body: ProjectUpdateRequest = { name: name.trim(), repo_url: repoUrl.trim() };
+    const body: ProjectUpdateRequest = {
+      name: creating ? derivedName : name.trim(),
+      repo_url: repoUrl.trim(),
+    };
     // Send the provider choice only when the deployment offers a real choice; a
     // single-provider deployment leaves it empty so the project keeps resolving to
     // the deployment default (multi-provider design §9). '' is a valid value — it
@@ -350,7 +370,7 @@ export function ProjectFields({
   // Every field is built once here and then arranged by the layout branch at the
   // bottom, so the two shells can never drift into rendering different controls
   // (or a different submit body) from each other.
-  const nameField = (
+  const nameField = creating ? null : (
     <label>
       Project name
       <input
@@ -363,6 +383,21 @@ export function ProjectFields({
       />
     </label>
   );
+
+  // What the removed field is replaced by: the derived name, said out loud
+  // beside the picker. Without it the naming is invisible — the user picks a
+  // repo and a board appears called something nobody showed them.
+  const nameNote = creating ? (
+    <p data-role="project-name-note" data-state={derivedName === '' ? 'unpicked' : 'named'}>
+      {derivedName === '' ? (
+        'This project will take its name from the repository you pick.'
+      ) : (
+        <>
+          This project will be called <strong data-role="project-name-value">{derivedName}</strong>.
+        </>
+      )}
+    </p>
+  ) : null;
 
   const repoField = <RepoField value={repoUrl} onChange={setRepoUrl} github={github} />;
 
@@ -464,11 +499,34 @@ export function ProjectFields({
   // Blocking here beats a server-side 400 the user can't act on.
   const submitButton = (
     <button type="submit" disabled={saving || repoUrl.trim() === ''}>
-      Save project
+      {creating ? 'Create project' : 'Save project'}
     </button>
   );
 
   if (layout !== 'detail') {
+    if (creating) {
+      // The create step (auto-name from repository): the picker IS the step, so
+      // it stands alone at the top with the name it implies under it. The rest
+      // keep their server defaults for anyone who just wants a board, and are
+      // demoted rather than dropped — a multi-provider deployment must still be
+      // able to say which agent runs this project at the moment it is created.
+      return (
+        <form data-role="project-form" data-mode="new" onSubmit={handleSubmit}>
+          <div data-role="new-project-repo">
+            {repoField}
+            {nameNote}
+          </div>
+          <section data-role="new-project-options">
+            <h3>Options</h3>
+            {providerField}
+            {snapshotField}
+            {workerCountField}
+            {mergeGateField}
+          </section>
+          {submitButton}
+        </form>
+      );
+    }
     return (
       <form data-role="project-form" onSubmit={handleSubmit}>
         {nameField}
@@ -485,12 +543,19 @@ export function ProjectFields({
   // The detail shell (projects-in-a-modal). The identity header answers "which
   // project is this, and what repo is it pointed at" in a single band — the two
   // facts every other field is relative to — and the rest is grouped by the
-  // question it answers rather than listed flat.
+  // question it answers rather than listed flat. Creating, that band holds the
+  // repo picker alone (there is no name to edit yet) plus the name it derives.
   return (
-    <form data-role="project-form" data-layout="detail" onSubmit={handleSubmit}>
+    <form
+      data-role="project-form"
+      data-layout="detail"
+      data-mode={creating ? 'new' : undefined}
+      onSubmit={handleSubmit}
+    >
       <header data-role="project-identity">
         {nameField}
         {repoField}
+        {nameNote}
       </header>
 
       <section data-role="project-group" data-group="agent">

@@ -993,7 +993,10 @@ describe('Dashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New project' }));
 
     await screen.findByRole('dialog', { name: 'New project' });
-    expect(screen.getByLabelText('Project name')).toHaveValue('');
+    // Create mode asks for the repository and takes the name from it (auto-name
+    // from repository) — so there is no name field to seed blank.
+    expect(screen.queryByLabelText('Project name')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Repository' })).toBeInTheDocument();
     // Nothing to delete before the project exists.
     expect(screen.queryByRole('button', { name: 'Delete project' })).toBeNull();
   });

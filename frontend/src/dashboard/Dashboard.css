@@ -313,6 +313,25 @@ html:has([data-role='settings']) {
   color: var(--danger);
 }
 
+/* The name the picked repo implies (auto-name from repository) — what replaced
+   the step's name field, so it reads as an answer rather than as fine print.
+   Unscoped within the dashboard on purpose: the same note is rendered by
+   `ProjectFields` in the settings project modal's create mode. */
+[data-role='dashboard'] [data-role='project-name-note'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-muted);
+}
+
+[data-role='dashboard'] [data-role='project-name-note'][data-state='named'] {
+  color: var(--text-secondary);
+}
+
+[data-role='dashboard'] [data-role='project-name-value'] {
+  color: var(--text-body);
+  font-weight: 600;
+}
+
 /* --------------------------------------------------- step 3: provider */
 
 [data-role='provider-choice'] {
@@ -1221,6 +1240,13 @@ html:has([data-role='settings']) {
    loading) it carries a paragraph of explanation, so it takes the full width. */
 [data-role='project-identity'] [data-role='repo-field'][data-state='disconnected'],
 [data-role='project-identity'] [data-role='repo-field'][data-state='loading'] {
+  grid-column: 1 / -1;
+}
+
+/* Creating, there is no name field beside it (auto-name from repository): the
+   picker is the header's whole question, so it spans the band with the name it
+   derives under it rather than sitting in a half-width column beside nothing. */
+[data-role='project-form'][data-mode='new'] [data-role='project-identity'] > * {
   grid-column: 1 / -1;
 }
 

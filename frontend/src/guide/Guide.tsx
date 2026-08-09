@@ -370,9 +370,11 @@ export function Guide(): JSX.Element {
                   <p className="guide-label">Step 2 of 3 — Choose your project</p>
                   <p>
                     Pick the repository Kiln should work in from the dropdown of your own repos —
-                    private ones included. There’s no URL to type. The <strong>Project name</strong>{' '}
-                    fills itself in from the repo you picked; change it if you’d rather call the
-                    board something else. Press <strong>Continue</strong>.
+                    private ones included. There’s no URL to type, and no name to think of: the
+                    project is named after the repository you picked (<code>you/Pac-Man</code>{' '}
+                    becomes <strong>Pac-Man</strong>), which the step says back to you before you go
+                    on. Rename the board later in Settings if you’d rather call it something else.
+                    Press <strong>Continue</strong>.
                   </p>
                   <p className="guide-label">Step 3 of 3 — Choose your provider</p>
                   <p>

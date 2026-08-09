@@ -232,7 +232,7 @@ describe('ProjectModal', () => {
     }
   });
 
-  it('create mode: blank fields, no delete, and the same save path', async () => {
+  it('create mode: the repo alone, no name field, no delete, same save path', async () => {
     const onSave: SaveMock = vi.fn(() => Promise.resolve(true));
     const onClose = vi.fn();
     render(
@@ -246,23 +246,25 @@ describe('ProjectModal', () => {
     );
 
     expect(screen.getByRole('dialog', { name: 'New project' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Project name')).toHaveValue('');
-    // Nothing to delete yet, so the action bar is Save alone.
+    // No name to type: a new project takes the picked repo's name (auto-name
+    // from repository), so the identity header is the picker alone.
+    expect(screen.queryByLabelText('Project name')).toBeNull();
+    // Nothing to delete yet, so the action bar is the create button alone.
     expect(screen.queryByRole('button', { name: 'Delete project' })).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'fresh' } });
-    // Save stays disabled until a repo is picked — a project without one can't
-    // be created, so the modal blocks it rather than posting a doomed body.
-    expect(screen.getByRole('button', { name: 'Save project' })).toBeDisabled();
+    // It stays disabled until a repo is picked — a project without one can't be
+    // created, so the modal blocks it rather than posting a doomed body.
+    expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled();
     fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
       target: { value: 'https://github.com/acme/demo' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(document.querySelector('[data-role="project-name-value"]')).toHaveTextContent('demo');
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
     expect(onSave.mock.calls[0]?.[0]).toMatchObject({
-      name: 'fresh',
+      name: 'demo',
       repo_url: 'https://github.com/acme/demo',
     });
     await waitFor(() => {

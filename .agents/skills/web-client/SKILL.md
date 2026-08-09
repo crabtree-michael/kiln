@@ -134,6 +134,72 @@ you fake the heights (`fakeClampedOverflow` in `ActivityRow.test.tsx` /
 `PrimaryScreenView.test.tsx`), and expanding pauses that pill's auto-dismiss timer
 (`setToastExpanded`) with no collapse-back to resume it.
 
+## The soft keyboard OVERLAYS the app — it never resizes or pushes it (standing principle)
+
+*Same shape as the section above, and for the same reason: a fixed layout with transient UI
+over it. The keyboard is the OS's overlay, and the app must not reflow under it.*
+
+**`index.html` asks for `interactive-widget=overlays-content`, and that is where the model
+starts.** Chrome Android's default (`resizes-content`) shrinks the LAYOUT viewport — and with
+it `dvh` — as the keyboard animates, so the whole `100dvh` app column was squeezed upward and
+the feed reflowed under the user's eye. iOS Safari has no such mode: it shrinks only the
+VISUAL viewport. So the key lines Chrome up with Safari, both engines behave the same way, and
+**one JS path serves both** — the "Chrome Android is handled natively, iOS gets the JS" split
+is gone. Don't reintroduce `resizes-content`: it looks like a smooth native follow on a phone
+with nothing but a dock on screen, and it is the reported bug on a screen with a feed in it.
+
+**`use-keyboard-viewport` is that one path.** It publishes the keyboard's overlap of the
+bottom edge as `--keyboard-inset` on the document root, frame-synced to the visual viewport
+(0px at rest, tracked continuously so the OS open/close animation is ridden rather than
+snapped at). It is mounted by `PrimaryScreen` and `KanbanScreen` — the two shells that own a
+locked document and all their own scrolling. Everything else reads the var.
+
+**Four consumers, and each is a different answer to the same question.** Add the fifth the
+same way — decide which of these your surface is, don't invent a sixth mechanism:
+
+| Surface | How it clears the keyboard |
+|---|---|
+| `[data-role='dock-region']` (phone) | `translateY(-inset)` — a compositor transform, no reflow |
+| `[data-role='desktop-composer-region']` | the same transform; the desk shell is width-gated, so a landscape tablet drives it by finger |
+| `[data-role='feed']` / `[data-role='desktop-feed']` | `+ var(--keyboard-inset)` in `padding-bottom` — the covered strip becomes scroll room |
+| `[data-role='ticket-detail']` | `max(safe-area, inset)` in `padding-bottom`, so the sheet's footer stands clear |
+
+Four things about that table are load-bearing:
+
+- **Padding below the content, never a height change.** Growing the reserve *under* what is
+  already on screen moves nothing — opening the keyboard costs the user no scroll position,
+  which is the entire complaint. A height/`dvh` rule keyed on the inset is the regression.
+- **It is the ONE reserve that is not handed back through `--feed-overlay-slack`**, and the
+  contrast with the section above is the whole point. A band is *transient*, so the board must
+  hold still under it and its share of the padding is given straight back to the scroll
+  wrapper. The keyboard's strip is *gone* for as long as it is up, so the laid-out feed
+  SHOULD shorten to what is left — that is what keeps the resting block and the pinned
+  control on screen, riding up with the dock, rather than behind the keyboard. Adding the
+  inset to the slack is the mirror image of the bug the slack exists to fix.
+- **"Show earlier" comes up for free, and must not name the var.** It is sticky against the
+  feed's CONTENT box, which that padding defines. Naming `--keyboard-inset` in its own
+  `bottom` applies the clearance twice — same trap the overlay vars already carry a warning
+  about in its rule.
+- **The sheet's `[data-surface='primary']` skin rewrites `padding` wholesale**, so the
+  clearance is stated in BOTH its rules. Drop the second one and it goes missing on the only
+  surface the app actually renders, with the base rule looking correct.
+
+**The scroll view finishes the job: `revealFocused()`.** Once the visual viewport has been
+quiet for `QUIET_MS` — i.e. the OS animation has ended, so the nudge never fights it — the
+focused editable is scrolled into view with `block: 'nearest'`. That is a no-op for anything
+already visible (the dock's field, which rides up with the dock) and is what actually saves
+the field the lift can't reach: the ticket sheet's body editor, inside the sheet's own
+scrolling body. `scrollIntoView` is absent in jsdom, hence the `typeof` guard.
+
+**Measured in `tests/layout/soft-keyboard.spec.ts`.** A spec can't raise a real keyboard and
+`visualViewport` is read-only, so it drives `--keyboard-inset` directly and asserts what the
+CSS does with it — the column, header and cards not moving by a pixel, the dock's bottom
+landing exactly on the keyboard's top edge, the feed's scroll range growing by exactly the
+inset. The measuring half (the hook's arithmetic, the arm/engage/settle latches) stays in
+`use-keyboard-viewport.test.ts`. The spec also asserts the viewport meta itself, because it is
+the one thing in this model nothing else in the gate can see: with `resizes-content` back,
+every other assertion still passes and the real phone still reflows.
+
 ## Dashboard + session gating (spec 11)
 
 A second, separate surface at `/dashboard` — the signed-in account view (GitHub sign-in →
@@ -593,6 +659,11 @@ the state actions (Poke, Delete, Accept) withdraw *as a group* and the cluster's
 - **Send and × are ONE box** (`[data-role='ticket-detail-voice-send']`), rendered by
   `TicketDetailVoiceActions` as the cluster's second child. Grouping is load-bearing:
   `space-between` over three loose children would strand the × in the middle of the row.
+- **The mic and the keyboard toggle are the OTHER box**
+  (`[data-role='ticket-detail-voice-mic']`), for the same reason: a loose toggle would be
+  flung to the row's far end by `space-between`, next to Accept — where Send is about to
+  be. Grouped, the mic stays the group's first child and the group stays the cluster's
+  first child, which is what keeps the mic on the row's left edge in every reading.
 - **All three state actions share one gate, and that is deliberate.** The trailing slot is one
   slot — leaving any of them up would just mean Send and × arriving *beside* them and shoving
   them along, which is the shuffling this exists to remove. So a *blocked* ticket's Poke and
@@ -613,15 +684,16 @@ the state actions (Poke, Delete, Accept) withdraw *as a group* and the cluster's
   purpose**: it fires twice an utterance rather than once a word, so neither screen
   re-renders on transcript churn. Wire it in **both** shells — the state is per-shell and
   forgetting one is the obvious way to ship this half-done.
-- **A session is live when the mic is listening OR there are words on screen**, not just the
-  latter: an end-of-turn final pauses the mic while the utterance sits armed in the grace
-  window, and the footer must not snap back to Accept underneath a transcript the user is
-  still deciding about. Send is rendered-but-`disabled` before there is anything to send, so
-  the × beside it doesn't shuffle sideways when the first partial lands.
+- **A session is live when the mic is listening OR there are words on screen OR the user is
+  typing**, not just the middle one: an end-of-turn final pauses the mic while the utterance
+  sits armed in the grace window, and the footer must not snap back to Accept underneath a
+  transcript the user is still deciding about. Send is rendered-but-`disabled` before there
+  is anything to send, so the × beside it doesn't shuffle sideways when the first partial
+  lands.
 - **The sheet's × is not the dock's ×.** The dock's discards the transcript and deliberately
   leaves the mic listening (`cancel` alone). The sheet's is the way *out* — `cancel()` **and**
-  `pause()` — because that is what returns the footer to Accept, and a sheet has no keyboard
-  toggle or second controls row to escape through. Don't "unify" them by changing `cancel`.
+  `pause()`, or in typed input dropping the draft and closing the field — because that is what
+  returns the footer to Accept. Don't "unify" them by changing `cancel`.
 - **`MicButton` is the orb and nothing else now.** Its old `sendable` mode (orb gives way to
   send + clear) is gone: the sheet keeps the orb up while speaking because the glow is the
   only thing reporting the mic is live. Every placement renders its own send/discard around it.
@@ -630,6 +702,42 @@ the state actions (Poke, Delete, Accept) withdraw *as a group* and the cluster's
   than cosmetic: a `'listening'` mock puts *every* sheet in that file into the speaking
   arrangement and Accept vanishes from tests that never mentioned voice.
   `PrimaryScreenView.test.tsx` had exactly that wrong and only the swap exposed it.
+
+### The sheet can be typed into as well as spoken into
+
+The sheet's footer offers a keyboard toggle beside the mic, and typed input then rides the
+footer's existing arrangement: the SAME Send and × in the SAME trailing slot, pointed at the
+draft instead of the transcript, and the panel above the controls becomes the field. Voice
+stays primary — the toggle is offered at rest and only at rest.
+
+- **The draft lives in `TicketDetailHost` (`useTicketKeyboard`), because the sheet's dock
+  renders it in TWO slots.** The field goes in the `transcript` node
+  (`TicketDetailTranscript`, whose panel it takes over wholesale) and its Send and × in the
+  `voiceControl` node (`TicketDetailVoiceActions`); the host is their only common parent.
+  Both take the returned object as a **required** prop, so a shell cannot mount half of it.
+  That one hook is also the only state the host holds — everything else there is wiring.
+- **It is deliberately NOT the voice store's `keyboardMode`.** That flag is the DOCK's typing
+  mode. Flipping it from the sheet reaches through the scrim: the dock enters the mode with a
+  second, empty draft, its own focus effect races the sheet's field for the caret, and the
+  mode outlives the sheet that opened it. Two surfaces, two drafts, two flags — what they
+  share is the seam underneath. `useTicketKeyboard.test.tsx` pins that `openKeyboard`/
+  `closeKeyboard` are never called from here.
+- **`submitText` is that shared seam, and the ticket prefix is why the mic must stay
+  mounted.** A typed message is the same `POST /api/message` a spoken one is, prefixed with
+  the open ticket's title from `setTicketContext` — which `MicButton` registers. So the orb
+  is rendered through typed input too, not swapped out for a "back to voice" button the way
+  the dock's is; unmounting it would take the registration with it and post the comment
+  against nothing.
+- **The mic orb IS the way back to voice**, and that is a rule in the hook rather than a
+  button: tapping it resumes the mic, and typed input stands down when `micState` goes
+  `listening`. That relies on `begin()`'s `pause()` being synchronous — same handler, same
+  React batch — so the rule can't fire on the render that opens the field.
+- **The draft is scoped to the ticket**, cleared when the open ticket changes and when the
+  sheet closes, because its title is what the message is prefixed with.
+- **Geometry, not DOM, is what proves the toggle behaves** — `tests/layout/ticket-detail.spec.ts`
+  measures it beside the mic (not flung to the row's far end by `space-between`), the mic
+  holding its slot to the pixel as the toggle withdraws, and Send landing on Accept's right
+  edge. Every one of those passes as a DOM assertion while looking wrong.
 
 ### Every footer glyph is the mic's disc, Poke included
 

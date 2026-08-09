@@ -17,13 +17,17 @@
   position: relative;
   /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
      (its overflow-y:auto) with the dock pinned, rather than growing the page.
-     The column keeps its full height when the on-screen keyboard opens (iOS
-     Safari doesn't shrink the `dvh` layout viewport for the keyboard); the dock
-     is instead lifted above the keyboard by a compositor transform driven from
-     the visual viewport (see the `dock-region` rule + use-keyboard-viewport),
-     so no per-event resize/reflow of this column is needed. On Chrome Android
-     `interactive-widget=resizes-content` (index.html) does shrink `dvh` as the
-     keyboard animates, so this column follows the keyboard natively there. */
+
+     This height is FIXED while the on-screen keyboard is up, on every engine, and
+     that is the whole keyboard model: the keyboard overlays the app the way it
+     does in a native one, so nothing here resizes and nothing the user is looking
+     at moves. Neither browser shrinks the `dvh` layout viewport for the keyboard
+     any more — iOS Safari never did, and Chrome Android is asked not to via
+     `interactive-widget=overlays-content` (index.html). What moves instead is the
+     dock, lifted above the keyboard by a compositor transform driven off the
+     visual viewport (see the `dock-region` rule + use-keyboard-viewport), and the
+     feed's bottom padding, which reserves the covered strip as scroll room
+     (below). No per-event resize, no reflow of this column. */
   height: 100dvh;
   margin: 0 auto;
   max-width: 520px;
@@ -79,14 +83,33 @@
      Both vars are published on the screen root and default to 0px, so an empty
      band with a collapsed dock leaves the idle layout exactly as before.
 
-     This is SCROLL allowance and nothing else. Padding on a scroll container
-     shrinks its content box, so on its own it also shortens everything stretched
-     inside it — which is how a toast arriving came to resize the board and lift
-     the pinned "Show earlier" control off the dock. The band's share is handed
-     straight back to the wrapper below (`--feed-overlay-slack`), so the cards
-     keep the room to be scrolled clear of the band while the laid-out board is
-     the same height in every band state. */
-  padding: 8px 26px calc(8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px));
+     For the two overlay vars this is SCROLL allowance and nothing else. Padding
+     on a scroll container shrinks its content box, so on its own it also shortens
+     everything stretched inside it — which is how a toast arriving came to resize
+     the board and lift the pinned "Show earlier" control off the dock. The band's
+     share is handed straight back to the wrapper below (`--feed-overlay-slack`),
+     so the cards keep the room to be scrolled clear of the band while the
+     laid-out board is the same height in every band state.
+
+     `--keyboard-inset` is a third term and the ONE that is deliberately not
+     handed back. It is the strip of this region the soft keyboard covers
+     (use-keyboard-viewport); the keyboard overlays rather than resizing the app
+     (see the column's height above), so without it the last cards would simply be
+     unreachable behind the keyboard. But unlike a toast — a transient overlay the
+     board must hold still under — the covered strip is genuinely gone for as long
+     as the keyboard is up, so the laid-out board SHOULD shorten to what is left:
+     that is what keeps the resting block and the pinned "Show earlier" on screen
+     instead of behind the keyboard, riding up with the dock. Adding it to
+     `--feed-overlay-slack` would strand both under the keyboard, which is the
+     mirror image of the bug the slack exists to fix. Still padding rather than a
+     height change on the column, so growing the reserve BELOW the content moves
+     nothing already scrolled past: opening the keyboard costs the user no scroll
+     position. */
+  padding: 8px 26px
+    calc(
+      8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px) +
+        var(--keyboard-inset, 0px)
+    );
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav

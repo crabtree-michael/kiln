@@ -31,10 +31,18 @@ import { useWebPush } from '@/stores/use-web-push';
 import { usePresence } from '@/stores/use-presence';
 import { useProjectsStatus } from '@/stores/use-projects-status';
 import { useTicketActions } from '@/components/ticket-intents';
+import { useKeyboardViewport } from '@/components/use-keyboard-viewport';
 import { KanbanScreenView } from '@/components/desktop/KanbanScreenView';
 import type { RailProject } from '@/components/desktop/ProjectsRail';
 
 function KanbanScreenBody(): JSX.Element {
+  // Publish the soft keyboard's overlap, exactly as `/app` does. This shell is a
+  // 100dvh column over a locked document too, and it opens the same ticket sheet
+  // — whose body editor is an editable field the keyboard would otherwise cover,
+  // since the keyboard overlays rather than resizing (index.html). Inert wherever
+  // no soft keyboard shows, which is every mouse-driven window.
+  useKeyboardViewport();
+
   // Report foreground presence so the backend withholds a duplicate Web Push
   // while this tab is visible (02 §10 push dedup) — a board left open all day is
   // exactly the tab that would otherwise get pushed at.

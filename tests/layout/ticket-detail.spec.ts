@@ -130,6 +130,51 @@ test.describe('ticket sheet — phone', () => {
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
   });
 
+  test('the keyboard toggle sits beside the mic, and the mic does not move for it', async ({
+    page,
+  }) => {
+    // The footer's one rule is that the mic never travels, and the toggle is the
+    // first thing added beside it since. Both halves are geometry: a loose toggle
+    // would be flung to the row's far end by the cluster's `space-between` (next
+    // to Accept, where Send is about to be), and opening typed input withdraws it
+    // — which is exactly the kind of removal that shuffles a row sideways.
+    await mountShell(page, { band: 'none' });
+    await openSheet(page);
+
+    const micAtRest = await box(page, "[data-role='ticket-detail'] [data-role='dock-talk']");
+    const toggle = await box(page, "[data-role='ticket-detail'] [data-role='dock-keyboard']");
+    const accept = await box(page, "[data-role='detail-accept']");
+
+    // Beside the mic, on its right, on the same optical line — the mic's
+    // neighbour and not the row's other end.
+    expect(toggle.left).toBeGreaterThanOrEqual(micAtRest.right - 1);
+    expect(toggle.left - micAtRest.right).toBeLessThan(24);
+    expect(
+      Math.abs(toggle.top + toggle.height / 2 - (micAtRest.top + micAtRest.height / 2)),
+    ).toBeLessThan(2);
+    expect(toggle.right).toBeLessThan(accept.left);
+
+    await page.click("[data-role='ticket-detail'] [data-role='dock-keyboard']");
+    await page.waitForSelector("[data-role='ticket-detail-input']");
+    await settle(page);
+
+    // The mic held its slot, to the pixel, through the toggle's withdrawal and
+    // the panel opening above it.
+    const micTyping = await box(page, "[data-role='ticket-detail'] [data-role='dock-talk']");
+    expect(Math.abs(micTyping.left - micAtRest.left)).toBeLessThan(0.5);
+    expect(Math.abs(micTyping.top - micAtRest.top)).toBeLessThan(0.5);
+
+    // ...and the trailing slot changed hands, exactly as it does for a spoken
+    // utterance: the state actions out, Send and × in, nothing sliding.
+    expect(await maybeBox(page, "[data-role='detail-accept']")).toBeNull();
+    const send = await box(page, "[data-role='ticket-detail'] [data-role='dock-send']");
+    expect(Math.abs(send.right - accept.right)).toBeLessThan(1);
+
+    // The field stands above the controls in the sheet's own dock, not over them.
+    const field = await box(page, "[data-role='ticket-detail-input']");
+    expect(field.bottom).toBeLessThanOrEqual(micTyping.top + 1);
+  });
+
   test('editing shows one title, not the dialog’s name above the field', async ({ page }) => {
     // While editing, the sheet's <Drawer.Title> stays in the DOM — Radix names
     // the dialog by it — and the title FIELD stands in for it on screen. Without

@@ -133,6 +133,28 @@ type Service struct {
 	// or board call.
 	provisionMu   sync.Mutex
 	provisionErrs map[string]map[string]struct{}
+
+	// creditsMu guards creditsOut: the projects whose provider last rejected a
+	// call for exhausted account credits (ErrOutOfCredits). Read by OutOfCredits,
+	// which the api joins onto the board snapshot as a persistent alert.
+	//
+	// It exists because credit exhaustion is the one failure that stops the whole
+	// project without anything on screen saying so: every turn fails fast and
+	// terminally (recordFailure) and every worker create fails, so the board fills
+	// with errored slots and the user is left reading "N of M sandboxes failing"
+	// with no hint that the answer is a payment. It stalled production for hours
+	// once, and nobody knew why until someone read the logs.
+	//
+	// Set from the two places a provider rejection actually surfaces — a failed
+	// turn and a failed provision — and CLEARED only by a reconcile sweep that
+	// got through its provider calls without one. Clearing on that heartbeat
+	// rather than on any success is deliberate: the sweep runs every 60s and
+	// always talks to the provider, so a topped-up account puts the band away by
+	// itself, while a project nobody is running work on does not silently drop an
+	// alert that is still true. Held only for the map read/write, never across a
+	// provider call.
+	creditsMu  sync.Mutex
+	creditsOut map[string]struct{}
 }
 
 // NewService assembles the agent runtime over its ports. providers resolves a
@@ -154,6 +176,7 @@ func NewService(
 		workers:   map[string]ProviderWorker{},
 
 		provisionErrs: map[string]map[string]struct{}{},
+		creditsOut:    map[string]struct{}{},
 	}
 }
 
@@ -442,6 +465,19 @@ func (s *Service) ResetProject(ctx context.Context, projectID string) error {
 	}
 	s.mu.Unlock()
 	return nil
+}
+
+// OutOfCredits reports whether this project's provider is currently rejecting
+// calls for exhausted account credits (05 §5). Read by the api on every board
+// join to raise the persistent alert band, so it is a cached observation rather
+// than a provider call — there is nothing here to fail, and asking the provider
+// on each board read would put a billing round-trip in front of every snapshot.
+// See the creditsOut field for what sets and clears it.
+func (s *Service) OutOfCredits(projectID string) bool {
+	s.creditsMu.Lock()
+	defer s.creditsMu.Unlock()
+	_, out := s.creditsOut[projectID]
+	return out
 }
 
 // capturedAs looks the catalog up for a snapshot already captured under name —
@@ -796,6 +832,9 @@ func (s *Service) recordFailure(ctx context.Context, t Turn, cause error) {
 	if errors.Is(cause, ErrOutOfCredits) {
 		slog.WarnContext(ctx, "agent: provider out of credits; failing turn without retry",
 			"ticket_id", t.TicketID, "worker_id", t.WorkerID, "err", cause)
+		// The turn's own message tells whoever reads this ticket. The alert tells
+		// everyone else — the next ticket fails the same way, and the one after it.
+		s.noteOutOfCredits(ctx, t.ProjectID, cause)
 		t.LastError = outOfCreditsMessage
 		t.Phase = PhaseFailed
 		s.update(ctx, t)
@@ -882,8 +921,17 @@ func (s *Service) reconcileProject(ctx context.Context, projectID string) {
 		slog.ErrorContext(ctx, "agent: read worker slots", "project", projectID, "err", err)
 		return
 	}
-	failed := s.adoptAndCreate(ctx, provider, prefix, ids, live)
+	failed, creditErr := s.adoptAndCreate(ctx, provider, prefix, ids, live)
 	s.recordProvisionFailures(projectID, failed)
+	// This sweep is the credit alert's heartbeat: it just made real provider calls
+	// for this project, so it is in a position to say either way. A sweep that hit
+	// the rejection raises it; one that got through clears it, which is what puts
+	// the band away on its own once the account is topped up.
+	if creditErr != nil {
+		s.noteOutOfCredits(ctx, projectID, creditErr)
+		return
+	}
+	s.clearOutOfCredits(projectID)
 }
 
 // adoptAndCreate reconciles one project's live sandboxes against its board slots
@@ -893,10 +941,14 @@ func (s *Service) reconcileProject(ctx context.Context, projectID string) {
 // failed record, D6). Every prefix-scoped sandbox it did NOT adopt (a lower/stale
 // generation, a terminally-failed record, or an orphan matching no slot) is
 // destroyed. Returns the slot ids whose create failed this sweep, which the health
-// reconcile gates out of the pull until they provision.
+// reconcile gates out of the pull until they provision, plus the first
+// credit-exhaustion rejection among those failures — a project-wide fact rather
+// than a slot's, so the caller raises it as an alert rather than gating a slot on
+// it. The sweep still runs to the end on one: the destroy pass is the part that
+// keeps a shared provider account tidy, and it is not the part credits stop.
 func (s *Service) adoptAndCreate(
 	ctx context.Context, provider Provider, prefix string, ids []string, live []ProviderWorker,
-) []string {
+) ([]string, error) {
 	// Group live, prefix-scoped sandboxes by board slot (board-slot-driven, not
 	// exact-equality on the parsed remainder): a gen≥1 name carries only the slot
 	// fragment, so slotCandidates matches each candidate against the slot's id AND
@@ -904,6 +956,7 @@ func (s *Service) adoptAndCreate(
 	// left untouched (11 §3).
 	kept := make(map[string]struct{}, len(ids))
 	var failed []string
+	var creditErr error
 	for _, id := range ids {
 		w, err := s.adoptOrCreateSlot(ctx, provider, prefix, id, slotCandidates(prefix, id, live))
 		if err != nil {
@@ -913,12 +966,15 @@ func (s *Service) adoptAndCreate(
 			slog.ErrorContext(ctx, "agent: create worker",
 				append([]any{"worker_id", id, "err", err}, providerErrAttrs(err)...)...)
 			failed = append(failed, id)
+			if creditErr == nil && errors.Is(err, ErrOutOfCredits) {
+				creditErr = err
+			}
 			continue
 		}
 		kept[w.Name] = struct{}{}
 	}
 	s.destroyUnkept(ctx, provider, prefix, live, kept)
-	return failed
+	return failed, creditErr
 }
 
 // adoptOrCreateSlot resolves the one provider worker a slot should use from its
@@ -1045,6 +1101,34 @@ func (s *Service) recordProvisionFailures(projectID string, failedIDs []string) 
 		ids[id] = struct{}{}
 	}
 	s.provisionErrs[projectID] = ids
+}
+
+// noteOutOfCredits records that this project's provider rejected a call for
+// exhausted account credits, so the api can raise a persistent alert naming the
+// cause. Provider-neutral: it keys off the ErrOutOfCredits sentinel every adapter
+// maps its own billing rejection to (05 §5), so nothing about a platform's
+// envelope reaches this side of the port. A nil or unrelated error is NOT a
+// clear — see clearOutOfCredits for why the reconcile sweep owns that.
+func (s *Service) noteOutOfCredits(ctx context.Context, projectID string, err error) {
+	if err == nil || !errors.Is(err, ErrOutOfCredits) {
+		return
+	}
+	s.creditsMu.Lock()
+	defer s.creditsMu.Unlock()
+	if _, already := s.creditsOut[projectID]; !already {
+		slog.WarnContext(ctx, "agent: provider out of credits; raising alert for project",
+			"project", projectID)
+	}
+	s.creditsOut[projectID] = struct{}{}
+}
+
+// clearOutOfCredits drops the project's credit alert. Called by a reconcile sweep
+// that reached the provider without a credit rejection — the account is paying
+// again, so the band goes away without the user having to do anything but top up.
+func (s *Service) clearOutOfCredits(projectID string) {
+	s.creditsMu.Lock()
+	defer s.creditsMu.Unlock()
+	delete(s.creditsOut, projectID)
 }
 
 // provisionFailedIDs returns the worker ids whose sandbox failed to provision on

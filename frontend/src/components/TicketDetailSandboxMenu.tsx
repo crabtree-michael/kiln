@@ -10,12 +10,23 @@
 // Three items, each self-gating on its callback being wired (an omitted one is
 // simply absent, so a read-only sheet shows no menu at all):
 //
-//   • Save sandbox when done — a toggle carrying a checkmark when on. The one
-//     non-destructive item, and the only one offered on a ticket with no sandbox
-//     yet: the choice matters before the workspace exists just as much as while
-//     it runs. On means the ticket's exit from Developing captures the workspace
-//     as a snapshot the project then starts its workers from, rather than
-//     recycling it.
+//   • Start future tickets from this sandbox — a toggle carrying a checkmark
+//     when on. The one non-destructive item, and the only one offered on a
+//     ticket with no sandbox yet: the choice matters before the workspace exists
+//     just as much as while it runs. On means the ticket's exit from Developing
+//     captures the workspace as a snapshot and points the project at it, so
+//     later workers boot from it, rather than recycling the slot.
+//
+//     It read "Save sandbox when done" and that is the wording the incident was
+//     made of: it promised a backup, which for a while is all it was NOT doing
+//     (the switch only spared the box from recycling — a stay of execution — and
+//     a project came within minutes of losing a workspace whose owner believed
+//     it was saved). It captures for real now, but "save" was never what this
+//     is: the settings page has a "Save snapshot" button that captures a box on
+//     demand, and two controls a user reads as the same promise, one of which
+//     only fires when a ticket finishes, is how that misreading happens again.
+//     This label names the consequence instead, and cannot be read as "back up
+//     my work now". Don't reintroduce the verb.
 //   • Re-create sandbox — throw this workspace away and bring a fresh one up on
 //     the same slot, leaving the ticket where it is.
 //   • Move to free sandbox — rebind the ticket to a free slot and brief an agent
@@ -205,7 +216,9 @@ export function TicketDetailSandboxMenu({
                     <path d="M5 12.5l4.5 4.5L19 7" />
                   </svg>
                 </span>
-                <span data-role="detail-sandbox-menu-label">Save sandbox when done</span>
+                <span data-role="detail-sandbox-menu-label">
+                  Start future tickets from this sandbox
+                </span>
               </button>
             </li>
           )}

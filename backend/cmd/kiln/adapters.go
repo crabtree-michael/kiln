@@ -229,9 +229,10 @@ func (a *agentRuntimeAdapter) Release(
 
 // Snapshot executes board's agent.snapshot (05 §4, §6): capture the workspace
 // behind the slot as a snapshot, then point the project at it. It is the whole
-// of what "Save sandbox when done" now does — before this the option only
-// suppressed the recycle, so nothing was ever written to the snapshot catalog
-// and the saved workspace still died with its box (ticket 0549b739).
+// of what the ticket's sandbox option ("Start future tickets from this sandbox")
+// does — before this the option only suppressed the recycle, so nothing was ever
+// written to the snapshot catalog and the kept workspace still died with its box
+// (ticket 0549b739).
 //
 // The snapshot is named <project>-<timestamp> from the project's own name and
 // the emit-time instant the board stamped into the payload. That makes the name
@@ -305,11 +306,15 @@ func (a *agentRuntimeAdapter) Snapshot(
 }
 
 // snapshotNameTimestamp is the timestamp layout in a captured snapshot's name:
-// UTC, sortable, and made of characters a provider name accepts.
+// UTC, sortable, and made of characters a provider name accepts. It carries no
+// separator of its own, so the ONE dash in a captured name is the one between
+// the stem and the timestamp — <project>-YYYYMMDDHHMMSS, the shape a snapshot
+// taken by hand against the provider already has (pacman-20260809141304), and
+// the shape the settings capture form names its snapshots.
 // snapshotNameFallbackStem stands in when the project's name slugs to nothing,
 // so the timestamp always has a stem in front of it.
 const (
-	snapshotNameTimestamp    = "20060102-150405"
+	snapshotNameTimestamp    = "20060102150405"
 	snapshotNameFallbackStem = "kiln"
 )
 
@@ -628,6 +633,14 @@ func (a *agentStatusAdapter) ListAgents(ctx context.Context, projectID string) (
 		}
 	}
 	return out, nil
+}
+
+// OutOfCredits forwards the agent runtime's cached credit-exhaustion observation
+// for the project (05 §5's ErrOutOfCredits, seen at a failed turn or a failed
+// provision). No provider vocabulary crosses — it is a bool about an account, and
+// which platform holds that account stays inside the agent module.
+func (a *agentStatusAdapter) OutOfCredits(_ context.Context, projectID string) bool {
+	return a.inner.OutOfCredits(projectID)
 }
 
 var _ api.AgentInspector = (*agentStatusAdapter)(nil)

@@ -49,6 +49,8 @@ export type VerifyResponse = components['schemas']['VerifyResponse'];
 export type VerifyCheck = components['schemas']['VerifyCheck'];
 export type ProviderDescriptor = components['schemas']['ProviderDescriptor'];
 export type Snapshot = components['schemas']['Snapshot'];
+export type DevBox = components['schemas']['DevBox'];
+export type SaveSnapshotRequest = components['schemas']['SaveSnapshotRequest'];
 export type GitHubRepo = components['schemas']['GitHubRepo'];
 export type GitHubRepoList = components['schemas']['GitHubRepoList'];
 
@@ -586,6 +588,14 @@ function isSnapshotArray(value: unknown): value is Snapshot[] {
   return Array.isArray(value) && value.every(isSnapshot);
 }
 
+function isDevBox(value: unknown): value is DevBox {
+  return isRecord(value) && typeof value.ref === 'string' && typeof value.name === 'string';
+}
+
+function isDevBoxArray(value: unknown): value is DevBox[] {
+  return Array.isArray(value) && value.every(isDevBox);
+}
+
 function isGitHubRepo(value: unknown): value is GitHubRepo {
   return (
     isRecord(value) &&
@@ -922,6 +932,57 @@ export async function fetchSnapshots(projectId: string): Promise<Snapshot[] | nu
     throw new Error('fetchSnapshots: unexpected response shape');
   }
   return payload.snapshots;
+}
+
+/** `GET /api/projects/{id}/dev-boxes` — the caller's running dev boxes, the
+ * sandboxes a snapshot can be captured from. Deliberately NOT the project's
+ * pooled workers: the server filters those out, so a Kiln worker can never be
+ * offered as a capture source. Resolves `null` when the provider offers no
+ * catalog (404), like `fetchSnapshots`. */
+export async function fetchDevBoxes(projectId: string): Promise<DevBox[] | null> {
+  const response = await fetch(`/api/projects/${projectId}/dev-boxes`);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`fetchDevBoxes: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !isDevBoxArray(payload.dev_boxes)) {
+    throw new Error('fetchDevBoxes: unexpected response shape');
+  }
+  return payload.dev_boxes;
+}
+
+/** `POST /api/projects/{id}/snapshots` — capture a running dev box as a new
+ * named snapshot for the named project. Two things the caller has to know, both
+ * of them the provider's behaviour rather than ours:
+ *
+ *  * the capture runs in the background, so the returned snapshot is normally
+ *    still `capturing` and is not yet selectable as a base image;
+ *  * the capture CONSUMES its source — the provider scrubs the dev box's
+ *    injected secrets and deletes it — so this is destructive and the UI gates
+ *    it behind a confirm that says so.
+ *
+ * Rejects on a non-2xx so the caller can report the failure rather than showing
+ * a capture that never started. */
+export async function saveSnapshot(
+  projectId: string,
+  body: SaveSnapshotRequest,
+): Promise<Snapshot> {
+  const response = await fetch(`/api/projects/${projectId}/snapshots`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`saveSnapshot: HTTP ${String(response.status)}`);
+  }
+  const payload: unknown = await response.json();
+  if (!isSnapshot(payload)) {
+    throw new Error('saveSnapshot: unexpected response shape');
+  }
+  return payload;
 }
 
 /** `GET /api/github/repos` — the repos the caller's connected GitHub account can

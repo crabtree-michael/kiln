@@ -172,12 +172,17 @@ func TestHandleBoard_ReturnsSnapshotAsWireBoard(t *testing.T) {
 
 // fakeAgentInspector is the api's live-worker status source for the board join.
 type fakeAgentInspector struct {
-	infos []api.AgentInfo
-	err   error
+	infos        []api.AgentInfo
+	err          error
+	outOfCredits bool
 }
 
 func (f *fakeAgentInspector) ListAgents(context.Context, string) ([]api.AgentInfo, error) {
 	return f.infos, f.err
+}
+
+func (f *fakeAgentInspector) OutOfCredits(context.Context, string) bool {
+	return f.outOfCredits
 }
 
 // The board snapshot carries each live worker's real session status, keyed to
@@ -236,6 +241,10 @@ func TestHandleBoard_AgentInspectorError_BoardStillRenders(t *testing.T) {
 	}
 }
 
+// statusErrored is the neutral AgentStatus a terminally-failed worker reports —
+// the only one that counts against pool health.
+const statusErrored = "errored"
+
 // Errored workers raise a persistent sandbox-health alert on the board snapshot
 // (the permanent error band), counting only errored — never stopped/starting —
 // against health, and phrasing it "N of M sandboxes failing".
@@ -243,7 +252,7 @@ func TestHandleBoard_ErroredWorkers_RaiseSandboxHealthAlert(t *testing.T) {
 	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 3}}
 	hub := api.NewHub(boards)
 	hub.SetAgentInspector(&fakeAgentInspector{infos: []api.AgentInfo{
-		{WorkerID: "wa-1", Status: "errored"},
+		{WorkerID: "wa-1", Status: statusErrored},
 		{WorkerID: "wa-2", Status: "idle"},
 		{WorkerID: "wa-3", Status: "stopped"}, // auto-stopped is healthy, not failing
 	}})
@@ -266,6 +275,71 @@ func TestHandleBoard_ErroredWorkers_RaiseSandboxHealthAlert(t *testing.T) {
 	}
 	if got.Alerts[0].Detail != "1 of 3 sandboxes failing" {
 		t.Errorf("Alerts[0].Detail = %q, want %q", got.Alerts[0].Detail, "1 of 3 sandboxes failing")
+	}
+}
+
+// An exhausted coding-agent account raises its own persistent alert, ABOVE the
+// sandbox-health one it usually arrives disguised as. Credits stop every worker
+// create, so the pool reads as failing and "3 of 3 sandboxes failing" is a true
+// sentence pointing at the wrong problem — which is how a production stall went
+// hours without anyone reaching for the payment method.
+func TestHandleBoard_OutOfCredits_RaisesCreditAlertAboveSandboxHealth(t *testing.T) {
+	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 2}}
+	hub := api.NewHub(boards)
+	hub.SetAgentInspector(&fakeAgentInspector{
+		outOfCredits: true,
+		infos: []api.AgentInfo{
+			{WorkerID: "wc-1", Status: statusErrored},
+			{WorkerID: "wc-2", Status: statusErrored},
+		},
+	})
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
+	ts := httptest.NewServer(enableSession(srv).Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/board")
+	defer closeBody(t, resp)
+	var got wire.Board
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Alerts) != 2 {
+		t.Fatalf("Alerts = %+v, want the credit alert and the sandbox-health one", got.Alerts)
+	}
+	// The cause first, the symptom under it.
+	if got.Alerts[0].Kind != "agent_credits" {
+		t.Errorf("Alerts[0].Kind = %q, want agent_credits above sandbox_health", got.Alerts[0].Kind)
+	}
+	if !strings.Contains(got.Alerts[0].Detail, "credits") {
+		t.Errorf("Alerts[0].Detail = %q, want it to name the credits", got.Alerts[0].Detail)
+	}
+	if got.Alerts[1].Kind != "sandbox_health" {
+		t.Errorf("Alerts[1].Kind = %q, want sandbox_health", got.Alerts[1].Kind)
+	}
+}
+
+// The credit alert is a cached fact the agent runtime already established, not
+// something the board join reads — so a failed status listing, which silences the
+// health alert, must NOT silence this one. Blinking off the one line that
+// explains a whole-project stall is how a band stops being believed.
+func TestHandleBoard_OutOfCredits_SurvivesAFailedStatusRead(t *testing.T) {
+	boards := &fakeBoardReader{snapshot: board.Snapshot{WorkerTotal: 2}}
+	hub := api.NewHub(boards)
+	hub.SetAgentInspector(&fakeAgentInspector{outOfCredits: true, err: errFakeBoardFailed})
+	srv := api.NewServer(boards, &fakeMessagePoster{}, &fakeMessagesReader{},
+		&fakeFeedReader{}, &fakeSeenAcker{}, hub, &fakeVoiceTokenMinter{})
+	ts := httptest.NewServer(enableSession(srv).Handler())
+	defer ts.Close()
+
+	resp := doGet(t, ts.URL+"/api/board")
+	defer closeBody(t, resp)
+	var got wire.Board
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Alerts) != 1 || got.Alerts[0].Kind != "agent_credits" {
+		t.Fatalf("Alerts = %+v, want the credit alert alone", got.Alerts)
 	}
 }
 

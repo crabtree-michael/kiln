@@ -314,6 +314,14 @@ func TestRun_OutOfCreditsFailsTurnWithoutExhaustingBudget(t *testing.T) {
 	if row.Attempts != 1 {
 		t.Errorf("out-of-credits must fail without retrying, want Attempts=1, got %d", row.Attempts)
 	}
+
+	// The turn's own message reaches whoever reads this ticket. The project-wide
+	// flag is what the board's alert band reads, so the next person to open the
+	// app is told why nothing is running — rather than left counting failing
+	// sandboxes.
+	if !svc.OutOfCredits(testProject) {
+		t.Error("a turn rejected for exhausted credits must raise the project's credit alert")
+	}
 }
 
 func TestRun_ContinuationSendReusesTheRecordedConversation(t *testing.T) {

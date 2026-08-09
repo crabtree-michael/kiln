@@ -155,6 +155,12 @@ type TicketDependencyController interface {
 // still renders).
 type AgentInspector interface {
 	ListAgents(ctx context.Context, projectID string) ([]AgentInfo, error)
+	// OutOfCredits reports whether this project's coding-agent provider is
+	// currently rejecting calls because the account's credits are exhausted. No
+	// error and no context deadline to respect: it is a cached observation the
+	// agent runtime already made, not a billing round-trip — this is read on every
+	// board join, and a snapshot must not wait on a payments API to render.
+	OutOfCredits(ctx context.Context, projectID string) bool
 }
 
 // AgentInfo is one live worker's status joined to its most-recent ticket
@@ -1634,11 +1640,30 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-// alertKindSandboxHealth is the machine category (SystemAlert.kind) for a
-// worker-pool liveness problem — the one alert this server raises today. It is
-// opaque to the client (which renders any alert's detail regardless of kind);
-// the constant just keeps the wording of that category in one place.
-const alertKindSandboxHealth = "sandbox_health"
+// The machine categories (SystemAlert.kind) this server raises. Both are opaque
+// to the client, which renders any alert's detail regardless of kind; the
+// constants just keep the wording of each category in one place.
+//
+// alertKindSandboxHealth is a worker-pool liveness problem. alertKindAgentCredits
+// is the coding-agent account being out of credits — a distinct alert on purpose,
+// even though it usually shows up AS failing sandboxes: "3 of 3 sandboxes
+// failing" is a true sentence that sends the reader to the wrong place, and the
+// wrong place is where a production stall spent hours once.
+const (
+	alertKindSandboxHealth = "sandbox_health"
+	alertKindAgentCredits  = "agent_credits"
+)
+
+// boardAlertKinds is how many alerts a board snapshot can carry at once — one
+// per kind above, which is what sizes the slice in one allocation. Grow it with
+// the list.
+const boardAlertKinds = 2
+
+// creditsAlertDetail is the sentence the band shows for an exhausted account. It
+// names no provider (05 §1 — the api never learns which platform a project runs
+// on) and it says what to DO, because an alert nobody can act on is decoration.
+const creditsAlertDetail = "Your coding-agent provider is out of credits — " +
+	"agents can't run until the account is topped up."
 
 // boardToWire maps a board.Snapshot plus the joined live-worker statuses and
 // any persistent health alerts onto the generated wire.Board (04 D7): the
@@ -1661,22 +1686,29 @@ func boardToWire(s board.Snapshot, agents []wire.AgentStatus, alerts []wire.Syst
 }
 
 // agentJoin reads the live-worker statuses once and derives both the Streams
-// agents array and the persistent health alerts from that single read, so the
-// two never disagree and the board join costs one ListAgents call. It is
-// best-effort: a nil inspector or a read failure yields empty non-nil slices —
-// the board still renders, Streams shows nothing new, and no alert is raised
-// (a transient read failure must not flash a scary permanent-error band). Both
-// results are always non-nil so the JSON encodes arrays, never null.
+// agents array and the persistent alerts from that single read, so the two never
+// disagree and the board join costs one ListAgents call. It is best-effort: a
+// nil inspector or a read failure yields empty non-nil slices — the board still
+// renders, Streams shows nothing new, and no HEALTH alert is raised (a transient
+// read failure must not flash a scary permanent-error band). Both results are
+// always non-nil so the JSON encodes arrays, never null.
+//
+// The credit alert is the exception to that last-resort silence, deliberately:
+// it is a cached fact the agent runtime already established, not something read
+// here, so a failed listing has no bearing on whether it is true — and blinking
+// the one alert that explains a whole-project stall off on a transient blip is
+// exactly the flicker that teaches people to disbelieve the band.
 func agentJoin(
 	ctx context.Context, projectID string, inspector AgentInspector,
 ) ([]wire.AgentStatus, []wire.SystemAlert) {
 	if inspector == nil {
 		return []wire.AgentStatus{}, []wire.SystemAlert{}
 	}
+	outOfCredits := inspector.OutOfCredits(ctx, projectID)
 	infos, err := inspector.ListAgents(ctx, projectID)
 	if err != nil {
 		slog.WarnContext(ctx, "api: list agents for board", "err", err)
-		return []wire.AgentStatus{}, []wire.SystemAlert{}
+		return []wire.AgentStatus{}, boardAlerts(0, 0, outOfCredits)
 	}
 	statuses := make([]wire.AgentStatus, 0, len(infos))
 	failing := 0
@@ -1695,20 +1727,32 @@ func agentJoin(
 			failing++
 		}
 	}
-	return statuses, sandboxHealthAlerts(failing, len(infos))
+	return statuses, boardAlerts(failing, len(infos), inspector.OutOfCredits(ctx, projectID))
 }
 
-// sandboxHealthAlerts raises the persistent worker-pool health alert when any
-// worker is in a failing state, else an empty (non-nil) slice. The detail is
-// the human sentence the band shows verbatim; the client stays error-agnostic.
-func sandboxHealthAlerts(failing, total int) []wire.SystemAlert {
-	if failing == 0 {
-		return []wire.SystemAlert{}
+// boardAlerts assembles the persistent alerts the board carries, always a
+// non-nil slice. Each detail is the human sentence the band shows verbatim; the
+// client stays error-agnostic and renders whatever is here in order.
+//
+// Credits go FIRST when both are up, and that ordering is the whole point of
+// having two: an exhausted account fails every worker create, so it arrives
+// wearing the sandbox-health alert as a disguise. Put the cause above the
+// symptom and the reader tops up instead of debugging sandboxes.
+func boardAlerts(failing, total int, outOfCredits bool) []wire.SystemAlert {
+	alerts := make([]wire.SystemAlert, 0, boardAlertKinds)
+	if outOfCredits {
+		alerts = append(alerts, wire.SystemAlert{
+			Kind:   alertKindAgentCredits,
+			Detail: creditsAlertDetail,
+		})
 	}
-	return []wire.SystemAlert{{
-		Kind:   alertKindSandboxHealth,
-		Detail: fmt.Sprintf("%d of %d sandboxes failing", failing, total),
-	}}
+	if failing > 0 {
+		alerts = append(alerts, wire.SystemAlert{
+			Kind:   alertKindSandboxHealth,
+			Detail: fmt.Sprintf("%d of %d sandboxes failing", failing, total),
+		})
+	}
+	return alerts
 }
 
 // ticketsToWire maps a ticket group, always returning a non-nil slice so the

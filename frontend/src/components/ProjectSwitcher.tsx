@@ -4,7 +4,10 @@
 // listing the user's projects (the current one marked) plus an "Add" button that
 // routes to the app-native project-management page (`/projects`, 12 follow-up), opening it
 // on the create form (`?new=1`) — it used to dump the user on the `/dashboard`
-// account view. The client references and keys each project by
+// account view — and, below a rule, "Settings", which opens that account view.
+// Settings is here because the header's standalone gear is gone: one dropdown
+// now holds what the top bar used to spend an icon each on.
+// The client references and keys each project by
 // its `project_id` (DP5); selecting one re-scopes every board/feed/stream/message
 // call (the current-project store tears down and re-opens the EventSource against
 // the new project). Reads the live set + current selection from the
@@ -105,6 +108,23 @@ export function ProjectSwitcher(): JSX.Element | null {
           }}
         >
           Add
+        </button>
+        {/* Settings is the panel's last item, below a rule, because it is the one
+            entry here that is not about a project: it opens the account view
+            (`/dashboard`) the header's standalone gear used to. That gear is
+            gone, so this is the way in — hence a router navigation rather than
+            the gear's full-page anchor, which this component can do because it
+            is already router-dependent (see "Add" above). */}
+        <div data-role="project-switcher-divider" aria-hidden="true" />
+        <button
+          type="button"
+          data-role="project-switcher-settings"
+          onClick={() => {
+            setOpen(false);
+            void navigate('/dashboard');
+          }}
+        >
+          Settings
         </button>
       </div>
     </div>

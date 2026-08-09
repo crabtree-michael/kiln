@@ -3,14 +3,8 @@
 // fixture data and never touch the live stores. `PrimaryScreen` (the composing
 // wrapper) bridges the feed + activity stores into these props.
 import { useRef, type JSX } from 'react';
-import type {
-  Board,
-  ConnectionState,
-  FeedSnapshot,
-  NotificationModeValue,
-} from '@/transport/transport';
+import type { Board, ConnectionState, FeedSnapshot } from '@/transport/transport';
 import type { ActivityToast } from '@/stores/activity-context';
-import type { WebPushStatus } from '@/stores/use-web-push';
 import { FeedCardItem } from '@/components/FeedCardItem';
 import { SwipeToDismiss } from '@/components/SwipeToDismiss';
 import type { TicketTextEdit } from '@/components/TicketDetail';
@@ -18,7 +12,6 @@ import { TicketDetailHost } from '@/components/TicketDetailHost';
 import { ActivityRow } from '@/components/ActivityRow';
 import { Dock } from '@/components/Dock';
 import { HeaderStatusMenu } from '@/components/HeaderStatusMenu';
-import { NotificationSettingsMenu } from '@/components/NotificationSettingsMenu';
 import { streamDetail } from '@/components/feed-format';
 import { readFeed } from '@/components/feed-model';
 import { useTicketOverlay } from '@/components/use-ticket-overlay';
@@ -84,9 +77,9 @@ export interface PrimaryScreenViewProps {
    * and its DOM are absent unless wired. */
   onDismissCard?: ((notificationId: number) => void) | undefined;
   /** Clear ALL notification-backed cards at once — the header trash affordance
-   * (08 §3). When provided, a trash button appears beside the bell; the click
-   * confirms first, then clears. Omitted (presentational tests) leaves the button
-   * absent, mirroring how `onDismissCard` gates the swipe wrapper. */
+   * (08 §3). When provided, a trash button appears beside the tickets dropdown;
+   * the click confirms first, then clears. Omitted (presentational tests) leaves
+   * the button absent, mirroring how `onDismissCard` gates the swipe wrapper. */
   onDismissAll?: (() => void) | undefined;
   /** Fired when the tickets dropdown opens — triggers an independent board
    * refresh so the ticket list isn't stale until the next agent push.
@@ -116,19 +109,6 @@ export interface PrimaryScreenViewProps {
    * settles. Omitted (presentational tests) leaves the gesture and its indicator
    * DOM absent, mirroring how `onDismissCard` gates the swipe wrapper. */
   onRefreshFeed?: (() => Promise<void>) | undefined;
-  /** The current push-notification frequency, shown selected in the bell menu
-   * (02 §10). Defaults to `blocked` (the current behavior) when omitted. */
-  notificationMode?: NotificationModeValue;
-  /** Persist a new push-notification frequency. Optional so presentational tests
-   * can omit it (the bell menu's options then render disabled). */
-  onSelectNotificationMode?: ((mode: NotificationModeValue) => void) | undefined;
-  /** The browser + backend push capability, for the bell menu's permission
-   * button. Optional; omitted renders it as "checking". */
-  pushStatus?: WebPushStatus | undefined;
-  /** Request OS notification permission + register for push (02 §10). Optional. */
-  onEnablePush?: (() => void) | undefined;
-  /** Turn push back off (unsubscribe this browser). Optional. */
-  onDisablePush?: (() => void) | undefined;
   /** Injected "now" for deterministic relative-age rendering (defaults to real time). */
   now?: number;
 }
@@ -158,11 +138,6 @@ export function PrimaryScreenView({
   loadingEarlier = false,
   onShowEarlier,
   onRefreshFeed,
-  notificationMode = 'blocked',
-  onSelectNotificationMode,
-  pushStatus,
-  onEnablePush,
-  onDisablePush,
   now = Date.now(),
 }: PrimaryScreenViewProps): JSX.Element {
   // The feed, already decided (see feed-model.ts): which rows there are, which
@@ -202,32 +177,12 @@ export function PrimaryScreenView({
             <span data-role="kiln-wordmark">Kiln</span>
           </div>
         )}
+        {/* Two controls, and no more: the trash and the tickets dropdown. The
+            bell menu and the standalone gear both left this bar — the account
+            view is now reached through the project switcher's own "Settings"
+            item (which is where the notification settings live too), so the top
+            bar carries only what acts on what is on screen. */}
         <div data-role="header-actions">
-          <NotificationSettingsMenu
-            mode={notificationMode}
-            onSelectMode={onSelectNotificationMode}
-            pushStatus={pushStatus}
-            onEnablePush={onEnablePush}
-            onDisablePush={onDisablePush}
-          />
-          {/* Quick hop to the account view. A plain anchor, not a router `Link`:
-              `/dashboard` mounts its own provider tree (no SessionProvider) and
-              this view is deliberately router-free — the one router-dependent
-              header control (the ProjectSwitcher) is injected through the brand
-              slot rather than imported here. */}
-          <a data-role="header-dashboard" href="/dashboard" aria-label="Dashboard">
-            <svg data-role="header-gear" viewBox="0 0 20 20" aria-hidden="true">
-              <path
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9.00 2.87A7.2 7.2 0 0 1 11.00 2.87L11.31 4.76A5.4 5.4 0 0 1 12.78 5.37L14.33 4.25A7.2 7.2 0 0 1 15.75 5.67L14.63 7.22A5.4 5.4 0 0 1 15.24 8.69L17.13 9.00A7.2 7.2 0 0 1 17.13 11.00L15.24 11.31A5.4 5.4 0 0 1 14.63 12.78L15.75 14.33A7.2 7.2 0 0 1 14.33 15.75L12.78 14.63A5.4 5.4 0 0 1 11.31 15.24L11.00 17.13A7.2 7.2 0 0 1 9.00 17.13L8.69 15.24A5.4 5.4 0 0 1 7.22 14.63L5.67 15.75A7.2 7.2 0 0 1 4.25 14.33L5.37 12.78A5.4 5.4 0 0 1 4.76 11.31L2.87 11.00A7.2 7.2 0 0 1 2.87 9.00L4.76 8.69A5.4 5.4 0 0 1 5.37 7.22L4.25 5.67A7.2 7.2 0 0 1 5.67 4.25L7.22 5.37A5.4 5.4 0 0 1 8.69 4.76L9.00 2.87Z"
-              />
-              <circle cx="10" cy="10" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </a>
           {onDismissAll !== undefined && (
             <button
               type="button"

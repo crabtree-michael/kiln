@@ -1444,16 +1444,24 @@ describe('PrimaryScreenView', () => {
     });
   });
 
-  describe('dashboard link', () => {
-    it('offers an icon-only hop to the dashboard beside the bell', () => {
+  describe('header actions', () => {
+    // The bar carries no bell and no gear: notifications and the account view are
+    // both reached from the project switcher's "Settings" item now (the switcher
+    // arrives through the brand slot, so it isn't in this presentational tree).
+    it('offers neither a notification menu nor a standalone dashboard link', () => {
       renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }));
-      const link = screen.getByRole('link', { name: 'Dashboard' });
-      expect(link).toHaveAttribute('href', '/dashboard');
-      // Icon-only: the accessible name comes from aria-label, not visible text.
-      expect(link.textContent).toBe('');
-      // Paired with the alert button in the same header cluster.
-      const bell = screen.getByRole('button', { name: 'Notification settings' });
-      expect(link.parentElement).toBe(bell.closest("[data-role='notify-settings']")?.parentElement);
+      expect(screen.queryByRole('button', { name: 'Notification settings' })).toBeNull();
+      expect(screen.queryByRole('link', { name: 'Dashboard' })).toBeNull();
+      expect(document.querySelector("[data-role='notify-settings']")).toBeNull();
+      expect(document.querySelector("[data-role='header-dashboard']")).toBeNull();
+    });
+
+    it('leaves the trash beside the tickets dropdown', () => {
+      renderView(makeFeedSnapshot({ summary: { stream_count: 5 }, cards: [] }), {
+        onDismissAll: noop,
+      });
+      const trash = screen.getByRole('button', { name: 'Clear all notifications' });
+      expect(trash.closest("[data-role='header-actions']")).not.toBeNull();
     });
   });
 });

@@ -18,12 +18,15 @@ import {
   dividerIndex,
   findTicket,
   hasClearableCards,
-  isAuthoredUpdate,
-  isNotificationCard,
   isSeen,
   notificationId,
   readFeed,
 } from '@/components/feed-model';
+// The two SETS live in the taxonomy module now (`feed-kinds.ts`); the two ID
+// readers below still live in the reading model. The cases in this file are
+// about the pair AGREEING or DISAGREEING, so they exercise both together and
+// stay here rather than moving with the predicates.
+import { isAuthoredUpdate, isNotificationCard } from '@/components/feed-kinds';
 import {
   makeBoard,
   makeFeedCard,

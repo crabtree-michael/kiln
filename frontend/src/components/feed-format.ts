@@ -2,8 +2,9 @@
 // `.ts` module (no components) so the presentational `.tsx` files stay clean of
 // react-refresh/only-export-components warnings, and so the header-status /
 // relative-age logic is unit-testable on its own.
-import type { AgentStatus, Board, FeedCard, FeedSummary, Ticket } from '@/transport/transport';
+import type { AgentStatus, Board, FeedSummary, Ticket } from '@/transport/transport';
 import type { ToastVerb } from '@/stores/activity-context';
+import { type FeedCardKind, matchKind } from '@/components/feed-kinds';
 
 function plural(count: number, word: string): string {
   return count === 1 ? `${count.toString()} ${word}` : `${count.toString()} ${word}s`;
@@ -199,22 +200,22 @@ export function ticketStatuses(board: Board | null): TicketStatus[] {
     }));
 }
 
-/** The short uppercase tag shown on each card kind. */
-export function cardTag(kind: FeedCard['kind']): string {
-  switch (kind) {
-    case 'blocker':
-      return 'Blocker';
-    case 'proposal':
-      return 'Proposal';
-    case 'preview':
-      return 'Preview';
-    case 'poke':
-      return 'Poke';
-    case 'done':
-      return 'Done';
-    default:
-      return 'Update';
-  }
+/** The short uppercase tag shown on each card kind.
+ *
+ * An exhaustive `matchKind` table rather than a `switch` with a `default`: the
+ * default arm used to answer "Update" for anything unlisted, so a seventh kind
+ * would have shipped wearing the wrong word instead of failing to compile. The
+ * words themselves stay here — they are copy, not taxonomy (`feed-kinds.ts`
+ * holds what a kind IS, this module holds what it's called). */
+export function cardTag(kind: FeedCardKind): string {
+  return matchKind(kind, {
+    blocker: 'Blocker',
+    proposal: 'Proposal',
+    preview: 'Preview',
+    poke: 'Poke',
+    done: 'Done',
+    update: 'Update',
+  });
 }
 
 const VERB_LABEL: Record<ToastVerb, string> = {

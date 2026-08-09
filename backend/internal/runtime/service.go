@@ -126,7 +126,6 @@ type Service struct {
 	pusher         SnapshotPusher
 	sayer          SayPusher
 	notifications  NotificationStore
-	boardReader    BoardReader
 	feedPusher     FeedPusher
 	activityPusher ActivityPusher
 
@@ -135,6 +134,13 @@ type Service struct {
 	// rather than holding them. Both push callers left on Service — the
 	// notify.send route and the feed-update push — go through this one value.
 	notify *Notify
+
+	// feed is the extracted feed assembler (god-unit split step 2): it owns the
+	// BoardReader outright and reads the notification store through its read half,
+	// and Service now delegates its two feed reads to it. Both assembly callers
+	// left on Service — the api-facing Feed/FeedHistory and the feed.updated
+	// re-render — go through this one value.
+	feed *Feed
 
 	// The two workers Workers() builds, retained so anything that commits a
 	// queue row can nudge the matching worker (04 §5). nil until Workers runs.
@@ -148,9 +154,11 @@ type Service struct {
 // composition root updates a single call site.
 //
 // notifier and owner are no longer held directly: they are handed to the
-// extracted Notify, which Service delegates every push to. The signature is
-// unchanged so the composition root and the existing tests keep working while
-// the rest of the split lands (docs/god-units-plans/runtime-service.md §8).
+// extracted Notify, which Service delegates every push to; boardReader likewise
+// goes to the extracted Feed, which Service delegates every feed read to. The
+// signature is unchanged so the composition root and the existing tests keep
+// working while the rest of the split lands
+// (docs/god-units-plans/runtime-service.md §8).
 func NewService(
 	store Store, messages MessageStore, brains BrainResolver, puller Puller, blocker Blocker,
 	agents AgentRuntime, notifier Notifier,
@@ -169,10 +177,10 @@ func NewService(
 		pusher:         pusher,
 		sayer:          sayer,
 		notifications:  notifications,
-		boardReader:    boardReader,
 		feedPusher:     feedPusher,
 		activityPusher: activityPusher,
 		notify:         NewNotify(notifier, owner),
+		feed:           NewFeed(boardReader, notifications),
 	}
 }
 
@@ -258,139 +266,18 @@ func (s *Service) Workers(clock Clock) (*Worker, *Worker) {
 	return events, outbox
 }
 
-// feedPageSize is how many update/preview cards the feed snapshot carries in its
-// newest page (08 D2′). History older than this pages in via FeedHistory, so a
-// long-retained backlog doesn't ship in one snapshot. Also the default
-// history-page size; the api clamps an explicit ?limit within [1, 100].
-const feedPageSize = 30
-
-// Feed assembles one project's absolute feed snapshot (08 §3, D2′, 11 §3):
-// board-derived blocker and proposal cards, then the newest page of
-// brain-authored update/preview cards — seen AND unseen (retained history),
-// newest-first — plus the header summary counts and the last-seen divider
-// boundary. Backs GET /api/feed and every feed SSE push. The card order is
-// strict — blockers, then proposals, then updates — because the client renders
-// one ordered list and pins blockers on top.
+// Feed delegates to the extracted assembler (feed_assembler.go) so *Service
+// keeps satisfying api's FeedReader while the split lands.
 func (s *Service) Feed(ctx context.Context, projectID string) (FeedSnapshot, error) {
-	view, err := s.boardReader.BoardView(ctx, projectID)
-	if err != nil {
-		return FeedSnapshot{}, fmt.Errorf("runtime: feed board view: %w", err)
-	}
-	recent, hasMoreHistory, err := s.notifications.RecentNotifications(ctx, projectID, feedPageSize)
-	if err != nil {
-		return FeedSnapshot{}, fmt.Errorf("runtime: feed recent notifications: %w", err)
-	}
-	unseenCount, err := s.notifications.UnseenCount(ctx, projectID)
-	if err != nil {
-		return FeedSnapshot{}, fmt.Errorf("runtime: feed unseen count: %w", err)
-	}
-	lastSeen, err := s.notifications.LastSeenID(ctx, projectID)
-	if err != nil {
-		return FeedSnapshot{}, fmt.Errorf("runtime: feed last seen id: %w", err)
-	}
-
-	cards := make([]FeedCard, 0, len(view.Blocked)+len(view.Proposals)+len(recent))
-	for _, t := range view.Blocked {
-		id := t.ID
-		cards = append(cards, FeedCard{
-			Kind: "blocker", ID: "blocker:" + t.ID, Label: t.Title,
-			Body: t.BlockedReason, TicketID: &id, CreatedAt: t.UpdatedAt,
-		})
-	}
-	for _, t := range view.Proposals {
-		id := t.ID
-		cards = append(cards, FeedCard{
-			Kind: "proposal", ID: "proposal:" + t.ID, Label: t.Title,
-			Body: t.Body, TicketID: &id, CreatedAt: t.UpdatedAt,
-		})
-	}
-	for _, n := range recent {
-		if card, ok := notificationToCard(n, view.TicketTitles); ok {
-			cards = append(cards, card)
-		}
-	}
-
-	summary := FeedSummary{
-		BlockerCount:           len(view.Blocked),
-		UpdateCount:            unseenCount,
-		StreamCount:            view.WorkingCount + view.BlockedCount,
-		Building:               view.WorkingCount,
-		Idle:                   view.BlockedCount,
-		LastSeenNotificationID: lastSeen,
-	}
-	// RecentNotifications is newest-first, so the first row is the last word.
-	if len(recent) > 0 {
-		at := recent[0].CreatedAt
-		summary.LastWordAt = &at
-	}
-
-	return FeedSnapshot{Summary: summary, Cards: cards, HasMoreHistory: hasMoreHistory}, nil
+	return s.feed.Feed(ctx, projectID)
 }
 
-// FeedHistory assembles one older page of the project's retained
-// update/preview history (08 D2′, 11 §3): notification-backed cards with
-// id < before, newest-first, plus whether a further page remains.
-// Board-derived blocker/proposal cards are never paged. Ticket-tagged notes
-// take their label from current board titles, exactly like Feed. Backs
-// GET /api/feed/history.
+// FeedHistory delegates to the extracted assembler (feed_assembler.go), the
+// keyset-paged sibling of Feed.
 func (s *Service) FeedHistory(
 	ctx context.Context, projectID string, before int64, limit int,
 ) ([]FeedCard, bool, error) {
-	view, err := s.boardReader.BoardView(ctx, projectID)
-	if err != nil {
-		return nil, false, fmt.Errorf("runtime: feed history board view: %w", err)
-	}
-	notes, hasMore, err := s.notifications.HistoryBefore(ctx, projectID, before, limit)
-	if err != nil {
-		return nil, false, fmt.Errorf("runtime: feed history notifications: %w", err)
-	}
-	cards := make([]FeedCard, 0, len(notes))
-	for _, n := range notes {
-		if card, ok := notificationToCard(n, view.TicketTitles); ok {
-			cards = append(cards, card)
-		}
-	}
-	return cards, hasMore, nil
-}
-
-// notificationToCard maps a brain-authored notification row to its feed card
-// (08 §3), shared by Feed's newest page and FeedHistory's older pages. A
-// ticket-tagged note renders the linked ticket's current title as its label
-// (titles from the board view); a note with no ticket keeps an empty label,
-// which the client renders headless-but-legible.
-//
-// Returns ok=false when the note is tagged to a ticket that is no longer on the
-// board — i.e. the ticket has been archived (deleted). Its title is absent from
-// the board view, so the card would otherwise render title-less (a persistent
-// "done" card as a bare ✅, or an update/preview as a headless row). Instead the
-// card vanishes from the feed entirely, mirroring how board-derived
-// blocker/proposal cards disappear when GetBoard stops returning their ticket
-// (03 §4 — an archived ticket disappears from every read). The comma-ok lookup
-// distinguishes an archived ticket (absent) from a live one whose title is
-// present, so untagged notes (TicketID nil) still render headless as before.
-func notificationToCard(n Notification, titles map[string]string) (FeedCard, bool) {
-	nid := n.ID
-	card := FeedCard{
-		Kind: string(n.Kind), ID: fmt.Sprintf("update:%d", n.ID),
-		Body: n.Body, TicketID: n.TicketID, NotificationID: &nid,
-		CreatedAt: n.CreatedAt, SeenAt: n.SeenAt,
-	}
-	if n.TicketID != nil {
-		title, live := titles[*n.TicketID]
-		if !live {
-			return FeedCard{}, false
-		}
-		card.Label = title
-	}
-	if n.Kind == KindPreview {
-		card.ImageURL = n.ImageURL
-	}
-	if n.Kind == KindDone {
-		card.GitHubURL = n.GitHubURL
-		card.GitHubLabel = n.GitHubLabel
-		card.WorkSummary = n.WorkSummary
-	}
-	return card, true
+	return s.feed.FeedHistory(ctx, projectID, before, limit)
 }
 
 // PostNotification is the brain-facing port for post_update / preview (08 §3,
@@ -690,7 +577,7 @@ type completionPayload struct {
 // a failed assembly or push logs-and-drops (like board.updated) rather than
 // wedging the outbox, since the next emission re-renders from scratch.
 func (s *Service) handleFeedUpdated(ctx context.Context, e Entry) {
-	snap, err := s.Feed(ctx, e.ProjectID)
+	snap, err := s.feed.Feed(ctx, e.ProjectID)
 	if err != nil {
 		slog.Error("runtime: feed.updated assemble", "project_id", e.ProjectID, "err", err)
 		return

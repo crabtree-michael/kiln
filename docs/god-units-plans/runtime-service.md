@@ -88,11 +88,17 @@ package-level (same package — see §5 for why not sub-packages).
   `ListNotifications`, `MarkSeen`.
 - Backs api `FeedMutator`, brain `NotificationStore` + `FeedReader`, steward `PostPoke`.
 
-### 2.3 `Feed` — the feed assembler
+### 2.3 `Feed` — the feed assembler — **LANDED**
 - **Ports:** `BoardReader`, `NotificationReader` (read-only — reuse the existing
   split half of `NotificationStore`).
 - **Methods:** `Feed`, `FeedHistory`; owns `notificationToCard`, `feedPageSize`.
 - Backs api `FeedReader`. Pure read/assembly, zero mutation.
+
+**As built (2026-08-09).** Exactly as specified — the one unit of the six the
+plan described with nothing to amend. The read-only claim is now structural
+rather than a comment: holding `NotificationReader` (not the full
+`NotificationStore`) means no method on this type *can* write a row or append an
+outbox entry, which is the property that made it safe to take second.
 
 ### 2.4 `Notify` — the tenant-scoped push choke point — **LANDED**
 - **Ports:** `Owner`, `Notifier`.
@@ -337,7 +343,18 @@ first, spine last, delete last.
    workers — which is the testability payoff §9 predicts, in miniature.
    `service.go` 941 → 831 LOC. See the amendment in §2.4 for the one deviation.
 2. **`Feed`** — move `Feed`/`FeedHistory`/`notificationToCard`/`feedPageSize`
-   into `feed_assembler.go` on `*Feed`; `Service` delegates.
+   into `feed_assembler.go` on `*Feed`; `Service` delegates. — **DONE
+   2026-08-09.** `NewService`'s signature is again unchanged (it builds the
+   `*Feed` from the same `boardReader`/`notifications` args), so no caller moved;
+   `Service` drops the `boardReader` port for a `feed *Feed` field, and its two
+   assembly call sites — the api-facing `Feed`/`FeedHistory` shims and the
+   `feed.updated` re-render — go through it. Unlike step 1, the eight assembly
+   tests **moved** rather than being duplicated: they exercised nothing but
+   assembly, so there was no routing left behind to keep them in place for (step
+   1's notify assertions were entangled with outbox routing, which is why both
+   suites were kept there). §7 predicted they "get simpler" — each now names a
+   board reader and a notification store instead of eleven fakes, a clock and a
+   worker. `service.go` 831 → 718 LOC.
 3. **`Notifications`** — move the eight CRUD methods to
    `notification_service.go`; `Service` delegates.
 4. **`Transcript`** — move `PostMessage`/`Say`/`Recent`; add `Nudger` hook;

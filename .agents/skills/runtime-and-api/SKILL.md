@@ -48,6 +48,10 @@ backend/internal/runtime/
   notify.go     Notify — the tenant-scoped push choke point (split step 1, DONE):
                 Owner + Notifier ports, mode gate, owner resolution. Every Web Push
                 the runtime emits goes through its one exported Send.
+  feed_assembler.go  Feed — the feed assembler (split step 2, DONE): BoardReader +
+                the read half of the notification store, Feed/FeedHistory,
+                notificationToCard. Read-only by construction — it cannot write a
+                row or append an outbox entry.
   feed.go · notifications.go · transcript.go   the 07/10 additions (feed cards, notify.send, transcript)
   postgres/     store adapter
     migrations/ 0001_events.sql (04 §2; outbox DDL lives in board's 0002_outbox.sql), 0002+ since

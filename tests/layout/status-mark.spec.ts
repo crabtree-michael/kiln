@@ -146,11 +146,35 @@ test.describe('the shared status mark — phone', () => {
     ).toBe(blocked);
   });
 
-  // The case that stood here measured the dropdown's HEAD — its mark against the
-  // top row's, and the two breathing in phase. The head is gone (the panel opens
-  // from a button that already reports what it holds, and a lone mark with no
-  // word is decoration), so there is nothing left for it to compare. The claim it
-  // was really protecting — every breathing mark on one clock, not merely one
-  // tempo — is asserted over the desk's panel above, and that is the surface that
-  // still has a head to keep in step with its rows.
+  test('the tickets list wears the shared mark, on the shared clock', async ({ page }) => {
+    // This used to be about the dropdown's HEAD — a reading over the list, drawn
+    // by the rule that draws the list. The head is gone (the panel opens from a
+    // button that already names what it holds, and a lone mark with no word is
+    // decoration), so what is left to hold is the list's own marks: painted by
+    // the shared rule, and — the half a shared declaration does not buy — all at
+    // the same point of the same breath. jsdom can see that a row carries
+    // `data-role="status-dot"` and neither what the cascade painted nor when its
+    // animation started.
+    await mountShell(page, { band: 'none' });
+    await page.click("[data-role='feed-status']");
+    await page.waitForSelector("[data-role='header-status-panel']");
+    await settle(page);
+
+    // The fixture's top ticket is the working one (`ticketStatuses` ranks working
+    // → blocked → ready), so its mark is ember and moving, not the faint default.
+    const row = "[data-role='header-status-row']:first-child [data-role='status-dot']";
+    expect(await page.getAttribute(row, 'data-state')).toBe('working');
+    expect(await computed(page, row, 'background-color')).not.toBe('rgba(0, 0, 0, 0)');
+
+    // A mark begins breathing when its own element does — a row's when its ticket
+    // was picked up — so without the pinned clock two of them peak apart forever.
+    const marks = await breathingMarks(page);
+    expect(marks.length, 'nothing on the phone is breathing to be checked').toBeGreaterThan(0);
+    for (const mark of marks) {
+      expect(mark.phase).toBe('shared');
+      expect(mark.start).toBe(0);
+    }
+    const progress = marks.map((m) => m.progress);
+    expect(new Set(progress).size, `marks peak apart: ${JSON.stringify(progress)}`).toBe(1);
+  });
 });

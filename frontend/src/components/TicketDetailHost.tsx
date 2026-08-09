@@ -15,10 +15,18 @@
 // edit do NOT: those are things done *while reading* — a setting flipped, wording
 // corrected, a wedged sandbox being watched — and after a correction the user
 // should be looking at the corrected ticket rather than back at the feed.
+//
+// **It owns exactly one piece of state: the typed draft** (`useTicketKeyboard`).
+// It has to live here and nowhere lower, because the sheet's dock renders it in
+// two slots this file is the only common parent of — the field goes in the panel
+// (`transcript`), its Send and × go in the controls row (`voiceControl`). That
+// module's header has the rest, including why it is not the voice store's
+// `keyboardMode`.
 import type { JSX } from 'react';
 import { TicketDetail, type TicketTextEdit } from '@/components/TicketDetail';
 import { TicketDetailTranscript } from '@/components/TicketDetailTranscript';
 import { TicketDetailVoiceActions } from '@/components/TicketDetailVoiceActions';
+import { useTicketKeyboard } from '@/components/use-ticket-keyboard';
 import type { TicketOverlay } from '@/components/use-ticket-overlay';
 
 export interface TicketDetailHostProps {
@@ -59,6 +67,11 @@ export function TicketDetailHost({
     voiceActive,
     setVoiceActive,
   } = overlay;
+  // Above the early return, as hooks must be — and keyed on the open ticket so a
+  // draft written against one ticket cannot follow the sheet to the next (its
+  // title is what the message is prefixed with). `null` — no sheet open — clears
+  // it for the same reason.
+  const keyboard = useTicketKeyboard(openTicket === null ? null : openTicket.id);
   if (openTicket === null) {
     return null;
   }
@@ -78,16 +91,22 @@ export function TicketDetailHost({
       // (and only touches the voice store) when the sheet renders it.
       // `ticketTitle` registers this ticket with the voice store, so whatever is
       // sent from the sheet is prefixed with it and the brain knows what is being
-      // commented on.
+      // commented on. The mic is primary; the keyboard toggle beside it is the
+      // way to type the same message when speaking isn't convenient, and both
+      // post through the one seam.
       voiceControl={
-        <TicketDetailVoiceActions ticketTitle={openTicket.title} onActiveChange={setVoiceActive} />
+        <TicketDetailVoiceActions
+          ticketTitle={openTicket.title}
+          keyboard={keyboard}
+          onActiveChange={setVoiceActive}
+        />
       }
       voiceActive={voiceActive}
-      // The live transcript for that mic, shown in the sheet's dock above the
-      // controls so the user watches their words land without leaving the sheet.
-      // Self-gating (renders nothing until there is text), so it is safe to
-      // always pass.
-      transcript={<TicketDetailTranscript />}
+      // The dock's message panel: the live transcript for that mic — or, in typed
+      // input, the field itself — shown above the controls so the user watches
+      // their words land without leaving the sheet. Self-gating (renders nothing
+      // until there is something to show), so it is safe to always pass.
+      transcript={<TicketDetailTranscript keyboard={keyboard} />}
       onClose={closeTicket}
       // Accept only surfaces on a shaping proposal (TicketDetail gates it), so it
       // is safe to always wire — the sheet decides.

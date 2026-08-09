@@ -9,6 +9,14 @@ import (
 // is immaterial to what these tests assert, only its presence in the template.
 const testRole = "the orchestrator"
 
+// The two merge gates every prompt rule is checked under — a rule that survives
+// only one of them is not pinned. Hoisted to consts so no literal recurs 3+
+// times across the file (goconst), as fakes_test.go does for brain_test.
+const (
+	subtestMainGate = "main gate"
+	subtestPRGate   = "pr gate"
+)
+
 // TestRenderSystemPrompt_GateWording checks that the "What Counts As Done"
 // section tracks the project's merge gate (06 §7): the default (DoneInPR=false)
 // speaks of merging to origin/main, while the pull-request gate speaks of a PR
@@ -51,8 +59,8 @@ func TestRenderSystemPrompt_BatchesReadsIntoOneRound(t *testing.T) {
 		name     string
 		doneInPR bool
 	}{
-		{"main gate", false},
-		{"pr gate", true},
+		{subtestMainGate, false},
+		{subtestPRGate, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := RenderSystemPrompt(PromptData{Role: testRole, DoneInPR: tc.doneInPR})
@@ -81,6 +89,50 @@ func TestRenderSystemPrompt_BatchesReadsIntoOneRound(t *testing.T) {
 	}
 }
 
+// TestRenderSystemPrompt_ReadsOnceAndTakesRefusalsAsFinal pins the prose half of
+// the two repeat fixes. 4.1% of all measured tool calls were an exact repeat
+// inside one pass, and 10.3% of update_ticket calls still fail on a transition
+// the state does not accept, clustering on single ids because the model
+// re-issues the refused edit (docs/brain-optimization-2026-08-08-measured.md
+// §10, §11). The memo (memo.go) makes a repeat cheap; only this can stop it
+// being emitted, and neither is visible to the scripted-fake suite — so what is
+// pinned here is that the reasoning is still stated, under either merge gate.
+func TestRenderSystemPrompt_ReadsOnceAndTakesRefusalsAsFinal(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		doneInPR bool
+	}{
+		{subtestMainGate, false},
+		{subtestPRGate, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := RenderSystemPrompt(PromptData{Role: testRole, DoneInPR: tc.doneInPR})
+			if err != nil {
+				t.Fatalf("RenderSystemPrompt: %v", err)
+			}
+			for _, want := range []string{
+				// The rule, and the reason it holds: a result already given is
+				// still in the conversation, and nothing moves the board but the
+				// pass itself.
+				"Ask for a given read once",
+				"still in front of you",
+				"Nothing moves the board while you are thinking",
+				// The one legitimate re-read, so the rule does not read as "never".
+				"only after an action of",
+				// §11: what the working-ticket edit was reaching for, and where
+				// that actually goes.
+				"send_to_agent is what actually delivers it",
+				// …and that a refusal is not worth a second attempt.
+				"Take a refusal as final",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("prompt should contain %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 // TestRenderSystemPrompt_NoRedundantNarration pins the two silences the brain
 // kept breaking (08 §4, §7): a send_to_agent nudge to get a ticket's work landed
 // is routine coordination the mechanical toast already covers, and a done ticket
@@ -92,8 +144,8 @@ func TestRenderSystemPrompt_NoRedundantNarration(t *testing.T) {
 		name     string
 		doneInPR bool
 	}{
-		{"main gate", false},
-		{"pr gate", true},
+		{subtestMainGate, false},
+		{subtestPRGate, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := RenderSystemPrompt(PromptData{Role: testRole, DoneInPR: tc.doneInPR})

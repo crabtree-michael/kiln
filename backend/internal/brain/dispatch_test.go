@@ -70,6 +70,39 @@ func TestSystemPrompt_HasToolGuidance(t *testing.T) {
 	}
 }
 
+// TestTools_ReadDescriptionsInviteBatching pins the other half of the
+// round-batching nudge (see TestRenderSystemPrompt_BatchesReadsIntoOneRound):
+// the prompt states the rule once, and each read tool's own description repeats
+// it at the point of use, since that is what the model is reading when it
+// decides what this round contains. Asserts the framing is present, not its
+// wording — each tool phrases it for its own case.
+func TestTools_ReadDescriptionsInviteBatching(t *testing.T) {
+	reads := map[brain.ToolName]bool{
+		brain.ToolListTickets:     true,
+		brain.ToolGetTicket:       true,
+		brain.ToolSearchTickets:   true,
+		brain.ToolListUpdates:     true,
+		brain.ToolListAgents:      true,
+		brain.ToolGetAgentUpdates: true,
+		brain.ToolBash:            true,
+	}
+	seen := 0
+	for _, tool := range brain.Tools {
+		if !reads[tool.Name] {
+			continue
+		}
+		seen++
+		if !strings.Contains(tool.Description, "round") {
+			t.Errorf("%s's description does not tell the model it can share a round "+
+				"with the other reads:\n%s", tool.Name, tool.Description)
+		}
+	}
+	if seen != len(reads) {
+		t.Errorf("checked %d read tools, want %d — a read tool was renamed or dropped "+
+			"from brain.Tools without this pin following it", seen, len(reads))
+	}
+}
+
 // TestDispatch_RoutesEachToolToItsPortMethod is the golden tool -> port
 // mapping table (06 §4).
 func TestDispatch_RoutesEachToolToItsPortMethod(t *testing.T) {

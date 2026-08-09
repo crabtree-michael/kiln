@@ -310,14 +310,16 @@ var Tools = []ToolDef{
 			"compact roster, without bodies. Each column says what its tickets accept right now " +
 			"(\"allowed now\"). Every live ticket is listed; Done shows only its most recent few, " +
 			"with the rest reachable through search_tickets. Read the board here before deciding; " +
-			"use get_ticket for a single ticket's full body. Read-only.",
+			"use get_ticket for a single ticket's full body. Read-only — issue it in the same round " +
+			"as your other opening reads rather than a round of its own.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
 		Name: ToolGetTicket,
 		Description: "Read one ticket in full, including its body, by id. The result's " +
 			"\"allowed now\" line lists exactly what its current state accepts — check it rather " +
-			"than attempting a change the state will refuse. Read-only.",
+			"than attempting a change the state will refuse. Read-only — when you already know the " +
+			"id (the event names it), ask for it in the same round as your other reads.",
 		InputSchema: objectSchema([]string{fieldTicketID}, map[string]any{
 			fieldTicketID: stringSchema("Ticket id."),
 		}),
@@ -328,7 +330,7 @@ var Tools = []ToolDef{
 			"tickets the roster does not list. Matching is case-insensitive on ticket ids, titles " +
 			"and bodies, and every word in the query must appear — so add a word to narrow, drop " +
 			"one to widen. Results come a few per page, best match first; pass page to read the " +
-			"next one. Read-only.",
+			"next one. Read-only — batch it with your other reads in one round.",
 		InputSchema: objectSchema([]string{fieldQuery}, map[string]any{
 			fieldQuery: stringSchema("Words to look for; a ticket matches only if all of them appear."),
 			fieldPage:  intSchema("Which page of results to read, 1-based. Omit for the first page."),
@@ -408,7 +410,7 @@ var Tools = []ToolDef{
 	{
 		Name: ToolListUpdates,
 		Description: "List the active feed updates you have posted — their ids, kinds and text — " +
-			"so you can edit or retract one. Read-only.",
+			"so you can edit or retract one. Read-only — batch it with your other reads in one round.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
@@ -431,13 +433,15 @@ var Tools = []ToolDef{
 	{
 		Name: ToolListAgents,
 		Description: "List the running agents (workers) and whether each is working a " +
-			"ticket or idle. Read-only.",
+			"ticket or idle. Read-only — batch it with your other reads in one round.",
 		InputSchema: objectSchema([]string{}, map[string]any{}),
 	},
 	{
 		Name: ToolGetAgentUpdates,
 		Description: "Read an agent's latest completed output by worker id — use to check " +
-			"what a working agent last produced. Read-only.",
+			"what a working agent last produced. Read-only — an agent event already names its " +
+			"worker, so ask for this in your opening round alongside the board reads instead of " +
+			"a round later.",
 		InputSchema: objectSchema([]string{fieldWorkerID}, map[string]any{
 			fieldWorkerID: stringSchema("Board worker id, from list_agents or the board snapshot."),
 		}),
@@ -449,7 +453,8 @@ var Tools = []ToolDef{
 			"`git fetch origin` before inspecting origin/main. Use git/gh to find the commit that " +
 			"carries a ticket's work on origin/main (its SHA is what update_ticket done_commit " +
 			"needs), and rg/grep/find to search the repository. Only an allowlisted set of " +
-			"commands is reachable.",
+			"commands is reachable. An inspection command shares a round with your other reads " +
+			"rather than taking one of its own.",
 		InputSchema: objectSchema([]string{fieldCommand}, map[string]any{
 			fieldCommand: stringSchema("The shell command to run in the repo clone."),
 		}),

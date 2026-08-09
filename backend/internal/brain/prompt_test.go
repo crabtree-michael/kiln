@@ -37,6 +37,50 @@ func TestRenderSystemPrompt_GateWording(t *testing.T) {
 	}
 }
 
+// TestRenderSystemPrompt_BatchesReadsIntoOneRound pins the round-batching rule
+// under both gates. It is prose, but it is load-bearing prose: cache writes are
+// ~50% of brain spend and every round rewrites the whole conversation prefix, so
+// rounds-per-pass — not payload size — is the cost variable
+// (docs/brain-optimization-2026-08-08-measured.md §1, §7). 11–14% of all rounds
+// measured were a read round that could have been folded into the one before it,
+// and nothing in the prompt had ever told the model it may ask for several reads
+// at once. This asserts the instruction is still there, and still concrete about
+// the opening round, where 84% of passes spend the wasted one.
+func TestRenderSystemPrompt_BatchesReadsIntoOneRound(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		doneInPR bool
+	}{
+		{"main gate", false},
+		{"pr gate", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := RenderSystemPrompt(PromptData{Role: testRole, DoneInPR: tc.doneInPR})
+			if err != nil {
+				t.Fatalf("RenderSystemPrompt: %v", err)
+			}
+			for _, want := range []string{
+				// The section, and why rounds are the thing being spent.
+				"## Rounds",
+				"every round re-sends this",
+				// The rule itself: many calls per round, one round for all of them.
+				"ask for everything you already know you need",
+				// The opening round named concretely, plus the counter-example —
+				// abstract "batch your reads" is what the model was already
+				// failing to infer from nothing.
+				"Most passes open with reads",
+				"one round of three reads",
+				// The guard against the rule backfiring into extra reads.
+				"not licence to read more than you need",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("prompt should contain %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 // TestRenderSystemPrompt_NoRedundantNarration pins the two silences the brain
 // kept breaking (08 §4, §7): a send_to_agent nudge to get a ticket's work landed
 // is routine coordination the mechanical toast already covers, and a done ticket

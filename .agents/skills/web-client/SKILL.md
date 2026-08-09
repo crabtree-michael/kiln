@@ -962,6 +962,7 @@ layers now sit under the shells; work belongs in the lowest one that fits:
 
 | | Module | What it owns |
 |---|---|---|
+| **L0** taxonomy | `components/feed-kinds.ts` → `FEED_KIND_TRAITS`, `matchKind()` | What a card KIND is and means — the one place the six kinds are enumerated |
 | **L1** intents | `components/ticket-intents.ts` → `useTicketActions()` | What the client may DO to a ticket, and how a failed write recovers |
 | **L2** reading model | `components/feed-model.ts` → `readFeed()` | What there IS to show — membership, order, divider position, seen-ness, dismissability |
 | **L3** behaviour | `components/use-ticket-overlay.ts` + `TicketDetailHost.tsx` | What a shell REMEMBERS — the open ticket, the deep link, the voice-active flag, the sheet's wiring |
@@ -985,6 +986,39 @@ what these files already had:
   pull-to-refresh and bulk clear; the desk's loading line, roving focus and withheld resting
   state).
 
+**Never write `card.kind === '…'`. Ask `feed-kinds.ts` (L0, D9).** The card-kind taxonomy —
+`update`/`preview`/`poke`/`done`/`blocker`/`proposal` — is stated ONCE, as a matrix
+(`FEED_KIND_TRAITS`) with a row per kind and a column per decision the app makes about a
+card: where it comes from, whether Kiln authored it, whether it has a body, where a tap opens
+the ticket, whether it offers Accept, whether it wears a tag, an image, or the landed-work
+fields. Named predicates (`isBoardCard`, `isNotificationCard`, `isAuthoredUpdate`,
+`rendersBody`, `opensDetailFromBody`/`FromHead`, `isAcceptable`, `showsKindTag`,
+`carriesPreviewImage`, `carriesLandedWork`) read columns out of it; nothing else compares a
+kind to a string.
+
+- **It was eight files before this.** The wire guard in `transport.ts`, the store's filters,
+  `cardTag`'s `switch`, the two `feed-model` predicates, and *seven* separate reads inside
+  `FeedCardItem`. Because the union permits every kind everywhere, adding a seventh kind
+  type-checked past all of them and then silently did nothing at each missed site: no tag, no
+  body, no tap target, dropped on the floor by the transport guard.
+- **The compile error is the feature.** A `Record<FeedCardKind, …>` is missing a property the
+  moment the wire union grows, so a new kind breaks `feed-kinds.ts` with every unanswered
+  decision listed. Verified by adding a seventh kind and reading the errors: the matrix, the
+  tag copy in `feed-format.ts`, and `FeedCardItem`'s head mark — the three places a decision
+  genuinely lives — and nowhere else, because everything else routes through the matrix.
+- **`matchKind(kind, arms)` is the exhaustive switch**, for a decision that is one view's own:
+  the head glyph (dot/👉/✅) and the tag words stay where they're rendered, and take their
+  exhaustiveness from the helper. **Never a `switch` with a `default`** — `cardTag`'s default
+  answered "Update" for anything unlisted, which is a plausible wrong answer instead of a
+  build failure. And never a per-view copy of a fact the taxonomy should hold.
+- **`transport.ts` imports `isFeedCardKind` from here**, deliberately: the kinds the wire may
+  carry and the kinds every screen has decided about are the same set. The type edge runs back
+  the other way (`FeedCard`) but is erased at compile time, so there is no runtime cycle.
+- **The tests pin membership as explicit lists**, not spot-checks (`feed-kinds.test.ts`) —
+  the failure mode is a kind quietly changing sides, which representative examples pass
+  straight through — plus the matrix's internal invariants (a body-less kind has no body
+  click-through; board state is never an authored notice).
+
 **Two card taxonomies, and they must never be merged.** `notificationId()` covers all four
 notification-backed kinds (update/preview/poke/done) — the store's accumulation, the history
 cursor, the swipe's retract id. `authoredUpdateId()` covers only update/preview — the
@@ -992,7 +1026,9 @@ last-seen divider and the seen de-emphasis, which are claims about what Kiln *sa
 were once called `updateId`, in three places. Merging them by name type-checks and silently
 slides the "Earlier" divider onto the mechanical poke and done cards; `feed-model.ts`'s
 header explains it at length and `feed-model.test.ts` opens with the cases that fail if the
-two sets ever agree.
+two sets ever agree. The two SETS are now two columns of the matrix above (`source` and
+`authoredNotice`); the two ID readers stay in `feed-model.ts`, because they are about the
+nullable `notification_id` field as much as about the kind.
 
 **What shared code must NOT decide.** `loading` is desktop-only — it is not in `FeedReading`
 at all, so no shared code can start rendering a line on the phone. `isEmpty` is a *fact*: the

@@ -185,10 +185,19 @@ type graph struct {
 	db       *sql.DB          // the background loops' leader lock rides on a pinned conn from here
 }
 
-// errIdentityNotConfigured is what every tenant resolver returns when the
-// identity surface is unmounted (no OAuth/secrets config, 11 §3): a project's
-// config cannot be resolved, so its events dead-letter feed-visibly and the
-// reconciler idles. The server still boots — app routes just 401/404.
+// errIdentityNotConfigured is what every path that needs a tenant returns when
+// the identity surface is unmounted (no OAuth/secrets config, 11 §3). The
+// server still boots — app routes just 401/404 — so this is a reachable
+// condition, not a panic.
+//
+// Two kinds of caller raise it, and the difference is in how loud the result
+// is, not in the error:
+//
+//   - The tenant resolvers (newRegistry): a project's config cannot be
+//     resolved, so its events dead-letter feed-visibly and the reconciler idles.
+//   - The owner lookup (ownerResolver.Owner): an unconfigured boot has no
+//     tenants at all, so a notifier path reaching there is a wiring bug rather
+//     than a runtime condition.
 var errIdentityNotConfigured = errors.New("kiln: identity not configured")
 
 // errBrainType guards the tenant.Providers.Brain type assertion in
@@ -636,14 +645,9 @@ type ownerResolver struct {
 	push  push.Store
 }
 
-// errIdentityUnconfigured is returned when an owner lookup is attempted with no
-// identity service — an unconfigured boot has no tenants, so a notifier path
-// reaching here is a wiring bug, not a runtime condition.
-var errIdentityUnconfigured = errors.New("kiln: identity not configured")
-
 func (r *ownerResolver) Owner(ctx context.Context, projectID string) (string, error) {
 	if r.idSvc == nil {
-		return "", fmt.Errorf("kiln: resolve owner for project %s: %w", projectID, errIdentityUnconfigured)
+		return "", fmt.Errorf("kiln: resolve owner for project %s: %w", projectID, errIdentityNotConfigured)
 	}
 	p, err := r.idSvc.GetProject(ctx, projectID)
 	if err != nil {

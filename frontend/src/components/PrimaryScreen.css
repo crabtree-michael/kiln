@@ -2634,12 +2634,12 @@ button[data-role='toast-open']:focus-visible {
      express. Two alphas: the ring is stronger at its tight resting stop and
      fades as it breathes outward. Everything else in this file reads tokens. */
   --mic-level: 0;
-  --mic-glow-strong: oklch(
-    calc(0.82 - var(--mic-level) * 0.25) calc(0.07 + var(--mic-level) * 0.16) 29 / 0.55
-  ); /* sanctioned computed colour */
-  --mic-glow-weak: oklch(
-    calc(0.82 - var(--mic-level) * 0.25) calc(0.07 + var(--mic-level) * 0.16) 29 / 0.28
-  ); /* sanctioned computed colour */
+  /* Lightness and chroma as functions of the mic level, hoisted so each stop
+     below is one line that carries its own audit marker. */
+  --mic-l: calc(0.82 - var(--mic-level) * 0.25);
+  --mic-c: calc(0.07 + var(--mic-level) * 0.16);
+  --mic-glow-strong: oklch(var(--mic-l) var(--mic-c) 29 / 0.55); /* sanctioned */
+  --mic-glow-weak: oklch(var(--mic-l) var(--mic-c) 29 / 0.28); /* sanctioned */
   position: absolute;
   inset: 0;
   margin: auto;
@@ -2749,20 +2749,23 @@ button[data-role='toast-open']:focus-visible {
    language. The ring is now the full fire accent (redder and crisper than the old
    soft tone), and the halo is intensified — wider blur and spread, breathing harder
    — so the ember reads stronger now that the chip floats free of the dock band. A
-   soft downward drop shadow rides along, deepening as the halo swells, so the pill
-   feels lifted off the page. */
+   soft downward drop shadow rides along, climbing the elevation ladder from
+   --shadow-raised to --shadow-overlay as the halo swells, so the pill feels
+   lifted off the page — and so the lift tracks the theme (the tokens carry warm
+   tints on paper, deeper black at night). Both tokens are two layers, so the
+   four-layer shadow interpolates stop to stop. */
 @keyframes kiln-thinking-glow {
   0%,
   100% {
     box-shadow:
       0 0 0 1px var(--accent),
-      0 5px 12px rgba(0, 0, 0, 0.18),
+      var(--shadow-raised),
       0 0 20px 4px var(--accent-soft);
   }
   50% {
     box-shadow:
       0 0 0 1px var(--accent),
-      0 9px 20px rgba(0, 0, 0, 0.26),
+      var(--shadow-overlay),
       0 0 34px 9px var(--accent-soft);
   }
 }
@@ -2848,7 +2851,7 @@ button[data-role='toast-open']:focus-visible {
     transform: none;
     box-shadow:
       0 0 0 1px var(--accent),
-      0 5px 12px rgba(0, 0, 0, 0.18),
+      var(--shadow-raised),
       0 0 20px 4px var(--accent-soft);
   }
 

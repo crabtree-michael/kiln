@@ -546,6 +546,25 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
   in place + the repo picker, together — there is no raw URL field anywhere) over grouped
   Agent and Sandbox sections. Both branches render the *same* field elements, built once above
   the branch, so the two shells can't drift in what they render or submit.
+- **Creating a project asks for the REPO and takes the name from it.** `project === undefined`
+  is the create mode, and it drops the name field entirely: the submit body's `name` is
+  `projectNameFromRepoUrl(repoUrl)` (`dashboard/project-name.ts` — the URL's last segment,
+  `.git`/trailing-`/` stripped, so `Crabtree-Michael/Pac-Man` is a board called `Pac-Man`).
+  Three surfaces read that one helper — the app-native create step, the settings modal's create
+  mode, and Onboarding's step 2 — so a repo cannot end up named three ways. Points to keep:
+  - **Editing is untouched.** The name field is still there whenever a `project` is passed, and
+    nothing re-derives on save: a board someone deliberately renamed must not snap back to its
+    repo's name the next time an unrelated field is edited.
+  - **`[data-role='project-name-note']` is what replaced the field** (`data-state`:
+    `unpicked` / `named`, with the derived name in `[data-role='project-name-value']`). Rendered
+    by both `ProjectFields` layouts *and* hand-rolled in `Onboarding` — without it the naming is
+    invisible and a board appears called something nobody was shown. Don't drop it.
+  - **The submit reads "Create project" in create mode**, "Save project" when editing; e2e and
+    DOM tests bind to both.
+  - **The `form` layout has a create arrangement** (`data-mode="new"`): the picker alone in
+    `[data-role='new-project-repo']`, the note under it, and everything with a working default
+    demoted into `[data-role='new-project-options']`. Demoted, **not dropped** — a
+    multi-provider deployment still has to be able to name the agent at creation.
 - **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words **only
   where the picker leaves something unsaid** — two states (`data-state`: `default` /
   `unlisted`). It renders `null` when the provider exposes no catalog (the free-text handle
@@ -566,6 +585,29 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
   project actually being looked at fetches its catalog. E2e that asserts on the snapshot
   picker or the dev-box capture form must click `[data-role="project-panel"]` first
   (`tests/tests/keyless-sandbox-selection.spec.ts`).
+
+### `/projects` — the app-native page, and its full-screen create step
+
+`projects/ProjectsManager.tsx` is the mobile, app-styled view over the same dashboard store
+(the header switcher's "Add" and the desk rail's "New" both route here with `?new=1`). The
+list is a column of collapsible rows; **creating is a step that takes the screen**, not a card
+at the foot of that list.
+
+- **`creating` lives in `ProjectsScreen`, not in `ProjectsBody`** — the page header renders
+  from it. While the step is up the `h1` reads "New project" and the leading control is
+  `[data-role='cancel-new-project']` (icon-only, so it carries `aria-label` + `title`, and it
+  wears the same round box as `[data-role='projects-back']`) instead of the link to `/app`. It
+  is gated on the body actually being on screen, so `?new=1` arriving before `me` does still
+  leaves a way back during the load.
+- **The body returns the step INSTEAD of the list** (`[data-role='new-project-step']`), which
+  is what "full-screen" means here — the rows and "Add project" are not under it.
+- **The step's geometry is measured, not asserted in jsdom** (`tests/layout/other-shells.spec.ts`
+  → `new project`): the picker on screen without scrolling, spanning the column, at a real
+  touch height, with the derived-name note and the options below it, and the create action
+  spanning the column at the foot. Every one of those passes as a DOM assertion while looking
+  wrong — the shape it replaced was a name field over a picker in a card.
+- **The layout harness stubs `GET /api/github/repos` as connected** (`tests/layout/harness.ts`),
+  because a disconnected picker is a paragraph of prose rather than the control being measured.
 
 ## Common footguns
 

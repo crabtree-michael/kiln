@@ -461,7 +461,7 @@ export function Guide(): JSX.Element {
                   <p>
                     The keys are <strong>write-only</strong>: once saved, nothing ever shows the
                     value again. The row just shows a <strong>green dot</strong>, and its button
-                    becomes <strong>Update key</strong> — so you only ever re-enter a key you
+                    becomes <strong>Configure</strong> — so you only ever re-enter a key you
                     actually want to change. Reopen that dialog and the field is empty, showing a
                     masked reminder like <code>configured · …x4Kd</code> of the key already stored.
                   </p>

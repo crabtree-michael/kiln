@@ -158,6 +158,15 @@ describe('ProjectModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('dismisses with the X glyph alone, named for a screen reader', async () => {
+    await renderModal();
+    const close = screen.getByRole('button', { name: 'Close' });
+    // The glyph carries the whole control: no visible word beside it, so the
+    // accessible name has to come from the label rather than the text.
+    expect(close).toHaveTextContent('');
+    expect(close.querySelector('svg[data-icon="close"]')).not.toBeNull();
+  });
+
   it('saves the project and closes once the write lands', async () => {
     const { onSave, onClose } = await renderModal();
 

@@ -393,9 +393,48 @@
   background: var(--surface-card);
 }
 
-/* The right-aligned cluster of header dropdowns: the bell notification-settings
- * menu, then the stream status menu. justify-content: space-between on the
- * header keeps the wordmark left and this cluster right. */
+/* The rule under the projects (and their "Add"), separating them from the one
+ * item in this panel that is not about a project. Full-bleed: the panel clips to
+ * its own radius, so a hairline across it reads as a division of the menu rather
+ * than as an underline on the row above. */
+[data-role='project-switcher-divider'] {
+  flex-shrink: 0;
+  height: 1px;
+  background: var(--border-hairline);
+}
+
+/* "Settings" — the panel's last item, and the way to the account view now that
+ * the header has no gear. A quiet text row rather than a second boxed button
+ * like "Add": it is a hop to another screen, not an action on this menu's
+ * subject, and two framed footers would make the panel read as two peers. */
+[data-role='project-switcher-settings'] {
+  display: block;
+  flex-shrink: 0;
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 9px 10px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+[data-role='project-switcher-settings']:hover {
+  color: var(--text-body);
+  background: var(--surface-inset);
+}
+
+/* The right-aligned cluster of header controls: the clear-all trash, then the
+ * stream status menu. justify-content: space-between on the header keeps the
+ * wordmark left and this cluster right. */
 [data-role='header-actions'] {
   display: flex;
   align-items: center;
@@ -408,7 +447,10 @@
   position: relative;
 }
 
-/* Bell notification-settings menu (02 §10), left of the stream status. */
+/* Bell notification-settings menu (02 §10). The phone's header no longer mounts
+ * it — the desktop rail's foot is its one placement — but the rules stay here,
+ * unscoped, because that shell layers on this sheet (DesktopScreen.css states
+ * only the panel's re-anchoring). */
 [data-role='notify-settings'] {
   position: relative;
   display: flex;
@@ -445,41 +487,20 @@
   display: block;
 }
 
-/* Dashboard link, beside the bell — an anchor, so it also has to clear the
- * global link styling (colour/underline) to match the icon buttons it sits
- * with. Otherwise identical to the bell/trash triggers so the cluster reads as
- * one set. */
-[data-role='header-dashboard'] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  text-decoration: none;
-  background: none;
-  border: none;
-  padding: 5px;
-  margin: -5px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-}
-
-[data-role='header-dashboard']:hover {
-  color: var(--text-secondary);
-  background: var(--surface-inset);
-}
-
+/* The gear glyph. Nothing in the phone's header wears it any more — the top bar
+ * gave up its standalone dashboard link, and the account view is reached from
+ * the project switcher's "Settings" item instead — but the desktop rail's
+ * dashboard link still does, and it inherits this sheet (see DesktopScreen.css,
+ * which resizes it to 16px for the rail). */
 [data-role='header-gear'] {
-  /* Matches the bell/trash (22px) so the cluster shares one scale. */
+  /* Matches the bell/trash (22px) so an icon cluster shares one scale. */
   width: 22px;
   height: 22px;
   display: block;
 }
 
-/* Clear-all trash affordance (08 §3), beside the bell — mirrors the bell
- * trigger's sizing/hover so the two read as one header cluster. */
+/* Clear-all trash affordance (08 §3) — mirrors the bell trigger's sizing/hover,
+ * so the two still read as one set wherever they sit together. */
 [data-role='feed-clear-all'] {
   display: inline-flex;
   align-items: center;
@@ -2537,28 +2558,47 @@ button[data-role='toast-open']:focus-visible {
   border-color: var(--border-strong);
 }
 
-/* Keyboard toggle: the alternate-input entry point (icon-only), parked on the
-   right of the controls row in the resting voice state. Same neutral 40px circle
-   as the cancel (X) box so it reads as a peer control; justify-self:end pins it to
-   the row's right edge while the mic stays centred. */
+/* Keyboard toggle: the alternate-input entry point (icon-only) — the OTHER way to
+   say something, so it wears the same disc as the way it stands beside. Every
+   number here is `[data-role='dock-mic']`'s (below): the 54px circle, the card fill
+   inside a strong outline, the raised shadow that collapses under the thumb, and
+   the muted glyph the mic's own bars are drawn in. It shipped as a 40px
+   border-default circle borrowed from the cancel (X), which read as a lesser
+   control parked next to the mic rather than as its peer — and read wrong twice
+   over in the ticket sheet, whose footer is otherwise all mic-discs
+   (TicketDetail.css).
+
+   One rule dresses BOTH placements, because the sheet reuses this data-role
+   exactly as it reuses dock-cancel/dock-send — so the two can't drift the way a
+   second, sheet-local rule would. `grid-column`/`justify-self` place it in the
+   dock's controls grid (right edge, mic centred) and are inert in the sheet's flex
+   row. No `:hover`, deliberately: the mic and the sheet's footer discs carry none,
+   and a touch device emulates hover — the press IS the feedback. */
 [data-role='dock-keyboard'] {
   grid-column: 3;
   justify-self: end;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 54px;
+  height: 54px;
+  padding: 0;
   border-radius: 50%;
   background: var(--surface-card);
-  border: 1.5px solid var(--border-default);
-  color: var(--text-faint);
+  border: 1.5px solid var(--border-strong);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-muted);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    box-shadow var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
 
-[data-role='dock-keyboard']:hover {
-  color: var(--text-body);
-  border-color: var(--border-strong);
+[data-role='dock-keyboard']:active {
+  transform: translateY(3px);
+  box-shadow: var(--shadow-card);
 }
 
 /* Keyboard mode: no mic glyph in the centre — just the voice toggle (mic) on the

@@ -116,6 +116,16 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   both halves; `TestHandleEvent_BatchedReadRound_OneRoundCarriesEveryRead`
   (pass_loop_test.go) pins that the loop honours the shape.
 
+- Re-adding "set the ticket blocked meanwhile" to the **What Counts As Done** gate. Both
+  gate branches used to prescribe exactly that while an agent landed its work, and blocked
+  fires a push notification (10) — so the user got woken for coordination the nudge was
+  already handling. The gate now says to send_to_agent and *leave the ticket where it is*;
+  blocked is for a decision only the user can make, and the rule lives once under
+  "A pending merge is not a blocker" (prompt.go) with the gate branches pointing at it.
+  `TestRenderSystemPrompt_PendingMergeIsNotABlocker` (prompt_test.go) pins the rule and the
+  absence of the old prescription. None of this touches what *done* requires — a verified
+  origin/main (or PR) commit still gates it.
+
 - Treating the per-pass memo (`memo.go`) as a cache and "improving" it — giving it a TTL,
   sharing it between passes, hanging it off `Service`, or having a reused read replay the
   earlier result instead of pointing at it. None of those are what it is. It is scoped to

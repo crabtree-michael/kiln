@@ -10,7 +10,7 @@
 // you connect by pasting a key.
 //
 // One card pattern, one row each: the provider's brand mark, its name, whether
-// it's connected, and the action. "Connect" (or "Update key" once a key is
+// it's connected, and the action. "Connect" (or "Configure" once a key is
 // stored) opens a small modal whose input takes the key. Submitting sends just
 // that one field, exactly as the old blur/Enter auto-save did, so a successful
 // save still chains straight into a verify run (dashboard-store's
@@ -336,7 +336,7 @@ function ApiKeyCard({
               setOpen(true);
             }}
           >
-            {status.set ? 'Update key' : 'Connect'}
+            {status.set ? 'Configure' : 'Connect'}
           </button>
         </div>
       </div>

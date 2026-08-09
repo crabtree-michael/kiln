@@ -1185,8 +1185,24 @@ html:has([data-role='settings']) {
   color: var(--text-faint);
 }
 
+/* The X alone (no label beside it), so the control is a square rather than the
+   tree's label-shaped button — same treatment as the modal's delete glyph. */
 [data-role='settings'] [data-role='close-project-modal'] {
   margin-left: auto;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  /* An icon-only control at rest is quieter without a box around it; hover paints
+     the border back on. */
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+}
+
+[data-role='settings'] [data-role='close-project-modal'] svg[data-icon] {
+  /* Sized in px, not the tree's 1.15em: there is no label text beside it for the
+     glyph to stay proportional to. */
+  width: 16px;
+  height: 16px;
 }
 
 [data-role='project-modal-body'] {
@@ -1274,12 +1290,11 @@ html:has([data-role='settings']) {
   align-items: start;
 }
 
-/* What the snapshot handle above actually means, in words. Quiet — it is
-   reference material sitting under a control, not a warning. */
+/* What the snapshot handle above actually means, in words, in the two cases the
+   picker leaves unsaid. Quiet — it is reference material sitting under a
+   control, not a warning. One paragraph either way, so the box is padding
+   around a single block rather than a stack. */
 [data-role='sandbox-info'] {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--surface-subtle);
   border: 1px solid var(--border-default);
@@ -1295,13 +1310,6 @@ html:has([data-role='settings']) {
 [data-role='sandbox-info'] code {
   font: var(--type-mono);
   color: var(--text-body);
-}
-
-/* Scoped through the parent so it outranks the paragraph rule above without
-   reaching for !important. */
-[data-role='sandbox-info'] p[data-role='sandbox-snapshot-detail'] {
-  font: var(--type-mono);
-  color: var(--text-muted);
 }
 
 /* The dialog's one action bar, echoing the title bar at the other end of the
@@ -1611,7 +1619,7 @@ html:has([data-role='settings']) {
   background: var(--calm);
 }
 
-/* The right-hand action slot: Connect / Update key, plus the live validity
+/* The right-hand action slot: Connect / Configure, plus the live validity
    mark. `margin-left: auto` is the whole point — it pushes the action to the
    card's right edge instead of letting it sit inline after the identity
    text. */

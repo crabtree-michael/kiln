@@ -55,6 +55,43 @@ client↔server types.
   truth.
 _(Accumulate: how to run the frontend locally, build/test commands, the boundary — `/frontend`.)_
 
+## Text earns its place (standing principle)
+
+*Applies to every surface in `/frontend` — mobile shell, desktop shell, dashboard, sheets.
+This is a default to design against, not a lint rule; the reviewer is you.*
+
+**A glyph whose meaning is unambiguous ships without a label.** A × beside the word
+"Close", a trash can beside "Delete", a gear beside "Settings" — the word tells a sighted
+reader nothing the glyph didn't, and it costs a control's worth of width on a 390px
+screen. Ship the icon alone.
+
+The accessibility of that is not optional and not hard: an icon-only control takes its
+accessible name from `aria-label`, and `title` gives a pointer user the same word on
+hover. The icons in `dashboard/icons.tsx` are all `aria-hidden`, so **without an
+`aria-label` an unlabelled icon button is nameless to a screen reader** — a real bug, and
+the reason the two rules travel together. Test queries stay `getByRole('button', { name:
+'Close' })`; the name is the contract, the visible text is not.
+
+The exceptions are the glyphs that are genuinely ambiguous — a control whose icon could
+plausibly mean two things, or one that carries a *value* rather than an action (a model
+name, a branch, a count). Those keep their text. "Would a first-time user hesitate?" is
+the test, and the answer for × is no.
+
+Styling follows: an icon-only button is square and a ghost at rest, not a padded pill with
+its label removed. `[data-role='close-project-modal']` and `[data-role='delete-project']`
+in `Dashboard.css` are the pattern — `width: 32px; padding: 0; border-color: transparent`,
+glyph sized in px because there is no neighbouring text to stay proportional to.
+
+**The same economy applies to prose.** Do not write help copy for something the context
+already says. A danger-zone paragraph under a delete button says nothing the confirm
+dialog doesn't say at the moment it matters; a hint under a field whose label already
+names it is noise the user learns to skip, which is worse than absent because it teaches
+them to skip the hints that *do* matter. Placeholder text, section blurbs, "you can also…"
+asides: cut by default, add back only where a real reader would otherwise get it wrong.
+
+The bar for any string on screen: **it changes what someone does.** If it doesn't, it is
+weight — on the screen, in the DOM, and in every future diff that has to keep it true.
+
 ## Bottom-anchored UI layering (standing principle)
 
 *Intent, not enforcement. The rules below are checked as computed geometry in
@@ -162,13 +199,23 @@ same way — decide which of these your surface is, don't invent a sixth mechani
 | `[data-role='dock-region']` (phone) | `translateY(-inset)` — a compositor transform, no reflow |
 | `[data-role='desktop-composer-region']` | the same transform; the desk shell is width-gated, so a landscape tablet drives it by finger |
 | `[data-role='feed']` / `[data-role='desktop-feed']` | `+ var(--keyboard-inset)` in `padding-bottom` — the covered strip becomes scroll room |
-| `[data-role='ticket-detail']` | `max(safe-area, inset)` in `padding-bottom`, so the sheet's footer stands clear |
+| `[data-role='ticket-detail']` | `bottom: var(--keyboard-inset)` + a `max-height` reduced by it — the panel stands ON the keyboard |
 
-Four things about that table are load-bearing:
+Five things about that table are load-bearing:
 
-- **Padding below the content, never a height change.** Growing the reserve *under* what is
-  already on screen moves nothing — opening the keyboard costs the user no scroll position,
-  which is the entire complaint. A height/`dvh` rule keyed on the inset is the regression.
+- **Padding below the content, never a height change — for a surface anchored at the TOP of
+  its own box.** Growing the reserve *under* what is already on screen moves nothing, so
+  opening the keyboard costs the user no scroll position, which is the entire complaint. A
+  height/`dvh` rule keyed on the inset is the regression.
+- **...and the sheet is the exception, because it is anchored at the BOTTOM.** Padding under a
+  `bottom: 0` box does not sit under the content, it *inflates the box upward*: the sheet
+  cleared the keyboard by growing 300px, which threw a short ticket to the top edge and left a
+  keyboard's worth of blank paper below the controls ("the content flies to the top"). A
+  bottom-anchored panel MOVES instead — `bottom` takes the inset, `max-height` gives it back
+  so a capped sheet shrinks rather than running off the top, and the home-indicator reservation
+  is *cancelled* by the same term (`max(env(...) - inset, 0px)`), since a raised keyboard has
+  already covered the indicator and the sheet is now standing on the keys. It cannot use the
+  dock's `translateY`: vaul owns this panel's transform as an inline style.
 - **It is the ONE reserve that is not handed back through `--feed-overlay-slack`**, and the
   contrast with the section above is the whole point. A band is *transient*, so the board must
   hold still under it and its share of the padding is given straight back to the scroll
@@ -236,6 +283,14 @@ same sign-up flow, replayable on demand — see the rehearsal section below.
 - `vite.config.ts` proxies `/auth` to the backend alongside `/api` and `/api/stream` — the
   GitHub OAuth redirect (`GET /auth/github/connect` → `/callback`) needs to hit the backend
   directly, not be intercepted by the SPA's client-side router.
+- **From the phone, the way in is the project switcher's last item, "Settings"**
+  (`ProjectSwitcher.tsx`, below a divider), not an icon in the top bar. The bar's gear and
+  its bell were both removed: it had grown to four controls, and two of them opened
+  *settings* rather than acting on what was on screen. What is left there is the clear-all
+  trash and the tickets dropdown. The switcher can route with `useNavigate` where the header
+  could not — it is the one router-dependent control in that bar, injected through
+  `PrimaryScreenView`'s brand slot, which is why the gear had to be a full-page `<a>`. The
+  desk is unchanged: its rail foot still carries both the bell and a dashboard link.
 
 ### One GitHub flow — sign-in IS the GitHub connection
 
@@ -510,10 +565,12 @@ dialog in create mode — `openProjectId` holds a project id or the `'new'` sent
     `[data-role='new-project-repo']`, the note under it, and everything with a working default
     demoted into `[data-role='new-project-options']`. Demoted, **not dropped** — a
     multi-provider deployment still has to be able to name the agent at creation.
-- **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words, in four
-  states (`data-state`: `no-catalog` / `default` / `snapshot` / `unlisted`). Keep it
-  provider-neutral outside the catalog case — a provider that manages its own sandboxes gets
-  the `no-catalog` reading, so the group's own hint text must not promise Amika.
+- **`SandboxInfo`** (in `ConfigFields.tsx`) reads the snapshot choice back in words **only
+  where the picker leaves something unsaid** — two states (`data-state`: `default` /
+  `unlisted`). It renders `null` when the provider exposes no catalog (the free-text handle
+  field speaks for itself) and when the picked ref *is* in the catalog (the option label above
+  already names it). Don't reintroduce a reading that just restates the control. The group's
+  own hint text must stay provider-neutral — it must not promise Amika.
 - **The modal is hand-rolled, not `<dialog>`.** jsdom 25 (the whole DOM suite) ships **no
   `HTMLDialogElement`** — `showModal` is `undefined` — so a native dialog would be untestable
   in the gate. `ProjectModal` therefore owns Escape, the scrim press (only one that *starts*
@@ -797,6 +854,16 @@ how the row drifts apart on the one surface the app renders. Poke was the last h
 The mic is dressed in the *other* stylesheet (`PrimaryScreen.css`, unscoped, so the sheet's
 footer picks it up wherever it is placed), which is exactly the kind of seam an edit to one
 side walks past. If you restyle the mic, restyle these with it.
+
+**The keyboard toggle wears it too, in BOTH of its placements, off ONE rule.**
+`[data-role='dock-keyboard']` in `PrimaryScreen.css` now states the mic's own numbers (54px,
+strong outline, raised shadow, `--text-muted` glyph, no `:hover`) and dresses the dock's
+toggle and the sheet's from the same declaration — the sheet reuses the data-role exactly as
+it reuses `dock-cancel`/`dock-send`, so a second sheet-local rule is how the two would drift.
+It shipped as the cancel (×)'s 40px bordered circle, which made it a peer of the wrong thing
+twice over: smaller than the mic it stands beside in the dock, and the one small disc in an
+otherwise all-54px sheet footer. Both sizes render, so `tests/layout/ticket-detail.spec.ts`
+measures it in both places against the dock mic's box — no DOM test can see this class of bug.
 
 ### Poke is offered on every working ticket, idle session or not
 
@@ -1366,8 +1433,10 @@ and `tests/layout/` measures the geometry.
 - **A shared popover inherits its ANCHOR too, and the anchor is a fact about the shell.**
   Inheriting the mobile sheet's unscoped rules is the point (above), but a dropdown's
   `top`/`right` encode where its trigger sits — and the two shells put the same triggers in
-  opposite corners. The bell is a worked example: `NotificationSettingsMenu` is one
-  component, mounted in the phone's top-right header cluster and in the desk's bottom-left
+  opposite corners. The bell is the worked example — historically, since the phone's header
+  has since given the bell up altogether (the settings page is its entry there now) and the
+  rail's foot is its one placement. It was one component, `NotificationSettingsMenu`,
+  mounted in the phone's top-right header cluster and in the desk's bottom-left
   rail foot, and the mobile "open down and to the left" anchoring aimed it off the bottom
   *and* off the left of a `100dvh` shell that cannot scroll it back — invisible, not merely
   misplaced. `DesktopScreen.css` re-anchors it to the bell's bottom-left corner (`top`/

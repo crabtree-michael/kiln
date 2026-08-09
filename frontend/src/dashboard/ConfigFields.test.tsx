@@ -661,9 +661,9 @@ describe('ProjectFields — detail layout', () => {
   });
 });
 
-// "Relevant Amika info about which sandbox to use": a snapshot ref alone says
-// nothing about what a worker boots into, so each state the picker can be in
-// gets a plain-language reading beside it.
+// "Relevant Amika info about which sandbox to use": a reading sits beside the
+// picker only where the picker leaves something unsaid — nothing picked, or a
+// handle the catalog no longer lists. Otherwise the control speaks for itself.
 describe('ProjectFields — sandbox info', () => {
   const snapshot: Snapshot = {
     ref: 'org/base:1',
@@ -695,7 +695,7 @@ describe('ProjectFields — sandbox info', () => {
     expect(infoState()).toBe('default');
   });
 
-  it('names the picked snapshot, what it holds, and where it came from', () => {
+  it('reads nothing back for a snapshot picked from the catalog', () => {
     render(
       <ProjectFields
         layout="detail"
@@ -707,16 +707,10 @@ describe('ProjectFields — sandbox info', () => {
         onSave={vi.fn()}
       />,
     );
-    expect(infoState()).toBe('snapshot');
-    // Scoped to the info block: the snapshot's name is also an option label in
-    // the picker above it.
-    expect(document.querySelector('[data-role="sandbox-snapshot-name"]')).toHaveTextContent(
-      'warm-base',
-    );
-    expect(screen.getByText('node 22, repo cloned')).toBeInTheDocument();
-    expect(document.querySelector('[data-role="sandbox-snapshot-detail"]')?.textContent).toContain(
-      'captured from dev-a',
-    );
+    // The picker's own option label already names the choice, so the reading
+    // would only repeat it — the section is the select and nothing else.
+    expect(document.querySelector('[data-role="sandbox-info"]')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Sandbox snapshot' })).toHaveValue('org/base:1');
   });
 
   it('flags a stored handle the catalog no longer lists', () => {
@@ -735,7 +729,7 @@ describe('ProjectFields — sandbox info', () => {
     expect(screen.getByText('legacy-handle')).toBeInTheDocument();
   });
 
-  it('says so when the provider exposes no catalog at all', () => {
+  it('reads nothing at all when the provider exposes no catalog', () => {
     render(
       <ProjectFields
         layout="detail"
@@ -745,6 +739,9 @@ describe('ProjectFields — sandbox info', () => {
         onSave={vi.fn()}
       />,
     );
-    expect(infoState()).toBe('no-catalog');
+    // No catalog means the free-text handle field speaks for itself; the section
+    // keeps that field and drops the reading rather than explaining its absence.
+    expect(document.querySelector('[data-role="sandbox-info"]')).toBeNull();
+    expect(screen.getByLabelText('Amika snapshot')).toBeInTheDocument();
   });
 });

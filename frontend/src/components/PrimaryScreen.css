@@ -701,13 +701,39 @@
   pointer-events: auto;
 }
 
+/* The list's head — a label, and now a reading of what is under it.
+ *
+ * It carries the shared status mark of the TOP ticket (see HeaderStatusMenu),
+ * which is what the desk's in-progress head has worn since it stopped drawing a
+ * dot of its own. There are no geometry, colour or animation rules for the mark
+ * here either, and that absence is the design: it is the same element the rows
+ * render, so it is the same 7px circle, the same ink, the same breath, from the
+ * one rule above that paints the whole list.
+ *
+ * Two things the head does have to say. First, hold the box — the mark is a flex
+ * child, and without this a long heading would take its pixels before wrapping,
+ * and a squeezed circle is an oval (the rows never risk it: they lay the mark out
+ * in a grid column instead).
+ *
+ * Second, the column. The gap is the rows' `column-gap` and the padding carries
+ * the mark to where a row's mark sits (a row is inset 6px by the list's padding
+ * and 10px by its own), so the head's mark and every mark under it stand in one
+ * vertical line rather than a hair apart — which is the whole of reading them as
+ * one reading and its list. */
 [data-role='header-status-heading'] {
-  padding: 11px 14px 7px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 16px 7px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+[data-role='header-status-heading'] [data-role='status-dot'] {
+  flex: none;
 }
 
 [data-role='header-status-list'] {

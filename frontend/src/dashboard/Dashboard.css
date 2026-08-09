@@ -1542,10 +1542,10 @@ html:has([data-role='settings']) {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--surface-brand-disc);
   border: 1px solid var(--border-default);
   font: var(--type-body-strong);
-  color: #191815;
+  color: var(--text-on-brand-disc);
 }
 
 [data-role='integration-mark'] img {

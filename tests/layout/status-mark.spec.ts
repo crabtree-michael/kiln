@@ -145,4 +145,41 @@ test.describe('the shared status mark — phone', () => {
       'the blocked mark and the blocked badge disagree',
     ).toBe(blocked);
   });
+
+  test('the tickets head wears the top row’s mark, and breathes with it', async ({ page }) => {
+    // The phone's half of what the desk's in-progress head already had: one
+    // reading over the list, drawn by the rule that draws the list. Only a
+    // browser can answer either half — jsdom can see that both elements carry
+    // `data-role="status-dot"` and neither what the cascade painted nor whether
+    // the two are at the same point of the same breath.
+    await mountShell(page, { band: 'none' });
+    await page.click("[data-role='feed-status']");
+    await page.waitForSelector("[data-role='header-status-panel']");
+    await settle(page);
+
+    const head = "[data-role='header-status-heading'] [data-role='status-dot']";
+    const row = "[data-role='header-status-row']:first-child [data-role='status-dot']";
+    // The fixture's top ticket is the working one (`ticketStatuses` ranks working
+    // → blocked → ready), so the head is ember and moving, not the faint default.
+    expect(await page.getAttribute(head, 'data-state')).toBe('working');
+    for (const property of ['width', 'height', 'border-radius', 'background-color']) {
+      expect(
+        await computed(page, head, property),
+        `the head's mark and the row it summarises disagree about ${property}`,
+      ).toBe(await computed(page, row, property));
+    }
+    expect(await computed(page, head, 'background-color')).not.toBe('rgba(0, 0, 0, 0)');
+
+    // Phase, which is the half a shared declaration does not buy: the head starts
+    // breathing when the panel opens and the row's mark when its ticket was picked
+    // up, so without the shared clock these two peak apart forever.
+    const marks = await breathingMarks(page);
+    expect(marks.length, 'the head and its row should both be breathing').toBeGreaterThan(1);
+    for (const mark of marks) {
+      expect(mark.phase).toBe('shared');
+      expect(mark.start).toBe(0);
+    }
+    const progress = marks.map((m) => m.progress);
+    expect(new Set(progress).size, `marks peak apart: ${JSON.stringify(progress)}`).toBe(1);
+  });
 });

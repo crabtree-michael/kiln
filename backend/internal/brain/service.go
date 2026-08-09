@@ -17,6 +17,26 @@ import (
 // retry/backoff/dead-letter path (04 §3).
 var errMalformedRepeated = errors.New("brain: malformed model output repeated after re-prompt")
 
+// errRoundTruncatedEmpty fails a pass when a round hit the output ceiling
+// (maxOutputTokens) before producing anything the loop can carry forward: no
+// assistant text, and no tool call complete enough to dispatch (06 §8). The
+// only way to reach it is a single tool call whose arguments alone fill the
+// whole budget, which no legitimate call does — so it goes to the runtime's
+// retry/backoff/dead-letter path (04 §3) rather than being papered over with a
+// synthesized turn. Dead-lettering is loud (notify.send + a system-error say),
+// which is the point: a truncated round must never end a pass quietly.
+var errRoundTruncatedEmpty = errors.New("brain: model round hit the output ceiling before producing usable output")
+
+// truncationNotice is what a truncated round's re-prompt says (06 §5). It rides
+// in the same user turn as the surviving calls' results, after them, and has
+// three jobs: say the response was cut off, say plainly that the discarded
+// final call did *not* run (so the model re-issues it rather than assuming it
+// landed), and ask for a smaller round so the next one fits.
+const truncationNotice = "Your previous response hit the output limit and was cut off partway through. " +
+	"The tool results above cover only the calls that arrived complete. " +
+	"The last call of that response was discarded and did NOT run — re-issue it if you still need it. " +
+	"Keep this round smaller (fewer calls, shorter arguments) so it fits."
+
 // orchestratorRole is the identity the system prompt is rendered with
 // (01 §1): Kiln, the project orchestrator.
 const orchestratorRole = "Kiln, the autonomous project orchestrator"
@@ -137,6 +157,14 @@ func (s *Service) model() string {
 //     at which point append a forced wrap-up instruction allowing at most a
 //     say and make one final call.
 //
+// Truncated output (StopMaxTokens): a round that ran into maxOutputTokens is
+// resumed, not returned from. Everything the model emitted before the cut is
+// valid except its final tool call, whose JSON arguments may be sliced in half,
+// so that one call is dropped, the rest are dispatched exactly as any other
+// round's are, and truncationNotice rides back with their results telling the
+// model the dropped call never ran. That keeps a truncated round's already-
+// decided work while making the loop, not the model, responsible for noticing.
+//
 // Malformed output (06 §8): an unparseable tool call or unknown tool name
 // yields StopMalformed; the first occurrence gets one re-prompt with the
 // parse error appended, a second failure fails the pass. No mid-pass
@@ -177,14 +205,26 @@ func (s *Service) runPass(ctx context.Context, input PassInput) error {
 			return fmt.Errorf("brain: llm call: %w", err)
 		}
 		if resp.StopReason == StopEndTurn {
+			// A finished turn should carry nothing left to run. If it does —
+			// the model ended mid-thought, or a stop reason this module maps
+			// onto end_turn (refusal, pause_turn) arrived with tool_use blocks
+			// attached — the pass is about to drop them, so it says so first.
+			logUndispatchedCalls(ctx, "brain: pass ended with undispatched tool calls", resp.Calls)
 			return nil
 		}
 
+		// A truncated round is resumed rather than returned from: its last call
+		// is the only one that can be cut off, so it goes and the rest run.
+		calls, truncated, err := dispatchableCalls(ctx, resp)
+		if err != nil {
+			return err
+		}
+
 		messages = append(messages, LLMMessage{
-			Role: LLMRoleAssistant, Text: resp.Text, Calls: resp.Calls,
+			Role: LLMRoleAssistant, Text: resp.Text, Calls: calls,
 		})
 
-		results, malformed := s.dispatchAll(ctx, memo, resp.Calls)
+		results, malformed := s.dispatchAll(ctx, memo, calls)
 		if malformed {
 			if reprompted {
 				return errMalformedRepeated
@@ -194,11 +234,81 @@ func (s *Service) runPass(ctx context.Context, input PassInput) error {
 			reprompted = false
 		}
 
-		messages = append(messages, LLMMessage{Role: LLMRoleUser, Results: results})
+		messages = append(messages, resultsTurn(results, truncated))
 	}
 
 	// Round cap reached (06 §5, D4): one forced wrap-up round, at most a say.
 	return s.forceWrapUp(ctx, memo, system, messages)
+}
+
+// dispatchableCalls narrows one round's tool calls to the ones the pass may
+// actually run, and reports whether the round was truncated. An ordinary round
+// is passed through whole; a truncated one loses its last call
+// (dropTruncatedCall), and a truncated one that leaves nothing behind at all —
+// no text, no complete call — fails the pass (errRoundTruncatedEmpty) rather
+// than continuing on an empty turn.
+func dispatchableCalls(ctx context.Context, resp LLMResponse) ([]ToolCall, bool, error) {
+	if resp.StopReason != StopMaxTokens {
+		return resp.Calls, false, nil
+	}
+	calls := dropTruncatedCall(ctx, resp)
+	if resp.Text == "" && len(calls) == 0 {
+		return nil, true, errRoundTruncatedEmpty
+	}
+	return calls, true, nil
+}
+
+// resultsTurn builds the user turn that carries a round's tool results back to
+// the model, appending truncationNotice when the round was cut off — the one
+// thing those results cannot say for themselves is that a call is missing from
+// them because it was never run.
+func resultsTurn(results []ToolResult, truncated bool) LLMMessage {
+	msg := LLMMessage{Role: LLMRoleUser, Results: results}
+	if truncated {
+		msg.Text = truncationNotice
+	}
+	return msg
+}
+
+// dropTruncatedCall returns the calls of a truncated round that are safe to
+// dispatch: every call except the last one.
+//
+// The last one goes unconditionally, without first asking whether it looks
+// intact. A cut-off arguments object frequently still parses — truncate
+// `{"id":"t-9","state":"done","done_commit":"abc123"}` before the commit and
+// what is left is valid JSON describing a *different* action — so "does it
+// unmarshal" is not a test of whether the model finished writing it. The only
+// thing actually known is where the cut fell, and the fix for a wrongly dropped
+// call is cheap: truncationNotice tells the model to re-issue it, and a re-read
+// is answered from the pass memo (memo.go) rather than the port.
+//
+// Warn rather than Info: rounds this large are not the norm even at the raised
+// maxOutputTokens ceiling, and a run of these records is the signal that the
+// ceiling — or the prompt's round-size guidance — needs another look.
+func dropTruncatedCall(ctx context.Context, resp LLMResponse) []ToolCall {
+	kept := resp.Calls
+	attrs := []any{"emitted", len(resp.Calls), "text_bytes", len(resp.Text)}
+	if len(kept) > 0 {
+		dropped := kept[len(kept)-1]
+		kept = kept[:len(kept)-1]
+		attrs = append(attrs, "dropped_tool", string(dropped.Name), "dropped_id", dropped.ID)
+	}
+	attrs = append(attrs, "dispatching", len(kept))
+	slog.WarnContext(ctx, "brain: model round truncated at the output ceiling", attrs...)
+	return kept
+}
+
+// logUndispatchedCalls surfaces tool calls a round emitted that the pass is not
+// going to run. It exists so that "the model asked for something and nothing
+// happened" is never inferable only from the absence of a record: every path
+// that discards calls says which ones, by name and id, on the same turn_id as
+// the rest of the pass. Error level, because a discarded call is the model's
+// intent going nowhere — quiet in normal operation, findable when it isn't.
+func logUndispatchedCalls(ctx context.Context, msg string, calls []ToolCall) {
+	if len(calls) == 0 {
+		return
+	}
+	slog.ErrorContext(ctx, msg, "count", len(calls), "tool_calls", summarizeCalls(calls))
 }
 
 // dispatchAll runs every tool call in a round against the ports, collecting
@@ -226,6 +336,12 @@ func (s *Service) dispatchAll(ctx context.Context, memo *passMemo, calls []ToolC
 // forceWrapUp makes the single wrap-up call at the round cap (06 §5): the
 // model is told to close out with at most a say, and only a say from that
 // round is executed. The pass then ends regardless of what the model does.
+//
+// "Only a say is executed" means anything else the wrap-up round asks for is
+// discarded — which is the intended behaviour, not an accident, so it is
+// logged rather than left to be deduced from a missing effect
+// (logUndispatchedCalls). A wrap-up round can be truncated like any other, so
+// its last call is dropped on the same rule runPass uses.
 func (s *Service) forceWrapUp(ctx context.Context, memo *passMemo, system string, messages []LLMMessage) error {
 	messages = append(messages, LLMMessage{
 		Role: LLMRoleUser,
@@ -238,13 +354,21 @@ func (s *Service) forceWrapUp(ctx context.Context, memo *passMemo, system string
 	if err != nil {
 		return fmt.Errorf("brain: llm call (wrap-up): %w", err)
 	}
-	for _, call := range resp.Calls {
-		if call.Name == ToolSay {
-			if res, _ := s.dispatchOne(ctx, memo, call); res.IsError {
-				slog.ErrorContext(ctx, "brain: wrap-up say failed", "err", res.Content)
-			}
+	calls := resp.Calls
+	if resp.StopReason == StopMaxTokens {
+		calls = dropTruncatedCall(ctx, resp)
+	}
+	var skipped []ToolCall
+	for _, call := range calls {
+		if call.Name != ToolSay {
+			skipped = append(skipped, call)
+			continue
+		}
+		if res, _ := s.dispatchOne(ctx, memo, call); res.IsError {
+			slog.ErrorContext(ctx, "brain: wrap-up say failed", "err", res.Content)
 		}
 	}
+	logUndispatchedCalls(ctx, "brain: wrap-up round asked for tools other than say; not dispatched", skipped)
 	return nil
 }
 

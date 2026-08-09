@@ -16,7 +16,7 @@ import (
 // DefaultModel is the default Anthropic model id (06 §2, D1): Sonnet 5 gives a
 // tool-following dispatcher over a small board stronger judgment than Haiku
 // while thinking stays disabled (see Do) to hold the dispatcher's low latency
-// and the small maxOutputTokens ceiling. Override via KILN_BRAIN_MODEL.
+// and modest maxOutputTokens ceiling. Override via KILN_BRAIN_MODEL.
 const DefaultModel = "claude-sonnet-5"
 
 // ModelEnvVar overrides DefaultModel when set (06 §2, D1). Normally parsed
@@ -53,9 +53,21 @@ const DefaultEffort = EffortMedium
 const EffortEnvVar = "KILN_BRAIN_EFFORT"
 
 // maxOutputTokens caps one round's generation. The brain emits short tool
-// calls and status text, not long prose, so a small ceiling is plenty and
-// keeps latency down (06 §5's cost/latency envelope).
-const maxOutputTokens = 4096
+// calls and status text, not long prose, so the ceiling stays modest to keep
+// latency down (06 §5's cost/latency envelope) — but not as modest as it was.
+//
+// Raised from 4096 after a large round was truncated against it. Typical rounds
+// are nowhere near either number; the ones that are near it are the ones that
+// matter most — a batched read round (prompt.go's ## Rounds) followed by
+// several send_to_agent instructions is easily a few thousand tokens of tool
+// arguments, and at 4096 that round came back cut off mid-call. This is a
+// non-streaming request (06 §5, D4), so the ceiling also has to stay inside the
+// SDK's default HTTP timeout; 16384 is comfortably under it while making
+// truncation rare.
+//
+// Rare, not impossible — the loop still handles it rather than assuming it
+// away. See StopMaxTokens and runPass.
+const maxOutputTokens = 16384
 
 // roundTextSummaryBytes bounds how much of one round's assistant text a log
 // record carries. Same budget as the agent module's output summary: enough to
@@ -131,6 +143,19 @@ type StopReason string
 const (
 	StopToolUse StopReason = "tool_use" // the model wants to call one or more tools; the loop continues
 	StopEndTurn StopReason = "end_turn" // the model is done; the pass ends
+
+	// StopMaxTokens is a round the model did not finish: it ran into
+	// maxOutputTokens mid-generation, so its last content block — quite
+	// possibly a tool call's JSON arguments — is cut off partway through.
+	//
+	// It is its own stop reason rather than another way of spelling
+	// StopEndTurn because the two mean opposite things ("done" versus "cut
+	// off") and the loop has to tell them apart. Folded together, a truncated
+	// round returned from the pass exactly as a finished one does, taking
+	// whatever calls the model had already emitted with it and saying nothing
+	// — the round vanished. runPass now dispatches what survived the cut and
+	// re-prompts for the rest.
+	StopMaxTokens StopReason = "max_tokens"
 
 	// StopMalformed is synthesized by this module, never returned by the LLM
 	// port itself: an unparseable tool call or unknown tool name (06 §8).
@@ -229,7 +254,7 @@ func (a *Adapter) Do(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 		Tools:     toSDKTools(req.Tools),
 		// Thinking stays off. Sonnet 5 (and 4.6+) run adaptive thinking whenever
 		// the field is omitted, and MaxTokens caps thinking + tool calls + text
-		// together — so an omitted field could burn the small maxOutputTokens
+		// together — so an omitted field could spend the maxOutputTokens
 		// budget thinking and truncate a round's tool calls. Disabling keeps the
 		// brain a lean, low-latency dispatcher; a no-op on models that don't think
 		// by default (e.g. Haiku). Revisit if the eval set (§9) wants deliberation.
@@ -368,13 +393,17 @@ func toSDKMessages(msgs []LLMMessage) []anthropic.MessageParam {
 			out = append(out, anthropic.NewAssistantMessage(blocks...))
 			continue
 		}
-		// LLMRoleUser: the context block (round 1) and/or tool results.
+		// LLMRoleUser: the context block (round 1) and/or tool results, and
+		// possibly both — a truncated round comes back as its surviving calls'
+		// results plus a note explaining the cut (runPass). Results are written
+		// first: the API wants a turn's tool_result blocks at the head of its
+		// content, and a round with no results is unaffected by the ordering.
 		blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.Results)+1)
-		if m.Text != "" {
-			blocks = append(blocks, anthropic.NewTextBlock(m.Text))
-		}
 		for _, r := range m.Results {
 			blocks = append(blocks, anthropic.NewToolResultBlock(r.ToolCallID, r.Content, r.IsError))
+		}
+		if m.Text != "" {
+			blocks = append(blocks, anthropic.NewTextBlock(m.Text))
 		}
 		out = append(out, anthropic.NewUserMessage(blocks...))
 	}
@@ -385,9 +414,10 @@ func toSDKMessages(msgs []LLMMessage) []anthropic.MessageParam {
 // content block of the last message, so within a pass each round reads the
 // conversation prefix the previous round wrote (see Do). The last message is
 // always a user turn — the round-1 context block (OfText), later rounds' tool
-// results (OfToolResult), or the forced wrap-up text (OfText) — so those are
-// the only variants handled; anything else is left unmarked rather than
-// guessed at. A round appends at most a handful of blocks, well inside the
+// results (OfToolResult), a truncated round's results-then-note (OfText), or
+// the forced wrap-up text (OfText) — so those are the only variants handled;
+// anything else is left unmarked rather than guessed at. A round appends at
+// most a handful of blocks, well inside the
 // 20-block cache lookback window, so the incremental reads never miss.
 func markConversationBreakpoint(msgs []anthropic.MessageParam) {
 	if len(msgs) == 0 {
@@ -438,10 +468,22 @@ func fromSDKMessage(msg *anthropic.Message) LLMResponse {
 			})
 		}
 	}
-	// Only tool_use continues the loop; every other stop reason ends the pass.
-	if msg.StopReason == anthropic.StopReasonToolUse {
+	// tool_use continues the loop and max_tokens resumes it (runPass); every
+	// other stop reason ends the pass. max_tokens is called out by name rather
+	// than swept into the default because "the model stopped" and "the model
+	// was stopped" need opposite handling — see StopMaxTokens.
+	switch msg.StopReason {
+	case anthropic.StopReasonToolUse:
 		resp.StopReason = StopToolUse
-	} else {
+	case anthropic.StopReasonMaxTokens:
+		resp.StopReason = StopMaxTokens
+	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence,
+		anthropic.StopReasonPauseTurn, anthropic.StopReasonRefusal:
+		resp.StopReason = StopEndTurn
+	default:
+		// A stop reason added to the SDK since this switch was written. Ending
+		// the pass is the safe reading of an unknown one, and the loop says so
+		// out loud if the round was carrying tool calls (logUndispatchedCalls).
 		resp.StopReason = StopEndTurn
 	}
 	return resp

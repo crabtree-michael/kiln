@@ -941,7 +941,7 @@ describe('Dashboard', () => {
     expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue(
       'https://github.com/crabtree-michael/kiln',
     );
-    expect(modal.querySelector('[data-role="sandbox-info"]')).not.toBeNull();
+    expect(modal.querySelector('[data-role="project-group"][data-group="sandbox"]')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     await waitFor(() => {

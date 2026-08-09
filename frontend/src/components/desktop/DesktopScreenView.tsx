@@ -14,7 +14,11 @@
 // space, because unlike the rail (peripheral furniture, set apart by its
 // recessed surface) it is content about the same project the feed is about, and
 // the line is what says "these are two readings of one thing" instead of "this
-// is more feed".
+// is more feed". That line is also the one piece of this layout the reader owns:
+// it is a separator they can drag, between the width the column shipped at and
+// twice it, because how much of a desk goes to titles and how much to the feed
+// is a judgement about their project and their window, not one this file can
+// make for them.
 //
 // There is still no board and no detail pane — ticket detail is an OVERLAY,
 // opened against the window's right edge so the work stays in sight (13 D7/D7a)
@@ -46,6 +50,11 @@ import { blockedCount, workingTickets } from '@/components/desktop/working-now';
 import { Backlog } from '@/components/desktop/Backlog';
 import { backlogTickets } from '@/components/desktop/backlog';
 import { useDesktopShellFlag } from '@/components/desktop/use-desktop-layout';
+import {
+  useWorkingPanelWidth,
+  WORKING_PANEL_MAX_WIDTH,
+  WORKING_PANEL_MIN_WIDTH,
+} from '@/components/desktop/use-working-panel-width';
 import { useTicketOverlay } from '@/components/use-ticket-overlay';
 import { streamDetail } from '@/components/feed-format';
 import { readFeed } from '@/components/feed-model';
@@ -220,8 +229,20 @@ export function DesktopScreenView({
   // same stamp; see `useDesktopShellFlag` for the full reasoning.
   useDesktopShellFlag();
 
+  // How wide the tickets column is — the shipped 248px as a floor, twice it as a
+  // ceiling, and the separator beside the column as the way between them. The
+  // live width is published as a custom property on the root below rather than
+  // held here, so a drag costs no renders of the feed; see
+  // use-working-panel-width.ts.
+  const resize = useWorkingPanelWidth();
+
   return (
-    <div data-role="desktop-screen" data-connection-state={connectionState}>
+    <div
+      data-role="desktop-screen"
+      data-connection-state={connectionState}
+      data-resizing={resize.dragging ? 'true' : undefined}
+      ref={resize.shellRef}
+    >
       {/* The rail, shared verbatim with the `/kanban` board view — one
           component, not two that agree today. See DesktopRail. */}
       <DesktopRail
@@ -273,6 +294,37 @@ export function DesktopScreenView({
         />
         <Backlog tickets={waiting} onOpenTicket={setOpenTicketId} now={now} />
       </div>
+
+      {/* The boundary between that column and the feed, and — since the two
+          readings it separates are worth different amounts to different people
+          on different windows — the handle that moves it. It is the rule itself
+          rather than a mark beside it (DesktopScreen.css), so the resting screen
+          gains nothing to look at: what it gains is a `col-resize` cursor when
+          the pointer is over the line, which is the whole of how a split view
+          announces itself on a desk.
+
+          A `separator` with a value, not a slider and not a button: this is the
+          ARIA window-splitter, so the keyboard path is the pointer's (arrows
+          step the width, Home/End go to the ends) and `aria-valuenow` reports
+          where the boundary actually is. The bounds are stated here because they
+          never change; the value is written by the hook, which is the only thing
+          that knows it — see use-working-panel-width.ts for why it is not a
+          prop. */}
+      <div
+        data-role="desktop-working-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the tickets column"
+        aria-valuemin={WORKING_PANEL_MIN_WIDTH}
+        aria-valuemax={WORKING_PANEL_MAX_WIDTH}
+        tabIndex={0}
+        ref={resize.separatorRef}
+        onPointerDown={resize.onPointerDown}
+        onPointerMove={resize.onPointerMove}
+        onPointerUp={resize.onPointerEnd}
+        onPointerCancel={resize.onPointerEnd}
+        onKeyDown={resize.onKeyDown}
+      />
 
       <main data-role="desktop-main">
         {/* The project-switch wait, stated (12 §4.1). Switching used to give no

@@ -623,6 +623,27 @@ for a day without earning a card.
   painting a session dot would be inventing a session. **Working rows sort by
   `state_changed_at` ASCENDING**, so a ticket picked up now appends at the bottom and nothing
   on screen moves; newest-first would reflow the strip under the eye.
+- **The tickets column's width belongs to the USER, and it is published imperatively**
+  (`use-working-panel-width.ts`, whose header carries the full rationale). The boundary
+  between that column and the feed is a draggable separator; the shipped 248px is the
+  **floor**, not the whole story, and the ceiling is twice it. Four things to keep:
+  - **The live width is a ref written straight to the DOM** — a custom property on the shell
+    root and the separator's `aria-valuenow` — **never React state.** A drag fires a move per
+    frame, and re-rendering the shell (the whole feed card list with it) on each one is how a
+    handle comes to feel like it drags through treacle. Both targets are single-writer, so a
+    re-render behind a drag cannot fight it. What *is* state is `dragging`, which flips twice
+    a drag and publishes `data-resizing` for the window-wide cursor and selection lock.
+  - **The rule IS the handle** — the 1px line moved off the panel's `border-right` onto the
+    separator's `border-left`, so the boundary sits at the same x and the resting screen gains
+    nothing to look at. The grab room reaches **left only**, because the feed's region paints
+    after the separator and would win the hit test on its right.
+  - **It is the ARIA window splitter**, so the keyboard path mirrors the pointer's: arrows
+    step, Home/End go to the ends. **Home is also the reset** — the default width *is* the
+    minimum — so don't add a double-click or a menu item for it.
+  - **The bounds are literals in three places** (the hook, the CSS fallback, the layout spec)
+    and that is deliberate: `tests/layout/desktop-shell.spec.ts` measures the resting width,
+    the drag and both clamps in a real browser, which is the only thing that can catch the
+    three disagreeing.
 - **Cross-project rail status is a poll, and that is deliberate.** There is no server-side
   cross-project status endpoint, and 13 §11 scopes desktop as frontend-only over existing
   contracts, so the hook reads each *non-selected* project's board on a slow interval. **If
@@ -745,8 +766,10 @@ Mostly jsdom and vaul gaps — traps you meet in tests, not in the code.
   capped sheet.**
 - **Viewport units: match the unit the container already uses.** On mobile Safari `vh` is the
   *large* viewport, so a `45vh` child inside an `85dvh` parent can claim more than it looks like.
-- **A headless screenshot of the tickets dropdown paints the heading and not the rows.** The
-  list is its own scrolling layer and comes out blank in element captures while the rows have
-  real boxes, real ink and answer `elementFromPoint`. It is a **capture artifact, not a UI
-  bug**: check geometry first, and if you need the pixels, add a throwaway style tag before the
-  shot. **Don't "fix" the stylesheet for it.**
+- **A headless screenshot of the tickets dropdown comes out blank.** `[data-role=
+  'header-status-list']` is `overflow-y: scroll`, i.e. its own scrolling layer, and in the
+  layout harness's headless Chromium it captures empty in both page and element shots — while
+  the rows have real boxes, real ink and answer `elementFromPoint`. It is a **capture
+  artifact, not a UI bug**: check geometry with `box()`/`computed()` first, and if you
+  genuinely need the pixels, add a throwaway `page.addStyleTag` overriding the overflow before
+  the shot. **Don't "fix" the stylesheet for it.**

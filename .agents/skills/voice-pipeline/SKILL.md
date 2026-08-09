@@ -1,167 +1,124 @@
 ---
 name: voice-pipeline
-description: Use when working on the voice I/O layer — speech in front of the message seam (STT → brain → on-screen text). AssemblyAI streaming STT driven from the client, backend-minted temp token. Kiln does NOT speak (no TTS). Spec 02 §9, 09.
+description: Use when working on the voice I/O layer — speech in front of the message seam (STT → brain → on-screen text). AssemblyAI streaming STT driven from the client, backend-minted temp token. Kiln does NOT speak (no TTS). Spec docs/specs/09-voice-pipeline.md.
 ---
 
-# Voice pipeline (docs 02 §9, 09)
+# Voice pipeline (mechanics decided by spec 09)
 
-## What it is (spec 09, Accepted + implemented)
+## What it is (accepted + shipped)
 
 An **input** wrapper in front of the existing message seam: **STT → brain → on-screen text**.
-Speech becomes the same `human.message` events the `07` text box produces, through the same
-`POST /api/message` (04 §7). The brain's `say` replies stay **text** (rendered in the `08`
-reply pill). **Kiln does not speak — there is no TTS anywhere** (09 §10 A1; the old `01` §3
-"STT → LLM → TTS" and the `06`/`07` TTS deferrals are closed as won't-do).
+Speech becomes the same `human.message` events the text box produces, through the same
+`POST /api/message`. The brain's `say` replies stay **text** (rendered in the 08 reply pill).
+**Kiln does not speak — there is no TTS anywhere** (09 §10 A1; `01` §3's "STT → LLM → TTS" and
+the `06`/`07` TTS deferrals are closed as won't-do).
 
 Provider: **AssemblyAI Universal-Streaming** (09 D1). Topology: the **client** opens the
 AssemblyAI WebSocket **directly**; audio never transits the Kiln backend. The only backend
-addition is a token-minting route, so the API key never leaves `/backend` (02 §2, 09 §2/D2).
+addition is a token-minting route (`POST /api/voice/token`, mint failure → 502), so the API key
+never leaves `/backend` (02 §2, 09 D2). Key from `ASSEMBLYAI_API_KEY`; `KILN_VOICE_MODE=mock`
+serves the keyless lane.
 
-## Where the code lives
-
-- **Backend token mint** — `backend/internal/voice/assemblyai/client.go`: the only file that
-  knows AssemblyAI's HTTP protocol. `MintStreamingToken(ctx) (token, expiresAt, err)` does
-  `GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=<ttl>` with header
-  `Authorization: <API_KEY>` (raw key, **not** `Bearer`), decodes `{token, expires_in_seconds}`,
-  returns `token + now+ttl`. Default TTL 8 min (≤ 10 min per 09 §6).
-- **api port + route** — `internal/api/routes.go`: the narrow `VoiceTokenMinter` port +
-  `handleVoiceToken` behind `POST /api/voice/token` (200 `wire.VoiceToken{token, expires_at}`;
-  mint failure → **502**). Wired at the composition root (`cmd/kiln/wiring.go`), key from
-  `ASSEMBLYAI_API_KEY` (main.go `Config`, docker-compose backend env).
-- **Frontend `voice/` module** (`frontend/src/voice/`):
-  - `commit-machine.ts` — **pure** reducer, the unit-test target. States `listening | paused |
-    denied | retry`; owns the settled/tail/commit rules; **no I/O**. Emits a one-tick
-    `commit` field the store consumes (it never calls the network itself).
-  - `assemblyai-client.ts` — getUserMedia → AudioContext → PCM16 worklet → binary WS frames;
-    decodes messages via the **pure exported `decodeAssemblyMessage`** (also unit-tested).
-  - `pcm-batch.ts` — the pure `PcmFramer` (Float32 → decimate to 16 kHz → batch into
-    1600-sample frames); unit-tested, the decimation/batching logic itself.
-  - `pcm-worklet.ts` — the AudioWorkletProcessor shell; loaded via `?worker&url`
-    (a plain `?url` import emits raw `.ts` that `addModule` rejects — the file documents this),
-    **never imported into the main thread** (its top-level `registerProcessor` would throw).
-  - `voice-store.tsx` / `voice-context.ts` — React glue: token fetch + proactive refresh,
-    one-silent-reconnect-then-retry, `visibilitychange` foreground-only, commit → `postMessage`.
-  - `useVoice()` → the full `VoiceStoreValue` (`voice-context.ts`): `micState`, `connecting`,
-    `settledText`, `tailText`, `pause`, `resume`, `cancel`, `sendNow` (the send button),
-    `countingDown` + `sendImminent` + `delaySend` (the "+10" control — see the grace-window note below),
-    `getLevel`, plus the keyboard-mode surface (`keyboardMode`, `openKeyboard`, `closeKeyboard`,
-    `submitText`).
-- **Dock** — `components/Dock.tsx`: presentational `useVoice()` consumer. Preserves the `08 §F`
-  selector surface (`data-role="dock"/"dock-talk"`, `aria-label="Talk"`, mic-glyph sub-elements);
-  `data-dock-state` reflects `micState`. `VoiceProvider` wraps the tree in `PrimaryScreen.tsx`
-  (the `07` `App` debug view at `/debug` has no Dock).
+Code: `backend/internal/voice/assemblyai` (the only place that knows AssemblyAI's HTTP protocol)
+and `frontend/src/voice/` — a **pure** `commit-machine.ts` reducer (settled/tail/commit rules, no
+I/O, the unit-test target), `assemblyai-client.ts` (mic → worklet → socket), `pcm-batch.ts` /
+`pcm-worklet.ts` (framing), and `voice-store.tsx` (all I/O: token lifecycle, reconnect, timers,
+the POST). **Keep decision logic in the machine and every side effect in the store** — the
+machine returns a `commit` intent; the store performs the POST.
 
 ## AssemblyAI protocol (verified live 2026-07)
 
 - **Client WebSocket:** `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&speech_model=universal-streaming-english&token=<t>`.
-  `speech_model=universal-streaming-english` **pins English** — the v3 default (`universal-3-5-pro`)
-  is multilingual and natively code-switches, so ambiguous/accented audio would leak non-English
+  `speech_model=universal-streaming-english` **pins English** — the v3 default is multilingual
+  and natively code-switches, so ambiguous or accented audio would leak non-English
   transcripts. The English-only model never code-switches.
 - Client sends **binary PCM16 mono 16 kHz** frames; closes with `{"type":"Terminate"}`.
-- Receives `{"type":"Begin",...}` then `{"type":"Turn", transcript, end_of_turn, turn_is_formatted, words[]}`.
 - **Commit trigger = a `Turn` with `end_of_turn && turn_is_formatted`** (the formatted final)
-  → `{kind:'final', text}` → settle + POST. Everything else with a transcript → `{kind:'partial'}`
-  (ghosted tail). Unformatted end-of-turn is still a partial — wait for the formatted final.
+  → settle + POST. Everything else with a transcript is a partial (the ghosted tail).
+  Unformatted end-of-turn is still a partial — wait for the formatted final.
+- **Token mint is `GET /v3/token` with `Authorization: <API_KEY>` — the raw key, NOT
+  `Bearer <key>`.** Default TTL 8 min (≤ 10 min per 09 §6).
 
 ## Testing
 
-- Unit (frontend): `commit-machine.test.ts` (09 §8 cases) + `decodeAssemblyMessage` tests.
-  Mock browser I/O — the store/Dock tests mock `@/voice/voice-context`'s `useVoice`; **never**
-  exercise a real mic/socket/network in the offline gate.
-- Unit (backend): `internal/voice/assemblyai/client_test.go` against an `httptest.Server`;
-  `internal/api` token-route tests against a `fakeVoiceTokenMinter` (happy 200, mint → 502).
-- Gated real-service smoke: `tests/tests/voice-token-mints.spec.ts` — **only** runs with
-  `KILN_VOICE_SMOKE=1` (real AssemblyAI; never in `make check`). It mints via the backend and
-  authenticates a real socket (no audio asset needed); the audio→`human.message` assertion runs
-  only when `KILN_VOICE_SAMPLE=/path/to/clip.pcm` (raw PCM16 mono 16 kHz) is supplied. Recipe:
-  bring the stack up with `ASSEMBLYAI_API_KEY` set, then `KILN_VOICE_SMOKE=1 make e2e`.
-- **Full browser E2E** (`tests/tests/voice-mic-to-brain.spec.ts`, Playwright `voice` project):
-  Chromium is launched with a **fake microphone** fed by a canned clip — no real mic. Flags:
-  `--use-fake-device-for-media-stream`, `--use-fake-ui-for-media-stream`,
-  `--use-file-for-fake-audio-capture=<abs .wav>%noloop`, and
-  `--autoplay-policy=no-user-gesture-required` (belt-and-suspenders for the AudioContext; the
-  spec taps "Talk" to start the mic — that click is itself a user gesture). The clip
-  (`tests/fixtures/this-is-a-test.wav`, mono 16 kHz PCM16) is **padded with ~1 s leading + ~1.4 s
-  trailing silence**: the lead covers the socket-open startup window (early frames are dropped
-  until the socket is OPEN), the trailing silence lets AssemblyAI fire end-of-turn (a seamless
-  loop has no pause, so use `%noloop`, not looping). It asserts the utterance lands as a
-  `human.message` and the brain runs a turn (a `kiln` reply). Generate a clip on macOS with
-  `say -o x.aiff "..."` + `afconvert -f WAVE -d LEI16@16000 -c 1 x.aiff x.wav`.
+- Unit (frontend): `commit-machine.test.ts` (09 §8 cases) + the pure `decodeAssemblyMessage` and
+  `PcmFramer` tests. Mock browser I/O — the store/Dock tests mock `useVoice`; **never** exercise
+  a real mic/socket/network in the offline gate.
+- Unit (backend): `httptest` against the mint client; the api token route against a fake minter.
+- Gated real-service smoke: `tests/tests/voice-token-mints.spec.ts` and the full browser loop
+  `tests/tests/voice-mic-to-brain.spec.ts` — **only** with `KILN_VOICE_SMOKE=1`, never in
+  `make check`. The smoke needs **no key of its own**: it mints via the backend, mirroring the
+  real trust boundary. Chromium is launched with a **fake microphone** fed by
+  `tests/fixtures/this-is-a-test.wav`, which is **padded with ~1 s leading + ~1.4 s trailing
+  silence** — the lead covers the socket-open window (early frames are dropped until the socket
+  is OPEN) and the trailing silence is what lets AssemblyAI fire end-of-turn, so use `%noloop`
+  (a seamless loop has no pause). Recipe and flags: `/tests/README.md`.
 
 ## Common footguns
 
 - **AssemblyAI rejects frames outside 50–1000 ms** (`error_code 3007` "Input Duration
-  Violation", then closes the socket). An AudioWorklet render quantum is 128 samples
-  (~2.6 ms), so the worklet MUST batch. `pcm-batch.ts`'s `PcmFramer` decimates to 16 kHz and
-  accumulates **1600-sample (~100 ms) frames** before posting — unit-tested so a regression
-  is caught in `make check` (the browser E2E is gated, not in the default gate). Symptom of
-  regressing this: the socket opens, one tiny frame is sent, `{"type":"Error",...3007}` comes
-  back, socket closes, no transcript ever lands.
-- **Don't proxy audio through the backend** (09 D2). The backend is SSE+POST only (04 D6);
-  the client streams to AssemblyAI directly. Only the temp token crosses our API.
-- **Auth header is the raw key**, not `Bearer <key>`, on the `/v3/token` GET.
-- **Mic is OFF until an explicit tap** (reverses the old 09 D3 "on by default"). The app opens
-  *Paused* ("Tap to talk") and the mic starts ONLY when the user taps the mic control (→ `resume`
-  → `startStream`). Nothing else starts it from rest: no start on mount, no foreground resume
-  (backgrounding drops a live listen to Paused and returning never reopens it). **Sending KEEPS
-  the mic live** so the user can keep speaking without re-tapping: both the send button and an
-  end-of-turn auto-commit leave the machine `listening`. They differ only in the socket. The
-  auto-commit fires *at* turn end, so the same socket safely stays open (`fireArmedSend` leaves
-  `restart` unset). The **send button fires mid-turn interim text**, so leaving that socket open
-  would let the just-sent words return in the turn's trailing final and *double-post*; instead
-  `fireDisplayedSend` keeps `listening` but flags a one-tick `restart`, and the commit effect
-  tears the socket down and **immediately reopens a fresh one** (a clean turn boundary) — a brief
-  reconnect the dock shows via `connecting`. So `startStream` callers besides `resume` are: the
-  token-refresh timer, the one-shot reconnect, and this post-send restart — all *only inside an
-  already-tapped live session*, so none activates the mic from rest. Only an explicit stop (mic
-  button / keyboard mode), background, or unmount stops the mic. Commit is still **automatic** on
-  end-of-turn (09 D4); the **X cancels** the un-committed utterance client-side (nothing was
-  sent). Empty/whitespace finals never POST (and never restart).
-- Keep decision logic in `commit-machine` (pure, testable); keep all I/O in `voice-store` /
-  `assemblyai-client`. The machine returns a `commit` intent; the store performs the POST.
-- **Grace-window timing lives in the store, not the machine.** An end-of-turn final arms
-  `state.pending` (machine); the *timer* is the store's. It runs off an **absolute deadline**
-  (`graceDeadlineRef` = `Date.now() + COMMIT_DELAY_MS`), not a fixed-duration `setTimeout`, so
-  the dock's **"+10" control (`delaySend`)** can push the deadline out mid-window and reschedule
-  (additive — taps stack) without losing elapsed time. The control floats **centred above the
-  mic** (a bubble peer to send/×, absolutely positioned out of the flanking grid) and shows only
-  in the **final `DELAY_REVEAL_WINDOW_MS` before the send fires** — surfaced by `sendImminent`
-  (store state driven by a second "reveal" timer rescheduled alongside the grace timer), a subset
-  of `countingDown` (= `state.pending !== undefined`). So a "+10" tap that pushes the deadline
-  past that stretch withdraws the bubble until the countdown runs back down into it. Extending the
-  window is I/O (a reschedule), so it stays in the store and dispatches no reducer action — the
-  machine stays pure.
-- **The transcript is editable, and an edit FREEZES that countdown (09 §4a).** `beginEdit` /
-  `editTranscript` / `endEdit` + the `editing` flag are the surface; every view of the
-  transcript (`Dock`, `TicketDetailTranscript`, `DesktopComposer`) writes straight back to
-  `settledText` — there is **one buffer**, no local draft copy. Four things are load-bearing:
-  - **The freeze is banked, not a paused deadline.** `holdGraceTimer` records
-    `deadline - now` into `heldRemainingRef` **inside the `beginEdit`/`editTranscript`
-    callback**, before `editing` flips — the grace effect's cleanup runs on that flip and
-    nulls `graceDeadlineRef`, so reading it after would see a fresh full window instead of
-    the remainder. `endEdit` just drops `editing`; the effect resumes with `held ?? COMMIT_DELAY_MS`.
-  - **The grace effect must keep its `editing` early-return.** Each keystroke re-points
-    `pending` at the corrected text, which re-runs the effect — without that branch every
-    character would restart the countdown under the user's hands.
-  - **`pending` survives an edit** (unlike `pause`/`cancel`, which clear it) and follows the
-    edited text; editing to empty disarms it. Don't "tidy" `beginEdit` into a `pause`.
-  - **`resume`/`cancel`/`sendNow`/`openKeyboard` all clear `editing`.** A stale `editing`
-    freezes every later auto-send forever. Background deliberately does NOT clear it — a
-    half-corrected sentence must not post while the app is hidden.
-  - Both mobile views render the field on the *same* store flag while the sheet is open, so
-    each keeps a `startedEditRef` and only the surface that was tapped takes the caret.
+  Violation", then closes the socket). An AudioWorklet render quantum is 128 samples (~2.6 ms),
+  so the worklet MUST batch: `PcmFramer` decimates to 16 kHz and accumulates **1600-sample
+  (~100 ms) frames** before posting. Symptom of regressing this: the socket opens, one tiny
+  frame is sent, `{"type":"Error",...3007}` comes back, socket closes, no transcript ever lands.
+- **Don't proxy audio through the backend** (09 D2). The backend is SSE+POST only; only the
+  temp token crosses our API.
+- **`pcm-worklet.ts` is loaded via `?worker&url`** — a plain `?url` import emits raw `.ts` that
+  `addModule` rejects — and must **never** be imported into the main thread (its top-level
+  `registerProcessor` would throw).
+- **Mic is OFF until an explicit tap** (reversing 09 D3's "on by default"). The app opens
+  *Paused* ("Tap to talk") and the mic starts ONLY on the mic control. Nothing else starts it
+  from rest: no start on mount, and **no foreground resume** — backgrounding drops a live listen
+  to Paused and returning never reopens it. The other `startStream` callers (token-refresh
+  timer, the one-shot reconnect, the post-send restart below) fire *only inside an already-tapped
+  live session*.
+- **Sending KEEPS the mic live** so the user can keep speaking without re-tapping — both the
+  send button and an end-of-turn auto-commit leave the machine `listening`. They differ only in
+  the socket: the auto-commit fires *at* turn end, so the same socket safely stays open, but the
+  **send button fires mid-turn interim text**, and leaving that socket open would let the
+  just-sent words return in the turn's trailing final and **double-post**. So a displayed send
+  flags a one-tick `restart` and the commit effect tears the socket down and immediately reopens
+  a fresh one at a clean turn boundary — a brief reconnect the dock shows via `connecting`.
+- **The X cancels the un-committed utterance client-side** (nothing was sent); commit stays
+  automatic on end-of-turn (09 D4). Empty/whitespace finals never POST and never restart.
 - Escape-hatch ban (02 §4b): no `any`/`as` — narrow `unknown` with guards. The strict
   `.golangci.yml` (err113/errcheck-check-blank/mnd/nonamedreturns/lll) rejects the "obvious"
   Go — use static wrapped sentinels, a lone named-error return for deferred body-close, named
   timeout consts, and `max(...)` over an `if` (mirror the amika adapter).
 
+## The grace window and the editable transcript (09 §4a)
+
+An end-of-turn final does not post immediately: it **arms** a send and a countdown runs. This is
+the subtlest part of the module and every rule below is load-bearing.
+
+- **Timing lives in the store, not the machine.** The machine arms `state.pending`; the *timer*
+  is the store's, and it runs off an **absolute deadline**, not a fixed-duration `setTimeout`, so
+  the dock's **"+10" control** can push the deadline out mid-window and reschedule (additive —
+  taps stack) without losing elapsed time. The control shows only in the final reveal stretch
+  before the send fires, so a "+10" tap that pushes the deadline past that stretch withdraws the
+  bubble until the countdown runs back down into it. Extending the window is I/O, so it stays in
+  the store and dispatches no reducer action — the machine stays pure.
+- **The transcript is editable, and an edit FREEZES the countdown.** Every view of the
+  transcript (`Dock`, `TicketDetailTranscript`, `DesktopComposer`) writes straight back to
+  `settledText` — there is **one buffer**, no local draft copy. Four things are load-bearing:
+  - **The freeze is banked, not a paused deadline.** The remaining time is recorded *inside* the
+    edit callback, **before** `editing` flips — the grace effect's cleanup runs on that flip and
+    nulls the deadline, so reading it after would see a fresh full window instead of the
+    remainder.
+  - **The grace effect must keep its `editing` early-return.** Each keystroke re-points `pending`
+    at the corrected text and re-runs the effect; without that branch every character would
+    restart the countdown under the user's hands.
+  - **`pending` survives an edit** (unlike `pause`/`cancel`, which clear it) and follows the
+    edited text; editing to empty disarms it. Don't "tidy" `beginEdit` into a `pause`.
+  - **`resume`/`cancel`/`sendNow`/`openKeyboard` all clear `editing`.** A stale `editing` freezes
+    every later auto-send forever. Backgrounding deliberately does NOT clear it — a
+    half-corrected sentence must not post while the app is hidden.
+- **Both mobile views render the field on the *same* store flag** while the ticket sheet is
+  open, so each keeps a `startedEditRef` and only the surface that was tapped takes the caret.
+
 ## Potential gotchas
 
 - **Token expiry:** the store schedules a proactive refresh ~30 s before `expires_at` and
   reconnects transparently, preserving any on-screen transcript (09 §5).
-- **Foreground-only (09 §3, 01 §10):** `visibilitychange` hidden → stop the socket; visible →
-  resume **unless the user explicitly paused** (pause is sticky across background).
 - **One silent reconnect** on socket/token failure, then **Retry** with the un-committed
   transcript preserved (09 §5). The reconnect budget resets on a healthy `Begin`.
-- The gated smoke test needs **no key of its own** — it mints via the backend, mirroring the
-  real trust boundary (the worktree has no `.env`; the running backend holds the key).

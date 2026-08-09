@@ -1,150 +1,115 @@
 ---
 name: notifications
-description: Use when working on notification transport — reaching the user when the app is backgrounded or closed and the orchestrator needs them (e.g. a ticket moving to Blocked). Spans the frontend registration/tap-handling and the runtime send path. Spec 02 §10.
+description: Use when working on notification transport — reaching the user when the app is backgrounded or closed and the orchestrator needs them (e.g. a ticket moving to Blocked). Spans the frontend registration/tap-handling and the runtime send path. Web Push; no dedicated spec doc.
 ---
 
-# Notification transport (doc 02 §10)
+# Notification transport (Web Push)
 
-## Functional Requirements
+## What it is
 
-**Responsibility.** Reach the user when the app is backgrounded or closed and the
-orchestrator needs them (`01` §7) — e.g. a ticket moving to Blocked.
+Reach the user when the app is backgrounded or closed and the orchestrator needs them
+(`01` §7) — e.g. a ticket moving to Blocked. The trigger is the `notify.send` outbox topic
+(03 §7.1), emitted on genuine ticket state transitions; the delivery is **Web Push**
+(RFC 8291/8292 via `github.com/SherClockHolmes/webpush-go`).
 
-**Interface.** A send-notification capability the brain / runtime invoke (`notify.send`
-outbox topic, 03 §7.1); a deep link that opens the app to the already-updated board.
+> **There is no notifications spec doc.** `02` §3's table pinned the transport to "managed
+> push, chosen in §10" and `02` stops at §4 — those surface-area sections were never written.
+> The decisions live in this skill and in
+> `docs/superpowers/specs/2026-07-12-push-foreground-presence-design.md`. (`docs/specs/10-*`
+> is *infrastructure*, not notifications.)
 
-**Dependencies.** A push provider (Web Push); the runtime (§7); the client (§11) for
-registration and tap-handling.
+Settled: opt-in subscribe, server prunes on 404/410, server-side unsubscribe
+(`DELETE /api/push/subscribe`) on opt-out; per-user frequency **mode** (`ModeBlocked` vs
+`ModeAll`, `push.go`); deep link opens the app onto the already-updated board.
 
-**Decisions (resolved — landed end-to-end, 02 §10).**
-- [x] Push transport → **Web Push** (RFC 8291/8292 via `github.com/SherClockHolmes/webpush-go`).
-- [x] Which events fire a notification → genuine ticket state transitions (e.g. Blocked),
-      gated by the per-user notification **mode** (`ModeBlocked` vs `ModeAll`, `push.go`).
-- [x] Deep-link / tap-to-open → `/app` (ticketless) or `/app?ticket=<id>` (the SW hands it
-      to a live tab via `postMessage`, else `openWindow`).
-- [x] Registration and token lifecycle → opt-in subscribe, server prunes on 404/410, and a
-      server-side unsubscribe (`DELETE /api/push/subscribe`) on opt-out.
+**Both VAPID keys unset ⇒ push disabled, log-only** (`logNotifier`). The `notify.send`
+outbox contract is unchanged by any of this — only its executor became real.
 
-## How to work here
+## The deep link is `/app?project=<id>[&ticket=<id>]`
 
-The `notify.send` outbox contract (03 §7.1) is unchanged — only its executor became real
-(Web Push). Both keys unset ⇒ push disabled, log-only (`logNotifier`).
+One format, two consumers, and `stores/deep-link.ts` is the only parser. The **project** half
+goes to the current-project store, which switches the app to the firing project (12 §6.3) —
+via `?project=` at render on a cold open, via a `kiln:navigate` `postMessage` on a live tab.
+The **ticket** half goes to `use-deep-link-ticket.ts`, which opens the detail overlay. Either
+half may be absent: a ticketless notify lands on the project alone, and an older payload with
+no project opens the ticket wherever the user is. (`/` is the marketing landing page — never
+deep-link there.)
 
-**Where the pieces live:**
-- **Send path (backend):** `internal/push` — `Store` (subscriptions), `Sender` (encrypt +
-  POST per subscription, prune 404/410). The runtime's `notify.send` routes to a
-  `runtime.Notifier`; `cmd/kiln` picks `webPushNotifier` (real) vs `logNotifier` (fallback)
-  in `newNotifier` based on whether the VAPID env pair is set. `webPushNotifier` decodes the
-  `board.NotifyPayload` snapshot (Title/Reason → Title/Body).
-- **Registration (frontend):** `src/stores/use-web-push.ts` (`useWebPush` hook) runs the
-  opt-in flow (permission → register `/push-sw.js` → subscribe with the VAPID key →
-  `POST /api/push/subscribe`). The Settings surface is
-  `dashboard/NotificationsField.tsx` — one row whose **dropdown** spans both halves of the
-  setting: **Off** is this browser's subscription (selecting it unsubscribes), and
-  **Default / Blocked / All** are the global mode the bell menu also offers (via
-  `useNotificationMode`), selecting one of which runs the opt-in too when the browser
-  hasn't subscribed yet. So the selection shown is the stored mode only once subscribed —
-  an unsubscribed browser reads "Off" whatever mode the account holds.
-- **The bell is a DESK affordance now — on a phone, that Settings row is the only entry.**
-  The phone's top bar dropped it (the bar had grown too many icons), so
-  `NotificationSettingsMenu` mounts in the desktop rail's foot and nowhere else. The way in
-  from a phone is the project switcher's last item, "Settings", which opens `/dashboard`.
-  Both halves of the setting live there, so nothing became unreachable — but a change to
-  the bell menu alone no longer reaches the majority surface.
-- **Service worker:** `frontend/public/push-sw.js` — a **static, hand-written** worker
-  (`push` + `notificationclick` only). It suppresses the notification when a Kiln tab is
-  already foregrounded, and the deep link (`/app?project=<id>[&ticket=<id>]`; `/` is the
-  marketing landing page) is handed to a live tab via
-  `postMessage({type:'kiln:navigate'})`, falling back to `openWindow` on a cold start.
-- **Tap handling (frontend):** `src/stores/deep-link.ts` is the one parser + service-worker
-  subscription; the link's two halves are consumed by two owners. The **project** half goes
-  to the current-project store (`stores/current-project.tsx`), which switches the app to the
-  firing project (12 §6.3) — via `?project=` at render on a cold open, via a `kiln:navigate`
-  message on a live tab. The **ticket** half goes to `components/use-deep-link-ticket.ts`,
-  which opens the detail overlay. See the cross-project trap below.
-- **Wire** (`schema/openapi.yaml`): `GET /api/push/key` (VAPID public key, 404 when
-  unconfigured), `POST /api/push/subscribe` + `DELETE /api/push/subscribe` (server-side
-  unsubscribe on opt-out), `GET`/`PUT /api/push/mode` (the per-user `ModeBlocked`/
-  `ModeAll` frequency toggle), and `POST /api/presence` (foreground-presence heartbeat,
-  below).
-- **Server-side foreground dedup (02 §10, design `2026-07-12-push-foreground-presence`):**
-  the SW's in-tab suppression is disabled on iOS (skipping a *received* push there burns the
-  `userVisibleOnly` budget and revokes the subscription), so iOS-safe dedup happens on the
-  server by **not sending at all**. `usePresence` (`src/stores/use-presence.ts`, mounted in
-  `PrimaryScreenBody`) heartbeats `POST /api/presence {visible:true, endpoint}` every 15s
-  while the tab is visible and best-effort `sendBeacon {visible:false}` on hide. The api
-  stamps `push_subscriptions.last_seen_foreground_at` (server clock, migration `0004`) via
-  `PushRegistrar.TouchForeground`, and `push.Sender.Send` **skips** a device whose lease is
-  younger than `presenceTTL` (30s), logging the skip. **Fail-open is load-bearing:** a nil/
-  stale lease, a read error, or no presence ever reported all resolve to *send* — the check
-  can only ever cause a duplicate, never a miss (a missed Blocked ticket stalls orchestration;
-  a redundant banner is a nuisance). Keep the TTL short and never let suppression become a
-  gate. `usePresence` no-ops when there is no push subscription (nothing to suppress).
+## Where the pieces live
+
+- **Send path:** `internal/push` — `Store` (subscriptions) + `Sender` (encrypt, POST per
+  subscription, prune 404/410). `cmd/kiln`'s `newNotifier` picks `webPushNotifier` vs
+  `logNotifier` on whether the VAPID env pair is set.
+- **Registration:** `stores/use-web-push.ts` runs the opt-in flow (permission → register
+  `/push-sw.js` → subscribe → `POST /api/push/subscribe`).
+- **Service worker:** `frontend/public/push-sw.js` — `push` + `notificationclick` only.
+- **Wire:** `GET /api/push/key`, `POST`/`DELETE /api/push/subscribe`, `GET`/`PUT
+  /api/push/mode`, `POST /api/presence`.
+- **Settings UI:** `dashboard/NotificationsField.tsx` — one row whose dropdown spans **both
+  halves** of the setting. **Off** is this browser's subscription (selecting it
+  unsubscribes); **Default / Blocked / All** are the account-wide mode, and picking one runs
+  the opt-in too if this browser hasn't subscribed. So an unsubscribed browser reads "Off"
+  whatever mode the account holds.
+- **Entry points:** the bell (`NotificationSettingsMenu`) is a **desktop-rail affordance
+  only** — the phone's top bar gave it up, and the way in from a phone is the project
+  switcher's "Settings", which opens `/dashboard`. Nothing became unreachable, but a change
+  to the bell menu alone no longer reaches the majority surface. Shell placement rules are
+  `web-client`'s; don't restate them here.
 
 **Credential:** the operator supplies `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
-`VAPID_SUBJECT` (never generated by the app). Both keys unset ⇒ push disabled, log-only.
-`VAPID_SUBJECT` must be a **bare email** (or an `https:` URL), NOT `mailto:...` —
-webpush-go prepends `mailto:` itself, and the doubled prefix makes Apple reject every
-send with `403 {"reason":"BadJwtToken"}` (FCM/Mozilla tolerate it, so only iOS breaks).
-
-**How to test the send path:** `internal/push/sender_test.go` points a subscription
-`Endpoint` at an `httptest` server, generates a throwaway pair with
-`webpush.GenerateVAPIDKeys()`, and asserts delivery + that a `410` prunes via the store.
-Frontend flow: mock `navigator.serviceWorker`/`PushManager`/`Notification` + the transport
-(`use-web-push.test.tsx`).
+`VAPID_SUBJECT` (never generated by the app).
 
 ## Common footguns
 
-- **The SW is static (`public/push-sw.js`), not built.** We dropped vite-plugin-pwa's
-  service worker: its `injectManifest` output name is `.mjs` and esbuild strips the
-  `self.__WB_MANIFEST` token, and a TS worker can't be typed under the app's DOM lib
-  without the banned `as`. The static worker is served verbatim, precaches nothing, and is
-  excluded from eslint. The web manifest is now static too (`public/manifest.webmanifest`).
+- **`VAPID_SUBJECT` must be a bare email** (or an `https:` URL), **NOT** `mailto:…` —
+  webpush-go prepends `mailto:` itself, and the doubled prefix makes Apple reject every send
+  with `403 {"reason":"BadJwtToken"}`. FCM and Mozilla tolerate it, so **only iOS breaks** —
+  which is how this survives a "works on my machine" check.
+- **The SW is static (`public/push-sw.js`), not built.** vite-plugin-pwa's worker was dropped:
+  its `injectManifest` output name is `.mjs`, esbuild strips the `self.__WB_MANIFEST` token,
+  and a TS worker can't be typed under the app's DOM lib without the banned `as`. It is served
+  verbatim and excluded from eslint. The web manifest is static too.
 - **Precache nothing.** A precaching SW once caused a stale-shell outage; the worker only
   handles push and clears legacy caches on activate. Never add app-shell precaching here.
-- Send is **best-effort per subscription** — one dead endpoint must not fail the outbox
-  entry (a duplicate is benign, 04 §3). `Send` returns nil on per-device failures.
+- **Send is best-effort per subscription** — one dead endpoint must not fail the outbox entry
+  (a duplicate is benign, 04 §3), so `Send` returns nil on per-device failures.
 
-## Persistent tests
+## Persistent test — the bell panel must fit on screen
 
-Run these every time you touch this area, not just the change in front of you.
-
-- **The bell settings panel must fit on screen — check it whenever you touch notification
-  UI.** The dropdown (`NotificationSettingsMenu.tsx`, styled in `PrimaryScreen.css` under
-  `[data-role='notify-settings-panel']`) is a flex column: a fixed heading, a
-  `flex: 1; min-height: 0; overflow-y: auto` options **list**, and a fixed permission
-  button. That structure caps the whole panel at `max-height` and keeps the permission
-  button reachable no matter how many mode options the list carries. It regressed once when
-  a mode option was added and the panel — then one `overflow: hidden` block — clipped its
-  bottom off-screen. So: whenever you **add, remove, or reword a mode option** (or change
-  option copy, padding, or the panel's `max-height`), open the bell — in the desktop rail's
-  foot, its one remaining placement — on a short viewport and
-  confirm all options + the permission button stay visible and the list scrolls instead of
-  the panel overflowing. Keep the heading and permission button `flex-shrink: 0` and the
-  scroll region on the list, not the panel.
+**Nothing in the gate measures this**, so check it by hand whenever you **add, remove, or
+reword a mode option** (or change option copy, padding, or the panel's `max-height`). The
+dropdown is a flex column: fixed heading, a `flex: 1; min-height: 0; overflow-y: auto`
+options **list**, fixed permission button — which caps the panel and keeps the button
+reachable however many options the list carries. It regressed once when a mode was added and
+the panel, then one `overflow: hidden` block, clipped its bottom off-screen. Open the bell in
+the desktop rail's foot on a short viewport and confirm the list scrolls rather than the
+panel overflowing. Keep the heading and button `flex-shrink: 0`.
 
 ## Potential gotchas
 
-- **A cross-project tap fights the project switch — the ticket needs a hand-off.** The whole
-  data subtree is keyed by project id (`CurrentProjectProvider`, 12 §4.1), so switching
-  projects **remounts the primary screen and throws away its open-ticket state**. Opening the
-  ticket and switching the project in the same tap therefore cannot both be plain `setState`:
-  the switch wins and the ticket silently never opens. The switching side parks the id
-  (`stashDeepLinkTicket`) and the *remounted* screen takes it in its mount effect
-  (`takeDeepLinkTicket`) — module-level state precisely because it must outlive the subtree
-  being torn down. `current-project.test.tsx` covers it end-to-end (drop the stash and the
-  test goes to `'none'`). Anything else a tap must carry into the new project needs the same
-  treatment.
-- **Never select a project id that isn't in `me.projects`.** The store resolves an unknown
-  selected id to `projects[0]`, so a tap naming a deleted/foreign project would silently yank
-  the user to their *first* project — worse than ignoring the tap. The live tap handler
+- **iOS-safe foreground dedup happens on the SERVER, by not sending at all.** The SW's in-tab
+  suppression is disabled on iOS — skipping a *received* push there burns the
+  `userVisibleOnly` budget and revokes the subscription. So `usePresence` heartbeats
+  `POST /api/presence` every 15 s while the tab is visible, the api stamps
+  `last_seen_foreground_at` (server clock), and `Sender.Send` **skips** a device whose lease
+  is younger than `presenceTTL` (30 s). **Fail-open is load-bearing:** a nil/stale lease, a
+  read error, or no presence ever reported all resolve to *send*. The check can only ever
+  cause a duplicate, never a miss — a missed Blocked ticket stalls orchestration, a redundant
+  banner is a nuisance. Keep the TTL short and never let suppression become a gate.
+- **A cross-project tap fights the project switch — the ticket needs a hand-off.** The data
+  subtree is keyed by project id (12 §4.1), so switching **remounts the primary screen and
+  throws away its open-ticket state**. Opening the ticket and switching project in one tap
+  therefore cannot both be plain `setState`: the switch wins and the ticket silently never
+  opens. The switching side parks the id (`stashDeepLinkTicket`) and the *remounted* screen
+  takes it in its mount effect (`takeDeepLinkTicket`) — module-level state precisely because
+  it must outlive the subtree being torn down. Anything else a tap must carry into the new
+  project needs the same treatment.
+- **Never select a project id that isn't in `me.projects`.** The store resolves an unknown id
+  to `projects[0]`, so a tap naming a deleted or foreign project would silently yank the user
+  to their *first* project — worse than ignoring the tap. The live tap handler
   membership-checks before switching.
-- **Per-user routing (11 phase 2):** subscriptions and the notification mode are keyed by
-  `user_id` (`push_subscriptions.user_id`, `push_user_settings`; migration
-  `0003_user_tenancy.sql`). A `notify.send` carries a project; `webPushNotifier` resolves
-  `projectID → owner userID` (`ownerLookup`) and fans out to only that one user's browsers —
-  not globally.
-- Web Push needs a **secure context** (https or localhost); it silently won't work over
+- **Routing is per user** (11 phase 2): subscriptions and mode are keyed by `user_id`. A
+  `notify.send` carries a project; `webPushNotifier` resolves `projectID → owner userID` and
+  fans out to only that user's browsers, never globally.
+- Web Push needs a **secure context** (https or localhost) — it silently won't work over
   plain-http LAN. `Notification.requestPermission()` must be user-gesture driven.
-- `errcheck` runs with `check-blank: true` — `_ = x.Close()` is flagged; close via the
-  named-error-return + deferred check idiom (see `internal/board/postgres`).

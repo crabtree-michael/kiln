@@ -733,6 +733,40 @@
   overflow-y: scroll;
 }
 
+/* Always scrollable in BOTH directions, at every ticket count. Reserving the
+   gutter above only ever promised the scrollbar; below six rows the list is
+   shorter than its own cap, so scrollHeight equalled clientHeight and there was
+   nothing to scroll — the panel dropped down and then sat inert under the
+   finger, which is the "you can only pull it down" feel. The spacer below sits
+   one pixel past the content's end and is OUT of flow, so it extends the
+   scrollable overflow region without adding a pixel to the laid-out list (an
+   absolutely positioned child doesn't contribute to its parent's auto height):
+   the panel is sized to its tickets exactly as before, with no dead space under
+   a short list, but scrollHeight now stays greater than clientHeight whatever
+   the count. That is what lets the native rubber-band engage, so the list moves
+   up as freely as it moves down and reads as a table view rather than a block.
+
+   Same idiom, and the same reasoning, as [data-role='feed-scroll'] above —
+   including the touch-only scope: a desktop pointer has no rubber-band to
+   unlock, and the pixel would only put a thumb in the gutter with nowhere to
+   go. */
+@media (hover: none) and (pointer: coarse) {
+  [data-role='header-status-list'] {
+    position: relative;
+  }
+
+  [data-role='header-status-list']::after {
+    content: '';
+    position: absolute;
+    /* Below the padding box, not `top: 100%` — same placement, but it doesn't
+       lean on a percentage resolving against a content-sized box. */
+    bottom: -1px;
+    left: 0;
+    width: 1px;
+    height: 1px;
+  }
+}
+
 [data-role='header-status-row'] {
   display: grid;
   grid-template-columns: auto 1fr;

@@ -672,7 +672,12 @@
   cursor: text;
 }
 
-[data-role='ticket-detail-transcript-input'] {
+/* The typed-input field shares that rule: in keyboard mode this panel IS the
+ * field, so it must read as the same chromeless centred line the transcript and
+ * its correction field do — one place where the message being composed appears,
+ * whichever input composed it. */
+[data-role='ticket-detail-transcript-input'],
+[data-role='ticket-detail-input'] {
   display: block;
   width: 100%;
   min-height: 1.5em;
@@ -687,6 +692,12 @@
   line-height: inherit;
   text-align: center;
   color: var(--text-body);
+}
+
+/* The placeholder is the only thing in the panel that is not the user's own
+ * words, so it takes the faintest ink — the same reading the ghosted tail gets. */
+[data-role='ticket-detail-input']::placeholder {
+  color: var(--text-faint);
 }
 
 [data-role='ticket-detail-settled'] {
@@ -755,6 +766,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* The lead group — the mic, and at rest the keyboard toggle beside it. Same
+ * reason the send group below is one box: `space-between` distributes the
+ * cluster's children, so a loose toggle would be flung to the row's far end,
+ * next to Accept, instead of sitting where it belongs — beside the mic, as the
+ * other way into the same message. Grouping them also fixes the mic as the
+ * group's first child and the group as the cluster's first child, which is what
+ * keeps the mic on the row's left edge in every reading. */
+[data-role='ticket-detail-voice-mic'] {
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 

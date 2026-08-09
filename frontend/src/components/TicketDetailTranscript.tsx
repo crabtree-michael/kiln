@@ -1,4 +1,17 @@
-// The live-transcript line for the ticket detail sheet's dock (08 §5, 09 §4).
+// The message panel in the ticket detail sheet's dock (08 §5, 09 §4) — the live
+// voice transcript, and, in typed input, the field that replaces it.
+//
+// The keyboard half reuses this very container rather than opening one of its
+// own, exactly as the main Dock's `dock-transcript` swaps its read-only spans for
+// `dock-input`: one panel above the controls, same paper, same centred type, same
+// bound — so the sheet has ONE place where the message being composed appears,
+// whichever input composed it. The draft it renders is not its own (the Send and
+// × for it live in the sheet's other dock slot, so the state is held by
+// `TicketDetailHost` — see `useTicketKeyboard`); this file only draws the field
+// and grows it with its content.
+//
+// The voice half:
+//
 // While the user talks to the brain about the open proposal, the words land here —
 // inside the sheet's own dock, above the action buttons — so they can watch the
 // transcript without leaving the sheet. (Previously the transcript only landed in
@@ -22,10 +35,21 @@
 // Requires a `VoiceProvider` ancestor, so — like the sheet's mic (`voiceControl`) —
 // only the primary screen wires it in; a read-only sheet opens without one and
 // passes nothing, so this never mounts there.
-import { useEffect, useRef, type JSX } from 'react';
+import { useEffect, useRef, type JSX, type KeyboardEvent } from 'react';
 import { useVoice } from '@/voice/voice-context';
+import type { TicketKeyboard } from '@/components/use-ticket-keyboard';
 
-export function TicketDetailTranscript(): JSX.Element | null {
+export interface TicketDetailTranscriptProps {
+  /** The sheet's typed-input state, owned by `TicketDetailHost` and shared with
+   *  the footer cluster that carries this field's Send and ×. Required rather
+   *  than optional so a shell cannot mount the panel with no way to type into
+   *  it while the footer offers the toggle. */
+  keyboard: TicketKeyboard;
+}
+
+export function TicketDetailTranscript({
+  keyboard,
+}: TicketDetailTranscriptProps): JSX.Element | null {
   const { micState, settledText, tailText, editing, beginEdit, editTranscript, endEdit } =
     useVoice();
   const ref = useRef<HTMLDivElement | null>(null);
@@ -96,6 +120,62 @@ export function TicketDetailTranscript(): JSX.Element | null {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight.toString()}px`;
   }, [settledText, editing]);
+
+  // Typed input: put the caret in the field the moment the mode opens, so the tap
+  // on the keyboard toggle is the only tap it costs to start writing. Unlike the
+  // main Dock's field there is no race to arbitrate here — the sheet's typed mode
+  // is its own flag, so the dock behind the scrim never opens a second field to
+  // lose the caret to (see `useTicketKeyboard`).
+  const keyboardOpen = keyboard.open;
+  const inputRef = keyboard.inputRef;
+  useEffect(() => {
+    if (!keyboardOpen) {
+      return;
+    }
+    inputRef.current?.focus();
+  }, [keyboardOpen, inputRef]);
+
+  // ...and grow it with its content, exactly as the correction field above does —
+  // the panel's own 45dvh cap and internal scroll still bound it.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (el === null) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight.toString()}px`;
+  }, [keyboard.draft, keyboardOpen, inputRef]);
+
+  const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Enter sends; Shift+Enter inserts a newline for a multi-line message. Same
+    // bargain the dock's field strikes.
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      keyboard.submit();
+    }
+  };
+
+  // Typed input takes the panel over wholesale: `begin` stopped the mic and
+  // dropped whatever it had heard, so there is no transcript underneath to show
+  // and nothing to stack it above.
+  if (keyboardOpen) {
+    return (
+      <div data-role="ticket-detail-transcript" data-dock-state="keyboard">
+        <textarea
+          data-role="ticket-detail-input"
+          ref={inputRef}
+          rows={1}
+          value={keyboard.draft}
+          onChange={(event) => {
+            keyboard.setDraft(event.target.value);
+          }}
+          onKeyDown={onInputKeyDown}
+          placeholder="Type a message…"
+          aria-label="Message"
+        />
+      </div>
+    );
+  }
 
   // Visible only when there is a transcript on screen — i.e. only while the user
   // is actively speaking (text clears the moment the utterance is sent or the ×

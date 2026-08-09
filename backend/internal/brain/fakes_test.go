@@ -8,8 +8,11 @@ package brain_test
 // internal/brain/ports.go and internal/brain/llm.go.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,6 +117,37 @@ func toolUse(calls ...brain.ToolCall) brain.LLMResponse {
 
 func endTurn(text string) brain.LLMResponse {
 	return brain.LLMResponse{StopReason: brain.StopEndTurn, Text: text}
+}
+
+// truncated scripts a round the model did not finish: it ran into the output
+// ceiling partway through, so the last of these calls is the one whose
+// arguments the API cut in half (06 §5).
+func truncated(text string, calls ...brain.ToolCall) brain.LLMResponse {
+	return brain.LLMResponse{StopReason: brain.StopMaxTokens, Text: text, Calls: calls}
+}
+
+// --- log capture -------------------------------------------------------
+
+// logSink collects everything the package logs through slog.Default() while a
+// test runs. The pass loop's "these calls went nowhere" records are the only
+// externally visible evidence that a dropped call was not dropped silently, so
+// a test that pins that rule has to read them.
+type logSink struct{ buf *bytes.Buffer }
+
+// mentions reports whether any captured record contains substr anywhere in it.
+func (l logSink) mentions(substr string) bool {
+	return strings.Contains(l.buf.String(), substr)
+}
+
+// captureLogs installs a text handler as the default logger for the duration of
+// the test. Safe because no test in this package runs in parallel.
+func captureLogs(t *testing.T) logSink {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return logSink{buf: buf}
 }
 
 // --- fake BoardAPI / BoardReader ---------------------------------------

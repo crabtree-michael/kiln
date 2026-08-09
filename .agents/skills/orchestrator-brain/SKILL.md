@@ -28,6 +28,13 @@ the repo.
 reads a pass now makes before acting), tool errors fed back verbatim, no mid-pass snapshot
 refresh, no streaming.
 
+**A round that is cut off is repaired, not returned from.** `maxOutputTokens` is 16384 (raised
+from 4096, which a real batched-read-plus-instructions round hit), and `max_tokens` maps to its
+own `StopMaxTokens` rather than being folded into `StopEndTurn`. The loop dispatches everything
+in a truncated round *except its last call* — the only one the cut can land inside — and
+re-prompts with a note saying the dropped call never ran. Nothing else drops calls silently:
+every path that discards them logs which ones (`logUndispatchedCalls`).
+
 **Idempotency has no dedupe table**: fresh state + the board's strict preconditions (03 D8) +
 the prompt rule *"treat `ErrInvalidTransition` as already done, never retry"*. A duplicate
 `say` on crash-replay is accepted (06 D5).
@@ -84,6 +91,18 @@ via `say`, ending the pass; unambiguous commands execute immediately. Golden tes
   the patch facade in `update_ticket.go`.
 
 ## Common footguns
+
+- **"Improving" the truncation path into something smarter.** Two rules there look
+  over-cautious and are not. (1) The last call of a truncated round is dropped
+  *unconditionally*, without first checking whether its JSON parses — a cut-off arguments
+  object frequently still parses into a valid, **different** action (slice
+  `{"id":"t-9","state":"done","done_commit":"…"}` before the commit and you have a done with no
+  gate), so "does it unmarshal" tests nothing. Re-issuing a wrongly dropped call is cheap; the
+  memo answers a repeated read from the conversation. (2) A truncated round that leaves nothing
+  usable — no text, no complete call — **fails the pass** rather than continuing on a
+  synthesized assistant turn, because a truncated `tool_use` block cannot be echoed back
+  (`json.RawMessage` holding half an object fails to marshal) and dead-lettering is loud where
+  a quiet return is exactly the bug this replaced.
 
 - **Re-introducing prompt versioning.** There is one `systemPrompt` const in `prompt.go`;
   versioning existed and was removed by user decision (git history has v1/v2). Edit it in

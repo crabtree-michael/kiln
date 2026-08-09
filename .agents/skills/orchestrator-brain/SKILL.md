@@ -136,6 +136,16 @@ Say + ConversationReader (07 §3). Stateless; no tables, no migrations.
   (work is in a pull request). The mode comes from the project's `merge_gate_mode` setting
   (`GatePR` etc. in `tools.go`); a refusal is steered back to the agent to actually land the
   work, not surfaced to the user.
+- **The `main` gate reuses the model's `git fetch`, it does not repeat it.** The prompt has
+  the model fetch via `bash` before it looks up the commit, so `repo.Shell.VerifyOnMain` used
+  to run a second full fetch seconds later inside the same loop (171 of 171 accepted dones —
+  `docs/brain-optimization-2026-08-08-measured.md` §6). It now skips its own fetch when
+  `.git/FETCH_HEAD` is younger than `fetchFreshness` (60 s) — read from the clone, because the
+  fetch being reused went through `Run` as an opaque `sh -c` string. The invariant that keeps
+  this honest: **a negative is never returned on reused refs.** Only a positive may be, since
+  `origin/main` only grows; anything else fetches and decides again, so the gate still fails
+  closed against fetched refs. `repo.shell.verify` logs `fetched` — watch it stay `false` on
+  accepted dones.
 - `post_update` takes its prose under **`body` or `text`** (`resolvedBody()` in `tools.go`),
   though the schema advertises only `body`. The model borrows say's `text` key on ~1 in 5
   calls and used to burn a round self-correcting (`docs/brain-optimization-2026-08-05.md` §1).

@@ -777,61 +777,21 @@
   pointer-events: auto;
 }
 
-/* The list's head — a label, and now a reading of what is under it.
- *
- * It carries the shared status mark of the TOP ticket (see HeaderStatusMenu),
- * which is what the desk's in-progress head has worn since it stopped drawing a
- * dot of its own. There are no geometry, colour or animation rules for the mark
- * here either, and that absence is the design: it is the same element the rows
- * render, so it is the same 7px circle, the same ink, the same breath, from the
- * one rule above that paints the whole list.
- *
- * Two things the head does have to say. First, hold the box — the mark is a flex
- * child, and without this a long heading would take its pixels before wrapping,
- * and a squeezed circle is an oval (the rows never risk it: they lay the mark out
- * in a grid column instead).
- *
- * Second, the column. The gap is the rows' `column-gap` and the padding carries
- * the mark to where a row's mark sits (a row is inset 6px by the list's padding
- * and 10px by its own), so the head's mark and every mark under it stand in one
- * vertical line rather than a hair apart — which is the whole of reading them as
- * one reading and its list.
- *
- * The type is a title, not a caption. It used to be a 10.5px faint capital — a
- * legend for the list, quieter than anything it named, and in dark it sat at
- * --text-faint against the panel where it read as grey furniture. Now it takes a
- * ticket title's ink (--text-body, the rows' own colour) a step above their
- * 13px, so the head is the largest thing in the panel and the rows read as its
- * list. Sentence case for the same reason: capitals at this size shout a section
- * rather than name one. */
-[data-role='header-status-heading'] {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 11px 16px 7px;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: var(--tracking-display);
-  color: var(--text-body);
-}
-
-[data-role='header-status-heading'] [data-role='status-dot'] {
-  flex: none;
-}
-
 [data-role='header-status-list'] {
   list-style: none;
   margin: 0;
-  padding: 0 6px 6px;
+  /* Top padding matches the bottom: with no head above them the rows are the
+     panel's first thing, and they need the same breathing room at the top edge
+     that they have always had at the bottom one. */
+  padding: 6px;
   /* Cap the dropdown at six ticket rows, then scroll — a long board stays a
      compact, thumb-reachable list instead of running most of the viewport. A
      row is 56px (18px vertical padding + a 19.5px label line + 2px gap + a
      16.5px age line at the base 1.5 line-height), rows sit 2px apart, and the
-     list carries 6px of bottom padding: 6·56 + 5·2 + 6 = 352px. The 60vh
-     ceiling still wins on short screens so the panel can't overrun the
-     viewport — less the head above it, now 42px (11px + 7px padding around a
-     16px title's 24px line box), so the two together still fit the panel. */
-  max-height: min(352px, calc(60vh - 42px));
+     list carries 6px of padding top and bottom: 6·56 + 5·2 + 12 = 358px. The
+     60vh ceiling still wins on short screens so the panel can't overrun the
+     viewport, and with nothing above the list it is the panel's whole height. */
+  max-height: min(358px, 60vh);
   /* Always scrollable (reserve the gutter) so the list never reflows its width
      as it crosses the six-row threshold and the overflow affordance stays
      consistent whatever the ticket count. */
@@ -1013,7 +973,9 @@
 }
 
 [data-role='header-status-empty'] {
-  padding: 6px 14px 16px;
+  /* The top padding used to be 6px because a head sat above with its own
+     bottom padding. Nothing is above it now, so the line carries its own inset. */
+  padding: 14px 14px 16px;
   font-size: 12.5px;
   color: var(--text-muted);
 }
@@ -1022,7 +984,9 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 6px 14px 16px;
+  /* The top padding used to be 6px because a head sat above with its own
+     bottom padding. Nothing is above it now, so the line carries its own inset. */
+  padding: 14px 14px 16px;
   font-size: 12.5px;
   color: var(--text-muted);
 }

@@ -17,13 +17,17 @@
   position: relative;
   /* Bounded to the viewport so a long backlog scrolls INSIDE the feed region
      (its overflow-y:auto) with the dock pinned, rather than growing the page.
-     The column keeps its full height when the on-screen keyboard opens (iOS
-     Safari doesn't shrink the `dvh` layout viewport for the keyboard); the dock
-     is instead lifted above the keyboard by a compositor transform driven from
-     the visual viewport (see the `dock-region` rule + use-keyboard-viewport),
-     so no per-event resize/reflow of this column is needed. On Chrome Android
-     `interactive-widget=resizes-content` (index.html) does shrink `dvh` as the
-     keyboard animates, so this column follows the keyboard natively there. */
+
+     This height is FIXED while the on-screen keyboard is up, on every engine, and
+     that is the whole keyboard model: the keyboard overlays the app the way it
+     does in a native one, so nothing here resizes and nothing the user is looking
+     at moves. Neither browser shrinks the `dvh` layout viewport for the keyboard
+     any more — iOS Safari never did, and Chrome Android is asked not to via
+     `interactive-widget=overlays-content` (index.html). What moves instead is the
+     dock, lifted above the keyboard by a compositor transform driven off the
+     visual viewport (see the `dock-region` rule + use-keyboard-viewport), and the
+     feed's bottom padding, which reserves the covered strip as scroll room
+     (below). No per-event resize, no reflow of this column. */
   height: 100dvh;
   margin: 0 auto;
   max-width: 520px;
@@ -77,8 +81,24 @@
      the band. Reserving their sum as extra scroll inset lets the newest card be
      scrolled fully clear of BOTH overlays instead of staying tucked behind them.
      Both vars are published on the screen root and default to 0px, so an empty
-     band with a collapsed dock leaves the idle layout exactly as before. */
-  padding: 8px 26px calc(8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px));
+     band with a collapsed dock leaves the idle layout exactly as before.
+
+     A third occupant joins them when the keyboard is up: `--keyboard-inset`, the
+     strip of this region the soft keyboard covers (use-keyboard-viewport). The
+     keyboard overlays rather than resizing (see the column's height above), so
+     without this the last cards would simply be unreachable behind it — with it,
+     the covered strip becomes scroll room and any card can still be brought above
+     the keyboard. It is padding rather than a height change on purpose: growing
+     the reserve BELOW the content moves nothing already on screen, so opening the
+     keyboard costs the user no scroll position. It also carries "Show earlier"
+     with it for free — that control is sticky against this region's CONTENT box,
+     which this padding is what defines (see its rule, and the warning there
+     against naming these vars a second time in its own offset). */
+  padding: 8px 26px
+    calc(
+      8px + var(--dock-overlay-height, 0px) + var(--feed-bottom-inset, 0px) +
+        var(--keyboard-inset, 0px)
+    );
 }
 
 /* Single in-flow wrapper holding everything that scrolls (the backlog; the nav

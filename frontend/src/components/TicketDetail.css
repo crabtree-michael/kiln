@@ -42,10 +42,23 @@
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
   /* The sheet is fixed to the viewport bottom and portals to document.body, so
-   * its own bottom padding must clear the iPhone home-indicator inset — mirror
-   * the dock's pattern (PrimaryScreen.css [data-role='dock']) and collapse to
-   * the plain value on non-notched devices via the 0px fallback. */
-  padding: 0.5rem 0.9rem calc(1rem + env(safe-area-inset-bottom, 0px));
+   * its own bottom padding must clear whatever the OS has put over that edge.
+   * Two things can be there and only one at a time matters:
+   *   - the iPhone home-indicator inset (mirrors the dock's pattern in
+   *     PrimaryScreen.css [data-role='dock'], collapsing to the plain value on
+   *     non-notched devices via the 0px fallback); and
+   *   - the soft keyboard, published as `--keyboard-inset` by
+   *     use-keyboard-viewport. The keyboard OVERLAYS the app rather than resizing
+   *     it (see [data-role='primary-screen']'s height), so without this the sheet's
+   *     footer — its Save/Cancel, its mic, its transcript — would sit behind the
+   *     very keyboard the user opened to type into it.
+   * `max()`, not a sum: an open keyboard already covers the home indicator, so
+   * adding both would stand the footer a home-indicator's height too high. The
+   * sheet's own `max-height` still caps it, and its scrolling body carries the
+   * outsized flex-shrink, so a capped sheet takes this out of the body — which
+   * then scrolls the focused editor back into view (`revealFocused`). */
+  padding: 0.5rem 0.9rem
+    calc(1rem + max(env(safe-area-inset-bottom, 0px), var(--keyboard-inset, 0px)));
   box-shadow: var(--shadow-overlay);
 }
 
@@ -887,9 +900,14 @@
  * only overrides padding, color and the inner typography. */
 
 [data-role='ticket-detail'][data-surface='primary'] {
-  /* Add the home-indicator inset to the base 22px bottom padding (see the base
-   * rule's note) so the dock/controls region clears the iPhone safe area. */
-  padding: 0.5rem 22px calc(22px + env(safe-area-inset-bottom, 0px));
+  /* Add whatever the OS has put over the bottom edge to this skin's 22px bottom
+   * padding, so the dock/controls region clears it. Same `max()` of the
+   * home-indicator inset and the soft keyboard's `--keyboard-inset` as the base
+   * rule, and for the same reasons — restated because this skin rewrites
+   * `padding` wholesale, which is exactly how the base rule's keyboard clearance
+   * would go missing on the ONE surface the app actually renders. */
+  padding: 0.5rem 22px
+    calc(22px + max(env(safe-area-inset-bottom, 0px), var(--keyboard-inset, 0px)));
   color: var(--text-body);
 }
 

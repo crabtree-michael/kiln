@@ -2,14 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- `interactive-widget=resizes-content`: on Chrome Android the soft keyboard
-         shrinks the layout viewport (and `dvh`) as it animates, so the 100dvh app
-         column follows the keyboard natively and smoothly — no JS. iOS Safari
-         ignores the key and keeps its visual-viewport behaviour, which
-         `use-keyboard-viewport` rides with a transform instead. -->
+    <!-- `interactive-widget=overlays-content`: the soft keyboard sits OVER the app
+         and never resizes it, the way a native app behaves. Chrome Android's
+         default (`resizes-content`) shrinks the LAYOUT viewport — and with it
+         `dvh` — as the keyboard animates, so the 100dvh app column was squeezed
+         upward and the whole screen reflowed under the user's eye. iOS Safari has
+         no such mode: it shrinks only the VISUAL viewport and leaves the layout
+         alone, which is the behaviour we want on both. So this key lines Chrome up
+         with Safari, and ONE JS path serves both — `use-keyboard-viewport`
+         publishes the keyboard's overlap as `--keyboard-inset`, the dock rides
+         above it on a compositor transform, and the scroll regions reserve the
+         covered strip as extra scroll room instead of the page reflowing. Every
+         surface in the app is affected, not just the primary screen; the ordinary
+         document-scrolling pages (dashboard, signup, landing) get what they have
+         always had on iOS — the browser scrolls the focused field into view. -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content"
     />
     <!-- Deploy-rollover recovery (bootstrap). MUST run before the hashed entry
          module/CSS Vite injects into <head>: if one of those 404s (a stale shell

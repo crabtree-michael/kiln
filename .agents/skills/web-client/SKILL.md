@@ -124,6 +124,65 @@ you fake the heights (`fakeClampedOverflow` in `ActivityRow.test.tsx` /
 `PrimaryScreenView.test.tsx`), and expanding pauses that pill's auto-dismiss timer
 (`setToastExpanded`) with no collapse-back to resume it.
 
+## The soft keyboard OVERLAYS the app — it never resizes or pushes it (standing principle)
+
+*Same shape as the section above, and for the same reason: a fixed layout with transient UI
+over it. The keyboard is the OS's overlay, and the app must not reflow under it.*
+
+**`index.html` asks for `interactive-widget=overlays-content`, and that is where the model
+starts.** Chrome Android's default (`resizes-content`) shrinks the LAYOUT viewport — and with
+it `dvh` — as the keyboard animates, so the whole `100dvh` app column was squeezed upward and
+the feed reflowed under the user's eye. iOS Safari has no such mode: it shrinks only the
+VISUAL viewport. So the key lines Chrome up with Safari, both engines behave the same way, and
+**one JS path serves both** — the "Chrome Android is handled natively, iOS gets the JS" split
+is gone. Don't reintroduce `resizes-content`: it looks like a smooth native follow on a phone
+with nothing but a dock on screen, and it is the reported bug on a screen with a feed in it.
+
+**`use-keyboard-viewport` is that one path.** It publishes the keyboard's overlap of the
+bottom edge as `--keyboard-inset` on the document root, frame-synced to the visual viewport
+(0px at rest, tracked continuously so the OS open/close animation is ridden rather than
+snapped at). It is mounted by `PrimaryScreen` and `KanbanScreen` — the two shells that own a
+locked document and all their own scrolling. Everything else reads the var.
+
+**Four consumers, and each is a different answer to the same question.** Add the fifth the
+same way — decide which of these your surface is, don't invent a sixth mechanism:
+
+| Surface | How it clears the keyboard |
+|---|---|
+| `[data-role='dock-region']` (phone) | `translateY(-inset)` — a compositor transform, no reflow |
+| `[data-role='desktop-composer-region']` | the same transform; the desk shell is width-gated, so a landscape tablet drives it by finger |
+| `[data-role='feed']` / `[data-role='desktop-feed']` | `+ var(--keyboard-inset)` in `padding-bottom` — the covered strip becomes scroll room |
+| `[data-role='ticket-detail']` | `max(safe-area, inset)` in `padding-bottom`, so the sheet's footer stands clear |
+
+Three things about that table are load-bearing:
+
+- **Padding below the content, never a height change.** Growing the reserve *under* what is
+  already on screen moves nothing — opening the keyboard costs the user no scroll position,
+  which is the entire complaint. A height/`dvh` rule keyed on the inset is the regression.
+- **"Show earlier" comes up for free, and must not name the var.** It is sticky against the
+  feed's CONTENT box, which that padding defines. Naming `--keyboard-inset` in its own
+  `bottom` applies the clearance twice — same trap the overlay vars already carry a warning
+  about in its rule.
+- **The sheet's `[data-surface='primary']` skin rewrites `padding` wholesale**, so the
+  clearance is stated in BOTH its rules. Drop the second one and it goes missing on the only
+  surface the app actually renders, with the base rule looking correct.
+
+**The scroll view finishes the job: `revealFocused()`.** Once the visual viewport has been
+quiet for `QUIET_MS` — i.e. the OS animation has ended, so the nudge never fights it — the
+focused editable is scrolled into view with `block: 'nearest'`. That is a no-op for anything
+already visible (the dock's field, which rides up with the dock) and is what actually saves
+the field the lift can't reach: the ticket sheet's body editor, inside the sheet's own
+scrolling body. `scrollIntoView` is absent in jsdom, hence the `typeof` guard.
+
+**Measured in `tests/layout/soft-keyboard.spec.ts`.** A spec can't raise a real keyboard and
+`visualViewport` is read-only, so it drives `--keyboard-inset` directly and asserts what the
+CSS does with it — the column, header and cards not moving by a pixel, the dock's bottom
+landing exactly on the keyboard's top edge, the feed's scroll range growing by exactly the
+inset. The measuring half (the hook's arithmetic, the arm/engage/settle latches) stays in
+`use-keyboard-viewport.test.ts`. The spec also asserts the viewport meta itself, because it is
+the one thing in this model nothing else in the gate can see: with `resizes-content` back,
+every other assertion still passes and the real phone still reflows.
+
 ## Dashboard + session gating (spec 11)
 
 A second, separate surface at `/dashboard` — the signed-in account view (GitHub sign-in →

@@ -175,6 +175,12 @@ function PrimaryScreenBody(): JSX.Element {
     );
   }
 
+  // And one thing the MOBILE view no longer receives: the notification settings.
+  // The phone's top bar dropped its bell (too many icons in one bar), so the
+  // frequency + push toggle are reached from the settings page — which the
+  // project switcher's own "Settings" item now opens. The desk keeps its bell:
+  // the rail's foot has the room the phone's header didn't. The hooks above stay
+  // unconditional, as every hook here is; only the shape below the switch differs.
   return (
     <PrimaryScreenView
       brand={<ProjectSwitcher />}
@@ -201,15 +207,6 @@ function PrimaryScreenBody(): JSX.Element {
       loadingEarlier={loadingEarlier}
       onShowEarlier={showEarlier}
       onRefreshFeed={refreshFeed}
-      notificationMode={notificationMode}
-      onSelectNotificationMode={setNotificationMode}
-      pushStatus={pushStatus}
-      onEnablePush={() => {
-        void enablePush();
-      }}
-      onDisablePush={() => {
-        void disablePush();
-      }}
     />
   );
 }

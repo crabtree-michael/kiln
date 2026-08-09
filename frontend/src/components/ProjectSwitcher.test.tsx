@@ -2,9 +2,10 @@
 // trigger; opening it lists the user's projects, marks the current one, switches
 // on click (by project_id), and offers an "Add" affordance. Rendered under a stub
 // current-project context + MemoryRouter (it navigates).
+import type { JSX } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import {
   CurrentProjectContext,
@@ -25,12 +26,20 @@ function makeProject(id: string, name: string): MeProject {
   };
 }
 
+/** Reads back where the switcher navigated — MemoryRouter keeps its history to
+ * itself, so an item that routes is only observable from inside it. */
+function LocationProbe(): JSX.Element {
+  const { pathname, search } = useLocation();
+  return <span data-role="location-probe">{`${pathname}${search}`}</span>;
+}
+
 function renderSwitcher(value: CurrentProjectStoreValue): void {
   render(
     <MemoryRouter>
       <CurrentProjectContext.Provider value={value}>
         <ProjectSwitcher />
       </CurrentProjectContext.Provider>
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
@@ -82,6 +91,28 @@ describe('ProjectSwitcher', () => {
     renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
     fireEvent.click(screen.getByRole('button', { name: /one/ }));
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+  });
+
+  it('ends the menu with "Settings", separated from the projects, opening the account view', () => {
+    const projects = [makeProject('p1', 'one')];
+    renderSwitcher({ current: projects[0] ?? null, projects, selectProject: vi.fn() });
+    fireEvent.click(screen.getByRole('button', { name: /one/ }));
+
+    const settings = screen.getByRole('button', { name: 'Settings' });
+    const panel = document.querySelector("[data-role='project-switcher-panel']");
+    // Last in the panel, with the rule that divides it from the project rows
+    // immediately before it.
+    expect(panel?.lastElementChild).toBe(settings);
+    expect(settings.previousElementSibling).toHaveAttribute(
+      'data-role',
+      'project-switcher-divider',
+    );
+
+    fireEvent.click(settings);
+    // The same account view the header's gear used to open, and the menu closes
+    // behind it.
+    expect(screen.getByText('/dashboard')).toBeInTheDocument();
+    expect(panel).toHaveAttribute('data-open', 'false');
   });
 
   it('renders nothing when there is no current project', () => {

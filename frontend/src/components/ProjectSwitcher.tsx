@@ -1,6 +1,7 @@
 // Project switcher (12 §4.1): the app header's brand control. The wordmark shows
 // the current project's name in Kiln's brand styling (the big red accent
-// wordmark + glyph) and is itself the dropdown trigger — clicking it opens a menu
+// wordmark; the bell glyph that used to precede it is gone from the nav bar) and
+// is itself the dropdown trigger — clicking it opens a menu
 // listing the user's projects (the current one marked) and, below a rule,
 // "Settings", which opens the `/dashboard` account view. Settings is here
 // because the header's standalone gear is gone: one dropdown now holds what the
@@ -71,7 +72,6 @@ export function ProjectSwitcher(): JSX.Element | null {
         }}
       >
         <span data-role="kiln-mark">
-          <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
           <span data-role="kiln-wordmark">{current.name}</span>
         </span>
         <span data-role="project-switcher-caret" aria-hidden="true" />

@@ -165,7 +165,6 @@ export function PrimaryScreenView({
       <header data-role="feed-header">
         {brand ?? (
           <div data-role="kiln-mark">
-            <img data-role="kiln-glyph" src="/kiln-mark.svg" alt="" aria-hidden="true" />
             <span data-role="kiln-wordmark">Kiln</span>
           </div>
         )}

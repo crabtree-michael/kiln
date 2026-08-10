@@ -227,15 +227,12 @@
   border-bottom: 1px solid var(--border-default);
 }
 
+/* Wordmark only: the bell glyph that used to sit left of it is gone from the nav
+   bar, so the mark is a single child and the row exists just to centre it
+   against the header actions opposite. */
 [data-role='kiln-mark'] {
   display: flex;
   align-items: center;
-  gap: 11px;
-}
-
-[data-role='kiln-glyph'] {
-  width: 26px;
-  height: 26px;
 }
 
 [data-role='kiln-wordmark'] {

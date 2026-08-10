@@ -184,8 +184,38 @@ predicate; uniqueness constraints and the deterministic pull (`03`) become per-p
 **Stays platform-level:** `ASSEMBLYAI_API_KEY` (voice works for everyone on the company
 key; the mint endpoint requires a session from phase 2), Sentry DSNs, `DATABASE_URL`,
 the new auth/crypto vars (§7), and `AMIKA_BASE_URL` (amended 2026-07-06: the Amika
-sandbox host is one deployment's env, not a per-user credential — every user's
-sandboxes are provisioned against the same Amika account and endpoint).
+sandbox *host* is one deployment's env, not a per-user credential — every user's
+sandboxes are provisioned against the same **endpoint**).
+
+**The Amika *account* is not platform-level** (corrected 2026-08-10). The 2026-07-06
+amendment above originally read "the same Amika account and endpoint". The endpoint
+half is still true; the account half never matched the credential-resolution code that
+landed the same day (`06290f0`), and is now removed. What actually happens:
+
+- **Resolution keys on `project_id`.** `tenant.Registry.For(ctx, projectID)`
+  (`backend/internal/tenant/registry.go`) caches one provider bundle per project;
+  `Providers` carries `{ProjectID, OwnerUserID}`.
+- **The credential is the project *owner's*.** `identity.RuntimeConfig(ctx, projectID)`
+  (`backend/internal/identity/service.go`) resolves `GetProject` → `owner_user_id` →
+  `user_config.amika_key_enc`, and `buildAmikaProvider` (`backend/cmd/kiln/registry.go`)
+  passes it as the Bearer key. There is **no env fallback** for Amika — contrast Devin,
+  whose `devinAPIKey(runtime, env)` does fall back to `DEVIN_API_KEY`.
+
+Two consequences, stated plainly because both are easy to get backwards:
+
+- **Nothing user- or project-identifying reaches Amika.** The create-sandbox body
+  (`backend/internal/agent/amika/types.go`) carries only name, repo, snapshot, agent,
+  auto-stop/auto-delete, agent credentials, and secret env vars — no user id, no org id,
+  no tenant field. Tenancy on the wire is exactly two things: *which Bearer key*
+  authenticates the call, and *the sandbox name*.
+- **The sandbox pool follows the key's Amika account, not the Kiln user.** Amika enforces
+  its concurrency cap against the organization the key belongs to ("your organization has
+  reached its limit of N active sandboxes"), and Kiln has no knob over it. Two Kiln users
+  whose stored keys belong to one Amika org share one pool and can starve each other.
+  Separating pools is an Amika-side action (a distinct org behind each key), never a Kiln
+  change. The worker-name prefix (`KILN_WORKER_PREFIX + project_id[:8] + "-"`, §3) is
+  *name* isolation for exactly this shared-account case — it stops two projects adopting
+  or sweeping each other's sandboxes; it does **not** partition capacity.
 
 ## 4. API surface & wire types
 

@@ -269,6 +269,16 @@ snapshot every worker starts from, omitted when unset), `KILN_AGENT` (default
 `kiln-worker-`; the per-environment worker-name scope — §4, amended 2026-07-05; a
 missing trailing `-` is appended at load).
 
+**Amended 2026-08-10 (multi-user, `11` §3).** `AMIKA_API_KEY`, `AMIKA_SNAPSHOT`,
+`AMIKA_REPO_URL` and `AMIKA_CLAUDE_CRED_ID` are no longer what the *runtime* reads —
+they are bootstrap seeds for the owner's `user_config`/project row. At runtime the
+provider is built **per project** by the tenant registry from the project owner's
+stored credentials (`11` §3); the Amika Bearer key has **no env fallback**. Only
+`AMIKA_BASE_URL` stays deployment-global. Note what this does and does not buy: the
+key selects an Amika *account*, and Amika's concurrency cap is enforced per
+organization — so per-project resolution does not by itself give each Kiln user a
+private sandbox pool. See `11` §3 for the full statement.
+
 ## 10. Testing & decision log
 
 **Testing.**

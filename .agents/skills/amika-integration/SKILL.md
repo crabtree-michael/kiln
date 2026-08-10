@@ -134,6 +134,20 @@ sandbox secrets, and `KILN_WORKER_PREFIX` (per-environment base; trailing `-` ap
 load). Note `KILN_AGENT` / `KILN_WORKER_AUTO_STOP` exist as struct-comment intentions but are
 **not wired** at the composition root — they fall to the defaults.
 
+**Only `AMIKA_BASE_URL` is read at runtime** (11 §3). The other `AMIKA_*` vars are
+bootstrap seeds for the owner's `user_config`/project row; the live provider is built
+**per project** by the tenant registry from the project *owner's* stored credentials
+(`identity.RuntimeConfig` → `owner_user_id` → `user_config.amika_key_enc`), and the Amika
+Bearer key has **no env fallback** (Devin's does). Do not reach for `os.Getenv("AMIKA_API_KEY")`
+in runtime code.
+
+**Per-project ≠ per-user capacity.** Nothing user- or project-identifying goes on the wire:
+`createSandboxRequest` has no user/org/tenant field, so tenancy is only *which Bearer key*
+signs the call plus *the sandbox name*. Amika enforces its concurrency cap **per organization**,
+so keys belonging to one Amika org share one pool and starve each other regardless of Kiln's
+per-project wiring. The `project_id[:8]` name prefix is name isolation for that shared-account
+case — it prevents cross-adoption and cross-sweep, not capacity contention.
+
 ## Settled contract choices (load-bearing, no longer open)
 
 - `agent_turns` carries a `message` column beyond the 05 §7 list — recovery must be able to

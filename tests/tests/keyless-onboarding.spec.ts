@@ -4,10 +4,12 @@ import { mintSession } from '../session';
 // KEYLESS E2E — onboarding a new project (spec 11 §8), run with NO provider keys
 // (design docs/keyless-e2e-tests-design.md §Test 3). A brand-new user with no
 // project walks the real GUIDED SETUP FLOW — connect GitHub, choose the project,
-// choose the provider — then enters a credential and lands on a live board.
-// Exercises identity/tenancy, PUT /api/settings + PUT /api/project, the per-project
-// provider build (mock agent + scripted brain), and ReconcileWorkers, with no real
-// GitHub/Amika/Anthropic credential anywhere.
+// choose the provider and its key — then lands on a live board. Exercises
+// identity/tenancy, PUT /api/settings + PUT /api/project, the per-project provider
+// build and ReconcileWorkers, with no real GitHub/Amika/Anthropic credential
+// anywhere: the key entered here is a throwaway string, and this project never
+// sends a turn (AMIKA_BASE_URL points nowhere in the keyless overlay, so the
+// adapter cannot reach out even if one did).
 //
 // The flow's ordering is the thing under test as much as its endpoints are: the
 // repo picker is only reachable once GitHub is connected, and the provider step
@@ -42,28 +44,33 @@ test('@keyless a new user is walked through setup and the board comes alive', as
   await page.getByLabel('Repository').selectOption('https://example.com/keyless/demo');
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  // ---- Step 3: choose the provider. Mock is the keyless lane's provider (it is
-  // what AGENT_MODE=mock resolves to anyway) and it authenticates with no key at
-  // all, so the step correctly asks for none.
+  // ---- Step 3: choose the provider. The picker offers only the real providers
+  // (the in-memory mock is registered but never listed — it is what AGENT_MODE=mock
+  // resolves to for the seeded projects, not something a user picks), so this new
+  // user lands on Amika. Until something is picked the step can't know WHICH key to
+  // ask for, so it asks for none.
   await expect(page.getByRole('heading', { name: 'Choose your provider' })).toBeVisible();
+  await expect(page.locator('[data-role="provider-option"][data-provider="mock"]')).toHaveCount(0);
   await expect(page.getByLabel('Amika API key')).toHaveCount(0);
-  await page.getByRole('radio', { name: 'Mock' }).check();
-  await expect(page.locator('[data-role="credential-row"]')).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Amika' }).check();
+
+  // Picking Amika reveals exactly its key, inline on the step — and only its key.
+  // Saving chains a live verify; with KILN_VERIFY_MODE=mock the Amika check reports
+  // ok offline (no real Amika call), instead of the failed status the key-gated
+  // dashboard-config spec asserts.
+  await expect(page.locator('[data-role="credential-row"]')).toHaveCount(1);
+  await expect(page.getByLabel('Devin API key')).toHaveCount(0);
+  await page.getByLabel('Amika API key').fill('mock-amika-key');
   await page.getByRole('button', { name: 'Finish setup' }).click();
 
-  // Setup done → the flow hands over to settings, where credentials live.
+  // Setup done → the flow hands over to settings, where credentials live on.
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('[data-role="onboarding"]')).toHaveCount(0);
 
-  // Credentials are entered through the Integrations section: the provider's
-  // "Connect" card opens a modal whose single input takes the key. Saving it
-  // chains a live verify — with KILN_VERIFY_MODE=mock the Amika check reports
-  // ok offline (no real Amika call), instead of the failed status the
-  // key-gated dashboard-config spec asserts.
+  // The key entered during setup is the one the Integrations section now reports:
+  // the card reads connected, and its verify landed ok. (The card's own connect
+  // modal — the other way in — is covered by dashboard-config.spec.ts.)
   const amikaCard = page.locator('[data-role="integration-card"][data-provider="amika"]');
-  await amikaCard.locator('[data-role="integration-connect"]').click();
-  await page.getByLabel('Amika API key').fill('mock-amika-key');
-  await page.locator('[data-role="api-key-save"]').click();
   await expect(amikaCard).toHaveAttribute('data-connected', 'true');
   await expect(
     page.locator('[data-role="credential-status"][data-name="amika_api_key"]'),

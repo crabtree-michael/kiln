@@ -37,6 +37,12 @@ services:
       # throwaway logins are unaffected: they own no project, so their write
       # invalidates nothing. Any non-empty value works — githubmock ignores it.
       GITHUB_AUTH_TOKEN: mock-github-token
+      # The provider picker offers only the real providers now, so the onboarding
+      # spec's project pins Amika (the seeded/bootstrapped projects still resolve to
+      # AGENT_MODE=mock). Point the Amika adapter at a dead local address so the
+      # lane stays offline whatever a developer's .env holds: a turn on that project
+      # fails to connect, contained per project, instead of reaching real Amika.
+      AMIKA_BASE_URL: http://127.0.0.1:9
       AMIKA_REPO_URL: https://example.com/keyless/repo.git
       KILN_WORKER_COUNT: '3'
       # Identity must be mounted for dev sessions + bootstrap: a fixed test

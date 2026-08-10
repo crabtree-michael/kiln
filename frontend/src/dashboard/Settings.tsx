@@ -186,7 +186,11 @@ interface ProjectPanelProps {
  * disclosure caret, and everything configurable sits one deliberate click away in
  * `ProjectModal`. */
 function ProjectPanel({ project, providers, onOpen }: ProjectPanelProps): JSX.Element {
-  const provider = providers.find((candidate) => candidate.key === project.agent_provider);
+  // Same resolution the modal's select makes: the pinned provider, else the first
+  // one offered. A project pinned to nothing (or to a provider this deployment no
+  // longer offers) must not read as some other agent than the one its modal shows.
+  const provider =
+    providers.find((candidate) => candidate.key === project.agent_provider) ?? providers[0];
   return (
     <button
       type="button"

@@ -466,10 +466,20 @@ export function ProjectFields({
   const [name, setName] = useState(project?.name ?? '');
   const [repoUrl, setRepoUrl] = useState(project?.repo_url ?? '');
   // The per-project coding-agent provider (multi-provider design §9): the stored
-  // registry key, or '' meaning "deployment default". The select below only shows
-  // when the deployment offers more than one provider.
+  // registry key. The select below only shows when the deployment offers more than
+  // one provider.
   const providerOptions = providers ?? [];
   const [agentProvider, setAgentProvider] = useState(project?.agent_provider ?? '');
+  // The select is a straight pick between the offered providers — there is no
+  // "deployment default" entry — so a project that pinned nothing, or pinned a
+  // provider this deployment does not offer (the dev-only mock is registered but
+  // never listed), resolves to the first offered provider rather than to a blank
+  // the select cannot render. Derived per render rather than seeded into state:
+  // the descriptors arrive with `me`, which can land after this form mounts.
+  const selectedProvider =
+    providerOptions.find((candidate) => candidate.key === agentProvider)?.key ??
+    providerOptions[0]?.key ??
+    '';
   const [amikaSnapshot, setAmikaSnapshot] = useState(project?.amika_snapshot ?? '');
   const [workerCount, setWorkerCount] = useState(
     project?.worker_count === undefined ? '' : String(project.worker_count),
@@ -488,11 +498,11 @@ export function ProjectFields({
       repo_url: repoUrl.trim(),
     };
     // Send the provider choice only when the deployment offers a real choice; a
-    // single-provider deployment leaves it empty so the project keeps resolving to
-    // the deployment default (multi-provider design §9). '' is a valid value — it
-    // is the "use the deployment default" sentinel — so it is sent explicitly.
+    // single-provider deployment omits it so the project keeps resolving to the
+    // deployment default (multi-provider design §9). When the select is shown it
+    // always carries a concrete provider, so the save pins what the user sees.
     if (providerOptions.length > 1) {
-      body.agent_provider = agentProvider;
+      body.agent_provider = selectedProvider;
     }
     const trimmedSnapshot = amikaSnapshot.trim();
     if (trimmedSnapshot !== '') {
@@ -555,13 +565,11 @@ export function ProjectFields({
         Agent provider
         <select
           data-role="agent-provider"
-          value={agentProvider}
+          value={selectedProvider}
           onChange={(event: ChangeEvent<HTMLSelectElement>) => {
             setAgentProvider(event.target.value);
           }}
         >
-          {/* Empty value = the deployment default (design §9), always offered. */}
-          <option value="">Default</option>
           {providerOptions.map((provider) => (
             <option key={provider.key} value={provider.key}>
               {provider.label}

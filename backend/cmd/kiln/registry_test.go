@@ -98,8 +98,10 @@ func TestDevinAPIKeySource(t *testing.T) {
 }
 
 // TestProviderDescriptors covers the dashboard data source (multi-provider design
-// §8, D6): one descriptor per registered provider, labelled, with the capability
-// shape the UI gates affordances on — Amika a managed sandbox, Devin not.
+// §8, D6): one descriptor per registered provider the dashboard may offer, labelled,
+// with the capability shape the UI gates affordances on — Amika a managed sandbox,
+// Devin not. The dev-only mock is registered but unlisted: no user-facing picker
+// offers it, though AGENT_MODE=mock still resolves to it (keyless lane).
 func TestProviderDescriptors(t *testing.T) {
 	got := providerDescriptors(Config{})
 	byKey := map[string]struct {
@@ -121,7 +123,7 @@ func TestProviderDescriptors(t *testing.T) {
 	if !ok || devin.label != "Devin" || devin.managed {
 		t.Errorf("devin descriptor = %+v, want label Devin + no ManagedSandbox", devin)
 	}
-	if _, ok := byKey[modeMock]; !ok {
-		t.Error("mock provider missing from descriptors")
+	if _, ok := byKey[modeMock]; ok {
+		t.Error("mock provider offered in descriptors — it is dev-only and must not be selectable")
 	}
 }

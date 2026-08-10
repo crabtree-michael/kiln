@@ -903,12 +903,12 @@ export interface components {
             /** @description The user's live projects, oldest-first (12 §3.1). Empty until the user creates their first project — the "not onboarded" discriminator is `projects.length === 0` (12 §4.1), replacing the old singular `project?`. Each carries its own `id`, the token the client scopes every project-scoped call by (12 §3.2). */
             projects: components["schemas"]["MeProject"][];
             settings: components["schemas"]["MeSettings"];
-            /** @description The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider. The project form renders its provider select from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface. */
+            /** @description The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider a user may pick (dev-only providers are registered but never listed). The project form and the setup flow render their provider pickers from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface. */
             providers?: components["schemas"]["ProviderDescriptor"][];
         };
         /** @description A registered coding-agent provider the dashboard can offer (multi-provider design §8, D6). Data-driven so the generic dashboard names no provider: the select is rendered from these, not from hard-coded Amika/Devin inputs. */
         ProviderDescriptor: {
-            /** @description The registry key stored as a project's agent_provider (amika, devin, mock, …). */
+            /** @description The registry key stored as a project's agent_provider (amika, devin, …). */
             key: string;
             /** @description Human-facing name shown in the provider select (e.g. "Amika", "Devin"). */
             label: string;

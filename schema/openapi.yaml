@@ -1516,10 +1516,12 @@ components:
           type: array
           description: >
             The coding-agent providers this deployment offers (multi-provider
-            design §8, §9), one descriptor per registered provider. The project
-            form renders its provider select from this — a deployment that offers
-            only one provider shows a single option (or hides the select). Omitted
-            when the deployment has not enabled the descriptor surface.
+            design §8, §9), one descriptor per registered provider a user may pick
+            (dev-only providers are registered but never listed). The project form
+            and the setup flow render their provider pickers from this — a
+            deployment that offers only one provider shows a single option (or
+            hides the select). Omitted when the deployment has not enabled the
+            descriptor surface.
           items: { $ref: '#/components/schemas/ProviderDescriptor' }
     ProviderDescriptor:
       type: object
@@ -1531,7 +1533,7 @@ components:
       properties:
         key:
           type: string
-          description: The registry key stored as a project's agent_provider (amika, devin, mock, …).
+          description: The registry key stored as a project's agent_provider (amika, devin, …).
         label:
           type: string
           description: Human-facing name shown in the provider select (e.g. "Amika", "Devin").

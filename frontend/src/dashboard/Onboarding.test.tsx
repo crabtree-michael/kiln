@@ -40,9 +40,12 @@ const REPOS = [
   { full_name: 'octocat/atlas', url: 'https://github.com/octocat/atlas', private: true },
 ];
 
-/** The three providers a full deployment registers (backend registry.go), in the
- * sorted order `GET /api/me` serves them. `mock` is the one with no credential
- * slot, which is what makes it the "no API key needed" case below. */
+/** The providers a deployment offers, in the sorted order `GET /api/me` serves
+ * them. Amika and Devin are what the shipped registry lists (backend registry.go);
+ * `keyless` is a stand-in for a provider that authenticates some other way — it has
+ * no credential slot in `integrations-config`, which is what makes it the "no API
+ * key needed" case below. The flow names no provider, so a descriptor the registry
+ * does not (yet) serve is exactly what proves it renders from data. */
 const PROVIDERS: ProviderDescriptor[] = [
   {
     key: 'amika',
@@ -65,8 +68,8 @@ const PROVIDERS: ProviderDescriptor[] = [
     },
   },
   {
-    key: 'mock',
-    label: 'Mock',
+    key: 'keyless',
+    label: 'Keyless',
     capabilities: {
       managed_sandbox: false,
       reports_cost: false,
@@ -282,7 +285,7 @@ describe('Onboarding — the guided setup flow', () => {
       [...document.querySelectorAll('[data-role="provider-option"]')].map((option) =>
         option.getAttribute('data-provider'),
       ),
-    ).toEqual(['amika', 'devin', 'mock']);
+    ).toEqual(['amika', 'devin', 'keyless']);
     // The step cannot know WHICH key to ask for yet — so it asks for none.
     expect(screen.queryByLabelText('Amika API key')).toBeNull();
     expect(screen.queryByLabelText('Devin API key')).toBeNull();
@@ -306,10 +309,10 @@ describe('Onboarding — the guided setup flow', () => {
     renderDashboard();
     await reachProviderStep();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Mock' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Keyless' }));
     expect(document.querySelector('[data-role="credential-row"]')).toBeNull();
     expect(
-      document.querySelector('[data-role="provider-option"][data-provider="mock"]')?.textContent,
+      document.querySelector('[data-role="provider-option"][data-provider="keyless"]')?.textContent,
     ).toContain('No API key needed');
     // Nothing left to enter, so the flow can finish.
     expect(nextButton()).toBeEnabled();
@@ -424,7 +427,7 @@ describe('Onboarding — the guided setup flow', () => {
 
     renderDashboard();
     await reachProviderStep();
-    fireEvent.click(screen.getByRole('radio', { name: 'Mock' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Keyless' }));
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     await waitFor(() => {
@@ -434,7 +437,7 @@ describe('Onboarding — the guided setup flow', () => {
     });
     // Still on the last step, with everything chosen — not bounced to the start.
     expect(screen.getByRole('heading', { name: 'Choose your provider' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Mock' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Keyless' })).toBeChecked();
   });
 
   // ------------------------------------------------------------ the shell

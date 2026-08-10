@@ -51,8 +51,8 @@ const PROVIDERS: ProviderDescriptor[] = [
     },
   },
   {
-    key: 'mock',
-    label: 'Mock',
+    key: 'keyless',
+    label: 'Keyless',
     capabilities: {
       managed_sandbox: false,
       reports_cost: false,
@@ -344,7 +344,7 @@ describe('/signup — the sign-up rehearsal', () => {
   it('runs again from the end panel, with the account no less onboarded', async () => {
     renderSignup('/signup?as=returning');
     await reachProviderStep();
-    fireEvent.click(screen.getByRole('radio', { name: 'Mock' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Keyless' }));
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
     await screen.findByRole('heading', { name: 'That’s the whole flow.' });
 

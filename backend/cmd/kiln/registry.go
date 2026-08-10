@@ -16,9 +16,17 @@ import (
 // providerLabels are the human-facing names the dashboard shows for each provider
 // key (multi-provider design §8). A key with no entry falls back to the key itself.
 var providerLabels = map[string]string{
-	modeMock:      "Mock",
 	providerAmika: "Amika",
 	providerDevin: "Devin",
+}
+
+// unlistedProviders are registered keys the dashboard never offers. The in-memory
+// mock is a dev/e2e stand-in (AGENT_MODE=mock, keyless lane), not something a user
+// picks: it stays in providerRegistry — a deployment can still default to it, and a
+// project can still carry the key — it is simply absent from the descriptors the
+// provider pickers render from, so no user-facing surface offers it.
+var unlistedProviders = map[string]bool{
+	modeMock: true,
 }
 
 // Provider-registry keys (design §6): the value AGENT_MODE and a project's
@@ -150,15 +158,20 @@ func lookupProvider(key string) (ProviderFactory, bool) {
 }
 
 // providerDescriptors builds the dashboard's provider descriptors from the registry
-// (multi-provider design §8, D6): one per registered key, in sorted order, carrying
-// its label and its declared Capabilities. Each provider is instantiated with empty
-// deps purely to read its static Capabilities — New performs no I/O — so this is
-// safe at startup. This is the single place the composition root turns "which
-// providers are registered" into the neutral data the generic dashboard renders,
-// so adding a provider surfaces it in the UI with no dashboard edit.
+// (multi-provider design §8, D6): one per registered key the dashboard may offer, in
+// sorted order, carrying its label and its declared Capabilities. Each provider is
+// instantiated with empty deps purely to read its static Capabilities — New performs
+// no I/O — so this is safe at startup. This is the single place the composition root
+// turns "which providers are registered" into the neutral data the generic dashboard
+// renders, so adding a provider surfaces it in the UI with no dashboard edit — and
+// unlistedProviders (the dev-only mock) is the one place a registered provider is
+// kept out of it.
 func providerDescriptors(cfg Config) []wire.ProviderDescriptor {
 	out := make([]wire.ProviderDescriptor, 0, len(providerRegistry))
 	for _, key := range providerKeys() {
+		if unlistedProviders[key] {
+			continue
+		}
 		p, err := providerRegistry[key](ProviderDeps{Config: cfg})
 		if err != nil {
 			// A descriptor probe must never fail startup: skip a provider whose probe

@@ -163,7 +163,7 @@ describe('ProjectFields — provider select', () => {
     expect(screen.queryByRole('combobox', { name: /agent provider/i })).toBeNull();
   });
 
-  it('seeds from the project and lists every offered provider plus the default', () => {
+  it('seeds from the project and lists exactly the offered providers', () => {
     render(
       <ProjectFields
         github={connectedGitHub()}
@@ -175,11 +175,31 @@ describe('ProjectFields — provider select', () => {
     );
     const select = screen.getByRole('combobox', { name: /agent provider/i });
     expect(select).toHaveValue('devin');
+    // A straight pick between the offered providers: no "Default" entry.
     expect(
       within(select)
         .getAllByRole('option')
         .map((o) => o.textContent),
-    ).toEqual(['Default', 'Amika', 'Devin']);
+    ).toEqual(['Amika', 'Devin']);
+  });
+
+  // A project that pinned nothing (or pinned a provider this deployment no longer
+  // offers) has no blank option to sit on, so it reads — and saves — as the first
+  // provider offered rather than as an empty choice the select cannot render.
+  it('falls back to the first offered provider when the project pinned none', () => {
+    const onSave: SaveMock = vi.fn(() => Promise.resolve());
+    render(
+      <ProjectFields
+        github={connectedGitHub()}
+        project={baseProject({ agent_provider: '' })}
+        providers={providers}
+        saving={false}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: /agent provider/i })).toHaveValue('amika');
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(lastBody(onSave).agent_provider).toBe('amika');
   });
 
   it('submits the chosen provider key', () => {

@@ -568,7 +568,7 @@ type Me struct {
 	// Projects The user's live projects, oldest-first (12 §3.1). Empty until the user creates their first project — the "not onboarded" discriminator is `projects.length === 0` (12 §4.1), replacing the old singular `project?`. Each carries its own `id`, the token the client scopes every project-scoped call by (12 §3.2).
 	Projects []MeProject `json:"projects"`
 
-	// Providers The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider. The project form renders its provider select from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface.
+	// Providers The coding-agent providers this deployment offers (multi-provider design §8, §9), one descriptor per registered provider a user may pick (dev-only providers are registered but never listed). The project form and the setup flow render their provider pickers from this — a deployment that offers only one provider shows a single option (or hides the select). Omitted when the deployment has not enabled the descriptor surface.
 	Providers *[]ProviderDescriptor `json:"providers,omitempty"`
 
 	// Settings Config status — secrets as presence+fingerprint only (11 §3 D7).
@@ -689,7 +689,7 @@ type ProviderDescriptor struct {
 	// Capabilities A provider's declared shape (multi-provider design §5), read by the dashboard to light up or hide capability-gated affordances (e.g. a workspace-reset button only for a managed-sandbox provider) without naming the provider.
 	Capabilities ProviderCapabilities `json:"capabilities"`
 
-	// Key The registry key stored as a project's agent_provider (amika, devin, mock, …).
+	// Key The registry key stored as a project's agent_provider (amika, devin, …).
 	Key string `json:"key"`
 
 	// Label Human-facing name shown in the provider select (e.g. "Amika", "Devin").

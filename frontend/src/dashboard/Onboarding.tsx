@@ -412,7 +412,7 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
   const isLastStep = currentIndex === steps.length - 1;
 
   // The API-key provider serving the chosen coding agent, or undefined when it
-  // takes no pasted key (mock, or anything authenticating another way).
+  // takes no pasted key (anything authenticating another way).
   const keyProvider = apiKeyProviderFor(providerKey);
   const storedStatus =
     keyProvider === undefined ? undefined : storedSecret(me.settings, keyProvider.credential);

@@ -115,16 +115,16 @@ export const API_KEY_PROVIDERS: ApiKeyProvider[] = [
   },
 ];
 
-/** The API-key provider serving a coding-agent registry key (`amika`, `devin`,
- * `mock`, …), or `undefined` when that provider takes no pasted key at all.
+/** The API-key provider serving a coding-agent registry key (`amika`, `devin`, …),
+ * or `undefined` when that provider takes no pasted key at all.
  *
  * This is the one place the two vocabularies meet. The dashboard is otherwise
  * data-driven about coding-agent providers — the setup flow renders its choices
  * from `me.providers`, naming none of them — but the credential slots are
  * provider-named in the wire schema (`amika_api_key`, `devin_api_key`), so the
- * join has to happen somewhere. A provider with no match (the in-memory `mock`,
- * or any future provider that authenticates some other way) simply gets no key
- * prompt, which is what keeps this from becoming a gate on adding a provider. */
+ * join has to happen somewhere. A provider with no match (any future provider that
+ * authenticates some other way) simply gets no key prompt, which is what keeps this
+ * from becoming a gate on adding a provider. */
 export function apiKeyProviderFor(providerKey: string): ApiKeyProvider | undefined {
   return API_KEY_PROVIDERS.find((candidate) => candidate.provider === providerKey);
 }

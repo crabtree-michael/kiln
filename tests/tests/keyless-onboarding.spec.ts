@@ -4,7 +4,8 @@ import { mintSession } from '../session';
 // KEYLESS E2E — onboarding a new project (spec 11 §8), run with NO provider keys
 // (design docs/keyless-e2e-tests-design.md §Test 3). A brand-new user with no
 // project walks the real GUIDED SETUP FLOW — connect GitHub, choose the project,
-// choose the provider and its key — then lands on a live board. Exercises
+// choose the provider and its key, decline notifications — then lands on a live
+// board. Exercises
 // identity/tenancy, PUT /api/settings + PUT /api/project, the per-project provider
 // build and ReconcileWorkers, with no real GitHub/Amika/Anthropic credential
 // anywhere: the key entered here is a throwaway string, and this project never
@@ -61,6 +62,21 @@ test('@keyless a new user is walked through setup and the board comes alive', as
   await expect(page.locator('[data-role="credential-row"]')).toHaveCount(1);
   await expect(page.getByLabel('Devin API key')).toHaveCount(0);
   await page.getByLabel('Amika API key').fill('mock-amika-key');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // ---- Step 4: notifications. The last step, and the only one that gates
+  // nothing — push is an offer, so "Finish setup" is live the moment the step
+  // opens and pressing it without opting in is the skip. This spec takes the
+  // skip deliberately: enabling needs a real `Notification.requestPermission()`
+  // grant, which is a browser-chrome prompt no headless run should depend on.
+  //
+  // The assertion is deliberately state-AGNOSTIC. Which reading this step lands
+  // on depends on what the stack and the browser report (whether a VAPID key is
+  // served, whether this Chromium exposes the Push API), and none of that is
+  // this spec's subject. What IS its subject is the invariant: whatever the step
+  // says, the flow still finishes from here.
+  await expect(page.getByRole('heading', { name: 'Enable notifications' })).toBeVisible();
+  await expect(page.locator('[data-role="notifications-opt-in"]')).toBeVisible();
   await page.getByRole('button', { name: 'Finish setup' }).click();
 
   // Setup done → the flow hands over to settings, where credentials live on.

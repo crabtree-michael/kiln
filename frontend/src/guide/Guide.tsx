@@ -376,7 +376,7 @@ export function Guide(): JSX.Element {
                     on. Rename the board later in Settings if you’d rather call it something else.
                     Press <strong>Continue</strong>.
                   </p>
-                  <p className="guide-label">Step 3 of 3 — Choose your provider</p>
+                  <p className="guide-label">Step 3 of 4 — Choose your provider</p>
                   <p>
                     Pick which coding agent runs this project’s work — <strong>Amika</strong> or{' '}
                     <strong>Devin</strong> — and paste that provider’s API key in the field that
@@ -384,6 +384,17 @@ export function Guide(): JSX.Element {
                     soon as you click away from the field, and Kiln immediately runs a{' '}
                     <strong>live check</strong> against the provider, so a status mark appears
                     beside it (see the table in the next step).
+                  </p>
+                  <p>
+                    Press <strong>Continue</strong>.
+                  </p>
+                  <p className="guide-label">Step 4 of 4 — Enable notifications</p>
+                  <p>
+                    The last step offers <strong>push notifications</strong>, so Kiln can reach you
+                    when a ticket is blocked on your decision and the app isn’t open. Press{' '}
+                    <strong>Enable notifications</strong> and accept your browser’s prompt. It is
+                    optional — you can finish without it and turn it on later under{' '}
+                    <strong>Settings → Notifications</strong>.
                   </p>
                   <p>
                     Press <strong>Finish setup</strong>. Kiln creates the project and drops you

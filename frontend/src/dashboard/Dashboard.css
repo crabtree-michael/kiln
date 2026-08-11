@@ -395,6 +395,59 @@ html:has([data-role='settings']) {
   color: var(--text-muted);
 }
 
+/* ---------------------------------------------- step 4: notifications */
+
+[data-role='notifications-opt-in'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+/* "Enable notifications" IS the step's action, so it keeps the blanket
+   `[data-role='dashboard'] button` accent pill — the same weight step 1 hands
+   its Connect link, and for the same reason: there is nothing else on the step
+   to press. It is styled by that rule alone; no override belongs here. */
+
+/* The reason push can't be offered (unsupported / unconfigured / denied), and
+   the note that finishing without it is fine. Same size and colour as step 1's
+   prose, since they are the same kind of thing: a step explaining itself. */
+[data-role='notifications-blocker'],
+[data-role='notifications-skip-note'] {
+  margin: 0;
+  font: var(--type-small);
+  color: var(--text-secondary);
+}
+
+[data-role='notifications-skip-note'] {
+  color: var(--text-muted);
+}
+
+/* The opted-in reading is this step's "you're done here" signal, so it takes
+   the same state chip as step 1's connected reading rather than reading as one
+   more paragraph. */
+[data-role='notifications-enabled'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--accent-faint);
+  font: var(--type-small);
+  color: var(--text-body);
+}
+
+[data-role='notifications-enabled'] svg[data-icon] {
+  color: var(--accent);
+}
+
+[data-role='onboarding'] [data-role='notifications-error'] {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--danger);
+}
+
 /* ----------------------------------------------------------- actions */
 
 [data-role='onboarding-actions'] {

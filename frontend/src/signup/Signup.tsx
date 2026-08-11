@@ -21,7 +21,9 @@
 //      `GET /api/github/repos` — the tester's real login, repos and the
 //      deployment's real providers); every write lands in memory. Running the
 //      flow does not require wiping the account first, and finishing it does not
-//      create, overwrite or delete anything.
+//      create, overwrite or delete anything. The push opt-in on the last step is
+//      simulated for the same reason and one more: the real one raises an OS
+//      permission prompt, which a repeatable rehearsal must not do on every run.
 //
 // The one thing that is faked rather than real is GitHub's consent screen: the
 // callback always redirects to `/dashboard`, so a real grant mid-rehearsal would
@@ -82,7 +84,8 @@ function SignupBanner({ path, onPath, onRestart }: SignupBannerProps): JSX.Eleme
       <p data-role="signup-path-blurb">{current?.blurb}</p>
       <p data-role="signup-banner-note">
         Your real account, repos and providers — but nothing is saved: no project is created, no key
-        is stored, and GitHub’s consent screen is skipped so the run stays on this page.
+        is stored, notifications aren’t really switched on, and GitHub’s consent screen is skipped
+        so the run stays on this page.
       </p>
     </aside>
   );
@@ -164,7 +167,13 @@ function SignupRunView({ account, path, onRestart }: SignupRunViewProps): JSX.El
       />
     );
   } else if (run.created === null) {
-    body = <Onboarding overrideGitHub={run.overrideGitHub} onConnect={run.connect} />;
+    body = (
+      <Onboarding
+        overrideGitHub={run.overrideGitHub}
+        onConnect={run.connect}
+        webPush={run.webPush}
+      />
+    );
   } else {
     body = <SignupDone created={run.created} account={account} onRestart={onRestart} />;
   }

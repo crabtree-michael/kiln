@@ -31,6 +31,7 @@ import type { components } from '@/schema/generated';
 import type { CredentialName, DashboardStoreValue } from '@/dashboard/dashboard-context';
 import { credentialKeyIn } from '@/dashboard/integrations-config';
 import type { GitHubRepos } from '@/dashboard/use-github-repos';
+import type { WebPush, WebPushStatus } from '@/stores/use-web-push';
 
 // Not among transport.ts's re-exports (it only re-exports the types its own
 // functions traffic in) — pulled straight off the generated wire schema, the
@@ -197,6 +198,11 @@ export interface SignupRun {
   overrideGitHub: (live: GitHubRepos) => GitHubRepos;
   /** `Onboarding`'s `onConnect`: the simulated grant. */
   connect: () => void;
+  /** `Onboarding`'s `webPush`: the simulated opt-in. Unlike every other write
+   * in the flow this one does NOT go through the store — `useWebPush` calls the
+   * transport directly — so the store interception cannot catch it and the
+   * rehearsal has to replace the hook's value instead. */
+  webPush: WebPush;
   /** Non-null once "Finish setup" ran: the project the real flow would have
    * created. The run is over; nothing was written. */
   created: ProjectUpdateRequest | null;
@@ -233,6 +239,11 @@ export function useSignupRun(account: Me, path: SignupPath): SignupRun {
     () => new Set(),
   );
   const [created, setCreated] = useState<ProjectUpdateRequest | null>(null);
+  // The rehearsal opens step 4 on the OFFER (`default`) whatever this browser
+  // really holds — same reason both paths drop `projects`. A tester walking the
+  // sign-up flow has almost certainly opted in already, and the real hook would
+  // hand them the "already on" chip, i.e. never the step they came to look at.
+  const [pushStatus, setPushStatus] = useState<WebPushStatus>('default');
 
   const overrideGitHub = useCallback(
     (live: GitHubRepos): GitHubRepos =>
@@ -310,6 +321,29 @@ export function useSignupRun(account: Me, path: SignupPath): SignupRun {
     setSaving(false);
   }, []);
 
+  // The push opt-in, simulated. The real `enable()` asks the OS for permission
+  // and POSTs a subscription — a prompt the tester would have to dismiss on
+  // every run, and a real server-side write on an account the rehearsal
+  // promises not to touch. Like the store's writes it mirrors the real
+  // SEQUENCE (enabling → enabled), because the button going busy and settling
+  // is part of the experience being rehearsed.
+  const webPush = useMemo<WebPush>(
+    () => ({
+      status: pushStatus,
+      error: null,
+      enable: async (): Promise<void> => {
+        setPushStatus('enabling');
+        await Promise.resolve();
+        setPushStatus('enabled');
+      },
+      disable: async (): Promise<void> => {
+        await Promise.resolve();
+        setPushStatus('default');
+      },
+    }),
+    [pushStatus],
+  );
+
   const runVerify = useCallback(async (): Promise<void> => {
     setVerifying(true);
     setError(null);
@@ -363,5 +397,5 @@ export function useSignupRun(account: Me, path: SignupPath): SignupRun {
     ],
   );
 
-  return { store, overrideGitHub, connect, created };
+  return { store, overrideGitHub, connect, webPush, created };
 }

@@ -1,5 +1,5 @@
 // The guided setup flow (Onboarding.tsx): Connect GitHub → choose a project →
-// choose a provider → finish. Transport is mocked at the module boundary and the
+// choose a provider → enable notifications → finish. Transport is mocked at the
 // whole `Dashboard` is rendered, mirroring Dashboard.test.tsx — `Onboarding`
 // reads the store, so mounting it through the real provider is what exercises
 // the flow rather than a hand-fed props object.
@@ -9,14 +9,16 @@
 // it cannot yet know (a repo before the GitHub credential exists, a provider key
 // before a provider is chosen), and finishing must write the key BEFORE the
 // project so the project never comes alive pointing at a provider it has no
-// credential for.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// credential for. The notifications step adds one more: it is the last step and
+// it gates NOTHING, so every one of its states must still let the flow finish.
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Dashboard } from '@/dashboard/Dashboard';
 import * as transport from '@/transport/transport';
 import type { Me, ProviderDescriptor } from '@/transport/transport';
+import type { WebPushStatus } from '@/stores/use-web-push';
 
 vi.mock('@/transport/transport', () => ({
   fetchMe: vi.fn(),
@@ -29,7 +31,36 @@ vi.mock('@/transport/transport', () => ({
   postLogout: vi.fn(),
   fetchGitHubRepos: vi.fn(),
   fetchSnapshots: vi.fn(() => Promise.resolve(null)),
+  // Step 4's opt-in. `fetchPushKey` resolving null is the "no VAPID key
+  // configured" reading, which is what jsdom — with no Push API at all — would
+  // land on anyway; the cases that need the offer stub `useWebPush` instead.
+  fetchPushKey: vi.fn(() => Promise.resolve(null)),
+  postPushSubscription: vi.fn(),
+  deletePushSubscription: vi.fn(),
 }));
+
+// Step 4 reads the browser's push capability through this hook. jsdom has no
+// service worker, Push API or Notification, so the real hook can only ever
+// resolve `unsupported` here — which would leave the opt-in button untestable.
+// Mocking the hook (rather than faking three browser globals) keeps each case
+// free to name the ONE status it is about.
+interface PushMock {
+  status: WebPushStatus;
+  error: string | null;
+  enable: Mock;
+  disable: Mock;
+}
+
+// Typed through the factory's return rather than an `as` on the literal: TS
+// escape hatches are banned repo-wide (02 §4b), and the annotation is what stops
+// `status` widening to `string` and letting a typo through as a valid state.
+const push = vi.hoisted((): PushMock => ({
+  status: 'default',
+  error: null,
+  enable: vi.fn(),
+  disable: vi.fn(),
+}));
+vi.mock('@/stores/use-web-push', () => ({ useWebPush: () => push }));
 
 const REPOS = [
   {
@@ -165,6 +196,18 @@ async function reachProviderStep(): Promise<void> {
   await screen.findByRole('heading', { name: 'Choose your provider' });
 }
 
+/** Walks on to step 4 — the notifications offer, where "Finish setup" now lives
+ * — having picked `provider` and, when it takes one, typed its key. */
+async function reachNotifyStep(provider: string, key = ''): Promise<void> {
+  await reachProviderStep();
+  fireEvent.click(screen.getByRole('radio', { name: provider }));
+  if (key !== '') {
+    fireEvent.change(screen.getByLabelText(`${provider} API key`), { target: { value: key } });
+  }
+  fireEvent.click(nextButton());
+  await screen.findByRole('heading', { name: 'Enable notifications' });
+}
+
 describe('Onboarding — the guided setup flow', () => {
   beforeEach(() => {
     vi.mocked(transport.fetchMe).mockReset();
@@ -174,6 +217,10 @@ describe('Onboarding — the guided setup flow', () => {
     vi.mocked(transport.fetchGitHubRepos).mockReset();
     vi.mocked(transport.fetchMe).mockResolvedValue(makeMe());
     vi.mocked(transport.fetchGitHubRepos).mockResolvedValue({ connected: true, repos: REPOS });
+    push.status = 'default';
+    push.error = null;
+    push.enable.mockReset();
+    push.disable.mockReset();
   });
 
   afterEach(() => {
@@ -314,11 +361,11 @@ describe('Onboarding — the guided setup flow', () => {
     expect(
       document.querySelector('[data-role="provider-option"][data-provider="keyless"]')?.textContent,
     ).toContain('No API key needed');
-    // Nothing left to enter, so the flow can finish.
+    // Nothing left to enter, so the flow can move on.
     expect(nextButton()).toBeEnabled();
   });
 
-  it('will not finish while the chosen provider’s key is still missing', async () => {
+  it('will not leave the provider step while the chosen provider’s key is missing', async () => {
     renderDashboard();
     await reachProviderStep();
 
@@ -326,6 +373,80 @@ describe('Onboarding — the guided setup flow', () => {
     expect(nextButton()).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('Amika API key'), { target: { value: 'sk-amika' } });
+    expect(nextButton()).toBeEnabled();
+  });
+
+  // -------------------------------------------------------------- step 4
+
+  it('ends on the notifications offer, and runs the opt-in when it is taken', async () => {
+    renderDashboard();
+    await reachNotifyStep('Keyless');
+
+    // Last step, so the action commits the flow rather than advancing it.
+    expect(nextButton()).toHaveTextContent('Finish setup');
+    fireEvent.click(screen.getByRole('button', { name: 'Enable notifications' }));
+    expect(push.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the user finish without opting in — push is an offer, not a gate', async () => {
+    vi.mocked(transport.putProject).mockResolvedValue(makeMe());
+
+    renderDashboard();
+    await reachNotifyStep('Keyless');
+
+    // Nothing was pressed and nothing is required: the action is live from the
+    // moment the step opens, and pressing it IS the skip. There is deliberately
+    // no separate "Skip" control to find.
+    expect(nextButton()).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
+
+    await waitFor(() => {
+      expect(transport.putProject).toHaveBeenCalledTimes(1);
+    });
+    expect(push.enable).not.toHaveBeenCalled();
+  });
+
+  it('reads back as already on, with nothing left to press', async () => {
+    push.status = 'enabled';
+    renderDashboard();
+    await reachNotifyStep('Keyless');
+
+    expect(document.querySelector('[data-role="notifications-enabled"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enable notifications' })).toBeNull();
+    expect(nextButton()).toBeEnabled();
+  });
+
+  it.each([
+    ['unsupported', 'browser'],
+    ['unconfigured', 'deployment'],
+    ['denied', 'blocked'],
+  ] as const)(
+    'says why rather than offering a dead button when push is %s',
+    async (status, reason) => {
+      push.status = status;
+      renderDashboard();
+      await reachNotifyStep('Keyless');
+
+      const blocker = document.querySelector('[data-role="notifications-blocker"]');
+      expect(blocker).toHaveAttribute('data-status', status);
+      expect(blocker?.textContent).toContain(reason);
+      // A press could not change any of these three, so none is offered — and
+      // the flow still finishes from here.
+      expect(screen.queryByRole('button', { name: 'Enable notifications' })).toBeNull();
+      expect(nextButton()).toBeEnabled();
+    },
+  );
+
+  it('surfaces a failed opt-in without trapping the user on the step', async () => {
+    push.status = 'error';
+    push.error = 'Failed to enable notifications';
+    renderDashboard();
+    await reachNotifyStep('Keyless');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to enable notifications');
+    // Retryable, and skippable: the failure is not a gate either.
+    expect(screen.getByRole('button', { name: 'Enable notifications' })).toBeEnabled();
     expect(nextButton()).toBeEnabled();
   });
 
@@ -364,9 +485,7 @@ describe('Onboarding — the guided setup flow', () => {
     vi.mocked(transport.putProject).mockResolvedValue(withProject);
 
     renderDashboard();
-    await reachProviderStep();
-    fireEvent.click(screen.getByRole('radio', { name: 'Amika' }));
-    fireEvent.change(screen.getByLabelText('Amika API key'), { target: { value: 'sk-amika' } });
+    await reachNotifyStep('Amika', 'sk-amika');
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     await waitFor(() => {
@@ -412,6 +531,8 @@ describe('Onboarding — the guided setup flow', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Amika API key')).toHaveValue('');
     });
+    fireEvent.click(nextButton());
+    await screen.findByRole('heading', { name: 'Enable notifications' });
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     await waitFor(() => {
@@ -426,8 +547,7 @@ describe('Onboarding — the guided setup flow', () => {
     vi.mocked(transport.putProject).mockRejectedValue(new Error('putProject: HTTP 500'));
 
     renderDashboard();
-    await reachProviderStep();
-    fireEvent.click(screen.getByRole('radio', { name: 'Keyless' }));
+    await reachNotifyStep('Keyless');
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     await waitFor(() => {
@@ -435,8 +555,11 @@ describe('Onboarding — the guided setup flow', () => {
         'putProject: HTTP 500',
       );
     });
-    // Still on the last step, with everything chosen — not bounced to the start.
-    expect(screen.getByRole('heading', { name: 'Choose your provider' })).toBeInTheDocument();
+    // Still on the last step — not bounced to the start.
+    expect(screen.getByRole('heading', { name: 'Enable notifications' })).toBeInTheDocument();
+    // …and everything chosen is still chosen, one step back.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByRole('heading', { name: 'Choose your provider' });
     expect(screen.getByRole('radio', { name: 'Keyless' })).toBeChecked();
   });
 
@@ -451,10 +574,12 @@ describe('Onboarding — the guided setup flow', () => {
       'github',
       'project',
       'provider',
+      'notify',
     ]);
     expect(rail.map((step) => step.getAttribute('data-state'))).toEqual([
       'done',
       'current',
+      'todo',
       'todo',
     ]);
     expect(rail[1]).toHaveAttribute('aria-current', 'step');
@@ -486,10 +611,19 @@ describe('Onboarding — the guided setup flow', () => {
     renderDashboard();
     await reachProjectStep();
 
-    expect(document.querySelectorAll('[data-role="onboarding-step"]')).toHaveLength(2);
+    // Three, not four: the provider step is the one that drops. Notifications
+    // stay — their availability is an async client probe, so a step list that
+    // shed them could renumber itself mid-flow.
+    expect(
+      [...document.querySelectorAll('[data-role="onboarding-step"]')].map((step) =>
+        step.getAttribute('data-step'),
+      ),
+    ).toEqual(['github', 'project', 'notify']);
     fireEvent.change(screen.getByRole('combobox', { name: 'Repository' }), {
       target: { value: REPOS[0]?.url },
     });
+    fireEvent.click(nextButton());
+    await screen.findByRole('heading', { name: 'Enable notifications' });
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     await waitFor(() => {

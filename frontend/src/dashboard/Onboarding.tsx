@@ -7,12 +7,21 @@
 //      project is NAMED after it (auto-name from repository), so the step is one
 //      decision rather than a pick plus a field seeded from the pick.
 //   3. Choose a provider — which coding agent runs the work, and its API key.
+//   4. Enable notifications — the Web Push opt-in, offered rather than required.
 //
 // The ordering is load-bearing, not cosmetic: step 2 can only list repos once
 // step 1's credential exists, and step 3's key field can only know WHICH key to
 // ask for once a provider is chosen. Each step asks for exactly what it needs at
 // that moment and nothing else — worker count, merge gate and sandbox snapshot
 // all keep their server defaults and are tuned later in Settings.
+//
+// Step 4 is last for a mechanical reason as much as a narrative one: finishing
+// WRITES THE PROJECT, and the moment that lands `me.projects` is non-empty and
+// `Dashboard` swaps this whole view out (see below). So nothing can be asked
+// after the finish — a notifications step placed "after setup" would never get
+// to render. It therefore sits in front of the finish, and "Finish setup" moves
+// onto it. It is the one step that gates nothing: push is an offer, so the
+// action stays enabled whether or not the user opts in.
 //
 // Step 1 sends the browser to `GITHUB_DASHBOARD_RETURN_PATH` — the one GitHub
 // grant (11 §2, amended 2026-08-03), the same route the Integrations card and
@@ -40,7 +49,16 @@ import {
 } from '@/dashboard/integrations-config';
 import { GITHUB_DASHBOARD_RETURN_PATH, GITHUB_SETUP_PATH } from '@/auth/github-connect';
 import { useGitHubRepos, type GitHubRepos } from '@/dashboard/use-github-repos';
-import { BotIcon, BoxIcon, CheckIcon, FolderIcon, GitHubIcon, SparkIcon } from '@/dashboard/icons';
+import { useWebPush, type WebPush, type WebPushStatus } from '@/stores/use-web-push';
+import {
+  BellIcon,
+  BotIcon,
+  BoxIcon,
+  CheckIcon,
+  FolderIcon,
+  GitHubIcon,
+  SparkIcon,
+} from '@/dashboard/icons';
 import type { ProjectUpdateRequest, ProviderDescriptor } from '@/transport/transport';
 import type { components } from '@/schema/generated';
 
@@ -74,7 +92,7 @@ function storedSecret(settings: MeSettings, name: CredentialName): SecretStatus 
   }
 }
 
-type StepId = 'github' | 'project' | 'provider';
+type StepId = 'github' | 'project' | 'provider' | 'notify';
 
 interface StepDef {
   id: StepId;
@@ -102,6 +120,14 @@ const PROVIDER_STEP: StepDef = {
   title: 'Choose your provider',
   blurb: 'Which coding agent runs this project’s work, and the key Kiln reaches it with.',
   Icon: BoxIcon,
+};
+const NOTIFY_STEP: StepDef = {
+  id: 'notify',
+  title: 'Enable notifications',
+  // What push is FOR, not what it is: the orchestrator blocking on a decision is
+  // the thing a user misses by leaving this off, and it is the reason to say yes.
+  blurb: 'Kiln can reach you when a ticket is blocked on your decision, even with the app closed.',
+  Icon: BellIcon,
 };
 
 function stepState(index: number, current: number): 'done' | 'current' | 'todo' {
@@ -348,6 +374,76 @@ function ProviderKeyField({
   );
 }
 
+/** Why the step cannot offer the opt-in, for the states no gesture can change.
+ * A sentence each rather than the settings row's one word: this is a full step
+ * with room for it, and a user meeting "Unavailable" mid-setup deserves to know
+ * whether it is their browser, this deployment, or a choice they already made.
+ *
+ * `denied` is the one that names a way out, because it is the only one the user
+ * can actually act on — and it is deliberately NOT offered as a button: the
+ * permission prompt never appears twice, so a second "Enable" here would do
+ * visibly nothing. */
+const PUSH_BLOCKER: Partial<Record<WebPushStatus, string>> = {
+  checking: 'Checking whether this browser can show notifications…',
+  unsupported: 'This browser can’t show notifications, so there is nothing to turn on here.',
+  unconfigured:
+    'Notifications aren’t configured on this deployment, so there is nothing to turn on here.',
+  denied:
+    'Notifications are blocked for this site in your browser’s settings. Allow them there and you can turn this on from Settings.',
+};
+
+/** Step 4's body: one state at a time, mirroring `NotificationsField`'s
+ * degradation (checking / unsupported / unconfigured / denied are inert) but
+ * expanded into a step's worth of room. The actionable states collapse to a
+ * single button, because the opt-in is one decision and
+ * `Notification.requestPermission()` must be driven by a user gesture — so it
+ * cannot be run on entering the step, only from a press. */
+function NotificationsChoice({ push }: { push: WebPush }): JSX.Element {
+  const blocker = PUSH_BLOCKER[push.status];
+  if (blocker !== undefined) {
+    return (
+      <p data-role="notifications-blocker" data-status={push.status}>
+        {blocker}
+      </p>
+    );
+  }
+
+  if (push.status === 'enabled') {
+    return (
+      <p data-role="notifications-enabled">
+        <span aria-hidden="true">
+          <CheckIcon />
+        </span>
+        Notifications are on for this browser.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        data-role="enable-notifications"
+        onClick={() => {
+          void push.enable();
+        }}
+        disabled={push.status === 'enabling'}
+        aria-busy={push.status === 'enabling'}
+      >
+        {push.status === 'enabling' ? 'Enabling…' : 'Enable notifications'}
+      </button>
+      {/* The step's action says "Finish setup" whether or not this was pressed,
+          so without this line the only way to learn that pressing it is optional
+          is to risk finishing without it. It earns its place by changing what
+          someone does — twice: it makes skipping safe, and it says where the
+          decision lives afterwards. */}
+      <p data-role="notifications-skip-note">
+        This is optional — you can finish without it and turn notifications on later in Settings.
+      </p>
+    </>
+  );
+}
+
 export interface OnboardingProps {
   /** Rewrites the live GitHub reading before the flow sees it. Absent
    * everywhere in the real app; the sign-up rehearsal (`/signup`) passes one so
@@ -362,9 +458,19 @@ export interface OnboardingProps {
    * Switch-account affordances are buttons on this handler rather than
    * `GITHUB_CONNECT_PATH` links — same `data-role`, same accessible name. */
   onConnect?: () => void;
+  /** Replaces the live push opt-in. Absent everywhere in the real app; the
+   * sign-up rehearsal passes one because `useWebPush` talks to the transport
+   * DIRECTLY rather than through the dashboard store — so unlike every other
+   * write in this flow, the rehearsal's store interception cannot reach it, and
+   * a rehearsed press would really subscribe the tester's browser. */
+  webPush?: WebPush;
 }
 
-export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}): JSX.Element {
+export function Onboarding({
+  overrideGitHub,
+  onConnect,
+  webPush,
+}: OnboardingProps = {}): JSX.Element {
   const {
     me,
     saveProject,
@@ -379,6 +485,12 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
   // connected/disconnected state from it and the project step lists from it.
   const live = useGitHubRepos();
   const github = overrideGitHub === undefined ? live : overrideGitHub(live);
+  // Unconditional, as a hook must be — the rehearsal's override replaces the
+  // VALUE, not the call. Its own mount probe is a read (`GET /api/push/key`),
+  // which the rehearsal allows; only `enable()` writes, and that is what the
+  // override stands in for.
+  const livePush = useWebPush();
+  const push = webPush ?? livePush;
 
   const [step, setStep] = useState<StepId>('github');
   const [repoUrl, setRepoUrl] = useState('');
@@ -402,8 +514,20 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
   // provider step is dropped entirely rather than shown empty: the project keeps
   // resolving to the deployment default (AGENT_MODE) exactly as it does today,
   // and its key is entered in Settings afterwards.
+  // The notifications step is ALWAYS present, deliberately unlike the provider
+  // step above. Dropping a step whose availability is an async CLIENT probe
+  // would let the flow change shape underneath the user: `useWebPush` opens on
+  // `checking` and resolves a frame or two later, so a list that excluded the
+  // unavailable states would renumber mid-flow — and, if it resolved while the
+  // user stood on the step, `findIndex` would miss, `Math.max(0, …)` would floor
+  // to 0 and throw them back to step 1. `me.providers` has neither problem: it
+  // is server data, settled before this view mounts. So an unavailable push
+  // renders its reason inside the step (`PUSH_BLOCKER`) and costs one press of
+  // an already-enabled action, which is the cheap half of the trade.
   const steps: StepDef[] =
-    providers.length > 0 ? [GITHUB_STEP, PROJECT_STEP, PROVIDER_STEP] : [GITHUB_STEP, PROJECT_STEP];
+    providers.length > 0
+      ? [GITHUB_STEP, PROJECT_STEP, PROVIDER_STEP, NOTIFY_STEP]
+      : [GITHUB_STEP, PROJECT_STEP, NOTIFY_STEP];
   const currentIndex = Math.max(
     0,
     steps.findIndex((candidate) => candidate.id === step),
@@ -481,6 +605,11 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
     provider:
       providerKey !== '' &&
       (storedStatus === undefined || storedStatus.set || keyDraft.trim() !== ''),
+    // Push is an offer, never a gate: "Finish setup" stays live whether or not
+    // the user opted in, and pressing it without opting in IS the skip. There is
+    // deliberately no second "Skip" control — it would be a button doing exactly
+    // what the one beside it already does.
+    notify: true,
   };
 
   const advance = (): void => {
@@ -571,6 +700,17 @@ export function Onboarding({ overrideGitHub, onConnect }: OnboardingProps = {}):
                 />
               )}
             </>
+          )}
+
+          {current.id === 'notify' && (
+            <div data-role="notifications-opt-in" data-status={push.status}>
+              <NotificationsChoice push={push} />
+              {push.error !== null && (
+                <p data-role="notifications-error" role="alert">
+                  {push.error}
+                </p>
+              )}
+            </div>
           )}
         </div>
 

@@ -514,12 +514,31 @@ placeholder.
 
 ### First-run setup is a guided flow, not a form
 
-A signed-in user with no projects gets **three steps**, one per decision: connect GitHub →
-choose the project → choose the provider (+ that provider's key), then Finish.
+A signed-in user with no projects gets **four steps**, one per decision: connect GitHub →
+choose the project → choose the provider (+ that provider's key) → enable notifications, then
+Finish.
 
 - **The ordering is load-bearing.** Step 2 can only list repos once step 1's credential exists;
   step 3 can only know *which* key to ask for once a provider is chosen. **Don't reorder or
   merge the steps** — that is the whole feature.
+- **Nothing can be added AFTER the finish, and that is why push is step 4.** Finishing writes
+  the project, and the instant it lands `me.projects` is non-empty and `Dashboard` swaps the
+  whole view out — so a step placed "after setup" would never render. Anything you want asked
+  during onboarding goes *in front of* the finish, and "Finish setup" moves onto the new last
+  step.
+- **Step 4 gates nothing.** Push is an offer: `stepReady.notify` is `true`, so the action is
+  live from the moment the step opens and pressing it without opting in **is** the skip. There
+  is deliberately **no second "Skip" control** — it would do exactly what the button beside it
+  already does. Every state of the step must still let the flow finish; the DOM suite asserts
+  that for each one.
+- **Step 4 is ALWAYS present — do not make it conditional on push being available.** The
+  provider step drops when `me.providers` is empty, and the difference is *where the fact comes
+  from*: providers are server data settled before the view mounts, whereas `useWebPush` opens on
+  `checking` and resolves asynchronously. A list that shed the step on an unavailable reading
+  would renumber mid-flow, and — resolving while the user stood on it — `findIndex` would miss
+  and `Math.max(0, …)` would floor them back to step 1. Unavailable states render their reason
+  inside the step instead (`PUSH_BLOCKER`, one sentence each rather than the settings row's one
+  word). `denied` deliberately offers no button: the permission prompt never appears twice.
 - **Step 1 usually arrives already satisfied**, since signing in grants repo access. Don't
   delete it as redundant: the disconnected branch still catches accounts that predate the merge
   or revoked the grant.
@@ -535,8 +554,8 @@ choose the project → choose the provider (+ that provider's key), then Finish.
   beneath it. Don't add local success state.
 - **A provider with no credential-slot entry gets no key field at all** — which is what keeps
   the mapping from gating new providers, and what makes `mock` work keyless. If the deployment
-  publishes no provider descriptors, the step is **dropped entirely** — two steps, not an empty
-  third one.
+  publishes no provider descriptors, the step is **dropped entirely** — three steps, not an
+  empty third one.
 - **E2e:** the keyless onboarding spec is the ONE spec that drives the flow end to end (it needs
   a mock GitHub adapter, which no headless test can complete against real GitHub). Every other
   spec seeds a project over `PUT /api/project` — **don't couple new specs to the flow.**
@@ -554,6 +573,17 @@ shows, and that is the whole design.
   rewrite the project the tester actually works in — and provider keys are user-scoped, so a
   throwaway key would replace the real one every project of theirs runs on. The suite asserts
   the whole flow finishes with every transport write un-called; **keep that case.**
+- **A write that skips the store skips the interception — hand it its own prop.** The rehearsal
+  neuters writes by nesting a simulated `DashboardStoreContext`, so anything talking to
+  `transport` *directly* walks straight past it. `useWebPush` is exactly that, which is why
+  step 4's opt-in takes an optional `webPush` prop (absent in the real app, like `onConnect`)
+  and `signup-run.ts` supplies a simulated one. Two reasons it must not be live here: it POSTs
+  a subscription to a real account, and it raises an **OS permission prompt** a repeatable
+  rehearsal cannot ask for on every run. The simulation opens on `default` whatever the browser
+  really holds — a tester has almost certainly opted in already, and the real hook would show
+  them the "already on" chip instead of the step they came to look at. **Any future direct-to-
+  transport call in this flow needs the same treatment**; `expectNothingWritten()` covers the
+  push endpoints so a regression fails the suite.
 - **Restart is a remount, never a reset method.** A reset routine would silently miss a field
   (the step index, a half-typed key, the simulated grant) the first time someone adds one.
 - **GitHub's consent screen is the one thing faked**, via two optional props that are absent

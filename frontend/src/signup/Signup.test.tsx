@@ -28,6 +28,9 @@ vi.mock('@/transport/transport', () => ({
   postLogout: vi.fn(),
   fetchGitHubRepos: vi.fn(),
   fetchSnapshots: vi.fn(() => Promise.resolve(null)),
+  fetchPushKey: vi.fn(() => Promise.resolve(null)),
+  postPushSubscription: vi.fn(),
+  deletePushSubscription: vi.fn(),
 }));
 
 const REPOS = [
@@ -120,13 +123,18 @@ function nextButton(): HTMLElement {
   return button;
 }
 
-/** Every write the flow could possibly reach the server with. */
+/** Every write the flow could possibly reach the server with. The push
+ * subscription is the odd one out and belongs here precisely because of it: it
+ * is the only write that does NOT travel through the dashboard store, so the
+ * store interception the rest of the rehearsal rests on cannot catch it. */
 function expectNothingWritten(): void {
   expect(transport.putProject).not.toHaveBeenCalled();
   expect(transport.putSettings).not.toHaveBeenCalled();
   expect(transport.createProject).not.toHaveBeenCalled();
   expect(transport.updateProject).not.toHaveBeenCalled();
   expect(transport.deleteProject).not.toHaveBeenCalled();
+  expect(transport.postPushSubscription).not.toHaveBeenCalled();
+  expect(transport.deletePushSubscription).not.toHaveBeenCalled();
 }
 
 /** Walks the returning path from step 1 to the last step, picking the first repo. */
@@ -142,6 +150,15 @@ async function reachProviderStep(): Promise<void> {
   });
   fireEvent.click(nextButton());
   await screen.findByRole('heading', { name: 'Choose your provider' });
+}
+
+/** Walks on to the last step, where "Finish setup" lives, having picked a
+ * provider that asks for no key. */
+async function reachNotifyStep(provider = 'Amika'): Promise<void> {
+  await reachProviderStep();
+  fireEvent.click(screen.getByRole('radio', { name: provider }));
+  fireEvent.click(nextButton());
+  await screen.findByRole('heading', { name: 'Enable notifications' });
 }
 
 describe('/signup — the sign-up rehearsal', () => {
@@ -295,8 +312,11 @@ describe('/signup — the sign-up rehearsal', () => {
 
   it('finishes the flow without writing anything', async () => {
     renderSignup('/signup?as=returning');
-    await reachProviderStep();
-    fireEvent.click(screen.getByRole('radio', { name: 'Amika' }));
+    await reachNotifyStep('Amika');
+    // Take the opt-in too, so the one write that bypasses the simulated store is
+    // exercised rather than merely skipped past.
+    fireEvent.click(screen.getByRole('button', { name: 'Enable notifications' }));
+    await screen.findByText(/Notifications are on/);
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     // The run ends on its own panel — the real flow's hand-over to Settings has
@@ -336,6 +356,8 @@ describe('/signup — the sign-up rehearsal', () => {
     expect(transport.putSettings).not.toHaveBeenCalled();
     expect(transport.postVerify).not.toHaveBeenCalled();
 
+    fireEvent.click(nextButton());
+    await screen.findByRole('heading', { name: 'Enable notifications' });
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
     await screen.findByRole('heading', { name: 'That’s the whole flow.' });
     expectNothingWritten();
@@ -343,8 +365,7 @@ describe('/signup — the sign-up rehearsal', () => {
 
   it('runs again from the end panel, with the account no less onboarded', async () => {
     renderSignup('/signup?as=returning');
-    await reachProviderStep();
-    fireEvent.click(screen.getByRole('radio', { name: 'Keyless' }));
+    await reachNotifyStep('Keyless');
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
     await screen.findByRole('heading', { name: 'That’s the whole flow.' });
 

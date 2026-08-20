@@ -265,11 +265,6 @@ html:has([data-role='desktop-screen']) body {
   color: var(--text-secondary);
 }
 
-[data-role='rail-dashboard'] [data-role='header-gear'] {
-  width: 16px;
-  height: 16px;
-}
-
 /* The bell's panel opens UP and to the RIGHT here — the one geometry rule this
    shell cannot inherit. PrimaryScreen.css anchors the panel to the bell's
    top-right corner (`top: 100%; right: 0`) because on the phone the bell sits in

@@ -199,6 +199,23 @@ test.describe('desk shell', () => {
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(false);
     expect(await feedOverflow(page)).toBe(0);
   });
+
+  test('the rail’s bell and gear are one size, on one line', async ({ page }) => {
+    // The two glyphs in the rail's actions row are drawn from different sheets —
+    // the bell and the gear are both sized in PrimaryScreen.css, which this shell
+    // layers DesktopScreen.css over — so "they match" is a fact about the cascade
+    // rather than about either rule, and only holds where both are applied. It
+    // did not hold: the desk sheet resized the gear alone, to 16px against the
+    // bell's 22px, and the pair read as an icon and a smaller afterthought.
+    await mountShell(page, { band: 'none' });
+    const bell = await box(page, "[data-role='rail-actions'] [data-role='notify-bell']");
+    const gear = await box(page, "[data-role='rail-actions'] [data-role='header-gear']");
+
+    expect(gear.width, 'the gear is not the bell’s width').toBe(bell.width);
+    expect(gear.height, 'the gear is not the bell’s height').toBe(bell.height);
+    // Sat side by side, so a size difference is what the eye compares them on.
+    expect(Math.abs(gear.top + gear.height / 2 - (bell.top + bell.height / 2))).toBeLessThan(2);
+  });
 });
 
 test.describe('the boundary between the tickets column and the feed is draggable', () => {

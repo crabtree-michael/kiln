@@ -458,8 +458,9 @@
 /* The gear glyph. Nothing in the phone's header wears it any more — the top bar
  * gave up its standalone dashboard link, and the account view is reached from
  * the project switcher's "Settings" item instead — but the desktop rail's
- * dashboard link still does, and it inherits this sheet (see DesktopScreen.css,
- * which resizes it to 16px for the rail). */
+ * dashboard link still does, and it inherits this sheet unaltered: the rail sets
+ * the gear's box and hover, not its size, so the gear and the bell it sits
+ * beside in the rail's actions row are one size at both widths. */
 [data-role='header-gear'] {
   /* Matches the bell (22px) so an icon cluster shares one scale. */
   width: 22px;
